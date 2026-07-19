@@ -137,5 +137,12 @@ internal static class SqliteMigrationCatalog
                 ON nodes (pending_credential_hash)
                 WHERE pending_credential_hash IS NOT NULL;
             """),
+      new(
+            4,
+            "node-display-name-overrides",
+            """
+            ALTER TABLE nodes
+                ADD COLUMN display_name_override TEXT NULL;
+            """),
     ];
 }

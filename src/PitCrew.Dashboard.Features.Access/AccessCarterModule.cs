@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 
 using PitCrew.Dashboard.Features.Access.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
+using PitCrew.Dashboard.Kernel.DisplayNames;
 
 namespace PitCrew.Dashboard.Features.Access;
 
@@ -81,7 +82,7 @@ public sealed class AccessCarterModule : ICarterModule
       ICreateTenantUnitOfWork unitOfWork,
       CancellationToken cancellationToken)
   {
-    var displayName = NormalizeTenantDisplayNameOrNull(
+    var displayName = OperatorDisplayName.NormalizeOrNull(
         request.DisplayName);
     if (!IsTenantIdValid(request.TenantId) ||
         displayName is null)
@@ -117,7 +118,7 @@ public sealed class AccessCarterModule : ICarterModule
       IRenameTenantUnitOfWork unitOfWork,
       CancellationToken cancellationToken)
   {
-    var displayName = NormalizeTenantDisplayNameOrNull(
+    var displayName = OperatorDisplayName.NormalizeOrNull(
         request.DisplayName);
     if (displayName is null)
     {
@@ -249,19 +250,6 @@ public sealed class AccessCarterModule : ICarterModule
         character is >= 'a' and <= 'z' or
             >= '0' and <= '9' or
             '-');
-  }
-
-  private static string? NormalizeTenantDisplayNameOrNull(
-      string? displayName)
-  {
-    if (string.IsNullOrWhiteSpace(displayName))
-    {
-      return null;
-    }
-    var normalized = displayName.Trim();
-    return normalized.Length <= 128
-        ? normalized
-        : null;
   }
 
   private static IResult Invalid(

@@ -35,6 +35,8 @@ describe('TenantSettings', () => {
     expect(init?.method).toBe('PUT');
     expect(new Headers(init?.headers).get('X-PitCrew-Antiforgery')).toBe('token');
     expect(JSON.parse(String(init?.body))).toEqual({ displayName: 'Renamed tenant' });
+    expect(input).toHaveValue('Renamed tenant');
+    expect(screen.getByRole('button', { name: 'Rename tenant' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent('Tenant name updated.');
   });
 

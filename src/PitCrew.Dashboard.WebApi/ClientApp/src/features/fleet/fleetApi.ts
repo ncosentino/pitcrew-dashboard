@@ -115,6 +115,23 @@ export async function revokeNode(
   );
 }
 
+/** Changes the operator-facing name of one enrolled server. */
+export async function renameNode(
+  tenantId: string,
+  nodeId: string,
+  displayName: string,
+  antiforgeryToken: string,
+): Promise<void> {
+  await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes/${encodeURIComponent(nodeId)}`,
+    {
+      method: 'PUT',
+      body: { displayName },
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+    },
+  );
+}
+
 /** Requests connector-delivered credential rotation on the next protocol-v2 sync. */
 export async function requestCredentialRotation(
   tenantId: string,

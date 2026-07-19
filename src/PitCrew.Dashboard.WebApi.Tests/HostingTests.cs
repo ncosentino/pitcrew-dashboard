@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 
 using PitCrew.Dashboard.Features.Access;
+using PitCrew.Dashboard.Features.Fleet;
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Protocol;
 
@@ -154,6 +155,77 @@ public sealed class HostingTests
       await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots)
           .HasSingleItem();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Administrator_Renames_Revoked_Node_Without_Changing_Identity(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Rename",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-rename",
+          "Original server",
+          code.Code,
+          cancellationToken);
+      using (var revoke = await
+          DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/revoke",
+              session.AntiforgeryToken,
+              null,
+              cancellationToken))
+      {
+        revoke.EnsureSuccessStatusCode();
+      }
+      using var request = new HttpRequestMessage(
+          HttpMethod.Put,
+          $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}")
+      {
+        Content = JsonContent.Create(
+            new RenameNodeRequest("  Renamed server  ")),
+      };
+      request.Headers.Add(
+          DashboardTestHelpers.AntiforgeryHeader,
+          session.AntiforgeryToken);
+
+      using var response = await client.SendAsync(
+          request,
+          cancellationToken);
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          "/api/tenants/local/fleet/v1/nodes",
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(fleet).IsNotNull();
+      await Assert.That(fleet!.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].NodeId)
+          .IsEqualTo(identity.NodeId);
+      await Assert.That(fleet.Nodes[0].DisplayName)
+          .IsEqualTo("Renamed server");
+      await Assert.That(fleet.Nodes[0].IsRevoked)
+          .IsTrue();
     }
     finally
     {

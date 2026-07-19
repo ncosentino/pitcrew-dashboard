@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DisplayNameEditor } from '@/components/DisplayNameEditor';
 import { ApiError } from '@/core/api/httpClient';
 import { cn } from '@/lib/utils';
 
 import {
   createEnrollmentCode,
   getFleet,
+  renameNode,
   requestCredentialRotation,
   revokeNode,
   type EnrollmentCodeResponse,
@@ -86,15 +88,19 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
   const [isMutating, setIsMutating] = useState(false);
   const [enrollmentLabel, setEnrollmentLabel] = useState('New server');
   const [enrollmentCode, setEnrollmentCode] = useState<EnrollmentCodeResponse | null>(null);
+  const refreshSequence = useRef(0);
 
   const refresh = useCallback(
     async (signal: AbortSignal) => {
+      const sequence = ++refreshSequence.current;
       try {
         const response = await getFleet(tenantId, signal);
+        if (sequence !== refreshSequence.current) return;
         setFleet(response);
         setError(null);
       } catch (caught) {
         if (caught instanceof Error && caught.name === 'AbortError') return;
+        if (sequence !== refreshSequence.current) return;
         setError(
           caught instanceof ApiError
             ? caught.message
@@ -103,7 +109,9 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
               : 'Fleet status could not be loaded.',
         );
       } finally {
-        if (!signal.aborted) setIsLoading(false);
+        if (!signal.aborted && sequence === refreshSequence.current) {
+          setIsLoading(false);
+        }
       }
     },
     [tenantId],
@@ -153,6 +161,22 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
     } finally {
       setIsMutating(false);
     }
+  };
+
+  const renameServer = async (nodeId: string, displayName: string) => {
+    await renameNode(tenantId, nodeId, displayName, antiforgeryToken);
+    refreshSequence.current++;
+    setError(null);
+    setFleet((current) =>
+      current
+        ? {
+            ...current,
+            nodes: current.nodes
+              .map((node) => (node.nodeId === nodeId ? { ...node, displayName } : node))
+              .sort((left, right) => left.displayName.localeCompare(right.displayName)),
+          }
+        : current,
+    );
   };
 
   return (
@@ -252,37 +276,46 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
                 </div>
               </div>
               {canAdminister ? (
-                <div className="flex flex-wrap gap-2 pt-3">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={isMutating || node.isRevoked || node.credentialRotationRequested}
-                    onClick={() =>
-                      void mutate(() =>
-                        requestCredentialRotation(tenantId, node.nodeId, antiforgeryToken),
-                      )
-                    }
-                  >
-                    Rotate credential
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    disabled={isMutating || node.isRevoked}
-                    onClick={() => {
-                      if (
-                        globalThis.confirm(
-                          `Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`,
+                <div className="grid gap-3 pt-3">
+                  <DisplayNameEditor
+                    value={node.displayName}
+                    label="Server display name"
+                    submitLabel="Rename server"
+                    successMessage="Server name updated."
+                    onSave={(displayName) => renameServer(node.nodeId, displayName)}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isMutating || node.isRevoked || node.credentialRotationRequested}
+                      onClick={() =>
+                        void mutate(() =>
+                          requestCredentialRotation(tenantId, node.nodeId, antiforgeryToken),
                         )
-                      ) {
-                        void mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken));
                       }
-                    }}
-                  >
-                    Revoke
-                  </Button>
+                    >
+                      Rotate credential
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      disabled={isMutating || node.isRevoked}
+                      onClick={() => {
+                        if (
+                          globalThis.confirm(
+                            `Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`,
+                          )
+                        ) {
+                          void mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken));
+                        }
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </CardHeader>

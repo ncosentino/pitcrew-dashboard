@@ -17,6 +17,12 @@ public sealed record CreateEnrollmentCodeResponse(
     string Code,
     DateTimeOffset ExpiresAt);
 
+/// <summary>
+/// Requests a new operator-facing name for one enrolled server.
+/// </summary>
+/// <param name="DisplayName">New operator-facing server name.</param>
+public sealed record RenameNodeRequest(string DisplayName);
+
 internal sealed record CreatedEnrollmentCode(
     Guid EnrollmentCodeId,
     string Code,
