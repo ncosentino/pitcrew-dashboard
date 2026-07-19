@@ -266,6 +266,23 @@ internal sealed class TestConfigurationScope : IDisposable
       string githubClientId,
       string githubClientSecret,
       string systemAdministratorGitHubId)
+      : this(
+          databasePath,
+          authenticationMode,
+          githubClientId,
+          githubClientSecret,
+          systemAdministratorGitHubId,
+          "Development")
+  {
+  }
+
+  public TestConfigurationScope(
+      string databasePath,
+      string authenticationMode,
+      string githubClientId,
+      string githubClientSecret,
+      string systemAdministratorGitHubId,
+      string hostEnvironment)
   {
     _dataProtectionKeyPath = $"{databasePath}.keys";
     Environment.SetEnvironmentVariable(
@@ -294,7 +311,7 @@ internal sealed class TestConfigurationScope : IDisposable
         databasePath);
     Environment.SetEnvironmentVariable(
         EnvironmentKey,
-        "Development");
+        hostEnvironment);
   }
 
   public void Dispose()

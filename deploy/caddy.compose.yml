@@ -1,0 +1,38 @@
+services:
+  dashboard:
+    environment:
+      PitCrew__ReverseProxy__KnownProxyAddresses__0: 172.31.0.2
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    read_only: true
+    depends_on:
+      dashboard:
+        condition: service_healthy
+        restart: true
+    environment:
+      PITCREW_DASHBOARD_DOMAIN: ${PITCREW_DASHBOARD_DOMAIN:?Set PITCREW_DASHBOARD_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      pitcrew-hosted:
+        ipv4_address: 172.31.0.2
+
+volumes:
+  caddy-data:
+  caddy-config:

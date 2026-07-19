@@ -48,4 +48,5 @@ declared health contract, verifies non-root execution, rejects SDK or Node build
 tooling in the final filesystem, executes optional image-specific smoke commands,
 and cross-builds `linux/arm64` without emulation. The dashboard contract creates
 and verifies a SQLite backup through the packaged database tool. The workflow
-also validates both Compose files and the hosted Caddy configuration.
+also validates the base and ingress Compose combinations, the hosted Caddy
+configuration, and the pinned Cloudflare Tunnel command surface.

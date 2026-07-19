@@ -5,14 +5,21 @@ The dashboard image includes
 SQLite library as the application; no `sqlite3` operating-system package is
 installed.
 
-The examples assume:
+Set `$ingressComposeFile` to the selected Caddy, Cloudflare Tunnel, or custom
+ingress overlay. The examples assume:
 
 ```powershell
+$ingressComposeFile = 'deploy/caddy.compose.yml'
 $compose = @(
     '--env-file', '.env.hosted',
-    '--file', 'docker-compose.hosted.yml'
+    '--file', 'docker-compose.hosted.yml',
+    '--file', $ingressComposeFile
 )
 ```
+
+Using the complete hosted model keeps ingress dependency coordination active
+during lifecycle operations. The dashboard service and `dashboard-data` volume
+have the same Compose identity for every ingress overlay.
 
 ## Online backup
 
@@ -45,11 +52,12 @@ Verification runs the full `PRAGMA integrity_check` plus
 
 ## Restore
 
-Restore is not an online operation. Stop the dashboard so no application
-connection or pooled SQLite handle can reference the file:
+Restore is not an online operation. Stop the full stack so ingress cannot route
+traffic while no application connection or pooled SQLite handle can reference
+the file:
 
 ```powershell
-docker compose @compose stop dashboard
+docker compose @compose stop
 ```
 
 Run the tool in a one-off container using the same persistent volume:
@@ -74,10 +82,10 @@ The tool:
 6. Retains the previous database as a timestamped `.pre-restore-*.bak` rollback
    file, with matching sidecars when they existed.
 
-Restart the dashboard:
+Start the full stack and wait for the dashboard and ingress health contracts:
 
 ```powershell
-docker compose @compose start dashboard
+docker compose @compose up --detach --wait --wait-timeout 120
 ```
 
 Startup reapplies any migrations newer than the restored backup.
@@ -87,6 +95,7 @@ Startup reapplies any migrations newer than the restored backup.
 - Keep the database, staging file, and rollback file on the same filesystem so
   replacement remains atomic.
 - Do not place a WAL database on NFS or SMB storage.
-- Back up the dashboard volume separately from Caddy certificate storage.
+- Back up the dashboard volume separately from ingress-specific certificate,
+  tunnel-secret, or runtime state.
 - Treat the dashboard volume as sensitive because it also contains
   data-protection keys used to decrypt authentication cookies.
