@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import { ApiError } from '@/core/api/httpClient';
+import { ThemeToggle } from '@/core/theme/ThemeToggle';
 import {
   createTenant,
   getSession,
@@ -112,6 +113,7 @@ function App() {
           <h1 className="text-3xl font-bold tracking-tight">Runner fleet</h1>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <ThemeToggle />
           {session.user.avatarUrl ? (
             <img
               className="size-9 rounded-full"

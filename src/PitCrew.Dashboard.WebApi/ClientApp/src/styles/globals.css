@@ -2,6 +2,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
+html:not([data-theme]) body {
+  visibility: hidden;
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+
 :root {
   --brand-navy: #071825;
   --brand-orange: #f33919;
