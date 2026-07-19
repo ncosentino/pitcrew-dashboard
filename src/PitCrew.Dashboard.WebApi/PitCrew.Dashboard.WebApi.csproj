@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <UserSecretsId>3d90ac0b-2369-47cc-a4e9-4e1d0219156f</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- Direct reference to force the patched Microsoft.OpenApi over the vulnerable 2.0.0 pulled
+         in transitively by Microsoft.AspNetCore.OpenApi (GHSA-v5pm-xwqc-g5wc / NU1903). -->
+    <PackageReference Include="Microsoft.OpenApi" />
+    <PackageReference Include="NexusLabs.Framework" />
+    <PackageReference Include="NexusLabs.Needlr.AspNet" />
+    <PackageReference Include="NexusLabs.Needlr.Carter" />
+    <PackageReference Include="NexusLabs.Needlr.Serilog" />
+    <PackageReference Include="NexusLabs.Needlr.Injection.SourceGen" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Dashboard.Bootstrap\PitCrew.Dashboard.Bootstrap.csproj" />
+  </ItemGroup>
+
+  <!-- The ClientApp is a complete, self-contained Vite project with its OWN build,
+       lint, format, and test pipeline (the single source of truth for the frontend).
+       It is kept entirely out of the .NET build — 'dotnet build' stays pure .NET. The
+       SPA is built (npm run build -> dist) and folded into wwwroot only at
+       'dotnet publish' (the packaging boundary), so the published app serves the
+       latest assets as one deployable unit (one origin, no CORS). For local dev, run
+       'npm run dev' in ClientApp alongside 'dotnet run'. The frontend's full quality
+       gate (lint + format + tsc + tests) runs as a dedicated frontend job in CI, not
+       here. Set -p:SkipSpaBuild=true to skip the publish-time SPA build (e.g. when it
+       was already built out-of-band). -->
+  <PropertyGroup>
+    <SpaRoot>ClientApp\</SpaRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Detach the SPA project from the .NET compile/content graph. -->
+    <Compile Remove="$(SpaRoot)**" />
+    <Content Remove="$(SpaRoot)**" />
+    <None Remove="$(SpaRoot)**" />
+  </ItemGroup>
+
+  <Target Name="PublishSpa" AfterTargets="ComputeFilesToPublish" Condition="'$(SkipSpaBuild)' != 'true'">
+    <Message Importance="high" Text="Building SPA in $(SpaRoot) (npm run build -&gt; dist) and folding into wwwroot for publish" />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" Condition="!Exists('$(SpaRoot)node_modules')" />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+    <ItemGroup>
+      <_SpaDist Include="$(SpaRoot)dist\**\*" />
+      <ResolvedFileToPublish Include="@(_SpaDist)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

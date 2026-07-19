@@ -1,0 +1,6 @@
+{
+  "name": "evidence-commit-gating",
+  "description": "Requires agents to call out omissions, gaps, tech debt, and weak test coverage when delivering implementation work",
+  "targets": ["copilot", "claude"],
+  "priority": 30
+}

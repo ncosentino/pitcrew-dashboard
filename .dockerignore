@@ -1,0 +1,12 @@
+.git
+.github
+.genesis
+.vs
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/TestResults
+site
+.env.local
+data

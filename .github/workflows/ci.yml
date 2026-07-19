@@ -1,0 +1,441 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      enable_analyzers:
+        description: 'auto: analyzers in build only | always: both phases | never: skip entirely'
+        required: false
+        default: 'auto'
+        type: choice
+        options: [auto, always, never]
+      runner_count:
+        description: 'Number of parallel test runners'
+        required: false
+        default: '2'
+        type: choice
+        options: ['1', '2', '3', '4']
+      upload_coverage:
+        description: 'Upload code coverage as artifact'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Frontend quality gate — runs the bundled SPA's OWN complete pipeline (build +
+  # lint + format:check + tsc + tests) in its own Node toolchain, exactly as the
+  # standalone frontend template enforces it. Kept separate from the .NET jobs:
+  # composition must never make the embedded frontend weaker than standalone.
+  frontend:
+    name: Frontend gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/frontend-gate
+        with:
+          working-directory: src/PitCrew.Dashboard.WebApi/ClientApp
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      batch_count: ${{ steps.assign.outputs.batch_count }}
+      batch_matrix: ${{ steps.assign.outputs.batch_matrix }}
+      batch_0: ${{ steps.assign.outputs.batch_0 }}
+      batch_1: ${{ steps.assign.outputs.batch_1 }}
+      batch_2: ${{ steps.assign.outputs.batch_2 }}
+      batch_3: ${{ steps.assign.outputs.batch_3 }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: |
+          ANALYZER_FLAGS=""
+          ANALYZER_MODE="${{ inputs.enable_analyzers }}"
+
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "🔍 Analyzers enabled (auto mode for ${{ github.event_name }})"
+          elif [ "$ANALYZER_MODE" = "never" ]; then
+            echo "⚡ Analyzers disabled — faster build"
+            ANALYZER_FLAGS="-p:RunAnalyzersDuringBuild=false -p:RunAnalyzersDuringCompilation=false -p:EnforceCodeStyleInBuild=false"
+          else
+            echo "🔍 Analyzers enabled (mode: $ANALYZER_MODE)"
+          fi
+
+          dotnet build --configuration Release $ANALYZER_FLAGS
+
+      - name: Restore test timing cache
+        id: timings_cache
+        uses: actions/cache/restore@v5
+        with:
+          path: test-timings.json
+          key: test-timings-${{ github.ref_name }}
+          restore-keys: |
+            test-timings-main
+
+      - name: Discover and assign test batches
+        id: assign
+        run: |
+          RUNNER_COUNT=${{ inputs.runner_count || '2' }}
+          echo "🔍 Discovering test projects for $RUNNER_COUNT runners..."
+
+          HAVE_TIMINGS=false
+          declare -A TIMINGS
+          if [ -f "test-timings.json" ]; then
+            echo "📊 Found timing data from previous run"
+            while IFS='=' read -r key val; do
+              TIMINGS["$key"]="$val"
+            done < <(python3 -c "
+          import json
+          with open('test-timings.json') as f:
+              d = json.load(f)
+          for k, v in d.items():
+              print(f'{k}={v}')
+          " 2>/dev/null || true)
+            if [ ${#TIMINGS[@]} -gt 0 ]; then
+              HAVE_TIMINGS=true
+              echo "   Loaded ${#TIMINGS[@]} project timings"
+            fi
+          else
+            echo "ℹ️ No timing cache found — using round-robin assignment"
+          fi
+
+          ALL_DLLS=()
+          while IFS= read -r dll; do
+            DLL_NAME=$(basename "$dll" .dll)
+            PROJECT_DIR=$(echo "$dll" | sed 's|^\./||' | cut -d'/' -f1)
+            if [ "$DLL_NAME" != "$PROJECT_DIR" ]; then
+              continue
+            fi
+            ALL_DLLS+=("$dll")
+          done < <(find . -path "*/bin/Release/net*/*.Tests.dll" | sort)
+
+          if [ ${#ALL_DLLS[@]} -eq 0 ]; then
+            echo "⚠️ No test DLLs found"
+            echo "batch_count=1" >> "$GITHUB_OUTPUT"
+            echo "batch_matrix=[0]" >> "$GITHUB_OUTPUT"
+            echo "batch_0=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "📦 Found ${#ALL_DLLS[@]} test DLLs"
+
+          for ((i=0; i<RUNNER_COUNT; i++)); do
+            eval "BATCH_${i}=()"
+            eval "BATCH_TOTAL_${i}=0"
+          done
+
+          if [ "$HAVE_TIMINGS" = true ]; then
+            KNOWN_VALS=()
+            for dll in "${ALL_DLLS[@]}"; do
+              NAME=$(basename "$dll" .dll)
+              if [ -n "${TIMINGS[$NAME]+x}" ]; then
+                KNOWN_VALS+=("${TIMINGS[$NAME]}")
+              fi
+            done
+            MEDIAN=$(printf '%s\n' "${KNOWN_VALS[@]}" 2>/dev/null | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')
+            MEDIAN=${MEDIAN:-30}
+
+            SORTED_LIST=()
+            for dll in "${ALL_DLLS[@]}"; do
+              NAME=$(basename "$dll" .dll)
+              DUR="${TIMINGS[$NAME]:-$MEDIAN}"
+              SORTED_LIST+=("$DUR $dll")
+            done
+            IFS=$'\n' SORTED_LIST=($(printf '%s\n' "${SORTED_LIST[@]}" | sort -rn)); unset IFS
+
+            for entry in "${SORTED_LIST[@]}"; do
+              DUR=$(echo "$entry" | cut -d' ' -f1)
+              DLL=$(echo "$entry" | cut -d' ' -f2-)
+              MIN_SLOT=0
+              eval "MIN_TOTAL=\$BATCH_TOTAL_0"
+              for ((i=1; i<RUNNER_COUNT; i++)); do
+                eval "SLOT_TOTAL=\$BATCH_TOTAL_${i}"
+                if [ "$SLOT_TOTAL" -lt "$MIN_TOTAL" ]; then
+                  MIN_SLOT=$i
+                  MIN_TOTAL=$SLOT_TOTAL
+                fi
+              done
+              eval "BATCH_${MIN_SLOT}+=(\"$DLL\")"
+              eval "BATCH_TOTAL_${MIN_SLOT}=\$((BATCH_TOTAL_${MIN_SLOT} + DUR))"
+            done
+          else
+            RR_SLOT=0
+            for dll in "${ALL_DLLS[@]}"; do
+              SLOT=$((RR_SLOT % RUNNER_COUNT))
+              eval "BATCH_${SLOT}+=(\"$dll\")"
+              RR_SLOT=$((RR_SLOT + 1))
+            done
+          fi
+
+          MATRIX_INDICES="["
+          for ((i=0; i<RUNNER_COUNT; i++)); do
+            eval "ITEMS=(\"\${BATCH_${i}[@]}\")"
+            JOINED=$(IFS=' '; echo "${ITEMS[*]}")
+            echo "batch_${i}=$JOINED" >> "$GITHUB_OUTPUT"
+            if [ $i -gt 0 ]; then MATRIX_INDICES+=","; fi
+            MATRIX_INDICES+="$i"
+          done
+          MATRIX_INDICES+="]"
+
+          echo "batch_count=$RUNNER_COUNT" >> "$GITHUB_OUTPUT"
+          echo "batch_matrix=$MATRIX_INDICES" >> "$GITHUB_OUTPUT"
+          echo "✅ Assigned ${#ALL_DLLS[@]} test DLLs across $RUNNER_COUNT batches"
+
+      - name: Strip unused runtime payloads
+        run: |
+          find . -type d -path "*/bin/*/runtimes/win-*" -prune -exec rm -rf {} + || true
+          find . -type d -path "*/bin/*/runtimes/osx-*" -prune -exec rm -rf {} + || true
+          find . -type d -path "*/bin/*/runtimes/linux-musl-*" -prune -exec rm -rf {} + || true
+          find . -type d -path "*/bin/*/runtimes/linux-arm*" -prune -exec rm -rf {} + || true
+
+      - name: Package build output
+        run: |
+          find . -path "*/bin/Release" -type d | sed 's|^\./||' | tar cf - -T - | zstd --long=28 -3 -T0 -o build-output.tar.zst
+          ls -lh build-output.tar.zst
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-output
+          path: build-output.tar.zst
+          retention-days: 1
+          compression-level: 0
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    if: needs.build.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: ${{ fromJSON(needs.build.outputs.batch_matrix) }}
+
+    # ── Database services placeholder ──
+    # Uncomment and configure when your tests require a database.
+    # services:
+    #   mysql:
+    #     image: mysql:8.0
+    #     env:
+    #       MYSQL_ROOT_PASSWORD: testpassword
+    #       MYSQL_USER: testuser
+    #       MYSQL_PASSWORD: testpassword
+    #       MYSQL_DATABASE: ''
+    #     ports:
+    #       - 3306:3306
+    #     options: >-
+    #       --health-cmd="mysqladmin ping"
+    #       --health-interval=10s
+    #       --health-timeout=5s
+    #       --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: build-output
+
+      - name: Extract build output
+        run: |
+          zstd -dc --long=28 build-output.tar.zst | tar xf -
+          rm build-output.tar.zst
+
+      # ── Database setup placeholder ──
+      # Uncomment when database services are enabled above.
+      # - name: Configure database
+      #   run: |
+      #     # Wait for database to be ready and run any setup commands
+      #     echo "TODO: Configure database for tests"
+
+      - name: Resolve batch projects
+        id: batch
+        run: |
+          case "${{ matrix.batch }}" in
+            0) PROJECTS="${{ needs.build.outputs.batch_0 }}" ;;
+            1) PROJECTS="${{ needs.build.outputs.batch_1 }}" ;;
+            2) PROJECTS="${{ needs.build.outputs.batch_2 }}" ;;
+            3) PROJECTS="${{ needs.build.outputs.batch_3 }}" ;;
+          esac
+
+          if [ -z "$PROJECTS" ]; then
+            echo "⚠️ No projects assigned to batch ${{ matrix.batch }}"
+            echo "projects=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "📋 Batch ${{ matrix.batch }} projects:"
+          echo "$PROJECTS" | tr ' ' '\n'
+          echo "projects=$PROJECTS" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests (batch ${{ matrix.batch }})
+        id: run_tests
+        run: |
+          rm -rf ./TestResults
+          mkdir -p ./TestResults
+
+          DLLS="${{ steps.batch.outputs.projects }}"
+          if [ -z "$DLLS" ]; then
+            echo "⚠️ No projects assigned to this batch"
+            echo "batch_exit=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BATCH_EXIT=0
+          TIMING_JSON="{"
+          FIRST_TIMING=true
+          for DLL_PATH in $DLLS; do
+            DLL_NAME=$(basename "$DLL_PATH" .dll)
+
+            if [ ! -f "$DLL_PATH" ]; then
+              echo "⚠️ DLL not found: $DLL_PATH — skipping"
+              continue
+            fi
+
+            echo ""
+            echo "━━━ $DLL_NAME ━━━"
+
+            START_TIME=$(date +%s)
+            set +e
+            dotnet exec "$DLL_PATH" --report-trx --report-trx-filename "$DLL_NAME.trx" --results-directory ./TestResults
+            EXIT_CODE=$?
+            set -e
+            END_TIME=$(date +%s)
+            ELAPSED=$((END_TIME - START_TIME))
+
+            if [ "$FIRST_TIMING" = true ]; then FIRST_TIMING=false; else TIMING_JSON+=","; fi
+            TIMING_JSON+="\"$DLL_NAME\":$ELAPSED"
+
+            if [ $EXIT_CODE -ne 0 ]; then
+              echo "❌ $DLL_NAME failed (exit $EXIT_CODE) [${ELAPSED}s]"
+              BATCH_EXIT=1
+            else
+              echo "✅ $DLL_NAME passed [${ELAPSED}s]"
+            fi
+          done
+          TIMING_JSON+="}"
+
+          echo "$TIMING_JSON" > "test-timings-batch-${{ matrix.batch }}.json"
+          echo "batch_exit=$BATCH_EXIT" >> "$GITHUB_OUTPUT"
+
+          if [ $BATCH_EXIT -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-results-batch-${{ matrix.batch }}
+          path: ./TestResults/*.trx
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        if: inputs.upload_coverage && always()
+        with:
+          name: coverage-batch-${{ matrix.batch }}
+          path: ./TestResults/**/coverage.cobertura.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload timing data
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-timings-batch-${{ matrix.batch }}
+          path: test-timings-batch-${{ matrix.batch }}.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build, test]
+    if: always() && needs.build.result == 'success'
+    steps:
+      - name: Delete build artifact
+        uses: geekyeggo/delete-artifact@v6
+        with:
+          name: build-output
+
+      - name: Download timing fragments
+        if: needs.test.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-timings-batch-*
+          merge-multiple: true
+
+      - name: Consolidate and cache timing data
+        if: needs.test.result == 'success'
+        run: |
+          python3 -c "
+          import json, glob, os
+          merged = {}
+          for f in sorted(glob.glob('test-timings-batch-*.json')):
+              try:
+                  with open(f) as fh:
+                      merged.update(json.load(fh))
+                  print(f'   Loaded from {os.path.basename(f)}')
+              except Exception as e:
+                  print(f'   ⚠️ Failed: {f}: {e}')
+          print(f'📊 Total: {len(merged)} project timings')
+          with open('test-timings.json', 'w') as out:
+              json.dump(merged, out, indent=2, sort_keys=True)
+          "
+
+      - name: Save timing cache
+        if: needs.test.result == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: test-timings.json
+          key: test-timings-${{ github.ref_name }}
+
+      - name: Delete timing artifacts
+        if: always()
+        uses: geekyeggo/delete-artifact@v6
+        with:
+          name: test-timings-batch-*

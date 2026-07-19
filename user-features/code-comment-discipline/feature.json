@@ -1,0 +1,6 @@
+{
+  "name": "code-comment-discipline",
+  "description": "Documents public API surfaces while strictly restraining in-code comments — blocks plan-step references, point-in-time notes, restated logic, and duplicated literals that belong in commit messages",
+  "targets": ["copilot", "claude"],
+  "priority": 40
+}

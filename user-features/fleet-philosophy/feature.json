@@ -1,0 +1,6 @@
+{
+  "name": "fleet-philosophy",
+  "description": "Instructs agents to decompose non-trivial tasks into parallel sub-agents for research and analysis before acting",
+  "targets": ["copilot", "claude"],
+  "priority": 100
+}

@@ -1,0 +1,54 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pitcrew-dashboard:local
+    restart: unless-stopped
+    environment:
+      PitCrew__Dashboard__EnrollmentToken: ${PITCREW_ENROLLMENT_TOKEN:?Run Start-LocalDashboard.ps1 first}
+      PitCrew__Dashboard__TenantId: local
+      PitCrew__Sqlite__DatabasePath: /var/lib/pitcrew-dashboard/pitcrew-dashboard.db
+    ports:
+      - "127.0.0.1:${PITCREW_DASHBOARD_PORT:-5080}:8080"
+    volumes:
+      - dashboard-data:/var/lib/pitcrew-dashboard
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  connector:
+    build:
+      context: .
+      dockerfile: src/PitCrew.Connector.App/Dockerfile
+    image: pitcrew-connector:local
+    restart: unless-stopped
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    environment:
+      PitCrew__Connector__DashboardUrl: http://dashboard:8080
+      PitCrew__Connector__AllowInsecureHttp: "true"
+      PitCrew__Connector__EnrollmentToken: ${PITCREW_ENROLLMENT_TOKEN:?Run Start-LocalDashboard.ps1 first}
+      PitCrew__Connector__DisplayName: ${PITCREW_SERVER_NAME:-local-pitcrew}
+      PitCrew__Connector__StateRoot: /var/lib/pitcrew/state
+      PitCrew__Connector__IdentityPath: /var/lib/pitcrew-connector/identity.json
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    volumes:
+      - type: bind
+        source: ${PITCREW_STATE_ROOT:?Run Start-LocalDashboard.ps1 first}
+        target: /var/lib/pitcrew/state
+        read_only: true
+      - connector-identity:/var/lib/pitcrew-connector
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 35s
+
+volumes:
+  dashboard-data:
+  connector-identity:

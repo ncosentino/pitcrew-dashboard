@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap is a dependency-bootstrapping aggregator: it wildcard-references
+    every Features.*, Kernel.*, and Adapters.* project in the solution so the App
+    project can take a single ProjectReference to Bootstrap and get everything
+    wired through Needlr. Add new projects alongside the existing ones and they
+    are picked up here without any manual edits. Test projects are excluded.
+  -->
+  <ItemGroup>
+    <ProjectReference
+		Include="..\PitCrew.Dashboard.Features.*\*.csproj"
+        Exclude="**\*.Tests.csproj" />
+    <ProjectReference
+		Include="..\PitCrew.Dashboard.Kernel.*\*.csproj"
+        Exclude="**\*.Tests.csproj" />
+    <ProjectReference
+		Include="..\Adapters\PitCrew.Dashboard.Adapters.*\*.csproj"
+        Exclude="**\*.Tests.csproj" />
+  </ItemGroup>
+
+</Project>
