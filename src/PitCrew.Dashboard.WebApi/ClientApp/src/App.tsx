@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import { ApiError } from '@/core/api/httpClient';
 import {
   createTenant,
@@ -71,8 +72,9 @@ function App() {
     return (
       <main className="mx-auto flex min-h-screen max-w-xl items-center px-4">
         <Card className="w-full">
-          <CardHeader>
-            <CardTitle>Sign in to Pitcrew</CardTitle>
+          <CardHeader className="items-center text-center">
+            <PitCrewBrand variant="hero" />
+            <CardTitle className="mt-2 text-2xl">Sign in to PitCrew Dashboard</CardTitle>
             <CardDescription>
               Fleet data and connector administration require an authorized GitHub account.
             </CardDescription>
@@ -105,10 +107,8 @@ function App() {
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-8 sm:px-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-            Pitcrew
-          </p>
+        <div className="grid gap-2">
+          <PitCrewBrand variant="compact" />
           <h1 className="text-3xl font-bold tracking-tight">Runner fleet</h1>
         </div>
         <div className="flex flex-wrap items-center gap-3">

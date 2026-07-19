@@ -48,7 +48,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Sign in to Pitcrew')).toBeInTheDocument();
+    expect(await screen.findByText('Sign in to PitCrew Dashboard')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute(
       'href',
       '/auth/login?returnUrl=/',

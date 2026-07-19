@@ -51,7 +51,7 @@ const fleetResponseSchema = z.object({
 
 /** Credential-free lifecycle state for one manager slot. */
 export type ObservedSlot = z.infer<typeof observedSlotSchema>;
-/** Credential-free projection published by one Pitcrew manager. */
+/** Credential-free projection published by one PitCrew manager. */
 export type ManagerObservedState = z.infer<typeof managerObservedStateSchema>;
 /** One enrolled server and its latest profile projections. */
 export type FleetNode = z.infer<typeof fleetNodeSchema>;
