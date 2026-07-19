@@ -1,15 +1,27 @@
-# Pitcrew Dashboard
+<p align="center">
+  <img src="assets/pitcrew-logo.png" alt="PitCrew logo" width="320" height="320">
+</p>
+
+<h1 align="center">PitCrew Dashboard</h1>
+
+<p align="center"><strong>Authenticated, read-only fleet visibility for PitCrew runner pools.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/ncosentino/pitcrew-dashboard/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/ncosentino/pitcrew-dashboard/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ncosentino/pitcrew-dashboard/actions/workflows/container-ci.yml"><img alt="Container status" src="https://github.com/ncosentino/pitcrew-dashboard/actions/workflows/container-ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
 
 Optional local and hosted visibility for
-[Pitcrew](https://github.com/ncosentino/pitcrew) runner fleets.
+[PitCrew](https://github.com/ncosentino/pitcrew) runner fleets.
 
-Pitcrew itself remains independent of this repository. Normal runner setup does
+PitCrew itself remains independent of this repository. Normal runner setup does
 not download dashboard source, images, .NET, Node.js, SQLite, or the connector.
 
 ## Architecture
 
 ```text
-Pitcrew server
+PitCrew server
 ├── one privileged manager per profile
 ├── ephemeral worker containers
 └── one optional connector
@@ -26,7 +38,7 @@ Dashboard
 └── single-replica SQLite projection
 ```
 
-Each Pitcrew manager publishes a credential-free
+Each PitCrew manager publishes a credential-free
 `.pitcrew-state/<profile>/observed-state.json` document. The connector reads all
 profiles from one state root, retains the last valid snapshot through transient
 read failures, and synchronizes only when state changes or a heartbeat is due.
@@ -41,7 +53,7 @@ Requirements:
 
 - Docker with Linux-container support
 - PowerShell 7
-- Pitcrew manager contract v5 or later
+- PitCrew manager contract v5 or later
 
 ```powershell
 .\Start-LocalDashboard.ps1 `
@@ -55,7 +67,7 @@ stores it in gitignored `.env.local`, and starts the connector. Open
 `http://127.0.0.1:5080`.
 
 The dashboard is bound to loopback. The connector communicates with it over a
-private Compose network and mounts the Pitcrew state root read-only.
+private Compose network and mounts the PitCrew state root read-only.
 
 ## Hosted read-only deployment
 
@@ -121,6 +133,14 @@ Hosted CI validates amd64 execution, arm64 cross-builds, non-root execution, and
 the absence of SDK and Node build tooling from final images. Image-size
 measurements are written to each workflow summary.
 
+## Branding
+
+Canonical PitCrew artwork lives in `assets/` and is shared by this README, the
+SPA favicon and manifest, container packaging, and social metadata. Before a
+release, upload `assets/pitcrew-social-preview.png` under **Settings > General >
+Social preview**; GitHub does not expose that repository setting through its
+public APIs.
+
 ## Development
 
 Requirements:
@@ -139,7 +159,7 @@ npm test
 
 ## Security boundaries
 
-- Only Pitcrew managers mount the Docker socket.
+- Only PitCrew managers mount the Docker socket.
 - Connectors mount only the non-secret state root and their own identity volume.
 - Connector credentials are high-entropy, node-scoped, hashed in SQLite, and
   returned only during enrollment or loss-safe rotation delivery.
@@ -153,6 +173,12 @@ npm test
 - Remote capacity control, arbitrary command execution, and log shipping are not
   implemented.
 
+## About
+
+PitCrew Dashboard is built by [Nick Cosentino](https://www.devleader.ca),
+creator of [Dev Leader](https://www.devleader.ca) and
+[BrandGhost](https://www.brandghost.ai).
+
 ## License
 
-Pitcrew Dashboard is available under the [MIT License](LICENSE).
+PitCrew Dashboard is available under the [MIT License](LICENSE).

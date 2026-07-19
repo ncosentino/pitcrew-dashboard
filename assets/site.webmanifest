@@ -1,0 +1,22 @@
+{
+  "name": "PitCrew Dashboard",
+  "short_name": "PitCrew",
+  "description": "Authenticated, read-only fleet visibility for PitCrew GitHub Actions runner pools.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7fafb",
+  "theme_color": "#071825",
+  "icons": [
+    {
+      "src": "/pitcrew-favicon.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    },
+    {
+      "src": "/pitcrew-logo.png",
+      "sizes": "640x640",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

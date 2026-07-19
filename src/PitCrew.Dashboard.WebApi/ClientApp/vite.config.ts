@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 // https://vitest.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  publicDir: fileURLToPath(new URL('../../../assets', import.meta.url)),
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

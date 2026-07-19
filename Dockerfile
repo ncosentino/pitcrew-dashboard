@@ -9,6 +9,7 @@ RUN --mount=type=cache,target=/root/.npm \
     else \
         npm install --no-audit --no-fund; \
     fi
+COPY assets/ /assets/
 COPY src/PitCrew.Dashboard.WebApi/ClientApp/ ./
 RUN npm run build
 

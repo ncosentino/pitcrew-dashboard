@@ -1,6 +1,6 @@
 # Hosted deployment
 
-Pitcrew Dashboard remains an optional read-only control plane. Normal Pitcrew
+PitCrew Dashboard remains an optional read-only control plane. Normal PitCrew
 setup does not reference this repository or its images.
 
 ## Security model
@@ -97,7 +97,7 @@ PitCrew__Connector__StateRoot=/var/lib/pitcrew/state
 PitCrew__Connector__IdentityPath=/var/lib/pitcrew-connector/identity.json
 ```
 
-Persist the identity path and mount the Pitcrew state root read-only. The
+Persist the identity path and mount the PitCrew state root read-only. The
 connector needs no Docker socket, inbound port, or GitHub runner-registration
 credential. Remove the consumed enrollment code from hosted connector
 configuration after the identity file has been persisted.
