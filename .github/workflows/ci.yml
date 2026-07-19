@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/frontend-gate
         with:
           working-directory: src/PitCrew.Dashboard.WebApi/ClientApp
@@ -60,7 +60,7 @@ jobs:
       batch_3: ${{ steps.assign.outputs.batch_3 }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: NuGet cache
         uses: actions/cache@v5
@@ -258,7 +258,7 @@ jobs:
     #       --health-retries=3
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
