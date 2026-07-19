@@ -451,4 +451,129 @@ public sealed class HostingTests
       DashboardTestHelpers.DeleteDatabase(databasePath);
     }
   }
+
+  [Test]
+  public async Task Hosted_Ingress_Contract_Is_Anonymous_And_Versioned(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          "123");
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient(
+          new WebApplicationFactoryClientOptions
+          {
+            AllowAutoRedirect = false,
+          });
+      using var response = await client.GetAsync(
+          "/health/hosted-ingress/v1",
+          cancellationToken);
+      var responseBody = await response.Content.ReadAsStringAsync(
+          cancellationToken);
+
+      response.EnsureSuccessStatusCode();
+      await Assert.That(response.Content.Headers.ContentType?.MediaType)
+          .IsEqualTo("text/plain");
+      await Assert.That(responseBody)
+          .IsEqualTo("pitcrew-dashboard-hosted-ingress-v1");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Responses_Include_Provider_Neutral_Security_Headers(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      using var response = await client.GetAsync(
+          "/api/session",
+          cancellationToken);
+
+      response.EnsureSuccessStatusCode();
+      await Assert.That(
+              response.Headers.GetValues(
+                  "Content-Security-Policy").Single())
+          .Contains("frame-ancestors 'none'");
+      await Assert.That(
+              response.Headers.GetValues(
+                  "Permissions-Policy").Single())
+          .IsEqualTo(
+              "camera=(), geolocation=(), microphone=()");
+      await Assert.That(
+              response.Headers.GetValues(
+                  "Referrer-Policy").Single())
+          .IsEqualTo("no-referrer");
+      await Assert.That(
+              response.Headers.GetValues(
+                  "X-Content-Type-Options").Single())
+          .IsEqualTo("nosniff");
+      await Assert.That(
+              response.Headers.GetValues(
+                  "X-Frame-Options").Single())
+          .IsEqualTo("DENY");
+      await Assert.That(
+              response.Headers.Contains(
+                  "Strict-Transport-Security"))
+          .IsFalse();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Production_Https_Responses_Include_Hsts(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          "123",
+          "Production");
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient(
+          new WebApplicationFactoryClientOptions
+          {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri(
+                "https://pitcrew.example.com",
+                UriKind.Absolute),
+          });
+      using var response = await client.GetAsync(
+          "/api/session",
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(
+              response.Headers.GetValues(
+                  "Strict-Transport-Security").Single())
+          .IsEqualTo("max-age=31536000");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
 }

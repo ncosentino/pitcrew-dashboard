@@ -1,0 +1,5 @@
+{$PITCREW_DASHBOARD_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy dashboard:8080
+}

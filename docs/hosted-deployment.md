@@ -3,12 +3,33 @@
 PitCrew Dashboard remains an optional read-only control plane. Normal PitCrew
 setup does not reference this repository or its images.
 
-## Security model
+The hosted deployment is composed from:
 
-- Caddy owns public ports 80 and 443 and obtains TLS certificates.
-- The dashboard listens only on the private Compose network.
-- ASP.NET trusts forwarded scheme and client information only from Caddy's
-  fixed private address.
+- `docker-compose.hosted.yml`: provider-neutral dashboard, SQLite volume,
+  private network, authentication, and container hardening.
+- One ingress adapter that publishes HTTPS and forwards to
+  `http://dashboard:8080`.
+
+## Choose an ingress adapter
+
+| Environment | Supported adapter | Public host ports |
+|-------------|-------------------|-------------------|
+| Public VM or server with routable ports 80 and 443 | [Caddy](hosting/caddy.md) | 80/TCP, 443/TCP+UDP |
+| Home server, CGNAT, or no inbound firewall changes | [Cloudflare Tunnel](hosting/cloudflare-tunnel.md) | None |
+| Existing reverse proxy, load balancer, or tunnel | [Custom ingress](hosting/custom-ingress.md) | Adapter-specific |
+
+Caddy and Cloudflare Tunnel are the officially validated adapters. Additional
+adapters can implement the documented custom-ingress contract without changing
+the dashboard or connector images.
+
+## Shared security model
+
+- The dashboard has no host port and listens only on the private Compose
+  network.
+- ASP.NET trusts forwarded scheme and client information only from the selected
+  adapter's fixed `172.31.0.2` address.
+- Browser security headers and HSTS are application-owned, so every adapter
+  receives the same policy.
 - Human sessions use GitHub OAuth with PKCE and an HTTP-only same-site cookie.
 - OAuth access tokens are discarded after the GitHub user profile is read.
 - Authenticated mutations require an ASP.NET antiforgery token.
@@ -17,7 +38,10 @@ setup does not reference this repository or its images.
 - SQLite and ASP.NET data-protection keys share one persistent dashboard volume.
   Protect that volume as a credential-bearing asset.
 
-## GitHub OAuth App
+## Common configuration
+
+Use Docker Compose v2.17.0 or later. The ingress overlays use dependency restart
+coordination introduced in that release.
 
 Create a GitHub OAuth App with:
 
@@ -33,9 +57,7 @@ Find the immutable numeric GitHub ID for the initial system administrator:
 gh api user --jq .id
 ```
 
-## Start the stack
-
-Copy the example without committing the result:
+Copy the environment example without committing the result:
 
 ```powershell
 Copy-Item .env.hosted.example .env.hosted
@@ -47,20 +69,15 @@ Set:
 - `PITCREW_DASHBOARD_DOMAIN` to the public DNS name.
 - `PITCREW_GITHUB_CLIENT_ID` and `PITCREW_GITHUB_CLIENT_SECRET`.
 - `PITCREW_SYSTEM_ADMIN_GITHUB_ID` to the immutable bootstrap administrator ID.
+- `PITCREW_CLOUDFLARE_TUNNEL_TOKEN_FILE` only when using the Cloudflare
+  adapter.
 
-Then start one dashboard replica:
+Then follow the selected adapter's startup instructions. SQLite remains
+single-replica; do not scale the dashboard service horizontally.
 
-```powershell
-docker compose `
-    --env-file .env.hosted `
-    --file docker-compose.hosted.yml `
-    up -d
-```
-
-SQLite remains single-replica. Do not scale the dashboard service horizontally.
 If the fixed `172.31.0.0/24` Compose subnet conflicts with the host, choose a
-different private subnet and update the dashboard's configured known-proxy
-address to match Caddy.
+different private subnet and update the dashboard and ingress adapter addresses
+together. The ingress adapter must remain the only trusted proxy.
 
 ## Upgrade order
 
@@ -68,6 +85,20 @@ Deploy the dashboard before protocol-v2 connectors. Existing enrolled
 protocol-v1 connectors continue to synchronize, but one-time enrollment,
 re-enrollment, and credential rotation require the updated connector and the
 `PitCrew__Connector__EnrollmentCode` setting.
+
+> **Important:** Set `PITCREW_DASHBOARD_VERSION` to `0.2.0` or later before
+> starting either ingress overlay. The hosted health check rejects v0.1.0, and
+> the overlay dependency policy stops ingress during Compose-managed dashboard
+> updates until the replacement satisfies the v0.2.0 contract.
+
+The provider-neutral Compose split changes the v0.1.0 startup command. Existing
+Caddy deployments add `--file deploy/caddy.compose.yml`; no application data or
+SQLite migration is required. The overlays require dashboard image v0.2.0 or
+later because browser security headers moved from Caddy into ASP.NET.
+
+Use the base file and selected overlay together for every hosted `up`, `restart`,
+or `down` operation. Replacing the dashboard container directly with `docker`
+commands bypasses Compose dependency coordination.
 
 ## Tenant and membership workflow
 

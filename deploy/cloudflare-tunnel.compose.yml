@@ -1,0 +1,47 @@
+services:
+  dashboard:
+    environment:
+      PitCrew__ReverseProxy__KnownProxyAddresses__0: 172.31.0.2
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.2
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --metrics
+      - 0.0.0.0:2000
+      - run
+    environment:
+      TUNNEL_TOKEN_FILE: /run/secrets/cloudflare-tunnel-token
+    secrets:
+      - cloudflare-tunnel-token
+    read_only: true
+    depends_on:
+      dashboard:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/cloudflared
+        - tunnel
+        - --metrics
+        - 0.0.0.0:2000
+        - ready
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      pitcrew-hosted:
+        ipv4_address: 172.31.0.2
+
+secrets:
+  cloudflare-tunnel-token:
+    file: ${PITCREW_CLOUDFLARE_TUNNEL_TOKEN_FILE:?Set PITCREW_CLOUDFLARE_TUNNEL_TOKEN_FILE}

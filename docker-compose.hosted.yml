@@ -11,8 +11,25 @@ services:
       PitCrew__Authentication__GitHubClientSecret: ${PITCREW_GITHUB_CLIENT_SECRET:?Set PITCREW_GITHUB_CLIENT_SECRET}
       PitCrew__Authentication__SystemAdministratorGitHubIds__0: ${PITCREW_SYSTEM_ADMIN_GITHUB_ID:?Set PITCREW_SYSTEM_ADMIN_GITHUB_ID}
       PitCrew__Authentication__DataProtectionKeyPath: /var/lib/pitcrew-dashboard/data-protection-keys
-      PitCrew__ReverseProxy__KnownProxyAddresses__0: 172.31.0.2
       PitCrew__Sqlite__DatabasePath: /var/lib/pitcrew-dashboard/pitcrew-dashboard.db
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet
+          --header="Host: ${PITCREW_DASHBOARD_DOMAIN:?Set PITCREW_DASHBOARD_DOMAIN}"
+          --spider http://127.0.0.1:8080/health &&
+          wget --quiet
+          --header="Host: ${PITCREW_DASHBOARD_DOMAIN:?Set PITCREW_DASHBOARD_DOMAIN}"
+          --output-document=-
+          http://127.0.0.1:8080/health/hosted-ingress/v1 |
+          grep -Fqx "pitcrew-dashboard-hosted-ingress-v1"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     volumes:
       - dashboard-data:/var/lib/pitcrew-dashboard
     tmpfs:
@@ -25,35 +42,6 @@ services:
       pitcrew-hosted:
         ipv4_address: 172.31.0.3
 
-  caddy:
-    image: caddy:2.11.4-alpine
-    restart: unless-stopped
-    read_only: true
-    depends_on:
-      dashboard:
-        condition: service_healthy
-    environment:
-      PITCREW_DASHBOARD_DOMAIN: ${PITCREW_DASHBOARD_DOMAIN:?Set PITCREW_DASHBOARD_DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile.hosted:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    tmpfs:
-      - /tmp:size=16m,noexec,nosuid,nodev
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    networks:
-      pitcrew-hosted:
-        ipv4_address: 172.31.0.2
-
 networks:
   pitcrew-hosted:
     ipam:
@@ -62,5 +50,3 @@ networks:
 
 volumes:
   dashboard-data:
-  caddy-data:
-  caddy-config:

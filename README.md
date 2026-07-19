@@ -72,9 +72,12 @@ private Compose network and mounts the PitCrew state root read-only.
 ## Hosted read-only deployment
 
 Hosted mode uses GitHub OAuth, persisted tenant memberships, and explicit
-tenant-scoped API routes. The included `docker-compose.hosted.yml` adds Caddy as
-the TLS terminator while the dashboard remains reachable only on the private
-Compose network.
+tenant-scoped API routes. `docker-compose.hosted.yml` defines the
+provider-neutral dashboard, while an ingress overlay publishes HTTPS:
+
+- [Caddy](docs/hosting/caddy.md) for a public VM or server with ports 80 and 443.
+- [Cloudflare Tunnel](docs/hosting/cloudflare-tunnel.md) for a home server,
+  CGNAT, or an outbound-only deployment.
 
 1. Create a GitHub OAuth App with callback
    `https://YOUR_DOMAIN/signin-github`.
@@ -86,12 +89,13 @@ Compose network.
 
 3. Copy `.env.hosted.example` to `.env.hosted`, set the domain, released image
    version, OAuth credentials, and system-administrator GitHub ID.
-4. Start the single-replica stack:
+4. Start the single-replica stack with the selected ingress overlay:
 
    ```powershell
    docker compose `
        --env-file .env.hosted `
        --file docker-compose.hosted.yml `
+       --file deploy/cloudflare-tunnel.compose.yml `
        up -d
    ```
 
@@ -104,8 +108,8 @@ delivered on a protocol-v2 sync and persisted atomically by the connector.
 Revoked nodes retain their historical projection but must use a new one-time
 code to re-enroll.
 
-See [Hosted deployment](docs/hosted-deployment.md) for the complete security and
-membership workflow.
+See [Hosted deployment](docs/hosted-deployment.md) for the ingress decision
+guide, shared security contract, and membership workflow.
 
 ## Persistence
 

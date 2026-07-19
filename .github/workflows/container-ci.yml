@@ -28,22 +28,106 @@ jobs:
           PITCREW_STATE_ROOT: /tmp/pitcrew-state
           PITCREW_DASHBOARD_PORT: '5080'
           PITCREW_SERVER_NAME: validation
-          PITCREW_DASHBOARD_VERSION: 0.1.0
+          PITCREW_DASHBOARD_VERSION: 0.2.0
           PITCREW_DASHBOARD_DOMAIN: pitcrew.example.com
           PITCREW_GITHUB_CLIENT_ID: validation
           PITCREW_GITHUB_CLIENT_SECRET: validation
           PITCREW_SYSTEM_ADMIN_GITHUB_ID: '123'
+          PITCREW_CLOUDFLARE_TUNNEL_TOKEN_FILE: ./secrets/cloudflare-tunnel-token
         run: |
+          mkdir -p secrets
+          printf '%s' 'validation-only' > secrets/cloudflare-tunnel-token
           docker compose --file docker-compose.local.yml config --quiet
-          docker compose --file docker-compose.hosted.yml config --quiet
+          docker compose \
+            --file docker-compose.hosted.yml \
+            config --format json > /tmp/pitcrew-base.json
+          docker compose \
+            --file docker-compose.hosted.yml \
+            --file deploy/caddy.compose.yml \
+            config --format json > /tmp/pitcrew-caddy.json
+          docker compose \
+            --file docker-compose.hosted.yml \
+            --file deploy/cloudflare-tunnel.compose.yml \
+            config --format json > /tmp/pitcrew-cloudflare.json
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/pitcrew-base.json', encoding='utf-8') as handle:
+              base = json.load(handle)
+          with open('/tmp/pitcrew-caddy.json', encoding='utf-8') as handle:
+              caddy = json.load(handle)
+          with open('/tmp/pitcrew-cloudflare.json', encoding='utf-8') as handle:
+              cloudflare = json.load(handle)
+
+          assert sorted(base['services']) == ['dashboard']
+          assert base['services']['dashboard'].get('ports') is None
+          dashboard_health_test = ' '.join(
+              base['services']['dashboard']['healthcheck']['test']
+          )
+          assert 'Host: pitcrew.example.com' in dashboard_health_test
+          assert '/health/hosted-ingress/v1' in dashboard_health_test
+          assert 'pitcrew-dashboard-hosted-ingress-v1' in dashboard_health_test
+
+          assert sorted(caddy['services']) == ['caddy', 'dashboard']
+          assert sorted(str(port['published']) for port in caddy['services']['caddy']['ports']) == [
+              '443',
+              '443',
+              '80',
+          ]
+          assert (
+              caddy['services']['dashboard']['environment']
+              ['PitCrew__ReverseProxy__KnownProxyAddresses__0']
+              == '172.31.0.2'
+          )
+          assert (
+              caddy['services']['caddy']['depends_on']['dashboard']['condition']
+              == 'service_healthy'
+          )
+          assert (
+              caddy['services']['caddy']['depends_on']['dashboard']['restart']
+              is True
+          )
+
+          assert sorted(cloudflare['services']) == ['cloudflared', 'dashboard']
+          assert cloudflare['services']['cloudflared'].get('ports') is None
+          assert (
+              cloudflare['services']['cloudflared']['image']
+              == 'cloudflare/cloudflared:2026.7.2'
+          )
+          assert (
+              cloudflare['services']['cloudflared']['secrets'][0]['target']
+              == '/run/secrets/cloudflare-tunnel-token'
+          )
+          assert (
+              cloudflare['services']['dashboard']['environment']
+              ['PitCrew__ReverseProxy__KnownProxyAddresses__0']
+              == '172.31.0.2'
+          )
+          assert (
+              cloudflare['services']['cloudflared']['depends_on']['dashboard']['condition']
+              == 'service_healthy'
+          )
+          assert (
+              cloudflare['services']['cloudflared']['depends_on']['dashboard']['restart']
+              is True
+          )
+          PY
 
       - name: Validate Caddy configuration
         run: |
           docker run --rm \
             --env PITCREW_DASHBOARD_DOMAIN=pitcrew.example.com \
-            --volume "$PWD/Caddyfile.hosted:/etc/caddy/Caddyfile:ro" \
+            --volume "$PWD/deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.11.4-alpine \
             caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Validate Cloudflare Tunnel command surface
+        run: |
+          docker run --rm cloudflare/cloudflared:2026.7.2 version
+          docker run --rm cloudflare/cloudflared:2026.7.2 tunnel run --help |
+            grep -- '--token-file'
+          docker run --rm cloudflare/cloudflared:2026.7.2 tunnel ready --help >/dev/null
 
   validate:
     runs-on: ubuntu-latest
