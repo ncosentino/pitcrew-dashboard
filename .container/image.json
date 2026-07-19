@@ -2,6 +2,9 @@
   "schemaVersion": 1,
   "imageName": "PitCrew.Dashboard",
   "dockerfile": "Dockerfile",
+  "runEnvironment": {
+    "PitCrew__Sqlite__DatabasePath": "/tmp/pitcrew-dashboard.db"
+  },
   "smoke": {
     "kind": "http",
     "containerPort": 8080,
