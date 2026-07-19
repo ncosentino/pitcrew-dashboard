@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -12,6 +13,51 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class HostingTests
 {
+  [Test]
+  public async Task Session_Uses_Client_Compatible_GitHub_Property_Names(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      using var response = await client.GetAsync(
+          "/api/session",
+          cancellationToken);
+      await using var stream = await response.Content.ReadAsStreamAsync(
+          cancellationToken);
+      using var document = await JsonDocument.ParseAsync(
+          stream,
+          cancellationToken: cancellationToken);
+      var user = document.RootElement.GetProperty("user");
+      var hasIncorrectUserIdProperty = user.TryGetProperty(
+          "gitHubUserId",
+          out _);
+      var hasIncorrectLoginProperty = user.TryGetProperty(
+          "gitHubLogin",
+          out _);
+
+      response.EnsureSuccessStatusCode();
+      await Assert.That(user.GetProperty("githubUserId").GetString())
+          .IsEqualTo("0");
+      await Assert.That(user.GetProperty("githubLogin").GetString())
+          .IsEqualTo("local-operator");
+      await Assert.That(hasIncorrectUserIdProperty)
+          .IsFalse()
+          .Because("the React session contract requires githubUserId");
+      await Assert.That(hasIncorrectLoginProperty)
+          .IsFalse()
+          .Because("the React session contract requires githubLogin");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
   [Test]
   public async Task Authenticated_Tenant_Enrolls_And_Views_Connector(
       CancellationToken cancellationToken)

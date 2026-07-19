@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PitCrew.Dashboard.Features.Access;
 
 /// <summary>
@@ -8,8 +10,8 @@ namespace PitCrew.Dashboard.Features.Access;
 /// <param name="DisplayName">Operator-facing display name.</param>
 /// <param name="AvatarUrl">GitHub avatar URL when available.</param>
 public sealed record DashboardUserResponse(
-    string GitHubUserId,
-    string GitHubLogin,
+    [property: JsonPropertyName("githubUserId")] string GitHubUserId,
+    [property: JsonPropertyName("githubLogin")] string GitHubLogin,
     string DisplayName,
     string? AvatarUrl);
 
