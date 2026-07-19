@@ -11,17 +11,6 @@ namespace PitCrew.Dashboard.Features.Fleet;
 public sealed class FleetDashboardOptions
 {
   /// <summary>
-  /// Gets or sets the secret required to enroll a new connector installation.
-  /// </summary>
-  public string EnrollmentToken { get; set; } = string.Empty;
-
-  /// <summary>
-  /// Gets or sets the tenant assigned to connectors enrolled by this deployment.
-  /// </summary>
-  [Required]
-  public string TenantId { get; set; } = "local";
-
-  /// <summary>
   /// Gets or sets the connector polling recommendation returned after successful synchronization.
   /// </summary>
   [Range(5, 3600)]
@@ -32,6 +21,12 @@ public sealed class FleetDashboardOptions
   /// </summary>
   [Range(10, 86400)]
   public int NodeOfflineAfterSeconds { get; set; } = 60;
+
+  /// <summary>
+  /// Gets or sets the lifetime of a one-time connector enrollment code.
+  /// </summary>
+  [Range(1, 1440)]
+  public int EnrollmentCodeLifetimeMinutes { get; set; } = 15;
 
   /// <summary>
   /// Validates relationships between connector polling and dashboard freshness settings.

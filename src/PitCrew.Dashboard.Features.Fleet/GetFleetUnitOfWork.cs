@@ -4,16 +4,25 @@ using PitCrew.Dashboard.Features.Fleet.Abstractions;
 
 namespace PitCrew.Dashboard.Features.Fleet;
 
+internal interface IGetFleetUnitOfWork
+{
+  Task<FleetResponse> GetAsync(
+      string tenantId,
+      CancellationToken cancellationToken);
+}
+
 internal sealed class GetFleetUnitOfWork(
     IFleetStore _fleetStore,
     IOptions<FleetDashboardOptions> _options,
-    TimeProvider _timeProvider)
+    TimeProvider _timeProvider) : IGetFleetUnitOfWork
 {
-  public Task<FleetResponse> GetAsync(CancellationToken cancellationToken)
+  public Task<FleetResponse> GetAsync(
+      string tenantId,
+      CancellationToken cancellationToken)
   {
     var generatedAt = _timeProvider.GetUtcNow();
     return _fleetStore.GetFleetAsync(
-        _options.Value.TenantId,
+        tenantId,
         generatedAt,
         TimeSpan.FromSeconds(_options.Value.NodeOfflineAfterSeconds),
         cancellationToken);

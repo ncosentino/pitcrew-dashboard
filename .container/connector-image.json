@@ -6,7 +6,7 @@
   "runEnvironment": {
     "PitCrew__Connector__DashboardUrl": "https://127.0.0.1",
     "PitCrew__Connector__AllowInsecureHttp": "false",
-    "PitCrew__Connector__EnrollmentToken": "container-validation-only",
+    "PitCrew__Connector__EnrollmentCode": "container-validation-only",
     "PitCrew__Connector__DisplayName": "container-validation",
     "PitCrew__Connector__StateRoot": "/tmp/pitcrew-state",
     "PitCrew__Connector__IdentityPath": "/tmp/pitcrew-connector/identity.json"

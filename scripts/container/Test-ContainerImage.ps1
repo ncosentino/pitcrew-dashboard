@@ -62,6 +62,23 @@ if ([string]$config.smoke.kind -eq 'http') {
         Write-Error "HTTP smoke contracts require containerPort and healthPath."
     }
 }
+$execCommands = @()
+if ($config.smoke.PSObject.Properties['execCommands']) {
+    $execCommands = @($config.smoke.execCommands)
+    foreach ($execCommand in $execCommands) {
+        if (-not $execCommand.PSObject.Properties['arguments']) {
+            Write-Error 'Each smoke exec command requires an arguments array.'
+        }
+        $arguments = @($execCommand.arguments)
+        if ($arguments.Count -eq 0 -or
+            ($arguments | Where-Object {
+                [string]::IsNullOrWhiteSpace([string]$_) -or
+                [string]$_ -match '[\r\n]'
+            })) {
+            Write-Error 'Smoke exec command arguments must be non-empty single-line strings.'
+        }
+    }
+}
 $runEnvironment = [ordered]@{}
 if ($config.PSObject.Properties['runEnvironment']) {
     if ($config.runEnvironment -isnot [System.Management.Automation.PSCustomObject]) {
@@ -315,6 +332,16 @@ try {
 
         if ($requiresImageHealthCheck) {
             Wait-ForContainerHealth
+        }
+
+        foreach ($execCommand in $execCommands) {
+            $execArguments = [System.Collections.Generic.List[string]]::new()
+            $execArguments.Add('exec')
+            $execArguments.Add($containerName)
+            foreach ($argument in @($execCommand.arguments)) {
+                $execArguments.Add([string]$argument)
+            }
+            Invoke-Docker -Arguments ([string[]]$execArguments)
         }
 
         Invoke-Docker -Arguments @('export', '--output', $filesystemArchive, $containerName)

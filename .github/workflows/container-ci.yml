@@ -16,6 +16,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deployment-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate Compose deployment contracts
+        env:
+          PITCREW_ENROLLMENT_CODE: validation-only
+          PITCREW_STATE_ROOT: /tmp/pitcrew-state
+          PITCREW_DASHBOARD_PORT: '5080'
+          PITCREW_SERVER_NAME: validation
+          PITCREW_DASHBOARD_VERSION: 0.1.0
+          PITCREW_DASHBOARD_DOMAIN: pitcrew.example.com
+          PITCREW_GITHUB_CLIENT_ID: validation
+          PITCREW_GITHUB_CLIENT_SECRET: validation
+          PITCREW_SYSTEM_ADMIN_GITHUB_ID: '123'
+        run: |
+          docker compose --file docker-compose.local.yml config --quiet
+          docker compose --file docker-compose.hosted.yml config --quiet
+
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            --env PITCREW_DASHBOARD_DOMAIN=pitcrew.example.com \
+            --volume "$PWD/Caddyfile.hosted:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.4-alpine \
+            caddy validate --config /etc/caddy/Caddyfile
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30

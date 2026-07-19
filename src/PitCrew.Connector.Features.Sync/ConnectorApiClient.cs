@@ -28,8 +28,8 @@ internal sealed class ConnectorApiClient(
             PitCrewProtocolJsonContext.Default.ConnectorEnrollmentRequest),
     };
     message.Headers.Add(
-        "X-PitCrew-Enrollment-Token",
-        _options.Value.EnrollmentToken);
+        "X-PitCrew-Enrollment-Code",
+        _options.Value.EnrollmentCode);
     using var response = await _httpClient.SendAsync(
         message,
         HttpCompletionOption.ResponseHeadersRead,
