@@ -4,6 +4,12 @@ namespace PitCrew.Dashboard.Features.Fleet;
 
 internal interface INodeAdministrationUnitOfWork
 {
+  Task<NodeMutationStatus> RenameAsync(
+      string tenantId,
+      Guid nodeId,
+      string displayName,
+      CancellationToken cancellationToken);
+
   Task<NodeMutationStatus> RevokeAsync(
       string tenantId,
       Guid nodeId,
@@ -19,6 +25,17 @@ internal sealed class NodeAdministrationUnitOfWork(
     IFleetStore _fleetStore,
     TimeProvider _timeProvider) : INodeAdministrationUnitOfWork
 {
+  public Task<NodeMutationStatus> RenameAsync(
+      string tenantId,
+      Guid nodeId,
+      string displayName,
+      CancellationToken cancellationToken) =>
+      _fleetStore.RenameNodeAsync(
+          tenantId,
+          nodeId,
+          displayName,
+          cancellationToken);
+
   public Task<NodeMutationStatus> RevokeAsync(
       string tenantId,
       Guid nodeId,

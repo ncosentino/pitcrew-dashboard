@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
+using PitCrew.Dashboard.Kernel.DisplayNames;
 using PitCrew.Protocol;
 
 namespace PitCrew.Dashboard.Features.Fleet;
@@ -38,6 +39,10 @@ public sealed class FleetCarterModule : ICarterModule
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
             AccessPolicies.TenantAdministrator);
+    fleet.MapPut("/nodes/{nodeId:guid}", RenameNodeAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .RequireAuthorization(
+            AccessPolicies.TenantAdministrator);
     fleet.MapPost("/nodes/{nodeId:guid}/revoke", RevokeNodeAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
@@ -62,10 +67,11 @@ public sealed class FleetCarterModule : ICarterModule
     {
       return Results.Unauthorized();
     }
+    var displayName = OperatorDisplayName.NormalizeOrNull(
+        request.DisplayName);
     if (string.IsNullOrWhiteSpace(request.ConnectorInstanceId) ||
         request.ConnectorInstanceId.Length > 128 ||
-        string.IsNullOrWhiteSpace(request.DisplayName) ||
-        request.DisplayName.Length > 128)
+        displayName is null)
     {
       return Results.BadRequest(new
       {
@@ -81,7 +87,7 @@ public sealed class FleetCarterModule : ICarterModule
         enrollmentCode,
         new ConnectorEnrollmentInput(
             request.ConnectorInstanceId,
-            request.DisplayName),
+            displayName),
         cancellationToken);
     return response is null
         ? Results.Unauthorized()
@@ -176,6 +182,43 @@ public sealed class FleetCarterModule : ICarterModule
           tenantId,
           nodeId,
           cancellationToken));
+
+  private static async Task<IResult> RenameNodeAsync(
+      string tenantId,
+      Guid nodeId,
+      RenameNodeRequest request,
+      INodeAdministrationUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var displayName = OperatorDisplayName.NormalizeOrNull(
+        request.DisplayName);
+    if (displayName is null)
+    {
+      return Results.BadRequest(new
+      {
+        error = new
+        {
+          code = "invalid_node_name",
+          message =
+              "Server display name must contain between 1 and 128 characters.",
+        },
+      });
+    }
+
+    var status = await unitOfWork.RenameAsync(
+        tenantId,
+        nodeId,
+        displayName,
+        cancellationToken);
+    return status switch
+    {
+      NodeMutationStatus.Succeeded => Results.NoContent(),
+      NodeMutationStatus.NotFound => Results.NotFound(),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported node rename result."),
+    };
+  }
 
   private static async Task<IResult> RequestCredentialRotationAsync(
       string tenantId,

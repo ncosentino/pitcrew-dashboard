@@ -406,7 +406,9 @@ internal sealed class SqliteFleetStore(
         """
             SELECT
                 n.node_id,
-                n.display_name,
+                COALESCE(
+                    n.display_name_override,
+                    n.display_name),
                 n.connector_version,
                 n.enrolled_at,
                 n.last_seen_at,
@@ -416,7 +418,11 @@ internal sealed class SqliteFleetStore(
             FROM nodes AS n
             LEFT JOIN profiles AS p ON p.node_id = n.node_id
             WHERE n.tenant_id = $tenantId
-            ORDER BY n.display_name, p.profile_id;
+            ORDER BY
+                COALESCE(
+                    n.display_name_override,
+                    n.display_name),
+                p.profile_id;
             """;
     command.Parameters.AddWithValue("$tenantId", tenantId);
 
@@ -482,6 +488,34 @@ internal sealed class SqliteFleetStore(
     }
 
     return new FleetResponse(generatedAt, nodes);
+  }
+
+  public async Task<NodeMutationStatus> RenameNodeAsync(
+      string tenantId,
+      Guid nodeId,
+      string displayName,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE nodes
+        SET display_name_override = $displayName
+        WHERE tenant_id = $tenantId
+          AND node_id = $nodeId;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$nodeId",
+        nodeId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$displayName",
+        displayName);
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1
+        ? NodeMutationStatus.Succeeded
+        : NodeMutationStatus.NotFound;
   }
 
   public async Task<NodeMutationStatus> RevokeNodeAsync(

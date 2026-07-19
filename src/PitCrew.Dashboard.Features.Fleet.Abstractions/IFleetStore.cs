@@ -195,6 +195,20 @@ public interface IFleetStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Sets the operator-facing display-name override for one tenant node.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the node.</param>
+  /// <param name="nodeId">Dashboard-assigned node identifier.</param>
+  /// <param name="displayName">New operator-facing server name.</param>
+  /// <param name="cancellationToken">Token that cancels the mutation.</param>
+  /// <returns>The mutation status.</returns>
+  Task<NodeMutationStatus> RenameNodeAsync(
+      string tenantId,
+      Guid nodeId,
+      string displayName,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Revokes one tenant node credential.
   /// </summary>
   /// <param name="tenantId">Tenant that owns the node.</param>

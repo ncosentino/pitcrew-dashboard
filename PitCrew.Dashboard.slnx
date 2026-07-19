@@ -32,6 +32,7 @@
   </Folder>
   <Folder Name="/src/Kernel/">
     <Project Path="src/PitCrew.Dashboard.Kernel.Authentication/PitCrew.Dashboard.Kernel.Authentication.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Kernel.DisplayNames/PitCrew.Dashboard.Kernel.DisplayNames.csproj" />
     <Project Path="src/PitCrew.Dashboard.Kernel.ExceptionHandling/PitCrew.Dashboard.Kernel.ExceptionHandling.csproj" />
     <Project Path="src/PitCrew.Dashboard.Kernel.SecurityHeaders/PitCrew.Dashboard.Kernel.SecurityHeaders.csproj" />
   </Folder>
