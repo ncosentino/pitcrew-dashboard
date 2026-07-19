@@ -49,6 +49,12 @@ public sealed record CreateTenantRequest(
     string DisplayName);
 
 /// <summary>
+/// Requests a new operator-facing name for one tenant.
+/// </summary>
+/// <param name="DisplayName">New operator-facing tenant name.</param>
+public sealed record RenameTenantRequest(string DisplayName);
+
+/// <summary>
 /// Requests a role assignment for one tenant member.
 /// </summary>
 /// <param name="Role">Role name: viewer, administrator, or owner.</param>

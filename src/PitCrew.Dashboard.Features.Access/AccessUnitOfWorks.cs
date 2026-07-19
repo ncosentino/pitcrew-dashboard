@@ -65,6 +65,27 @@ internal sealed class CreateTenantUnitOfWork(
   }
 }
 
+internal interface IRenameTenantUnitOfWork
+{
+  Task<AccessMutationStatus> RenameAsync(
+      string tenantId,
+      string displayName,
+      CancellationToken cancellationToken);
+}
+
+internal sealed class RenameTenantUnitOfWork(
+    IAccessStore _accessStore) : IRenameTenantUnitOfWork
+{
+  public Task<AccessMutationStatus> RenameAsync(
+      string tenantId,
+      string displayName,
+      CancellationToken cancellationToken) =>
+      _accessStore.RenameTenantAsync(
+          tenantId,
+          displayName,
+          cancellationToken);
+}
+
 internal interface IGetTenantMembershipsUnitOfWork
 {
   Task<IReadOnlyList<TenantMember>> GetMembersAsync(

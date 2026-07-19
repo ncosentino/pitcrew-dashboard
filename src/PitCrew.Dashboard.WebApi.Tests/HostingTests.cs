@@ -14,6 +14,52 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 public sealed class HostingTests
 {
   [Test]
+  public async Task Tenant_Owner_Renames_Display_Name_Without_Changing_Id(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      using var request = new HttpRequestMessage(
+          HttpMethod.Put,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}")
+      {
+        Content = JsonContent.Create(
+            new RenameTenantRequest("  Renamed tenant  ")),
+      };
+      request.Headers.Add(
+          DashboardTestHelpers.AntiforgeryHeader,
+          session.AntiforgeryToken);
+
+      using var response = await client.SendAsync(
+          request,
+          cancellationToken);
+      var renamedSession = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(renamedSession.Tenants).HasSingleItem();
+      await Assert.That(renamedSession.Tenants[0].TenantId)
+          .IsEqualTo(DashboardTestHelpers.TenantId);
+      await Assert.That(renamedSession.Tenants[0].DisplayName)
+          .IsEqualTo("Renamed tenant");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Session_Uses_Client_Compatible_GitHub_Property_Names(
       CancellationToken cancellationToken)
   {
