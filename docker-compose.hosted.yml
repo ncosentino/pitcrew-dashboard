@@ -1,0 +1,66 @@
+services:
+  dashboard:
+    image: ghcr.io/ncosentino/pitcrew-dashboard:${PITCREW_DASHBOARD_VERSION:?Set PITCREW_DASHBOARD_VERSION}
+    restart: unless-stopped
+    read_only: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      AllowedHosts: ${PITCREW_DASHBOARD_DOMAIN:?Set PITCREW_DASHBOARD_DOMAIN}
+      PitCrew__Authentication__Mode: GitHub
+      PitCrew__Authentication__GitHubClientId: ${PITCREW_GITHUB_CLIENT_ID:?Set PITCREW_GITHUB_CLIENT_ID}
+      PitCrew__Authentication__GitHubClientSecret: ${PITCREW_GITHUB_CLIENT_SECRET:?Set PITCREW_GITHUB_CLIENT_SECRET}
+      PitCrew__Authentication__SystemAdministratorGitHubIds__0: ${PITCREW_SYSTEM_ADMIN_GITHUB_ID:?Set PITCREW_SYSTEM_ADMIN_GITHUB_ID}
+      PitCrew__Authentication__DataProtectionKeyPath: /var/lib/pitcrew-dashboard/data-protection-keys
+      PitCrew__ReverseProxy__KnownProxyAddresses__0: 172.31.0.2
+      PitCrew__Sqlite__DatabasePath: /var/lib/pitcrew-dashboard/pitcrew-dashboard.db
+    volumes:
+      - dashboard-data:/var/lib/pitcrew-dashboard
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      pitcrew-hosted:
+        ipv4_address: 172.31.0.3
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    read_only: true
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    environment:
+      PITCREW_DASHBOARD_DOMAIN: ${PITCREW_DASHBOARD_DOMAIN:?Set PITCREW_DASHBOARD_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.hosted:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      pitcrew-hosted:
+        ipv4_address: 172.31.0.2
+
+networks:
+  pitcrew-hosted:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+volumes:
+  dashboard-data:
+  caddy-data:
+  caddy-config:

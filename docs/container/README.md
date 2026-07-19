@@ -45,4 +45,7 @@ requirements.
 
 `.github/workflows/container-ci.yml` builds and runs `linux/amd64`, checks the
 declared health contract, verifies non-root execution, rejects SDK or Node build
-tooling in the final filesystem, and cross-builds `linux/arm64` without emulation.
+tooling in the final filesystem, executes optional image-specific smoke commands,
+and cross-builds `linux/arm64` without emulation. The dashboard contract creates
+and verifies a SQLite backup through the packaged database tool. The workflow
+also validates both Compose files and the hosted Caddy configuration.

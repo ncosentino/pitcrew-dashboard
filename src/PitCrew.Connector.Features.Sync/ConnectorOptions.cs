@@ -23,9 +23,9 @@ public sealed class ConnectorOptions
   public bool AllowInsecureHttp { get; set; }
 
   /// <summary>
-  /// Gets or sets the enrollment token used only when no connector identity exists.
+  /// Gets or sets the one-time code used for initial enrollment or explicit re-enrollment.
   /// </summary>
-  public string EnrollmentToken { get; set; } = string.Empty;
+  public string EnrollmentCode { get; set; } = string.Empty;
 
   /// <summary>
   /// Gets or sets the operator-facing server name.

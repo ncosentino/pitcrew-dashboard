@@ -39,7 +39,7 @@ internal static class ConnectorTestData
       new()
       {
         DashboardUrl = "https://dashboard.example",
-        EnrollmentToken = "test-enrollment-token",
+        EnrollmentCode = "test-enrollment-code",
         DisplayName = "Test Server",
         StateRoot = stateRoot,
         IdentityPath = identityPath,

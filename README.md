@@ -22,6 +22,7 @@ Pitcrew server
 Dashboard
 ├── ASP.NET Core API
 ├── embedded React application
+├── GitHub OAuth + tenant authorization
 └── single-replica SQLite projection
 ```
 
@@ -48,29 +49,51 @@ Requirements:
     -ServerName build-server
 ```
 
-The script creates a gitignored `.env.local` containing a generated enrollment
-token, builds the dashboard and connector images, and starts the stack. Open
+The script starts the dashboard with development-only loopback authentication,
+creates a tenant-scoped one-time enrollment code through the authenticated API,
+stores it in gitignored `.env.local`, and starts the connector. Open
 `http://127.0.0.1:5080`.
 
 The dashboard is bound to loopback. The connector communicates with it over a
 private Compose network and mounts the Pitcrew state root read-only.
 
-## Hosted deployment
+## Hosted read-only deployment
+
+Hosted mode uses GitHub OAuth, persisted tenant memberships, and explicit
+tenant-scoped API routes. The included `docker-compose.hosted.yml` adds Caddy as
+the TLS terminator while the dashboard remains reachable only on the private
+Compose network.
+
+1. Create a GitHub OAuth App with callback
+   `https://YOUR_DOMAIN/signin-github`.
+2. Find the immutable GitHub user ID for the first system administrator:
+
+   ```powershell
+   gh api user --jq .id
+   ```
+
+3. Copy `.env.hosted.example` to `.env.hosted`, set the domain, released image
+   version, OAuth credentials, and system-administrator GitHub ID.
+4. Start the single-replica stack:
+
+   ```powershell
+   docker compose `
+       --env-file .env.hosted `
+       --file docker-compose.hosted.yml `
+       up -d
+   ```
+
+5. Sign in, create a tenant, and create a one-time connector enrollment code.
 
 The connector supports an HTTPS dashboard URL and needs no inbound server port.
-Give every server its own persistent connector identity volume.
+Give every server its own persistent connector identity volume. A code is
+consumed once; the resulting node credential is hashed in SQLite. Rotation is
+delivered on a protocol-v2 sync and persisted atomically by the connector.
+Revoked nodes retain their historical projection but must use a new one-time
+code to re-enroll.
 
-Enrollment uses a deployment-level secret only until the dashboard issues the
-node-scoped credential. For hosted installations:
-
-1. Enroll the intended connectors.
-2. Persist each connector identity volume.
-3. Rotate the dashboard enrollment token.
-4. Restart enrolled connectors without the enrollment token.
-
-The read-only fleet UI and `GET /api/fleet/v1/nodes` endpoint do not yet
-implement human authentication. Do not expose either publicly without an
-authenticated TLS reverse proxy.
+See [Hosted deployment](docs/hosted-deployment.md) for the complete security and
+membership workflow.
 
 ## Persistence
 
@@ -79,11 +102,15 @@ dashboard contract is deliberately single-replica:
 
 - Use a named persistent volume.
 - Keep WAL mode enabled.
-- Use SQLite's online backup API or a quiesced volume snapshot.
+- Use the included online backup and verification tool.
 - Do not copy the database without its WAL while the application is running.
+- Stop the dashboard before restore.
 
 A client/server database adapter becomes appropriate only when horizontal
 dashboard replicas or materially higher write concurrency are required.
+
+See [Database operations](docs/database-operations.md) for backup, verification,
+restore, and rollback commands.
 
 ## Images
 
@@ -102,8 +129,8 @@ Requirements:
 - Node.js 22.18 or later
 
 ```powershell
-dotnet build PitCrew.Dashboard.slnx
-dotnet test PitCrew.Dashboard.slnx
+dotnet build
+dotnet test
 
 Set-Location src\PitCrew.Dashboard.WebApi\ClientApp
 npm install
@@ -115,7 +142,13 @@ npm test
 - Only Pitcrew managers mount the Docker socket.
 - Connectors mount only the non-secret state root and their own identity volume.
 - Connector credentials are high-entropy, node-scoped, hashed in SQLite, and
-  never returned after enrollment.
+  returned only during enrollment or loss-safe rotation delivery.
+- Enrollment codes are high-entropy, tenant-scoped, hashed, expiring, and
+  consumed once.
+- Human APIs require GitHub OAuth, tenant authorization, and antiforgery tokens
+  for mutations.
+- OAuth access tokens are used only to read the GitHub user profile during
+  sign-in and are not stored in SQLite or the authentication cookie.
 - The dashboard does not receive GitHub registration or workload credentials.
 - Remote capacity control, arbitrary command execution, and log shipping are not
   implemented.

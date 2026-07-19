@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 
 using Microsoft.AspNetCore.Mvc.Testing;
 
+using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Protocol;
 
@@ -12,7 +13,7 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 public sealed class HostingTests
 {
   [Test]
-  public async Task Connector_Enrolls_Synchronizes_And_Appears_In_Fleet(
+  public async Task Authenticated_Tenant_Enrolls_And_Views_Connector(
       CancellationToken cancellationToken)
   {
     var databasePath = DashboardTestHelpers.CreateDatabasePath();
@@ -22,33 +23,45 @@ public sealed class HostingTests
           databasePath);
       await using var factory = new WebApplicationFactory<Program>();
       using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Build server",
+          cancellationToken);
       var identity = await DashboardTestHelpers.EnrollAsync(
           client,
           "connector-instance",
           "Build Server",
-          DashboardTestHelpers.EnrollmentToken,
+          code.Code,
           cancellationToken);
       await DashboardTestHelpers.SynchronizeAsync(
           client,
-          identity,
-          "1.0.0",
+          identity.Credential,
+          "2.0.0",
           DashboardTestHelpers.CreateObservedState(
               "default",
               "https://github.com/example/project"),
           cancellationToken);
 
       var fleet = await client.GetFromJsonAsync<FleetResponse>(
-          "/api/fleet/v1/nodes",
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
           cancellationToken);
 
+      await Assert.That(session.User.GitHubLogin)
+          .IsEqualTo("local-operator");
+      await Assert.That(session.Tenants).HasSingleItem();
       await Assert.That(fleet).IsNotNull();
       await Assert.That(fleet!.Nodes).HasSingleItem();
       await Assert.That(fleet.Nodes[0].DisplayName)
           .IsEqualTo("Build Server");
+      await Assert.That(fleet.Nodes[0].IsRevoked).IsFalse();
       await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
-      await Assert.That(fleet.Nodes[0].Profiles[0].Slots).HasSingleItem();
-      await Assert.That(fleet.Nodes[0].Profiles[0].Slots[0].State)
-          .IsEqualTo("online");
+      await Assert.That(fleet.Nodes[0].Profiles[0].Slots)
+          .HasSingleItem();
     }
     finally
     {
@@ -57,7 +70,7 @@ public sealed class HostingTests
   }
 
   [Test]
-  public async Task Multiple_Connectors_Isolate_Overlapping_Profile_Names(
+  public async Task Enrollment_Code_Is_Consumed_Once(
       CancellationToken cancellationToken)
   {
     var databasePath = DashboardTestHelpers.CreateDatabasePath();
@@ -67,89 +80,371 @@ public sealed class HostingTests
           databasePath);
       await using var factory = new WebApplicationFactory<Program>();
       using var client = factory.CreateClient();
-      var first = await DashboardTestHelpers.EnrollAsync(
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Single use",
+          cancellationToken);
+      await DashboardTestHelpers.EnrollAsync(
           client,
           "connector-one",
           "Server One",
-          DashboardTestHelpers.EnrollmentToken,
-          cancellationToken);
-      var second = await DashboardTestHelpers.EnrollAsync(
-          client,
-          "connector-two",
-          "Server Two",
-          DashboardTestHelpers.EnrollmentToken,
-          cancellationToken);
-      await DashboardTestHelpers.SynchronizeAsync(
-          client,
-          first,
-          "1.0.0",
-          DashboardTestHelpers.CreateObservedState(
-              "default",
-              "https://github.com/example/one"),
-          cancellationToken);
-      await DashboardTestHelpers.SynchronizeAsync(
-          client,
-          second,
-          "1.0.0",
-          DashboardTestHelpers.CreateObservedState(
-              "default",
-              "https://github.com/example/two"),
+          code.Code,
           cancellationToken);
 
-      var fleet = await client.GetFromJsonAsync<FleetResponse>(
-          "/api/fleet/v1/nodes",
-          cancellationToken);
-
-      await Assert.That(fleet).IsNotNull();
-      await Assert.That(fleet!.Nodes).Count().IsEqualTo(2);
-      var firstNode = fleet.Nodes.Single(
-          node => node.DisplayName == "Server One");
-      var secondNode = fleet.Nodes.Single(
-          node => node.DisplayName == "Server Two");
-      await Assert.That(firstNode.Profiles[0].ProfileId)
-          .IsEqualTo("default");
-      await Assert.That(secondNode.Profiles[0].ProfileId)
-          .IsEqualTo("default");
-      await Assert.That(firstNode.Profiles[0].Slots[0].Repository)
-          .IsEqualTo("https://github.com/example/one");
-      await Assert.That(secondNode.Profiles[0].Slots[0].Repository)
-          .IsEqualTo("https://github.com/example/two");
-    }
-    finally
-    {
-      DashboardTestHelpers.DeleteDatabase(databasePath);
-    }
-  }
-
-  [Test]
-  public async Task Connector_Enrollment_Rejects_Invalid_Token(
-      CancellationToken cancellationToken)
-  {
-    var databasePath = DashboardTestHelpers.CreateDatabasePath();
-    try
-    {
-      using var configuration = new TestConfigurationScope(
-          databasePath);
-      await using var factory = new WebApplicationFactory<Program>();
-      using var client = factory.CreateClient();
-      using var enrollment = new HttpRequestMessage(
+      using var secondEnrollment = new HttpRequestMessage(
           HttpMethod.Post,
           "/api/connectors/v1/enroll")
       {
-        Content = JsonContent.Create(new ConnectorEnrollmentRequest(
-              "connector-instance",
-              "Build Server")),
+        Content = JsonContent.Create(
+            new ConnectorEnrollmentRequest(
+                "connector-two",
+                "Server Two")),
       };
-      enrollment.Headers.Add(
-          "X-PitCrew-Enrollment-Token",
-          "incorrect-token");
-
+      secondEnrollment.Headers.Add(
+          "X-PitCrew-Enrollment-Code",
+          code.Code);
       using var response = await client.SendAsync(
-          enrollment,
+          secondEnrollment,
           cancellationToken);
 
       await Assert.That(response.StatusCode)
           .IsEqualTo(HttpStatusCode.Unauthorized);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Tenant_Routes_Isolate_Overlapping_Profile_Names(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      using (var createTenant = await
+          DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              "/api/tenants",
+              session.AntiforgeryToken,
+              new CreateTenantRequest(
+                  "secondary",
+                  "Secondary"),
+              cancellationToken))
+      {
+        createTenant.EnsureSuccessStatusCode();
+      }
+      var localCode = await
+          DashboardTestHelpers.CreateEnrollmentCodeAsync(
+              client,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "Local",
+              cancellationToken);
+      var secondaryCode = await
+          DashboardTestHelpers.CreateEnrollmentCodeAsync(
+              client,
+              session.AntiforgeryToken,
+              "secondary",
+              "Secondary",
+              cancellationToken);
+      var localIdentity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-local",
+          "Local Server",
+          localCode.Code,
+          cancellationToken);
+      var secondaryIdentity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-secondary",
+          "Secondary Server",
+          secondaryCode.Code,
+          cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          localIdentity.Credential,
+          "2.0.0",
+          DashboardTestHelpers.CreateObservedState(
+              "default",
+              "https://github.com/example/local"),
+          cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          secondaryIdentity.Credential,
+          "2.0.0",
+          DashboardTestHelpers.CreateObservedState(
+              "default",
+              "https://github.com/example/secondary"),
+          cancellationToken);
+
+      var localFleet = await client.GetFromJsonAsync<FleetResponse>(
+          "/api/tenants/local/fleet/v1/nodes",
+          cancellationToken);
+      var secondaryFleet =
+          await client.GetFromJsonAsync<FleetResponse>(
+              "/api/tenants/secondary/fleet/v1/nodes",
+              cancellationToken);
+
+      await Assert.That(localFleet).IsNotNull();
+      await Assert.That(secondaryFleet).IsNotNull();
+      await Assert.That(localFleet!.Nodes).HasSingleItem();
+      await Assert.That(secondaryFleet!.Nodes).HasSingleItem();
+      await Assert.That(localFleet.Nodes[0].Profiles[0].ProfileId)
+          .IsEqualTo("default");
+      await Assert.That(secondaryFleet.Nodes[0].Profiles[0].ProfileId)
+          .IsEqualTo("default");
+      await Assert.That(
+              localFleet.Nodes[0].Profiles[0].Slots[0].Repository)
+          .IsEqualTo("https://github.com/example/local");
+      await Assert.That(
+              secondaryFleet.Nodes[0].Profiles[0].Slots[0].Repository)
+          .IsEqualTo("https://github.com/example/secondary");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Credential_Rotation_Promotes_Acknowledged_Replacement(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Rotation",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-rotation",
+          "Rotation Server",
+          code.Code,
+          cancellationToken);
+      var state = DashboardTestHelpers.CreateObservedState(
+          "default",
+          "https://github.com/example/project");
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "2.0.0",
+          state,
+          cancellationToken);
+
+      using (var rotationRequest = await
+          DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/credential-rotation",
+              session.AntiforgeryToken,
+              null,
+              cancellationToken))
+      {
+        rotationRequest.EnsureSuccessStatusCode();
+      }
+      var rotation = await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "2.0.0",
+          state,
+          cancellationToken);
+      await Assert.That(rotation.CredentialRotation).IsNotNull();
+      var replacement = rotation.CredentialRotation!.Credential;
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          replacement,
+          "2.0.0",
+          state,
+          cancellationToken);
+
+      using var oldCredentialResponse =
+          await DashboardTestHelpers.SendSynchronizationAsync(
+              client,
+              identity.Credential,
+              "2.0.0",
+              state,
+              cancellationToken);
+      await Assert.That(oldCredentialResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Revoked_Connector_Reenrolls_With_Same_Node_Identity(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var firstCode =
+          await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+              client,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "Initial",
+              cancellationToken);
+      var firstIdentity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-reenrollment",
+          "Re-enrollment Server",
+          firstCode.Code,
+          cancellationToken);
+      var state = DashboardTestHelpers.CreateObservedState(
+          "default",
+          "https://github.com/example/project");
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          firstIdentity.Credential,
+          "2.0.0",
+          state,
+          cancellationToken);
+      using (var revoke = await
+          DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/local/fleet/v1/nodes/{firstIdentity.NodeId:D}/revoke",
+              session.AntiforgeryToken,
+              null,
+              cancellationToken))
+      {
+        revoke.EnsureSuccessStatusCode();
+      }
+      using (var revokedSync =
+          await DashboardTestHelpers.SendSynchronizationAsync(
+              client,
+              firstIdentity.Credential,
+              "2.0.0",
+              state,
+              cancellationToken))
+      {
+        await Assert.That(revokedSync.StatusCode)
+            .IsEqualTo(HttpStatusCode.Unauthorized);
+      }
+
+      var replacementCode =
+          await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+              client,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "Re-enrollment",
+              cancellationToken);
+      var replacementIdentity =
+          await DashboardTestHelpers.EnrollAsync(
+              client,
+              "connector-reenrollment",
+              "Re-enrollment Server",
+              replacementCode.Code,
+              cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          replacementIdentity.Credential,
+          "2.0.0",
+          state,
+          cancellationToken);
+
+      await Assert.That(replacementIdentity.NodeId)
+          .IsEqualTo(firstIdentity.NodeId);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task GitHub_Mode_Rejects_Unauthenticated_Human_Apis(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          "123");
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient(
+          new WebApplicationFactoryClientOptions
+          {
+            AllowAutoRedirect = false,
+          });
+
+      using var sessionResponse = await client.GetAsync(
+          "/api/session",
+          cancellationToken);
+      using var fleetResponse = await client.GetAsync(
+          "/api/tenants/local/fleet/v1/nodes",
+          cancellationToken);
+
+      await Assert.That(sessionResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(fleetResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Authenticated_Mutation_Requires_Antiforgery_Token(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      using var response = await client.PostAsJsonAsync(
+          "/api/tenants",
+          new CreateTenantRequest(
+              "missing-token",
+              "Missing token"),
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
     }
     finally
     {

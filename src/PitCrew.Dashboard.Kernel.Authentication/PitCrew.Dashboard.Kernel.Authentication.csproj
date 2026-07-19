@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Carter" />
+    <PackageReference Include="NexusLabs.Needlr.AspNet" />
+    <PackageReference Include="NexusLabs.Needlr.Generators.Attributes" />
+  </ItemGroup>
+
+</Project>

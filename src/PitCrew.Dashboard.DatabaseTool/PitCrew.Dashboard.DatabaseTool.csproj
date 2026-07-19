@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NexusLabs.Needlr.Generators.Attributes" />
+    <ProjectReference Include="..\Adapters\PitCrew.Dashboard.Adapters.Sqlite\PitCrew.Dashboard.Adapters.Sqlite.csproj" />
+  </ItemGroup>
+
+</Project>

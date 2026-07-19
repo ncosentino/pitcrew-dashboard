@@ -39,6 +39,8 @@ const fleetNodeSchema = z.object({
   enrolledAt: offsetDateTimeSchema,
   lastSeenAt: offsetDateTimeSchema.nullable(),
   isOnline: z.boolean(),
+  isRevoked: z.boolean(),
+  credentialRotationRequested: z.boolean(),
   profiles: z.array(managerObservedStateSchema),
 });
 
@@ -47,16 +49,83 @@ const fleetResponseSchema = z.object({
   nodes: z.array(fleetNodeSchema),
 });
 
+/** Credential-free lifecycle state for one manager slot. */
 export type ObservedSlot = z.infer<typeof observedSlotSchema>;
+/** Credential-free projection published by one Pitcrew manager. */
 export type ManagerObservedState = z.infer<typeof managerObservedStateSchema>;
+/** One enrolled server and its latest profile projections. */
 export type FleetNode = z.infer<typeof fleetNodeSchema>;
+/** Current tenant fleet response. */
 export type FleetResponse = z.infer<typeof fleetResponseSchema>;
 
-export async function getFleet(signal: AbortSignal): Promise<FleetResponse> {
-  const httpClient = new HttpClient({ baseUrl: globalThis.location.origin });
-  return await httpClient.request('/api/fleet/v1/nodes', {
-    method: 'GET',
-    schema: fleetResponseSchema,
-    signal,
-  });
+const enrollmentCodeResponseSchema = z.object({
+  enrollmentCodeId: z.string().uuid(),
+  code: z.string(),
+  expiresAt: offsetDateTimeSchema,
+});
+
+/** One-time connector enrollment code returned only at creation. */
+export type EnrollmentCodeResponse = z.infer<typeof enrollmentCodeResponseSchema>;
+
+function createClient(): HttpClient {
+  return new HttpClient({ baseUrl: globalThis.location.origin });
+}
+
+/** Loads the current fleet projection for one authorized tenant. */
+export async function getFleet(tenantId: string, signal: AbortSignal): Promise<FleetResponse> {
+  return await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes`,
+    {
+      method: 'GET',
+      schema: fleetResponseSchema,
+      signal,
+    },
+  );
+}
+
+/** Creates one expiring enrollment code that is returned only once. */
+export async function createEnrollmentCode(
+  tenantId: string,
+  label: string,
+  antiforgeryToken: string,
+): Promise<EnrollmentCodeResponse> {
+  return await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/enrollment-codes`,
+    {
+      method: 'POST',
+      body: { label },
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+      schema: enrollmentCodeResponseSchema,
+    },
+  );
+}
+
+/** Revokes a node credential immediately. */
+export async function revokeNode(
+  tenantId: string,
+  nodeId: string,
+  antiforgeryToken: string,
+): Promise<void> {
+  await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes/${encodeURIComponent(nodeId)}/revoke`,
+    {
+      method: 'POST',
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+    },
+  );
+}
+
+/** Requests connector-delivered credential rotation on the next protocol-v2 sync. */
+export async function requestCredentialRotation(
+  tenantId: string,
+  nodeId: string,
+  antiforgeryToken: string,
+): Promise<void> {
+  await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes/${encodeURIComponent(nodeId)}/credential-rotation`,
+    {
+      method: 'POST',
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+    },
+  );
 }

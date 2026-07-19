@@ -1,17 +1,14 @@
 using Microsoft.Extensions.Hosting;
 
 using NexusLabs.Needlr;
-
-using PitCrew.Dashboard.Features.Fleet.Abstractions;
-
 namespace PitCrew.Dashboard.Adapters.Sqlite;
 
 [DoNotAutoRegister]
 internal sealed class SqliteFleetStoreInitializer(
-    IFleetStore _fleetStore) : IHostedLifecycleService
+    SqliteMigrationRunner _migrationRunner) : IHostedLifecycleService
 {
   public Task StartingAsync(CancellationToken cancellationToken) =>
-      _fleetStore.InitializeAsync(cancellationToken);
+      _migrationRunner.ApplyAsync(cancellationToken);
 
   public Task StartAsync(CancellationToken cancellationToken) =>
       Task.CompletedTask;

@@ -11,6 +11,8 @@ namespace PitCrew.Dashboard.Features.Fleet.Abstractions;
 /// <param name="EnrolledAt">Time the connector was first enrolled.</param>
 /// <param name="LastSeenAt">Time the dashboard last accepted a connector synchronization.</param>
 /// <param name="IsOnline">Whether the node is within the dashboard freshness window.</param>
+/// <param name="IsRevoked">Whether the node credential has been revoked.</param>
+/// <param name="CredentialRotationRequested">Whether an administrator requested credential rotation.</param>
 /// <param name="Profiles">Latest profile projections for the node.</param>
 public sealed record FleetNode(
     Guid NodeId,
@@ -19,6 +21,8 @@ public sealed record FleetNode(
     DateTimeOffset EnrolledAt,
     DateTimeOffset? LastSeenAt,
     bool IsOnline,
+    bool IsRevoked,
+    bool CredentialRotationRequested,
     IReadOnlyList<ManagerObservedState> Profiles);
 
 /// <summary>

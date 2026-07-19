@@ -23,6 +23,11 @@ RUN target_arch="$TARGETARCH"; \
         -p:SelfContained=false
 RUN target_arch="$TARGETARCH"; \
     if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
+    dotnet restore src/PitCrew.Dashboard.DatabaseTool/PitCrew.Dashboard.DatabaseTool.csproj \
+        --runtime "linux-musl-$target_arch" \
+        -p:SelfContained=false
+RUN target_arch="$TARGETARCH"; \
+    if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
     dotnet publish src/PitCrew.Dashboard.WebApi/PitCrew.Dashboard.WebApi.csproj \
         --configuration Release \
         --runtime "linux-musl-$target_arch" \
@@ -30,6 +35,14 @@ RUN target_arch="$TARGETARCH"; \
         --no-restore \
         -p:SkipSpaBuild=true \
         --output /out
+RUN target_arch="$TARGETARCH"; \
+    if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
+    dotnet publish src/PitCrew.Dashboard.DatabaseTool/PitCrew.Dashboard.DatabaseTool.csproj \
+        --configuration Release \
+        --runtime "linux-musl-$target_arch" \
+        --self-contained false \
+        --no-restore \
+        --output /dbtool
 RUN mkdir -p /dashboard-data
 COPY --from=frontend /src/dist/ /out/wwwroot/
 
@@ -38,6 +51,7 @@ WORKDIR /app
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 COPY --from=publish --chown=$APP_UID:$APP_UID /out/ ./
+COPY --from=publish --chown=$APP_UID:$APP_UID /dbtool/ /app/tools/database/
 COPY --from=publish --chown=$APP_UID:$APP_UID /dashboard-data/ /var/lib/pitcrew-dashboard/
 USER $APP_UID
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \

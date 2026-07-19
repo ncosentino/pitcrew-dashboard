@@ -68,6 +68,18 @@ internal sealed partial class ConnectorWorker(
                     now,
                     observedState.Profiles),
                 stoppingToken);
+            if (response.CredentialRotation is not null)
+            {
+              identity = identity with
+              {
+                Credential =
+                    response.CredentialRotation.Credential,
+              };
+              await _identityStore.SaveAsync(
+                  identity,
+                  stoppingToken);
+              LogCredentialRotated();
+            }
             consecutiveFailures = 0;
             lastSentHash = observedState.AggregateHash;
             lastSentAt = now;
@@ -92,9 +104,20 @@ internal sealed partial class ConnectorWorker(
           when (exception.StatusCode == System.Net.HttpStatusCode.Unauthorized)
       {
         LogCredentialRejected();
-        throw new InvalidOperationException(
-            "The connector credential was revoked; explicit re-enrollment is required.",
-            exception);
+        if (string.IsNullOrWhiteSpace(
+            _options.Value.EnrollmentCode))
+        {
+          throw new InvalidOperationException(
+              "The connector credential was revoked; configure a new one-time enrollment code and restart to re-enroll.",
+              exception);
+        }
+        identity = await ReEnrollAsync(
+            identity,
+            stoppingToken);
+        consecutiveFailures = 0;
+        lastSentHash = string.Empty;
+        lastSentAt = DateTimeOffset.MinValue;
+        nextDelay = successfulPollDelay;
       }
       catch (HttpRequestException exception)
           when (exception.StatusCode is not null &&
@@ -158,7 +181,7 @@ internal sealed partial class ConnectorWorker(
       {
         LogEnrollmentRejected();
         throw new InvalidOperationException(
-            "The dashboard rejected the connector enrollment token.",
+            "The dashboard rejected the one-time connector enrollment code.",
             exception);
       }
       catch (HttpRequestException exception)
@@ -199,12 +222,33 @@ internal sealed partial class ConnectorWorker(
     {
       return identity;
     }
-    if (string.IsNullOrWhiteSpace(_options.Value.EnrollmentToken))
+    if (string.IsNullOrWhiteSpace(_options.Value.EnrollmentCode))
     {
       throw new InvalidOperationException(
-          "Connector enrollment requires PitCrew:Connector:EnrollmentToken until an identity has been issued.");
+          "Connector enrollment requires PitCrew:Connector:EnrollmentCode until an identity has been issued.");
     }
 
+    var response = await _apiClient.EnrollAsync(
+        new ConnectorEnrollmentRequest(
+            identity.ConnectorInstanceId,
+            _options.Value.DisplayName),
+        cancellationToken);
+    var enrolled = identity with
+    {
+      NodeId = response.NodeId,
+      Credential = response.Credential,
+    };
+    await _identityStore.SaveAsync(
+        enrolled,
+        cancellationToken);
+    LogEnrolled(response.NodeId);
+    return enrolled;
+  }
+
+  private async Task<ConnectorIdentity> ReEnrollAsync(
+      ConnectorIdentity identity,
+      CancellationToken cancellationToken)
+  {
     var response = await _apiClient.EnrollAsync(
         new ConnectorEnrollmentRequest(
             identity.ConnectorInstanceId,
@@ -279,9 +323,14 @@ internal sealed partial class ConnectorWorker(
       TimeSpan nextDelay);
 
   [LoggerMessage(
-      Level = LogLevel.Critical,
-      Message = "Dashboard rejected this connector credential. Automatic re-enrollment is disabled.")]
+      Level = LogLevel.Warning,
+      Message = "Dashboard rejected this connector credential.")]
   private partial void LogCredentialRejected();
+
+  [LoggerMessage(
+      Level = LogLevel.Information,
+      Message = "Persisted a rotated connector credential.")]
+  private partial void LogCredentialRotated();
 
   [LoggerMessage(
       Level = LogLevel.Critical,
@@ -290,7 +339,7 @@ internal sealed partial class ConnectorWorker(
 
   [LoggerMessage(
       Level = LogLevel.Critical,
-      Message = "Dashboard rejected the connector enrollment token.")]
+      Message = "Dashboard rejected the one-time connector enrollment code.")]
   private partial void LogEnrollmentRejected();
 
   [LoggerMessage(

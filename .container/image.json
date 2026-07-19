@@ -3,12 +3,35 @@
   "imageName": "PitCrew.Dashboard",
   "dockerfile": "Dockerfile",
   "runEnvironment": {
+    "ASPNETCORE_ENVIRONMENT": "Development",
+    "PitCrew__Authentication__Mode": "Development",
+    "PitCrew__Authentication__DataProtectionKeyPath": "/tmp/data-protection-keys",
     "PitCrew__Sqlite__DatabasePath": "/tmp/pitcrew-dashboard.db"
   },
   "smoke": {
     "kind": "http",
     "containerPort": 8080,
-    "healthPath": "/health"
-    ,"rootPath": "/"
+    "healthPath": "/health",
+    "rootPath": "/",
+    "execCommands": [
+      {
+        "arguments": [
+          "/app/tools/database/PitCrew.Dashboard.DatabaseTool",
+          "backup",
+          "--database",
+          "/tmp/pitcrew-dashboard.db",
+          "--output",
+          "/tmp/pitcrew-dashboard-smoke.db"
+        ]
+      },
+      {
+        "arguments": [
+          "/app/tools/database/PitCrew.Dashboard.DatabaseTool",
+          "verify",
+          "--input",
+          "/tmp/pitcrew-dashboard-smoke.db"
+        ]
+      }
+    ]
   }
 }

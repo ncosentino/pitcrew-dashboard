@@ -17,15 +17,29 @@ internal sealed record ConnectorSyncResult(
     string? Error,
     ConnectorSyncResponse? Response);
 
+internal sealed record ConnectorSynchronizationInput(
+    int ProtocolVersion,
+    string ConnectorVersion,
+    DateTimeOffset SentAt,
+    IReadOnlyList<ManagerObservedState> Profiles);
+
+internal interface ISyncConnectorUnitOfWork
+{
+  Task<ConnectorSyncResult> SynchronizeAsync(
+      string credential,
+      ConnectorSynchronizationInput input,
+      CancellationToken cancellationToken);
+}
+
 internal sealed class SyncConnectorUnitOfWork(
     IFleetStore _fleetStore,
     ConnectorCredentialService _credentialService,
     IOptions<FleetDashboardOptions> _options,
-    TimeProvider _timeProvider)
+    TimeProvider _timeProvider) : ISyncConnectorUnitOfWork
 {
   public async Task<ConnectorSyncResult> SynchronizeAsync(
       string credential,
-      ConnectorSyncRequest request,
+      ConnectorSynchronizationInput input,
       CancellationToken cancellationToken)
   {
     var identity = await _fleetStore.ResolveNodeOrNullAsync(
@@ -39,23 +53,24 @@ internal sealed class SyncConnectorUnitOfWork(
           null);
     }
 
-    if (request.ProtocolVersion != PitCrewProtocol.Version)
+    if (input.ProtocolVersion < PitCrewProtocol.MinimumSupportedVersion ||
+        input.ProtocolVersion > PitCrewProtocol.Version)
     {
       return new ConnectorSyncResult(
           ConnectorSyncStatus.Invalid,
-          $"Unsupported connector protocol version '{request.ProtocolVersion}'.",
+          $"Unsupported connector protocol version '{input.ProtocolVersion}'.",
           null);
     }
-    if (string.IsNullOrWhiteSpace(request.ConnectorVersion) ||
-        request.ConnectorVersion.Length > 128)
+    if (string.IsNullOrWhiteSpace(input.ConnectorVersion) ||
+        input.ConnectorVersion.Length > 128)
     {
       return new ConnectorSyncResult(
           ConnectorSyncStatus.Invalid,
           "Connector version must be between 1 and 128 characters.",
           null);
     }
-    if (request.Profiles is null ||
-        request.Profiles.Count > 256)
+    if (input.Profiles is null ||
+        input.Profiles.Count > 256)
     {
       return new ConnectorSyncResult(
           ConnectorSyncStatus.Invalid,
@@ -64,7 +79,7 @@ internal sealed class SyncConnectorUnitOfWork(
     }
 
     var profileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    foreach (var profile in request.Profiles)
+    foreach (var profile in input.Profiles)
     {
       if (!IsValidProfile(profile))
       {
@@ -83,18 +98,41 @@ internal sealed class SyncConnectorUnitOfWork(
     }
 
     var acceptedAt = _timeProvider.GetUtcNow();
+    var credentialUpdate = new ConnectorCredentialUpdate(
+        ConnectorCredentialUpdateKind.None,
+        string.Empty);
+    ConnectorCredentialRotation? credentialRotation = null;
+    if (identity.CredentialSlot == ConnectorCredentialSlot.Pending)
+    {
+      credentialUpdate = new ConnectorCredentialUpdate(
+          ConnectorCredentialUpdateKind.Promote,
+          _credentialService.Hash(credential));
+    }
+    else if (identity.RotationRequested &&
+        input.ProtocolVersion >= 2)
+    {
+      var replacement = _credentialService.CreateNodeCredential();
+      credentialUpdate = new ConnectorCredentialUpdate(
+          ConnectorCredentialUpdateKind.Stage,
+          _credentialService.Hash(replacement));
+      credentialRotation = new ConnectorCredentialRotation(
+          replacement);
+    }
+
     await _fleetStore.ApplySyncAsync(
         identity.NodeId,
-        request.ConnectorVersion,
+        input.ConnectorVersion,
         acceptedAt,
-        request.Profiles,
+        input.Profiles,
+        credentialUpdate,
         cancellationToken);
     return new ConnectorSyncResult(
         ConnectorSyncStatus.Accepted,
         null,
         new ConnectorSyncResponse(
             acceptedAt,
-            _options.Value.ConnectorPollSeconds));
+            _options.Value.ConnectorPollSeconds,
+            credentialRotation));
   }
 
   private static bool IsValidProfile(ManagerObservedState profile)

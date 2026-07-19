@@ -10,7 +10,12 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 1;
+  public const int Version = 2;
+
+  /// <summary>
+  /// Gets the oldest connector synchronization protocol accepted by the dashboard.
+  /// </summary>
+  public const int MinimumSupportedVersion = 1;
 }
 
 /// <summary>
@@ -99,13 +104,21 @@ public sealed record ConnectorSyncRequest(
     IReadOnlyList<ManagerObservedState> Profiles);
 
 /// <summary>
+/// Delivers a staged replacement node credential to the connector.
+/// </summary>
+/// <param name="Credential">High-entropy replacement credential persisted before the next synchronization.</param>
+public sealed record ConnectorCredentialRotation(string Credential);
+
+/// <summary>
 /// Acknowledges one connector synchronization request.
 /// </summary>
 /// <param name="AcceptedAt">Dashboard time when the synchronization was committed.</param>
 /// <param name="NextPollSeconds">Recommended minimum delay before the next synchronization.</param>
+/// <param name="CredentialRotation">Replacement credential when rotation was staged; otherwise <see langword="null"/>.</param>
 public sealed record ConnectorSyncResponse(
     DateTimeOffset AcceptedAt,
-    int NextPollSeconds);
+    int NextPollSeconds,
+    ConnectorCredentialRotation? CredentialRotation);
 
 /// <summary>
 /// Provides source-generated JSON metadata for connector and dashboard protocol messages.
@@ -118,6 +131,7 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(ConnectorEnrollmentRequest))]
 [JsonSerializable(typeof(ConnectorEnrollmentResponse))]
 [JsonSerializable(typeof(ConnectorSyncRequest))]
+[JsonSerializable(typeof(ConnectorCredentialRotation))]
 [JsonSerializable(typeof(ConnectorSyncResponse))]
 [JsonSerializable(typeof(IReadOnlyList<ManagerObservedState>))]
 public sealed partial class PitCrewProtocolJsonContext : JsonSerializerContext;

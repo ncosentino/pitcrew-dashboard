@@ -39,6 +39,7 @@ appsettings.*.json
 !appsettings.json
 !appsettings.Development.json
 .env.local
+.env.hosted
 
 # Local persistent state
 data/

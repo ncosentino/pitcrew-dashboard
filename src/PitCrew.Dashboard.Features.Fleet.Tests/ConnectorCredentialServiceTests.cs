@@ -3,16 +3,18 @@ namespace PitCrew.Dashboard.Features.Fleet.Tests;
 public sealed class ConnectorCredentialServiceTests
 {
   [Test]
-  public async Task CreateCredential_Produces_Unique_Verifiable_Values()
+  public async Task CreateSecrets_Produces_Unique_Typed_Values()
   {
     var service = new ConnectorCredentialService();
 
-    var first = service.CreateCredential();
-    var second = service.CreateCredential();
+    var first = service.CreateNodeCredential();
+    var second = service.CreateNodeCredential();
+    var enrollmentCode = service.CreateEnrollmentCode();
 
     await Assert.That(first).IsNotEqualTo(second);
-    await Assert.That(first.Length).IsGreaterThanOrEqualTo(40);
-    await Assert.That(service.Matches(first, first)).IsTrue();
-    await Assert.That(service.Matches(first, second)).IsFalse();
+    await Assert.That(first).StartsWith("pc_node_");
+    await Assert.That(enrollmentCode).StartsWith("pc_enroll_");
+    await Assert.That(service.Hash(first)).IsNotEqualTo(
+        service.Hash(second));
   }
 }

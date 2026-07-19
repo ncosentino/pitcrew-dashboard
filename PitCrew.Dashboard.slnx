@@ -10,10 +10,12 @@
     <Project Path="src/PitCrew.Protocol/PitCrew.Protocol.csproj" />
   </Folder>
   <Folder Name="/src/Adapters/">
+    <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.Sqlite.Tests/PitCrew.Dashboard.Adapters.Sqlite.Tests.csproj" />
     <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.Sqlite/PitCrew.Dashboard.Adapters.Sqlite.csproj" />
   </Folder>
   <Folder Name="/src/Applications/">
     <Project Path="src/PitCrew.Connector.App/PitCrew.Connector.App.csproj" />
+    <Project Path="src/PitCrew.Dashboard.DatabaseTool/PitCrew.Dashboard.DatabaseTool.csproj" />
     <Project Path="src/PitCrew.Dashboard.WebApi.Tests/PitCrew.Dashboard.WebApi.Tests.csproj" />
     <Project Path="src/PitCrew.Dashboard.WebApi/PitCrew.Dashboard.WebApi.csproj" />
   </Folder>
@@ -22,11 +24,14 @@
     <Project Path="src/PitCrew.Connector.Features.Sync/PitCrew.Connector.Features.Sync.csproj" />
   </Folder>
   <Folder Name="/src/Features/">
+    <Project Path="src/PitCrew.Dashboard.Features.Access.Abstractions/PitCrew.Dashboard.Features.Access.Abstractions.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Features.Access/PitCrew.Dashboard.Features.Access.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Fleet.Abstractions/PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Fleet.Tests/PitCrew.Dashboard.Features.Fleet.Tests.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Fleet/PitCrew.Dashboard.Features.Fleet.csproj" />
   </Folder>
   <Folder Name="/src/Kernel/">
+    <Project Path="src/PitCrew.Dashboard.Kernel.Authentication/PitCrew.Dashboard.Kernel.Authentication.csproj" />
     <Project Path="src/PitCrew.Dashboard.Kernel.ExceptionHandling/PitCrew.Dashboard.Kernel.ExceptionHandling.csproj" />
   </Folder>
 </Solution>

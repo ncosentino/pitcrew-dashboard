@@ -1,12 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/core/api/httpClient';
 import { cn } from '@/lib/utils';
 
-import { getFleet, type FleetResponse, type ObservedSlot } from './fleetApi';
+import {
+  createEnrollmentCode,
+  getFleet,
+  requestCredentialRotation,
+  revokeNode,
+  type EnrollmentCodeResponse,
+  type FleetResponse,
+  type ObservedSlot,
+} from './fleetApi';
 
 const refreshIntervalMilliseconds = 5_000;
+
+/** Props for tenant-scoped fleet visibility and node administration. */
+export interface FleetDashboardProps {
+  readonly tenantId: string;
+  readonly canAdminister: boolean;
+  readonly antiforgeryToken: string;
+}
 
 function formatTime(value: string | null): string {
   if (value === null) return 'Never';
@@ -24,10 +40,12 @@ function statusClasses(status: string): string {
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
     case 'draining':
     case 'restarting':
+    case 'rotation requested':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
     case 'invalid':
     case 'conflict':
+    case 'revoked':
       return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
     default:
       return 'bg-muted text-muted-foreground';
@@ -60,29 +78,36 @@ function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
   );
 }
 
-export function FleetDashboard() {
+/** Renders one tenant's live fleet plus authorized enrollment and node controls. */
+export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: FleetDashboardProps) {
   const [fleet, setFleet] = useState<FleetResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
+  const [enrollmentLabel, setEnrollmentLabel] = useState('New server');
+  const [enrollmentCode, setEnrollmentCode] = useState<EnrollmentCodeResponse | null>(null);
 
-  const refresh = useCallback(async (signal: AbortSignal) => {
-    try {
-      const response = await getFleet(signal);
-      setFleet(response);
-      setError(null);
-    } catch (caught) {
-      if (caught instanceof Error && caught.name === 'AbortError') return;
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : caught instanceof Error
+  const refresh = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const response = await getFleet(tenantId, signal);
+        setFleet(response);
+        setError(null);
+      } catch (caught) {
+        if (caught instanceof Error && caught.name === 'AbortError') return;
+        setError(
+          caught instanceof ApiError
             ? caught.message
-            : 'Fleet status could not be loaded.',
-      );
-    } finally {
-      if (!signal.aborted) setIsLoading(false);
-    }
-  }, []);
+            : caught instanceof Error
+              ? caught.message
+              : 'Fleet status could not be loaded.',
+        );
+      } finally {
+        if (!signal.aborted) setIsLoading(false);
+      }
+    },
+    [tenantId],
+  );
 
   useEffect(() => {
     let controller = new AbortController();
@@ -101,26 +126,90 @@ export function FleetDashboard() {
     };
   }, [refresh]);
 
+  const mutate = async (operation: () => Promise<void>) => {
+    setIsMutating(true);
+    try {
+      await operation();
+      await refresh(new AbortController().signal);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Fleet administration failed.');
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const issueEnrollmentCode = async () => {
+    setIsMutating(true);
+    try {
+      const response = await createEnrollmentCode(
+        tenantId,
+        enrollmentLabel.trim(),
+        antiforgeryToken,
+      );
+      setEnrollmentCode(response);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Enrollment code could not be created.');
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-8 sm:px-8">
-      <header className="flex flex-col gap-2">
+    <>
+      <section className="grid gap-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold tracking-[0.2em] text-muted-foreground uppercase">
-              Pitcrew
+            <h2 className="text-2xl font-bold tracking-tight">Fleet status</h2>
+            <p className="text-sm text-muted-foreground">
+              Servers connect outbound and report credential-free manager observations.
             </p>
-            <h1 className="text-3xl font-bold tracking-tight">Runner fleet</h1>
           </div>
           <div className="text-right text-sm text-muted-foreground">
-            <div>Read-only dashboard</div>
-            <div>{fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}</div>
+            {fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}
           </div>
         </div>
-        <p className="max-w-3xl text-muted-foreground">
-          Servers connect outbound and report credential-free manager observations. This dashboard
-          never receives a Docker socket or GitHub runner-registration token.
-        </p>
-      </header>
+      </section>
+
+      {canAdminister ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Enroll a connector</CardTitle>
+            <CardDescription>
+              Codes expire quickly and are consumed by exactly one enrollment or re-enrollment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <div className="flex flex-wrap gap-3">
+              <input
+                className="h-9 min-w-64 flex-1 rounded-md border bg-background px-3 text-sm"
+                value={enrollmentLabel}
+                onChange={(event) => setEnrollmentLabel(event.target.value)}
+                maxLength={128}
+              />
+              <Button
+                type="button"
+                disabled={isMutating || enrollmentLabel.trim().length === 0}
+                onClick={() => void issueEnrollmentCode()}
+              >
+                Create one-time code
+              </Button>
+            </div>
+            {enrollmentCode ? (
+              <div className="grid gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                <div className="text-sm font-semibold">Copy this code now</div>
+                <code className="overflow-x-auto rounded bg-background p-3 text-xs">
+                  {enrollmentCode.code}
+                </code>
+                <div className="text-xs">
+                  Expires {formatTime(enrollmentCode.expiresAt)}. It is not stored in recoverable
+                  form.
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {error ? (
         <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
@@ -135,7 +224,7 @@ export function FleetDashboard() {
           <CardHeader>
             <CardTitle>No servers enrolled</CardTitle>
             <CardDescription>
-              Start a connector with this dashboard URL and a valid enrollment token.
+              Create a one-time code, configure it on a connector, and start the connector.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -153,8 +242,49 @@ export function FleetDashboard() {
                     {formatTime(node.lastSeenAt)}
                   </CardDescription>
                 </div>
-                <StatusBadge status={node.isOnline ? 'online' : 'offline'} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge
+                    status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
+                  />
+                  {node.credentialRotationRequested ? (
+                    <StatusBadge status="rotation requested" />
+                  ) : null}
+                </div>
               </div>
+              {canAdminister ? (
+                <div className="flex flex-wrap gap-2 pt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isMutating || node.isRevoked || node.credentialRotationRequested}
+                    onClick={() =>
+                      void mutate(() =>
+                        requestCredentialRotation(tenantId, node.nodeId, antiforgeryToken),
+                      )
+                    }
+                  >
+                    Rotate credential
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={isMutating || node.isRevoked}
+                    onClick={() => {
+                      if (
+                        globalThis.confirm(
+                          `Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`,
+                        )
+                      ) {
+                        void mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken));
+                      }
+                    }}
+                  >
+                    Revoke
+                  </Button>
+                </div>
+              ) : null}
             </CardHeader>
             <CardContent className="grid gap-4">
               {node.profiles.length === 0 ? (
@@ -166,7 +296,7 @@ export function FleetDashboard() {
                 <section key={profile.profileId} className="overflow-hidden rounded-lg border">
                   <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/50 px-4 py-3">
                     <div>
-                      <h2 className="font-semibold">{profile.profileId}</h2>
+                      <h3 className="font-semibold">{profile.profileId}</h3>
                       <p className="text-sm text-muted-foreground">
                         {profile.scope} scope · generation {profile.generation} · manager contract{' '}
                         {profile.managerContractVersion}
@@ -218,6 +348,6 @@ export function FleetDashboard() {
           </Card>
         ))}
       </section>
-    </main>
+    </>
   );
 }

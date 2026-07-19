@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Access.Abstractions\PitCrew.Dashboard.Features.Access.Abstractions.csproj" />
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Fleet.Abstractions\PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
     <ProjectReference Include="..\..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
   </ItemGroup>
