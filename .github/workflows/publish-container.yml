@@ -31,7 +31,7 @@ jobs:
             suffix: "-connector"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Validate release tag
         shell: pwsh
