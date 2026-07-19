@@ -1,0 +1,6 @@
+{
+  "name": "research-methodology",
+  "description": "Instructs agents to run structured parallel research with evidence and citations before drawing conclusions",
+  "targets": ["copilot", "claude"],
+  "priority": 150
+}

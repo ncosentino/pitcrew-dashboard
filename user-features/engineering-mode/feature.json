@@ -1,0 +1,6 @@
+{
+  "name": "engineering-mode",
+  "description": "Enforces unbiased, evidence-based reasoning: pros/cons analysis, explicit uncertainty, facts vs assumptions, and fair comparison of alternatives",
+  "targets": ["copilot", "claude"],
+  "priority": 10
+}

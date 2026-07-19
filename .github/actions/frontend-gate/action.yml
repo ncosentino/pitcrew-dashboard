@@ -1,0 +1,40 @@
+name: Frontend gate
+description: >-
+  Runs an embedded web frontend's OWN complete quality pipeline (build + lint +
+  format + typecheck + tests) in its own Node toolchain, exactly as the standalone
+  frontend template enforces it. Composition must never make the embedded frontend
+  weaker than standalone, so every host that subsumes a frontend invokes this single
+  shared gate and passes only the path the frontend was mounted at.
+
+inputs:
+  working-directory:
+    description: Path to the embedded frontend (the directory whose package.json owns the build + test scripts).
+    required: true
+  node-version:
+    description: Node.js version to provision.
+    required: false
+    default: '24'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # No committed lockfile is shipped by the scaffolder, so fall back to a plain
+    # install on the first run and use the lockfile once the consumer commits one.
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+    - name: Build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npm run build
+
+    - name: Test (lint + format + typecheck + tests)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npm test

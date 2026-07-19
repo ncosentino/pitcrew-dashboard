@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Adapters\PitCrew.Dashboard.Adapters.Sqlite\PitCrew.Dashboard.Adapters.Sqlite.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Fleet\PitCrew.Dashboard.Features.Fleet.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Fleet.Abstractions\PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
+    <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

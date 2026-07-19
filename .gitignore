@@ -1,0 +1,52 @@
+# Build output
+bin/
+obj/
+
+# User-specific files
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+.artifacts/
+
+# Rider
+.idea/
+
+# Rider/VS Code
+*.DotSettings.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Secrets
+*.pfx
+*.p12
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+.env.local
+
+# Local persistent state
+data/
+
+# Test results
+TestResults/
+
+# Bundled SPA (when FrontendFramework=react): npm deps and the Vite build output
+# that the BuildSpa MSBuild target generates into the API's wwwroot.
+**/ClientApp/node_modules/
+**/wwwroot/

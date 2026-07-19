@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "imageName": "PitCrew.Dashboard",
+  "dockerfile": "Dockerfile",
+  "smoke": {
+    "kind": "http",
+    "containerPort": 8080,
+    "healthPath": "/health"
+    ,"rootPath": "/"
+  }
+}

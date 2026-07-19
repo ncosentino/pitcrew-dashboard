@@ -1,0 +1,56 @@
+name: Container image
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: dashboard
+            config: .container/image.json
+          - name: connector
+            config: .container/connector-image.json
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and validate ${{ matrix.name }} image
+        shell: pwsh
+        run: |
+          $result = ./scripts/container/Test-ContainerImage.ps1 `
+              -ConfigPath '${{ matrix.config }}' `
+              -Mode Validate
+          if (-not $result.IsClean) {
+              $result.Errors | ForEach-Object { Write-Host "::error::$_" }
+              exit 1
+          }
+
+          @"
+          ## ${{ matrix.name }} container validation
+
+          | Measurement | Value |
+          |---|---:|
+          | amd64 image bytes | $($result.Amd64ImageBytes) |
+          | arm64 OCI archive bytes | $($result.Arm64ArchiveBytes) |
+          | Runtime user | $($result.RuntimeUser) |
+          "@ | Add-Content $env:GITHUB_STEP_SUMMARY

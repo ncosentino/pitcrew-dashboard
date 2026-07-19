@@ -1,0 +1,6 @@
+{
+  "name": "no-multiple-choice",
+  "description": "Prevents agents from presenting fixed multiple-choice selections — forces conversational discussion of options instead",
+  "targets": ["copilot", "claude"],
+  "priority": 20
+}

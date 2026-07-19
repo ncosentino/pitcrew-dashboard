@@ -1,0 +1,2 @@
+# Prefer bounded channels so queue capacity is explicit.
+M:System.Threading.Channels.Channel.CreateUnbounded``1

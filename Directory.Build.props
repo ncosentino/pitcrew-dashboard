@@ -1,0 +1,62 @@
+<Project>
+
+  <!--
+    Composition note: this template is `embeddable` and its `embeddable.skip` list
+    excludes Directory.Build.props from being copied when composed into a host
+    template. Conditional <PropertyGroup>/<ItemGroup> blocks below ONLY apply
+    during STANDALONE scaffolding; when composed, the HOST's Directory.Build.props
+    is what applies to the renamed composed projects.
+
+    Host template authors composing this template are responsible for re-encoding
+    any conditions below that target this template's projects, scoped to the
+    project-name suffix the host's apps[] `name` + embeddable.rename produce
+    (e.g., `.ApiService`, `.AdminApp`). See "Build conventions when composing" in
+    .github/instructions/template-json.instructions.md for the full pattern.
+  -->
+
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- Enable Needlr source generation solution-wide; individual projects can override to false -->
+  <PropertyGroup>
+    <NeedlrAutoGenerate>true</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NexusLabs.Needlr.Build" PrivateAssets="all" />
+    <PackageReference Include="NexusLabs.Framework.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
+    <PackageReference Include="NexusLabs.Needlr.Injection" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!$(MSBuildProjectName.EndsWith('.Tests'))">
+    <PackageReference Include="IDisposableAnalyzers" PrivateAssets="all" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>$(MSBuildProjectName).Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>DynamicProxyGenAssembly2</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+</Project>

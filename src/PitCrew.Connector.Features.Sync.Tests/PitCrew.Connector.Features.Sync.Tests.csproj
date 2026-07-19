@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Connector.Features.Sync\PitCrew.Connector.Features.Sync.csproj" />
+    <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

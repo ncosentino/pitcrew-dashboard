@@ -1,0 +1,21 @@
+{
+  "templateName": "aspnet-webapi",
+  "components": [
+    {
+      "id": "exception-handling",
+      "version": "0.1.1"
+    },
+    {
+      "id": "container-dotnet-core",
+      "version": "0.1.0"
+    },
+    {
+      "id": "container-dotnet-aspnet",
+      "version": "0.1.0"
+    },
+    {
+      "id": "container-publish-ghcr",
+      "version": "0.1.0"
+    }
+  ]
+}

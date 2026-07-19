@@ -1,0 +1,6 @@
+{
+  "name": "double-approval-push",
+  "description": "Prevents agents from pushing to origin/main without two separate explicit user approvals — guards against autopilot hallucinated consent",
+  "targets": ["copilot", "claude"],
+  "priority": 5
+}

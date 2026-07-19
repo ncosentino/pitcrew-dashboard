@@ -1,0 +1,22 @@
+{
+  "templateName": "aspnet-webapi",
+  "frontends": [
+    {
+      "from": "react-vite-ts",
+      "filesWritten": 24,
+      "dependenciesMerged": 0,
+      "sourcePaths": [
+        "index.html",
+        "src"
+      ],
+      "appliedComponents": [
+        "react-http-client",
+        "ui-shadcn",
+        "ui-shadcn-vite"
+      ],
+      "mountAt": "src/PitCrew.Dashboard.WebApi/ClientApp",
+      "packageJsonMode": "standalone",
+      "embedMode": "project"
+    }
+  ]
+}

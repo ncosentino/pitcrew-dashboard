@@ -1,0 +1,6 @@
+{
+  "name": "adr-conventions",
+  "description": "Instructs agents to check and propose Architecture Decision Records for significant technical decisions",
+  "targets": ["copilot", "claude"],
+  "priority": 200
+}
