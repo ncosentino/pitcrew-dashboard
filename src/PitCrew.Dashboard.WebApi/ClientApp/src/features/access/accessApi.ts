@@ -71,6 +71,19 @@ export async function createTenant(
   });
 }
 
+/** Changes the operator-facing name of one tenant without changing its stable ID. */
+export async function renameTenant(
+  tenantId: string,
+  displayName: string,
+  antiforgeryToken: string,
+): Promise<void> {
+  await createClient().request(`/api/tenants/${encodeURIComponent(tenantId)}`, {
+    method: 'PUT',
+    body: { displayName },
+    headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+  });
+}
+
 /** Loads all memberships for one tenant. */
 export async function getTenantMembers(
   tenantId: string,

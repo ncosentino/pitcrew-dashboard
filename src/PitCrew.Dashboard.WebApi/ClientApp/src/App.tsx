@@ -13,6 +13,7 @@ import {
   type TenantAccess,
 } from '@/features/access/accessApi';
 import { TenantAdministration } from '@/features/access/TenantAdministration';
+import { TenantSettings } from '@/features/access/TenantSettings';
 import { FleetDashboard } from '@/features/fleet/FleetDashboard';
 
 /** Coordinates authentication, tenant context, fleet visibility, and administration. */
@@ -103,6 +104,18 @@ function App() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Tenant could not be created.');
     }
+  };
+
+  const updateTenantDisplayName = (tenantId: string, displayName: string) => {
+    setSession((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        tenants: current.tenants
+          .map((tenant) => (tenant.tenantId === tenantId ? { ...tenant, displayName } : tenant))
+          .sort((left, right) => left.displayName.localeCompare(right.displayName)),
+      };
+    });
   };
 
   return (
@@ -205,10 +218,21 @@ function App() {
             antiforgeryToken={session.antiforgeryToken}
           />
           {selectedTenant.role === 'owner' ? (
-            <TenantAdministration
-              tenantId={selectedTenant.tenantId}
-              antiforgeryToken={session.antiforgeryToken}
-            />
+            <>
+              <TenantSettings
+                key={selectedTenant.tenantId}
+                tenantId={selectedTenant.tenantId}
+                displayName={selectedTenant.displayName}
+                antiforgeryToken={session.antiforgeryToken}
+                onRenamed={(displayName) =>
+                  updateTenantDisplayName(selectedTenant.tenantId, displayName)
+                }
+              />
+              <TenantAdministration
+                tenantId={selectedTenant.tenantId}
+                antiforgeryToken={session.antiforgeryToken}
+              />
+            </>
           ) : null}
         </>
       ) : (

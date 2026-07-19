@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import App from './App';
 
@@ -72,6 +73,49 @@ describe('App', () => {
     ).toBeInTheDocument();
     expect(await screen.findByText('No servers enrolled')).toBeInTheDocument();
     expect(screen.getByText('@operator')).toBeInTheDocument();
+  });
+
+  it('updates the tenant selector after an owner renames the tenant', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(session);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({
+          generatedAt: '2026-07-18T16:00:00+00:00',
+          nodes: [],
+        });
+      }
+      if (url.endsWith('/members') || url.endsWith('/available-users')) {
+        return jsonResponse([]);
+      }
+      if (url.endsWith('/api/tenants/local') && init?.method === 'PUT') {
+        return new Response(null, { status: 204 });
+      }
+      return jsonResponse(
+        {
+          error: {
+            code: 'not_found',
+            message: 'Not found',
+          },
+        },
+        404,
+      );
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const input = await screen.findByLabelText('Tenant display name');
+    await user.clear(input);
+    await user.type(input, 'Renamed tenant');
+    await user.click(screen.getByRole('button', { name: 'Rename tenant' }));
+
+    expect(
+      await screen.findByRole('option', {
+        name: 'Renamed tenant · owner',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Tenant name updated.');
   });
 
   it('renders ASP.NET offset timestamps and fleet state', async () => {

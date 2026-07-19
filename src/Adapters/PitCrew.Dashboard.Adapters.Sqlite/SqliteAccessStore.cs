@@ -209,6 +209,29 @@ internal sealed class SqliteAccessStore(
     return AccessMutationStatus.Succeeded;
   }
 
+  public async Task<AccessMutationStatus> RenameTenantAsync(
+      string tenantId,
+      string displayName,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE tenants
+        SET display_name = $displayName
+        WHERE tenant_id = $tenantId;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$displayName",
+        displayName);
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1
+        ? AccessMutationStatus.Succeeded
+        : AccessMutationStatus.NotFound;
+  }
+
   public async Task EnsureTenantOwnerAsync(
       string tenantId,
       string displayName,
@@ -266,8 +289,7 @@ internal sealed class SqliteAccessStore(
               $tenantId,
               $displayName,
               $createdAt)
-          ON CONFLICT (tenant_id) DO UPDATE SET
-              display_name = excluded.display_name;
+          ON CONFLICT (tenant_id) DO NOTHING;
           """;
       tenantCommand.Parameters.AddWithValue("$tenantId", tenantId);
       tenantCommand.Parameters.AddWithValue(

@@ -26,6 +26,9 @@ public sealed class AccessCarterModule : ICarterModule
     app.MapPost("/api/tenants", CreateTenantAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(AccessPolicies.SystemAdministrator);
+    app.MapPut("/api/tenants/{tenantId}", RenameTenantAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .RequireAuthorization(AccessPolicies.TenantOwner);
 
     var owners = app.MapGroup("/api/tenants/{tenantId}")
         .RequireAuthorization(AccessPolicies.TenantOwner);
@@ -78,9 +81,10 @@ public sealed class AccessCarterModule : ICarterModule
       ICreateTenantUnitOfWork unitOfWork,
       CancellationToken cancellationToken)
   {
+    var displayName = NormalizeTenantDisplayNameOrNull(
+        request.DisplayName);
     if (!IsTenantIdValid(request.TenantId) ||
-        string.IsNullOrWhiteSpace(request.DisplayName) ||
-        request.DisplayName.Length > 128)
+        displayName is null)
     {
       return Invalid(
           "invalid_tenant",
@@ -90,7 +94,7 @@ public sealed class AccessCarterModule : ICarterModule
     var status = await unitOfWork.CreateAsync(
         context.User,
         request.TenantId,
-        request.DisplayName.Trim(),
+        displayName,
         cancellationToken);
     return status switch
     {
@@ -98,12 +102,41 @@ public sealed class AccessCarterModule : ICarterModule
           $"/api/tenants/{request.TenantId}",
           new TenantAccessResponse(
               request.TenantId,
-              request.DisplayName.Trim(),
+              displayName,
               FormatRole(TenantRole.Owner))),
       AccessMutationStatus.Conflict => Conflict(
           "tenant_exists",
           "A tenant with that identifier already exists."),
       _ => Results.Forbid(),
+    };
+  }
+
+  private static async Task<IResult> RenameTenantAsync(
+      string tenantId,
+      RenameTenantRequest request,
+      IRenameTenantUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var displayName = NormalizeTenantDisplayNameOrNull(
+        request.DisplayName);
+    if (displayName is null)
+    {
+      return Invalid(
+          "invalid_tenant_name",
+          "Tenant display name must contain between 1 and 128 characters.");
+    }
+
+    var status = await unitOfWork.RenameAsync(
+        tenantId,
+        displayName,
+        cancellationToken);
+    return status switch
+    {
+      AccessMutationStatus.Succeeded => Results.NoContent(),
+      AccessMutationStatus.NotFound => Results.NotFound(),
+      _ => Conflict(
+          "tenant_rename_conflict",
+          "The tenant display name could not be changed."),
     };
   }
 
@@ -216,6 +249,19 @@ public sealed class AccessCarterModule : ICarterModule
         character is >= 'a' and <= 'z' or
             >= '0' and <= '9' or
             '-');
+  }
+
+  private static string? NormalizeTenantDisplayNameOrNull(
+      string? displayName)
+  {
+    if (string.IsNullOrWhiteSpace(displayName))
+    {
+      return null;
+    }
+    var normalized = displayName.Trim();
+    return normalized.Length <= 128
+        ? normalized
+        : null;
   }
 
   private static IResult Invalid(

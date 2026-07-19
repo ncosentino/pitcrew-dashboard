@@ -58,6 +58,18 @@ public interface IAccessStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Changes the operator-facing name of an existing tenant.
+  /// </summary>
+  /// <param name="tenantId">Stable tenant route identifier.</param>
+  /// <param name="displayName">New operator-facing tenant name.</param>
+  /// <param name="cancellationToken">Token that cancels the mutation.</param>
+  /// <returns>The mutation status.</returns>
+  Task<AccessMutationStatus> RenameTenantAsync(
+      string tenantId,
+      string displayName,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Ensures one development tenant and owner membership exist.
   /// </summary>
   /// <param name="tenantId">Stable tenant route identifier.</param>
