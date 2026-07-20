@@ -150,6 +150,8 @@ internal sealed class SyncConnectorUnitOfWork(
         profile.DrainingSlots < 0 ||
         profile.Slots is null ||
         profile.Slots.Count > 10000 ||
+        profile.ConfiguredSlots is < 0 ||
+        !IsValidAutoscaling(profile) ||
         !IsValidResourceTelemetry(profile.ResourceTelemetry) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
         profile.DrainingSlots != profile.Slots.Count(slot =>
@@ -180,11 +182,18 @@ internal sealed class SyncConnectorUnitOfWork(
     foreach (var slot in profile.Slots)
     {
       if (string.IsNullOrWhiteSpace(slot.Key) ||
-      slot.Key.Length > 128 ||
-      !slotKeys.Add(slot.Key) ||
-      slot.Repository?.Length > 2048 ||
-      slot.FailureCount < 0 ||
+          slot.Key.Length > 128 ||
+          !slotKeys.Add(slot.Key) ||
+          slot.Repository?.Length > 2048 ||
+          slot.FailureCount < 0 ||
           slot.BackoffSeconds < 0 ||
+          slot.Activity is not null &&
+          slot.Activity is not (
+              "starting" or
+              "idle" or
+              "busy" or
+              "draining" or
+              "unknown") ||
           !IsValidResourceUsage(slot.Resources) ||
           slot.State is not (
               "starting" or
@@ -199,6 +208,46 @@ internal sealed class SyncConnectorUnitOfWork(
     }
 
     return IsConsistentResourceTelemetry(profile);
+  }
+
+  private static bool IsValidAutoscaling(ManagerObservedState profile)
+  {
+    var autoscaling = profile.Autoscaling;
+    if (autoscaling is null)
+    {
+      return true;
+    }
+
+    if (autoscaling.Mode is not "scale-set" ||
+        autoscaling.Status is not (
+            "starting" or
+            "running" or
+            "degraded" or
+            "stopping") ||
+        autoscaling.MinimumIdleSlots < 0 ||
+        autoscaling.MaximumSlots < 0 ||
+        autoscaling.TargetSlots < 0 ||
+        autoscaling.AssignedJobs < 0 ||
+        autoscaling.RunningJobs < 0 ||
+        autoscaling.AvailableJobs < 0 ||
+        autoscaling.IdleRunners < 0 ||
+        autoscaling.BusyRunners < 0 ||
+        autoscaling.ScaleDownDelaySeconds < 0 ||
+        autoscaling.ScaleSetCount < 0 ||
+        (autoscaling.ScaleDownAt is { } scaleDownAt &&
+         scaleDownAt == default))
+    {
+      return false;
+    }
+
+    return (profile.ConfiguredSlots is null ||
+            autoscaling.MaximumSlots == profile.ConfiguredSlots) &&
+        profile.DesiredSlots == autoscaling.TargetSlots &&
+        autoscaling.TargetSlots <= autoscaling.MaximumSlots &&
+        autoscaling.RunningJobs <= autoscaling.AssignedJobs &&
+        autoscaling.BusyRunners <= profile.ActiveSlots &&
+        autoscaling.IdleRunners <=
+            profile.ActiveSlots - autoscaling.BusyRunners;
   }
 
   private static bool IsValidResourceTelemetry(

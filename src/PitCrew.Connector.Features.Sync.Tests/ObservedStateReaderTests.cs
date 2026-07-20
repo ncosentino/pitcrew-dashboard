@@ -33,10 +33,25 @@ public sealed class ObservedStateReaderTests
           serializedObservedState);
       var resourceTelemetry = observedStateJson.RootElement.GetProperty(
           "resourceTelemetry");
+      var autoscaling = observedStateJson.RootElement.GetProperty(
+          "autoscaling");
       var managerResources = resourceTelemetry.GetProperty("manager");
-      var slotResources = observedStateJson.RootElement
-          .GetProperty("slots")[0]
-          .GetProperty("resources");
+      var serializedSlot = observedStateJson.RootElement
+          .GetProperty("slots")[0];
+      var slotResources = serializedSlot.GetProperty("resources");
+      await Assert.That(
+              observedStateJson.RootElement
+                  .GetProperty("configuredSlots")
+                  .GetInt32())
+          .IsEqualTo(30);
+      await Assert.That(autoscaling.GetProperty("mode").GetString())
+          .IsEqualTo("scale-set");
+      await Assert.That(autoscaling.GetProperty("maximumSlots").GetInt32())
+          .IsEqualTo(30);
+      await Assert.That(serializedSlot.GetProperty("activity").GetString())
+          .IsEqualTo("busy");
+      await Assert.That(serializedSlot.GetProperty("target").GetString())
+          .IsEqualTo("scale-set-linux");
       await Assert.That(
               managerResources.GetProperty("cpuCores").GetDouble())
           .IsEqualTo(0.25);
@@ -66,8 +81,16 @@ public sealed class ObservedStateReaderTests
       await Assert.That(initial.AggregateHash).IsNotEmpty();
       await Assert.That(initial.Profiles[0].ResourceTelemetry)
           .IsEqualTo(observedState.ResourceTelemetry);
+      await Assert.That(initial.Profiles[0].ConfiguredSlots)
+          .IsEqualTo(observedState.ConfiguredSlots);
+      await Assert.That(initial.Profiles[0].Autoscaling)
+          .IsEqualTo(observedState.Autoscaling);
       await Assert.That(initial.Profiles[0].Slots[0].Resources)
           .IsEqualTo(observedState.Slots[0].Resources);
+      await Assert.That(initial.Profiles[0].Slots[0].Activity)
+          .IsEqualTo(observedState.Slots[0].Activity);
+      await Assert.That(initial.Profiles[0].Slots[0].Target)
+          .IsEqualTo(observedState.Slots[0].Target);
 
       await File.WriteAllTextAsync(
           observedStatePath,
@@ -94,7 +117,7 @@ public sealed class ObservedStateReaderTests
   }
 
   [Test]
-  public async Task ReadAsync_Accepts_Legacy_Payload_Without_Resource_Telemetry(
+  public async Task ReadAsync_Accepts_Legacy_Payload_Without_Additive_Fields(
       CancellationToken cancellationToken)
   {
     var root = CreateTemporaryDirectory();
@@ -114,9 +137,14 @@ public sealed class ObservedStateReaderTests
               "The observed-state payload could not be represented as JSON.");
       payload["managerContractVersion"] = 6;
       payload.Remove("resourceTelemetry");
+      payload.Remove("configuredSlots");
+      payload.Remove("autoscaling");
       foreach (var slot in payload["slots"]!.AsArray())
       {
-        slot!.AsObject().Remove("resources");
+        var slotObject = slot!.AsObject();
+        slotObject.Remove("resources");
+        slotObject.Remove("activity");
+        slotObject.Remove("target");
       }
       await File.WriteAllTextAsync(
           Path.Combine(
@@ -138,8 +166,12 @@ public sealed class ObservedStateReaderTests
           .Because("legacy observed-state payloads remain compatible");
       await Assert.That(result.Profiles).HasSingleItem();
       await Assert.That(result.Profiles[0].ResourceTelemetry).IsNull();
+      await Assert.That(result.Profiles[0].ConfiguredSlots).IsNull();
+      await Assert.That(result.Profiles[0].Autoscaling).IsNull();
       await Assert.That(result.Profiles[0].Slots).HasSingleItem();
       await Assert.That(result.Profiles[0].Slots[0].Resources).IsNull();
+      await Assert.That(result.Profiles[0].Slots[0].Activity).IsNull();
+      await Assert.That(result.Profiles[0].Slots[0].Target).IsNull();
     }
     finally
     {
@@ -150,7 +182,9 @@ public sealed class ObservedStateReaderTests
   [Test]
   [Arguments("empty-slot")]
   [Arguments("incomplete-manager")]
-  public async Task ReadAsync_Rejects_Incomplete_Resource_Objects(
+  [Arguments("incomplete-autoscaling")]
+  [Arguments("invalid-scale-down-at")]
+  public async Task ReadAsync_Rejects_Incomplete_Or_Invalid_Additive_Objects(
       string scenario,
       CancellationToken cancellationToken)
   {
@@ -179,6 +213,14 @@ public sealed class ObservedStateReaderTests
               .AsObject()
               .Remove("pids");
           break;
+        case "incomplete-autoscaling":
+          payload["autoscaling"]!
+              .AsObject()
+              .Remove("scaleSetCount");
+          break;
+        case "invalid-scale-down-at":
+          payload["autoscaling"]!["scaleDownAt"] = "not-a-date";
+          break;
         default:
           throw new ArgumentOutOfRangeException(
               nameof(scenario),
@@ -202,7 +244,7 @@ public sealed class ObservedStateReaderTests
 
       await Assert.That(result.IsComplete)
           .IsFalse()
-          .Because("present resource objects must contain every metric");
+          .Because("present additive objects must contain complete, valid values");
       await Assert.That(result.Profiles).IsEmpty();
     }
     finally

@@ -52,6 +52,16 @@ Resource cards require PitCrew manager contract 7 and a telemetry-aware
 connector. Older managers and connectors remain compatible and appear as
 unavailable rather than reporting zero usage.
 
+PitCrew manager contract 8 adds demand-driven autoscaling observations without
+changing connector protocol version 2. The fleet view labels fixed-capacity
+profiles separately from autoscaled scale sets. Autoscaled profiles show the
+configured maximum, current activation target, live and draining containers,
+job demand, idle and busy runners, minimum-idle policy, scale-down timing,
+scale-set count, and degraded errors. Maximum capacity is a ceiling rather than
+a health target, so an idle profile with zero active runners can be healthy.
+Older connectors may omit these additive fields; those observations continue
+to appear as fixed-capacity profiles.
+
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.

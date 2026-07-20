@@ -195,7 +195,9 @@ internal static class DashboardTestHelpers
                     new ResourceUsage(
                         1.25,
                         1_073_741_824,
-                        48)),
+                        48),
+                    null,
+                    null),
         ],
         new ManagerResourceTelemetry(
             observedAt,
@@ -206,7 +208,9 @@ internal static class DashboardTestHelpers
             new ResourceUsage(
                 0.5,
                 201_326_592,
-                11)));
+                11)),
+         null,
+         null);
   }
 
   public static string CreateDatabasePath() =>
