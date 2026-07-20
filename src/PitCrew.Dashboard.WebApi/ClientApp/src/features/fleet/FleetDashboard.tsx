@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,9 +51,23 @@ function formatPids(value: number): string {
   return `${new Intl.NumberFormat(undefined).format(value)} PIDs`;
 }
 
+function formatSeconds(value: number): string {
+  return `${new Intl.NumberFormat(undefined).format(value)} seconds`;
+}
+
+function formatScaleDownCountdown(value: string | null): string {
+  if (value === null) return 'Not scheduled';
+  const secondsRemaining = Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 1_000));
+  const schedule = formatTime(value);
+  return secondsRemaining === 0
+    ? `Due now · ${schedule}`
+    : `${formatSeconds(secondsRemaining)} remaining · ${schedule}`;
+}
+
 function statusClasses(status: string): string {
   switch (status) {
     case 'available':
+    case 'idle':
     case 'online':
     case 'running':
     case 'accepted':
@@ -62,8 +76,11 @@ function statusClasses(status: string): string {
     case 'draining':
     case 'restarting':
     case 'rotation requested':
+    case 'starting':
+    case 'stopping':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
+    case 'degraded':
     case 'invalid':
     case 'conflict':
     case 'revoked':
@@ -84,6 +101,127 @@ function StatusBadge({ status }: { readonly status: string }) {
     >
       {status}
     </span>
+  );
+}
+
+interface CapacityMetricProps {
+  readonly label: string;
+  readonly value: ReactNode;
+  readonly testId: string;
+}
+
+function CapacityMetric({ label, value, testId }: CapacityMetricProps) {
+  return (
+    <div className="bg-background px-3 py-3">
+      <dt className="text-xs text-muted-foreground uppercase">{label}</dt>
+      <dd className="mt-1 text-2xl font-semibold tabular-nums" data-testid={testId}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function CapacitySummary({ profile }: { readonly profile: ManagerObservedState }) {
+  const autoscaling = profile.autoscaling ?? null;
+  if (autoscaling === null) {
+    return (
+      <section
+        className="grid gap-3 border-y bg-muted/10 px-4 py-4"
+        data-testid={`profile-capacity-fixed-${profile.profileId}`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h4 className="font-semibold">Fixed capacity</h4>
+            <p className="text-xs text-muted-foreground">
+              The manager keeps the configured slot count active independent of queued demand.
+            </p>
+          </div>
+          <StatusBadge status="fixed" />
+        </div>
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-center sm:grid-cols-4">
+          <CapacityMetric
+            label="Configured"
+            value={profile.configuredSlots ?? profile.desiredSlots}
+            testId={`profile-capacity-configured-${profile.profileId}`}
+          />
+          <CapacityMetric
+            label="Desired"
+            value={profile.desiredSlots}
+            testId={`profile-capacity-desired-${profile.profileId}`}
+          />
+          <CapacityMetric
+            label="Active"
+            value={profile.activeSlots}
+            testId={`profile-capacity-active-${profile.profileId}`}
+          />
+          <CapacityMetric
+            label="Draining"
+            value={profile.drainingSlots}
+            testId={`profile-capacity-draining-${profile.profileId}`}
+          />
+        </dl>
+      </section>
+    );
+  }
+
+  const capacityMetrics = [
+    ['Maximum', autoscaling.maximumSlots, 'maximum'],
+    ['Target', autoscaling.targetSlots, 'target'],
+    ['Active', profile.activeSlots, 'active'],
+    ['Draining', profile.drainingSlots, 'draining'],
+    ['Assigned', autoscaling.assignedJobs, 'assigned'],
+    ['Running', autoscaling.runningJobs, 'running'],
+    ['Available / queued', autoscaling.availableJobs, 'available'],
+    ['Idle', autoscaling.idleRunners, 'idle'],
+    ['Busy', autoscaling.busyRunners, 'busy'],
+    ['Minimum idle', autoscaling.minimumIdleSlots, 'minimum-idle'],
+    ['Scale-set count', autoscaling.scaleSetCount, 'scale-set-count'],
+    ['Scale-down delay', formatSeconds(autoscaling.scaleDownDelaySeconds), 'scale-down-delay'],
+    [
+      'Scale-down countdown',
+      formatScaleDownCountdown(autoscaling.scaleDownAt),
+      'scale-down-countdown',
+    ],
+  ] as const;
+
+  return (
+    <section
+      className="grid gap-3 border-y bg-muted/10 px-4 py-4"
+      data-testid={`profile-capacity-autoscaled-${profile.profileId}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="font-semibold">Demand-driven autoscaling</h4>
+          <p className="text-xs text-muted-foreground">
+            Capacity follows assigned work and the minimum-idle policy up to the configured maximum.
+          </p>
+        </div>
+        <span data-testid={`profile-autoscaling-status-${profile.profileId}`}>
+          <StatusBadge status={autoscaling.status} />
+        </span>
+      </div>
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-center sm:grid-cols-3 xl:grid-cols-5">
+        {capacityMetrics.map(([label, value, key]) => (
+          <CapacityMetric
+            key={key}
+            label={label}
+            value={value}
+            testId={`profile-capacity-${key}-${profile.profileId}`}
+          />
+        ))}
+      </dl>
+      <div
+        className={cn(
+          'rounded-md border px-3 py-2 text-sm',
+          autoscaling.lastError
+            ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100'
+            : 'bg-background text-muted-foreground',
+        )}
+        data-testid={`profile-autoscaling-error-${profile.profileId}`}
+      >
+        <span className="font-medium">Last error:</span> {autoscaling.lastError || 'None'}
+      </div>
+    </section>
   );
 }
 
@@ -184,6 +322,12 @@ function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
     <tr className="border-t" data-testid={`slot-row-${slot.key}`}>
       <td className="px-3 py-2 font-mono text-xs">{slot.key}</td>
       <td className="px-3 py-2">{slot.repository ?? 'Shared scope'}</td>
+      <td className="px-3 py-2" data-testid={`slot-target-${slot.key}`}>
+        {slot.target ?? '—'}
+      </td>
+      <td className="px-3 py-2" data-testid={`slot-activity-${slot.key}`}>
+        {slot.activity ? <StatusBadge status={slot.activity} /> : '—'}
+      </td>
       <td className="px-3 py-2">
         <StatusBadge status={slot.state} />
       </td>
@@ -461,31 +605,16 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
                       <StatusBadge status={profile.desiredStateStatus} />
                     </div>
                   </div>
-                  <dl className="grid grid-cols-3 gap-px border-y bg-border text-center">
-                    <div className="bg-background px-3 py-3">
-                      <dt className="text-xs text-muted-foreground uppercase">Desired</dt>
-                      <dd className="text-2xl font-semibold tabular-nums">
-                        {profile.desiredSlots}
-                      </dd>
-                    </div>
-                    <div className="bg-background px-3 py-3">
-                      <dt className="text-xs text-muted-foreground uppercase">Active</dt>
-                      <dd className="text-2xl font-semibold tabular-nums">{profile.activeSlots}</dd>
-                    </div>
-                    <div className="bg-background px-3 py-3">
-                      <dt className="text-xs text-muted-foreground uppercase">Draining</dt>
-                      <dd className="text-2xl font-semibold tabular-nums">
-                        {profile.drainingSlots}
-                      </dd>
-                    </div>
-                  </dl>
+                  <CapacitySummary profile={profile} />
                   <ResourceTelemetrySummary profile={profile} />
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-4xl text-left text-sm">
                       <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
                         <tr>
                           <th className="px-3 py-2 font-medium">Slot</th>
+                          <th className="px-3 py-2 font-medium">Repository</th>
                           <th className="px-3 py-2 font-medium">Target</th>
+                          <th className="px-3 py-2 font-medium">Activity</th>
                           <th className="px-3 py-2 font-medium">State</th>
                           <th className="px-3 py-2 text-right font-medium">Failures</th>
                           <th className="px-3 py-2 text-right font-medium">CPU cores</th>

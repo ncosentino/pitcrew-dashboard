@@ -22,6 +22,23 @@ const managerResourceTelemetrySchema = z.object({
   manager: resourceUsageSchema.nullable(),
 });
 
+const managerAutoscalingStateSchema = z.object({
+  mode: z.literal('scale-set'),
+  status: z.enum(['starting', 'running', 'degraded', 'stopping']),
+  minimumIdleSlots: z.number().int().nonnegative(),
+  maximumSlots: z.number().int().nonnegative(),
+  targetSlots: z.number().int().nonnegative(),
+  assignedJobs: z.number().int().nonnegative(),
+  runningJobs: z.number().int().nonnegative(),
+  availableJobs: z.number().int().nonnegative(),
+  idleRunners: z.number().int().nonnegative(),
+  busyRunners: z.number().int().nonnegative(),
+  scaleDownDelaySeconds: z.number().int().nonnegative(),
+  scaleSetCount: z.number().int().nonnegative(),
+  scaleDownAt: offsetDateTimeSchema.nullable(),
+  lastError: z.string().nullable(),
+});
+
 const observedSlotSchema = z.object({
   key: z.string(),
   repository: z.string().nullable(),
@@ -32,6 +49,8 @@ const observedSlotSchema = z.object({
   backoffSeconds: z.number().int().nonnegative(),
   updatedAt: offsetDateTimeSchema.nullable(),
   resources: resourceUsageSchema.nullable().optional(),
+  activity: z.enum(['starting', 'idle', 'busy', 'draining', 'unknown']).nullable().optional(),
+  target: z.string().nullable().optional(),
 });
 
 const managerObservedStateSchema = z.object({
@@ -50,6 +69,8 @@ const managerObservedStateSchema = z.object({
   drainingSlots: z.number().int().nonnegative(),
   slots: z.array(observedSlotSchema),
   resourceTelemetry: managerResourceTelemetrySchema.nullable().optional(),
+  configuredSlots: z.number().int().nonnegative().nullable().optional(),
+  autoscaling: managerAutoscalingStateSchema.nullable().optional(),
 });
 
 const fleetNodeSchema = z.object({

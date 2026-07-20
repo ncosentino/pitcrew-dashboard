@@ -14,7 +14,7 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 public sealed class SqliteFleetStoreTests
 {
   [Test]
-  public async Task Resource_Telemetry_Round_Trips_And_Legacy_Payload_Remains_Readable(
+  public async Task Observed_State_Round_Trips_And_Legacy_Payload_Remains_Readable(
       CancellationToken cancellationToken)
   {
     var databasePath = Path.Combine(
@@ -49,9 +49,24 @@ public sealed class SqliteFleetStoreTests
               0.5,
               201_326_592,
               11));
+      var expectedAutoscaling = new ManagerAutoscalingState(
+          "scale-set",
+          "running",
+          0,
+          30,
+          1,
+          2,
+          1,
+          1,
+          0,
+          1,
+          300,
+          1,
+          observedAt.AddMinutes(5),
+          null);
       var profile = new ManagerObservedState(
           1,
-          7,
+          8,
           "default",
           "manager-instance",
           "running",
@@ -73,9 +88,13 @@ public sealed class SqliteFleetStoreTests
                   0,
                   0,
                   observedAt,
-                  expectedSlotResources),
+                  expectedSlotResources,
+                  "busy",
+                  "scale-set-linux"),
           ],
-          expectedTelemetry);
+          expectedTelemetry,
+          30,
+          expectedAutoscaling);
       await store.ApplySyncAsync(
           nodeId,
           "2.0.0",
@@ -96,9 +115,17 @@ public sealed class SqliteFleetStoreTests
       await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
       await Assert.That(fleet.Nodes[0].Profiles[0].ResourceTelemetry)
           .IsEqualTo(expectedTelemetry);
+      await Assert.That(fleet.Nodes[0].Profiles[0].ConfiguredSlots)
+          .IsEqualTo(30);
+      await Assert.That(fleet.Nodes[0].Profiles[0].Autoscaling)
+          .IsEqualTo(expectedAutoscaling);
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots).HasSingleItem();
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots[0].Resources)
           .IsEqualTo(expectedSlotResources);
+      await Assert.That(fleet.Nodes[0].Profiles[0].Slots[0].Activity)
+          .IsEqualTo("busy");
+      await Assert.That(fleet.Nodes[0].Profiles[0].Slots[0].Target)
+          .IsEqualTo("scale-set-linux");
 
       var legacyProfile = profile with
       {
@@ -108,9 +135,13 @@ public sealed class SqliteFleetStoreTests
             profile.Slots[0] with
             {
               Resources = null,
+              Activity = null,
+              Target = null,
             },
         ],
         ResourceTelemetry = null,
+        ConfiguredSlots = null,
+        Autoscaling = null,
       };
       await store.ApplySyncAsync(
           nodeId,
@@ -129,9 +160,14 @@ public sealed class SqliteFleetStoreTests
           throw new InvalidOperationException(
               "The legacy profile could not be represented as JSON.");
       legacyPayload.Remove("resourceTelemetry");
+      legacyPayload.Remove("configuredSlots");
+      legacyPayload.Remove("autoscaling");
       foreach (var slot in legacyPayload["slots"]!.AsArray())
       {
-        slot!.AsObject().Remove("resources");
+        var slotObject = slot!.AsObject();
+        slotObject.Remove("resources");
+        slotObject.Remove("activity");
+        slotObject.Remove("target");
       }
       await using (var connection = await connectionFactory.OpenAsync(
           cancellationToken))
@@ -166,10 +202,22 @@ public sealed class SqliteFleetStoreTests
       await Assert.That(
               legacyFleet.Nodes[0].Profiles[0].ResourceTelemetry)
           .IsNull();
+      await Assert.That(
+              legacyFleet.Nodes[0].Profiles[0].ConfiguredSlots)
+          .IsNull();
+      await Assert.That(
+              legacyFleet.Nodes[0].Profiles[0].Autoscaling)
+          .IsNull();
       await Assert.That(legacyFleet.Nodes[0].Profiles[0].Slots)
           .HasSingleItem();
       await Assert.That(
               legacyFleet.Nodes[0].Profiles[0].Slots[0].Resources)
+          .IsNull();
+      await Assert.That(
+              legacyFleet.Nodes[0].Profiles[0].Slots[0].Activity)
+          .IsNull();
+      await Assert.That(
+              legacyFleet.Nodes[0].Profiles[0].Slots[0].Target)
           .IsNull();
     }
     finally

@@ -30,6 +30,8 @@ public static class PitCrewProtocol
 /// <param name="BackoffSeconds">Backoff selected after the most recent failure or runner exit.</param>
 /// <param name="UpdatedAt">Time the slot lifecycle state last changed.</param>
 /// <param name="Resources">Point-in-time worker resource usage when available; otherwise <see langword="null"/>.</param>
+/// <param name="Activity">Demand-driven runner activity when reported; otherwise <see langword="null"/>.</param>
+/// <param name="Target">Current scale-set target associated with the slot when reported; otherwise <see langword="null"/>.</param>
 public sealed record ObservedSlotState(
     string Key,
     string? Repository,
@@ -39,7 +41,42 @@ public sealed record ObservedSlotState(
     int FailureCount,
     int BackoffSeconds,
     DateTimeOffset? UpdatedAt,
-    ResourceUsage? Resources);
+    ResourceUsage? Resources,
+    string? Activity,
+    string? Target);
+
+/// <summary>
+/// Describes the demand-driven scale-set projection published by one profile manager.
+/// </summary>
+/// <param name="Mode">Autoscaling mode implemented by the manager.</param>
+/// <param name="Status">Current autoscaling lifecycle status.</param>
+/// <param name="MinimumIdleSlots">Minimum number of idle runners the manager attempts to retain.</param>
+/// <param name="MaximumSlots">Configured upper bound for aggregate scale-set capacity.</param>
+/// <param name="TargetSlots">Current aggregate slot activation target.</param>
+/// <param name="AssignedJobs">Jobs currently assigned to the profile's scale sets.</param>
+/// <param name="RunningJobs">Assigned jobs that are currently running.</param>
+/// <param name="AvailableJobs">Assigned jobs that remain available for a runner.</param>
+/// <param name="IdleRunners">Live runners currently waiting for work.</param>
+/// <param name="BusyRunners">Live runners currently executing work.</param>
+/// <param name="ScaleDownDelaySeconds">Configured delay before surplus capacity is removed.</param>
+/// <param name="ScaleSetCount">Number of scale sets contributing to the aggregate projection.</param>
+/// <param name="ScaleDownAt">Scheduled scale-down time when surplus capacity is pending; otherwise <see langword="null"/>.</param>
+/// <param name="LastError">Most recent autoscaling error when degraded; otherwise <see langword="null"/>.</param>
+public sealed record ManagerAutoscalingState(
+    [property: JsonRequired] string Mode,
+    [property: JsonRequired] string Status,
+    [property: JsonRequired] int MinimumIdleSlots,
+    [property: JsonRequired] int MaximumSlots,
+    [property: JsonRequired] int TargetSlots,
+    [property: JsonRequired] int AssignedJobs,
+    [property: JsonRequired] int RunningJobs,
+    [property: JsonRequired] int AvailableJobs,
+    [property: JsonRequired] int IdleRunners,
+    [property: JsonRequired] int BusyRunners,
+    [property: JsonRequired] int ScaleDownDelaySeconds,
+    [property: JsonRequired] int ScaleSetCount,
+    [property: JsonRequired] DateTimeOffset? ScaleDownAt,
+    [property: JsonRequired] string? LastError);
 
 /// <summary>
 /// Represents the credential-free operational projection published by one Pitcrew profile manager.
@@ -59,6 +96,8 @@ public sealed record ObservedSlotState(
 /// <param name="DrainingSlots">Number of active slots removed from desired capacity.</param>
 /// <param name="Slots">Current slot projections.</param>
 /// <param name="ResourceTelemetry">Point-in-time manager and host telemetry when available; otherwise <see langword="null"/>.</param>
+/// <param name="ConfiguredSlots">Configured maximum slot count when reported; otherwise <see langword="null"/>.</param>
+/// <param name="Autoscaling">Demand-driven autoscaling projection, or <see langword="null"/> for fixed-capacity profiles.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -74,7 +113,9 @@ public sealed record ManagerObservedState(
     int ActiveSlots,
     int DrainingSlots,
     IReadOnlyList<ObservedSlotState> Slots,
-    ManagerResourceTelemetry? ResourceTelemetry);
+    ManagerResourceTelemetry? ResourceTelemetry,
+    int? ConfiguredSlots,
+    ManagerAutoscalingState? Autoscaling);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.
@@ -134,6 +175,7 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(HostResourceCapacity))]
 [JsonSerializable(typeof(ManagerResourceTelemetry))]
 [JsonSerializable(typeof(ObservedSlotState))]
+[JsonSerializable(typeof(ManagerAutoscalingState))]
 [JsonSerializable(typeof(ManagerObservedState))]
 [JsonSerializable(typeof(ConnectorEnrollmentRequest))]
 [JsonSerializable(typeof(ConnectorEnrollmentResponse))]

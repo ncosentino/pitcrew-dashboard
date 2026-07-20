@@ -301,6 +301,316 @@ public sealed class SyncConnectorUnitOfWorkTests
         .Because($"resource validation must reject '{scenario}'");
   }
 
+  [Test]
+  public async Task IsValidProfile_Accepts_Rolling_And_Complete_Autoscaling_States()
+  {
+    var observedAt = new DateTimeOffset(
+        2026,
+        7,
+        20,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    var strippedContractEightProfile = CreateProfile(
+        observedAt,
+        null,
+        null) with
+    {
+      ManagerContractVersion = 8,
+    };
+    var fixedProfile = strippedContractEightProfile with
+    {
+      ConfiguredSlots = 1,
+    };
+    var autoscaledProfileWithoutConfiguredSlots =
+        strippedContractEightProfile with
+        {
+          Autoscaling = CreateAutoscalingState(observedAt),
+        };
+    var autoscaledProfile = strippedContractEightProfile with
+    {
+      ConfiguredSlots = 30,
+      Autoscaling = CreateAutoscalingState(observedAt) with
+      {
+        ScaleDownAt = null,
+      },
+      Slots =
+      [
+          strippedContractEightProfile.Slots[0] with
+          {
+            Activity = "busy",
+            Target = "scale-set-linux",
+          },
+      ],
+    };
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            strippedContractEightProfile))
+        .IsTrue()
+        .Because("contract 8 remains valid when an older connector strips every additive field");
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            fixedProfile))
+        .IsTrue()
+        .Because("fixed mode may report configured capacity without an autoscaling block");
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            autoscaledProfileWithoutConfiguredSlots))
+        .IsTrue()
+        .Because("maximum capacity is compared only when configured capacity survived synchronization");
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            autoscaledProfile))
+        .IsTrue()
+        .Because("a consistent demand-driven observation may omit its scale-down timestamp");
+  }
+
+  [Test]
+  [Arguments("starting", "starting")]
+  [Arguments("running", "idle")]
+  [Arguments("running", "busy")]
+  [Arguments("degraded", "draining")]
+  [Arguments("stopping", "unknown")]
+  public async Task IsValidProfile_Accepts_Supported_Autoscaling_Enums(
+      string status,
+      string activity)
+  {
+    var observedAt = new DateTimeOffset(
+        2026,
+        7,
+        20,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    var profile = CreateProfile(
+        observedAt,
+        null,
+        null);
+    var autoscaledProfile = profile with
+    {
+      ManagerContractVersion = 8,
+      ConfiguredSlots = 30,
+      Autoscaling = CreateAutoscalingState(observedAt) with
+      {
+        Status = status,
+      },
+      Slots =
+      [
+          profile.Slots[0] with
+          {
+            Activity = activity,
+            Target = "scale-set-linux",
+          },
+      ],
+    };
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            autoscaledProfile))
+        .IsTrue()
+        .Because($"status '{status}' and activity '{activity}' are supported contract values");
+  }
+
+  [Test]
+  [Arguments("configured-negative")]
+  [Arguments("activity-invalid")]
+  [Arguments("mode-invalid")]
+  [Arguments("status-invalid")]
+  [Arguments("minimum-idle-negative")]
+  [Arguments("maximum-negative")]
+  [Arguments("target-negative")]
+  [Arguments("assigned-negative")]
+  [Arguments("running-negative")]
+  [Arguments("available-negative")]
+  [Arguments("idle-negative")]
+  [Arguments("busy-negative")]
+  [Arguments("scale-down-delay-negative")]
+  [Arguments("scale-set-count-negative")]
+  [Arguments("scale-down-at-default")]
+  [Arguments("maximum-configured-mismatch")]
+  [Arguments("desired-target-mismatch")]
+  [Arguments("target-over-maximum")]
+  [Arguments("running-over-assigned")]
+  [Arguments("busy-over-active")]
+  [Arguments("runner-total-over-active")]
+  public async Task IsValidProfile_Rejects_Invalid_Autoscaling_State(
+      string scenario)
+  {
+    var observedAt = new DateTimeOffset(
+        2026,
+        7,
+        20,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    var profile = CreateProfile(
+        observedAt,
+        null,
+        null) with
+    {
+      ManagerContractVersion = 8,
+      ConfiguredSlots = 30,
+      Autoscaling = CreateAutoscalingState(observedAt),
+    };
+    var autoscaling = profile.Autoscaling ??
+        throw new InvalidOperationException(
+            "The autoscaling test fixture must include autoscaling state.");
+    var invalidProfile = scenario switch
+    {
+      "configured-negative" => profile with
+      {
+        ConfiguredSlots = -1,
+      },
+      "activity-invalid" => profile with
+      {
+        Slots =
+        [
+            profile.Slots[0] with
+            {
+              Activity = "sleeping",
+            },
+        ],
+      },
+      "mode-invalid" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          Mode = "fixed",
+        },
+      },
+      "status-invalid" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          Status = "stopped",
+        },
+      },
+      "minimum-idle-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          MinimumIdleSlots = -1,
+        },
+      },
+      "maximum-negative" => profile with
+      {
+        ConfiguredSlots = null,
+        Autoscaling = autoscaling with
+        {
+          MaximumSlots = -1,
+        },
+      },
+      "target-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          TargetSlots = -1,
+        },
+      },
+      "assigned-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          AssignedJobs = -1,
+        },
+      },
+      "running-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          RunningJobs = -1,
+        },
+      },
+      "available-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          AvailableJobs = -1,
+        },
+      },
+      "idle-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          IdleRunners = -1,
+        },
+      },
+      "busy-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          BusyRunners = -1,
+        },
+      },
+      "scale-down-delay-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          ScaleDownDelaySeconds = -1,
+        },
+      },
+      "scale-set-count-negative" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          ScaleSetCount = -1,
+        },
+      },
+      "scale-down-at-default" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          ScaleDownAt = default(DateTimeOffset),
+        },
+      },
+      "maximum-configured-mismatch" => profile with
+      {
+        ConfiguredSlots = 29,
+      },
+      "desired-target-mismatch" => profile with
+      {
+        DesiredSlots = 2,
+      },
+      "target-over-maximum" => profile with
+      {
+        DesiredSlots = 31,
+        Autoscaling = autoscaling with
+        {
+          TargetSlots = 31,
+        },
+      },
+      "running-over-assigned" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          AssignedJobs = 0,
+        },
+      },
+      "busy-over-active" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          BusyRunners = 2,
+        },
+      },
+      "runner-total-over-active" => profile with
+      {
+        Autoscaling = autoscaling with
+        {
+          IdleRunners = 1,
+        },
+      },
+      _ => throw new ArgumentOutOfRangeException(
+          nameof(scenario),
+          scenario,
+          "Unknown autoscaling validation scenario."),
+    };
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            invalidProfile))
+        .IsFalse()
+        .Because($"autoscaling validation must reject '{scenario}'");
+  }
+
   private static ManagerObservedState CreateProfile(
       DateTimeOffset sampledAt,
       ManagerResourceTelemetry? resourceTelemetry,
@@ -329,7 +639,29 @@ public sealed class SyncConnectorUnitOfWorkTests
                   0,
                   0,
                   sampledAt,
-                  slotResources),
+                  slotResources,
+                  null,
+                  null),
           ],
-          resourceTelemetry);
+          resourceTelemetry,
+          null,
+          null);
+
+  private static ManagerAutoscalingState CreateAutoscalingState(
+      DateTimeOffset observedAt) =>
+      new(
+          "scale-set",
+          "running",
+          0,
+          30,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          300,
+          1,
+          observedAt.AddMinutes(5),
+          null);
 }
