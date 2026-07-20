@@ -42,6 +42,15 @@ Each PitCrew manager publishes a credential-free
 `.pitcrew-state/<profile>/observed-state.json` document. The connector reads all
 profiles from one state root, retains the last valid snapshot through transient
 read failures, and synchronizes only when state changes or a heartbeat is due.
+When the manager supplies resource telemetry, the fleet view shows host
+capacity, manager usage, aggregate worker usage, and per-slot CPU cores,
+working-set bytes, and PID counts. These are point-in-time samples collected
+roughly every 30 seconds; the dashboard's 5-second polling cadence can repeat
+the same sample and does not imply a new measurement.
+
+Resource cards require PitCrew manager contract 7 and a telemetry-aware
+connector. Older managers and connectors remain compatible and appear as
+unavailable rather than reporting zero usage.
 
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,

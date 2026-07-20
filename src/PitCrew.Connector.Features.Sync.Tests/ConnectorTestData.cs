@@ -9,7 +9,7 @@ internal static class ConnectorTestData
       DateTimeOffset observedAt) =>
       new(
           1,
-          5,
+          7,
           profileId,
           "manager-instance",
           "running",
@@ -30,8 +30,22 @@ internal static class ConnectorTestData
                     "online",
                     0,
                     0,
-                    observedAt),
-          ]);
+                    observedAt,
+                    new ResourceUsage(
+                        0.75,
+                        536_870_912,
+                        42)),
+          ],
+          new ManagerResourceTelemetry(
+              observedAt,
+              "available",
+              new HostResourceCapacity(
+                  8,
+                  17_179_869_184),
+              new ResourceUsage(
+                  0.25,
+                  134_217_728,
+                  9)));
 
   public static ConnectorOptions CreateOptions(
       string stateRoot,

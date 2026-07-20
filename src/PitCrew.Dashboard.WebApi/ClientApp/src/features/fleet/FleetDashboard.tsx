@@ -14,10 +14,12 @@ import {
   revokeNode,
   type EnrollmentCodeResponse,
   type FleetResponse,
+  type ManagerObservedState,
   type ObservedSlot,
 } from './fleetApi';
 
 const refreshIntervalMilliseconds = 5_000;
+const byteUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] as const;
 
 /** Props for tenant-scoped fleet visibility and node administration. */
 export interface FleetDashboardProps {
@@ -34,12 +36,29 @@ function formatTime(value: string | null): string {
   }).format(new Date(value));
 }
 
+function formatBytes(value: number): string {
+  if (value === 0) return '0 B';
+  const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)), byteUnits.length - 1);
+  const unitValue = value / 1024 ** unitIndex;
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(unitValue)} ${byteUnits[unitIndex]}`;
+}
+
+function formatCpuCores(value: number): string {
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)} cores`;
+}
+
+function formatPids(value: number): string {
+  return `${new Intl.NumberFormat(undefined).format(value)} PIDs`;
+}
+
 function statusClasses(status: string): string {
   switch (status) {
+    case 'available':
     case 'online':
     case 'running':
     case 'accepted':
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
+    case 'partial':
     case 'draining':
     case 'restarting':
     case 'rotation requested':
@@ -48,6 +67,7 @@ function statusClasses(status: string): string {
     case 'invalid':
     case 'conflict':
     case 'revoked':
+    case 'unavailable':
       return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
     default:
       return 'bg-muted text-muted-foreground';
@@ -67,15 +87,116 @@ function StatusBadge({ status }: { readonly status: string }) {
   );
 }
 
+function aggregateSlotResources(slots: ReadonlyArray<ObservedSlot>) {
+  return slots.reduce(
+    (aggregate, slot) => {
+      if (!slot.resources) return aggregate;
+      return {
+        cpuCores: aggregate.cpuCores + slot.resources.cpuCores,
+        memoryWorkingSetBytes:
+          aggregate.memoryWorkingSetBytes + slot.resources.memoryWorkingSetBytes,
+        pids: aggregate.pids + slot.resources.pids,
+        reportingSlots: aggregate.reportingSlots + 1,
+      };
+    },
+    {
+      cpuCores: 0,
+      memoryWorkingSetBytes: 0,
+      pids: 0,
+      reportingSlots: 0,
+    },
+  );
+}
+
+function ResourceTelemetrySummary({ profile }: { readonly profile: ManagerObservedState }) {
+  const telemetry = profile.resourceTelemetry ?? null;
+  const workerResources = aggregateSlotResources(profile.slots);
+  const workerCoverage =
+    profile.slots.length === 0
+      ? 'No slots reported'
+      : `${workerResources.reportingSlots} of ${profile.slots.length} slots reporting`;
+
+  return (
+    <section
+      className="grid gap-3 border-b bg-muted/10 px-4 py-4"
+      data-testid={`profile-resource-telemetry-${profile.profileId}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="font-semibold">Point-in-time resource utilization</h4>
+          <p className="text-xs text-muted-foreground">
+            Manager samples arrive roughly every 30 seconds; 5-second dashboard polling can repeat
+            the same sample.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <StatusBadge status={telemetry?.status ?? 'unavailable'} />
+          <span
+            className="text-muted-foreground"
+            data-testid={`profile-resource-sampled-${profile.profileId}`}
+          >
+            Sampled {telemetry ? formatTime(telemetry.sampledAt) : 'Unavailable'}
+          </span>
+        </div>
+      </div>
+      <dl className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-md border bg-background px-3 py-3">
+          <dt className="text-xs text-muted-foreground uppercase">Host capacity</dt>
+          <dd
+            className="mt-1 font-medium tabular-nums"
+            data-testid={`profile-resource-host-${profile.profileId}`}
+          >
+            {telemetry?.host
+              ? `${new Intl.NumberFormat(undefined).format(telemetry.host.logicalProcessorCount)} logical processors · ${formatBytes(telemetry.host.memoryBytes)}`
+              : 'Unavailable'}
+          </dd>
+        </div>
+        <div className="rounded-md border bg-background px-3 py-3">
+          <dt className="text-xs text-muted-foreground uppercase">Manager usage</dt>
+          <dd
+            className="mt-1 font-medium tabular-nums"
+            data-testid={`profile-resource-manager-${profile.profileId}`}
+          >
+            {telemetry?.manager
+              ? `${formatCpuCores(telemetry.manager.cpuCores)} · ${formatBytes(telemetry.manager.memoryWorkingSetBytes)} · ${formatPids(telemetry.manager.pids)}`
+              : 'Unavailable'}
+          </dd>
+        </div>
+        <div className="rounded-md border bg-background px-3 py-3">
+          <dt className="text-xs text-muted-foreground uppercase">Profile workers</dt>
+          <dd
+            className="mt-1 font-medium tabular-nums"
+            data-testid={`profile-resource-workers-${profile.profileId}`}
+          >
+            {workerResources.reportingSlots > 0
+              ? `${formatCpuCores(workerResources.cpuCores)} · ${formatBytes(workerResources.memoryWorkingSetBytes)} · ${formatPids(workerResources.pids)}`
+              : 'Unavailable'}
+          </dd>
+          <div className="mt-1 text-xs text-muted-foreground">{workerCoverage}</div>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
   return (
-    <tr className="border-t">
+    <tr className="border-t" data-testid={`slot-row-${slot.key}`}>
       <td className="px-3 py-2 font-mono text-xs">{slot.key}</td>
       <td className="px-3 py-2">{slot.repository ?? 'Shared scope'}</td>
       <td className="px-3 py-2">
         <StatusBadge status={slot.state} />
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{slot.failureCount}</td>
+      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-cpu-${slot.key}`}>
+        {slot.resources ? formatCpuCores(slot.resources.cpuCores) : 'Unavailable'}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-memory-${slot.key}`}>
+        {slot.resources ? formatBytes(slot.resources.memoryWorkingSetBytes) : 'Unavailable'}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-pids-${slot.key}`}>
+        {slot.resources ? formatPids(slot.resources.pids) : 'Unavailable'}
+      </td>
     </tr>
   );
 }
@@ -358,14 +479,18 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
                       </dd>
                     </div>
                   </dl>
+                  <ResourceTelemetrySummary profile={profile} />
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-2xl text-left text-sm">
+                    <table className="w-full min-w-4xl text-left text-sm">
                       <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
                         <tr>
                           <th className="px-3 py-2 font-medium">Slot</th>
                           <th className="px-3 py-2 font-medium">Target</th>
                           <th className="px-3 py-2 font-medium">State</th>
                           <th className="px-3 py-2 text-right font-medium">Failures</th>
+                          <th className="px-3 py-2 text-right font-medium">CPU cores</th>
+                          <th className="px-3 py-2 text-right font-medium">Memory</th>
+                          <th className="px-3 py-2 text-right font-medium">PIDs</th>
                         </tr>
                       </thead>
                       <tbody>
