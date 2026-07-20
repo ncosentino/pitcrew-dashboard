@@ -135,7 +135,7 @@ internal sealed class SyncConnectorUnitOfWork(
             credentialRotation));
   }
 
-  private static bool IsValidProfile(ManagerObservedState profile)
+  internal static bool IsValidProfile(ManagerObservedState profile)
   {
     if (profile.SchemaVersion != 1 ||
         profile.ManagerContractVersion < 5 ||
@@ -150,6 +150,7 @@ internal sealed class SyncConnectorUnitOfWork(
         profile.DrainingSlots < 0 ||
         profile.Slots is null ||
         profile.Slots.Count > 10000 ||
+        !IsValidResourceTelemetry(profile.ResourceTelemetry) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
         profile.DrainingSlots != profile.Slots.Count(slot =>
             string.Equals(
@@ -184,6 +185,7 @@ internal sealed class SyncConnectorUnitOfWork(
       slot.Repository?.Length > 2048 ||
       slot.FailureCount < 0 ||
           slot.BackoffSeconds < 0 ||
+          !IsValidResourceUsage(slot.Resources) ||
           slot.State is not (
               "starting" or
               "online" or
@@ -196,7 +198,59 @@ internal sealed class SyncConnectorUnitOfWork(
       }
     }
 
-    return true;
+    return IsConsistentResourceTelemetry(profile);
+  }
+
+  private static bool IsValidResourceTelemetry(
+      ManagerResourceTelemetry? telemetry) =>
+      telemetry is null ||
+      telemetry.SampledAt != default &&
+      telemetry.Status is (
+          "available" or
+          "partial" or
+          "unavailable") &&
+      IsValidHostCapacity(telemetry.Host) &&
+      IsValidResourceUsage(telemetry.Manager);
+
+  private static bool IsValidHostCapacity(
+      HostResourceCapacity? host) =>
+      host is null ||
+      host.LogicalProcessorCount > 0 &&
+      host.MemoryBytes > 0;
+
+  private static bool IsValidResourceUsage(ResourceUsage? resources) =>
+      resources is null ||
+      double.IsFinite(resources.CpuCores) &&
+      resources.CpuCores >= 0 &&
+      resources.MemoryWorkingSetBytes >= 0 &&
+      resources.Pids >= 0;
+
+  private static bool IsConsistentResourceTelemetry(
+      ManagerObservedState profile)
+  {
+    var telemetry = profile.ResourceTelemetry;
+    var hasSlotResources = profile.Slots.Any(
+        slot => slot.Resources is not null);
+    if (telemetry is null)
+    {
+      return !hasSlotResources;
+    }
+
+    return telemetry.Status switch
+    {
+      "available" =>
+          telemetry.Host is not null &&
+          telemetry.Manager is not null,
+      "partial" =>
+          telemetry.Host is not null ||
+          telemetry.Manager is not null ||
+          hasSlotResources,
+      "unavailable" =>
+          telemetry.Host is null &&
+          telemetry.Manager is null &&
+          !hasSlotResources,
+      _ => false,
+    };
   }
 
   private static bool IsValidProfileId(string profileId)

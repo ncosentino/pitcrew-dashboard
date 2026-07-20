@@ -170,7 +170,7 @@ internal static class DashboardTestHelpers
     var observedAt = DateTimeOffset.UtcNow;
     return new ManagerObservedState(
         1,
-        6,
+        7,
         profileId,
         Guid.NewGuid().ToString("D"),
         "running",
@@ -191,8 +191,22 @@ internal static class DashboardTestHelpers
                     "online",
                     0,
                     0,
-                    observedAt),
-        ]);
+                    observedAt,
+                    new ResourceUsage(
+                        1.25,
+                        1_073_741_824,
+                        48)),
+        ],
+        new ManagerResourceTelemetry(
+            observedAt,
+            "available",
+            new HostResourceCapacity(
+                8,
+                34_359_738_368),
+            new ResourceUsage(
+                0.5,
+                201_326_592,
+                11)));
   }
 
   public static string CreateDatabasePath() =>

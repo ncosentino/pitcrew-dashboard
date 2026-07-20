@@ -4,6 +4,24 @@ import { HttpClient } from '@/core/api/httpClient';
 
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
 
+const resourceUsageSchema = z.object({
+  cpuCores: z.number().nonnegative(),
+  memoryWorkingSetBytes: z.number().int().nonnegative(),
+  pids: z.number().int().nonnegative(),
+});
+
+const hostResourceCapacitySchema = z.object({
+  logicalProcessorCount: z.number().int().positive(),
+  memoryBytes: z.number().int().positive(),
+});
+
+const managerResourceTelemetrySchema = z.object({
+  sampledAt: offsetDateTimeSchema,
+  status: z.enum(['available', 'partial', 'unavailable']),
+  host: hostResourceCapacitySchema.nullable(),
+  manager: resourceUsageSchema.nullable(),
+});
+
 const observedSlotSchema = z.object({
   key: z.string(),
   repository: z.string().nullable(),
@@ -13,6 +31,7 @@ const observedSlotSchema = z.object({
   failureCount: z.number().int().nonnegative(),
   backoffSeconds: z.number().int().nonnegative(),
   updatedAt: offsetDateTimeSchema.nullable(),
+  resources: resourceUsageSchema.nullable().optional(),
 });
 
 const managerObservedStateSchema = z.object({
@@ -30,6 +49,7 @@ const managerObservedStateSchema = z.object({
   activeSlots: z.number().int().nonnegative(),
   drainingSlots: z.number().int().nonnegative(),
   slots: z.array(observedSlotSchema),
+  resourceTelemetry: managerResourceTelemetrySchema.nullable().optional(),
 });
 
 const fleetNodeSchema = z.object({

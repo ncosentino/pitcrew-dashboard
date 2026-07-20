@@ -155,6 +155,23 @@ public sealed class HostingTests
       await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots)
           .HasSingleItem();
+      await Assert.That(
+              fleet.Nodes[0].Profiles[0].ResourceTelemetry?.Host)
+          .IsEqualTo(new HostResourceCapacity(
+              8,
+              34_359_738_368));
+      await Assert.That(
+              fleet.Nodes[0].Profiles[0].ResourceTelemetry?.Manager)
+          .IsEqualTo(new ResourceUsage(
+              0.5,
+              201_326_592,
+              11));
+      await Assert.That(
+              fleet.Nodes[0].Profiles[0].Slots[0].Resources)
+          .IsEqualTo(new ResourceUsage(
+              1.25,
+              1_073_741_824,
+              48));
     }
     finally
     {

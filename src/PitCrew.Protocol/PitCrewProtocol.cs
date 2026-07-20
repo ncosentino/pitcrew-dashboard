@@ -29,6 +29,7 @@ public static class PitCrewProtocol
 /// <param name="FailureCount">Consecutive registration or startup failures.</param>
 /// <param name="BackoffSeconds">Backoff selected after the most recent failure or runner exit.</param>
 /// <param name="UpdatedAt">Time the slot lifecycle state last changed.</param>
+/// <param name="Resources">Point-in-time worker resource usage when available; otherwise <see langword="null"/>.</param>
 public sealed record ObservedSlotState(
     string Key,
     string? Repository,
@@ -37,7 +38,8 @@ public sealed record ObservedSlotState(
     string State,
     int FailureCount,
     int BackoffSeconds,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt,
+    ResourceUsage? Resources);
 
 /// <summary>
 /// Represents the credential-free operational projection published by one Pitcrew profile manager.
@@ -56,6 +58,7 @@ public sealed record ObservedSlotState(
 /// <param name="ActiveSlots">Number of slots whose manager process is still running.</param>
 /// <param name="DrainingSlots">Number of active slots removed from desired capacity.</param>
 /// <param name="Slots">Current slot projections.</param>
+/// <param name="ResourceTelemetry">Point-in-time manager and host telemetry when available; otherwise <see langword="null"/>.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -70,7 +73,8 @@ public sealed record ManagerObservedState(
     int DesiredSlots,
     int ActiveSlots,
     int DrainingSlots,
-    IReadOnlyList<ObservedSlotState> Slots);
+    IReadOnlyList<ObservedSlotState> Slots,
+    ManagerResourceTelemetry? ResourceTelemetry);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.
@@ -126,6 +130,9 @@ public sealed record ConnectorSyncResponse(
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     GenerationMode = JsonSourceGenerationMode.Metadata)]
+[JsonSerializable(typeof(ResourceUsage))]
+[JsonSerializable(typeof(HostResourceCapacity))]
+[JsonSerializable(typeof(ManagerResourceTelemetry))]
 [JsonSerializable(typeof(ObservedSlotState))]
 [JsonSerializable(typeof(ManagerObservedState))]
 [JsonSerializable(typeof(ConnectorEnrollmentRequest))]
