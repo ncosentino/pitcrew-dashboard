@@ -73,6 +73,24 @@ const managerObservedStateSchema = z.object({
   autoscaling: managerAutoscalingStateSchema.nullable().optional(),
 });
 
+const capacityCommandStateSchema = z.object({
+  commandId: z.string().uuid(),
+  requestedMaximum: z.number().int().positive(),
+  status: z.enum(['pending', 'delivered', 'succeeded', 'rejected', 'failed']),
+  requestedAt: offsetDateTimeSchema,
+  deliveredAt: offsetDateTimeSchema.nullable(),
+  completedAt: offsetDateTimeSchema.nullable(),
+  resultMessage: z.string().nullable(),
+});
+
+const capacityControlStateSchema = z.object({
+  profileId: z.string(),
+  generation: z.number().int().positive(),
+  currentMaximum: z.number().int().positive(),
+  maximumAllowed: z.number().int().positive(),
+  latestCommand: capacityCommandStateSchema.nullable(),
+});
+
 const fleetNodeSchema = z.object({
   nodeId: z.string().uuid(),
   displayName: z.string(),
@@ -83,6 +101,7 @@ const fleetNodeSchema = z.object({
   isRevoked: z.boolean(),
   credentialRotationRequested: z.boolean(),
   profiles: z.array(managerObservedStateSchema),
+  capacityControls: z.array(capacityControlStateSchema).default([]),
 });
 
 const fleetResponseSchema = z.object({
@@ -94,6 +113,8 @@ const fleetResponseSchema = z.object({
 export type ObservedSlot = z.infer<typeof observedSlotSchema>;
 /** Credential-free projection published by one PitCrew manager. */
 export type ManagerObservedState = z.infer<typeof managerObservedStateSchema>;
+/** Connector-advertised capacity control for one profile. */
+export type CapacityControlState = z.infer<typeof capacityControlStateSchema>;
 /** One enrolled server and its latest profile projections. */
 export type FleetNode = z.infer<typeof fleetNodeSchema>;
 /** Current tenant fleet response. */
@@ -105,8 +126,15 @@ const enrollmentCodeResponseSchema = z.object({
   expiresAt: offsetDateTimeSchema,
 });
 
+const setCapacityMaximumResponseSchema = z.object({
+  commandId: z.string().uuid(),
+  status: z.literal('pending'),
+});
+
 /** One-time connector enrollment code returned only at creation. */
 export type EnrollmentCodeResponse = z.infer<typeof enrollmentCodeResponseSchema>;
+/** Queued capacity command returned by the dashboard. */
+export type SetCapacityMaximumResponse = z.infer<typeof setCapacityMaximumResponseSchema>;
 
 function createClient(): HttpClient {
   return new HttpClient({ baseUrl: globalThis.location.origin });
@@ -184,6 +212,25 @@ export async function requestCredentialRotation(
     {
       method: 'POST',
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+    },
+  );
+}
+
+/** Queues an absolute maximum for one connector-advertised profile target. */
+export async function setCapacityMaximum(
+  tenantId: string,
+  nodeId: string,
+  profileId: string,
+  maximum: number,
+  antiforgeryToken: string,
+): Promise<SetCapacityMaximumResponse> {
+  return await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profileId)}/capacity-maximum`,
+    {
+      method: 'POST',
+      body: { maximum },
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+      schema: setCapacityMaximumResponseSchema,
     },
   );
 }

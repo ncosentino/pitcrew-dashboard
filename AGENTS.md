@@ -22,9 +22,10 @@
 
 ## Project Overview
 
-Pitcrew Dashboard is an optional read-only fleet control plane for Pitcrew
-GitHub Actions runner pools. It supports a loopback-only local deployment and
-outbound-only connectors reporting multiple remote servers to one dashboard.
+Pitcrew Dashboard is an optional read-only-by-default fleet control plane for
+Pitcrew GitHub Actions runner pools. It supports a loopback-only local
+deployment, outbound-only connectors reporting multiple remote servers, and an
+opt-in typed capacity operation for host-installed connectors.
 
 ## Architecture
 
@@ -32,13 +33,17 @@ outbound-only connectors reporting multiple remote servers to one dashboard.
 - React is built into the ASP.NET image and served from the same origin.
 - SQLite is accessed through `IFleetStore`; the adapter is single-replica.
 - `PitCrew.Protocol` is a Needlr-free source-generated JSON contract assembly.
-- One connector process reads a Pitcrew state root read-only and calls outward.
+- One connector process reads a Pitcrew state root and calls outward. Container
+  deployments remain read-only; opt-in host-service mode may invoke Pitcrew's
+  setup script for typed capacity operations.
 - Connector identity comes from node credentials, never request payload fields.
 
 ## Conventions
 
 - Keep manager observations credential-free and versioned.
-- Keep the connector free of Docker socket and GitHub runner credentials.
+- Keep the connector free of the Docker socket and never serialize, transmit,
+  or log GitHub runner credentials. Host operator mode delegates credential
+  reuse to the local Pitcrew setup process.
 - Do not introduce PostgreSQL, brokers, caches, or remote commands without a
   measured requirement and an explicit architecture decision.
 - Treat dashboard and connector image size and idle footprint as release gates.
@@ -67,7 +72,8 @@ Before every `git commit`, complete this procedure:
 
 ## Out of Scope
 
-- Remote runner-capacity changes or arbitrary node commands.
+- Remote operations other than the typed existing-profile capacity maximum;
+  arbitrary node commands remain prohibited.
 - Shipping workflow logs or workload data.
 - Horizontal dashboard replicas while SQLite is the active adapter.
 - Adding dashboard dependencies or image pulls to normal Pitcrew setup.

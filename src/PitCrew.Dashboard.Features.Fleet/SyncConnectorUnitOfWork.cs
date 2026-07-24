@@ -21,7 +21,9 @@ internal sealed record ConnectorSynchronizationInput(
     int ProtocolVersion,
     string ConnectorVersion,
     DateTimeOffset SentAt,
-    IReadOnlyList<ManagerObservedState> Profiles);
+    IReadOnlyList<ManagerObservedState> Profiles,
+    CapacityOperatorCapability? CapacityOperator,
+    CapacityCommandOutcome? CapacityCommandOutcome);
 
 internal interface ISyncConnectorUnitOfWork
 {
@@ -33,6 +35,7 @@ internal interface ISyncConnectorUnitOfWork
 
 internal sealed class SyncConnectorUnitOfWork(
     IFleetStore _fleetStore,
+    ICapacityCommandStore _capacityCommandStore,
     ConnectorCredentialService _credentialService,
     IOptions<FleetDashboardOptions> _options,
     TimeProvider _timeProvider) : ISyncConnectorUnitOfWork
@@ -96,6 +99,23 @@ internal sealed class SyncConnectorUnitOfWork(
             null);
       }
     }
+    if (input.ProtocolVersion < 3 &&
+        (input.CapacityOperator is not null ||
+         input.CapacityCommandOutcome is not null))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Capacity operation fields require connector protocol version 3.",
+          null);
+    }
+    if (!IsValidCapacityOperator(input.CapacityOperator) ||
+        !IsValidCapacityOutcome(input.CapacityCommandOutcome))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Capacity operation state does not satisfy the protocol contract.",
+          null);
+    }
 
     var acceptedAt = _timeProvider.GetUtcNow();
     var credentialUpdate = new ConnectorCredentialUpdate(
@@ -126,13 +146,79 @@ internal sealed class SyncConnectorUnitOfWork(
         input.Profiles,
         credentialUpdate,
         cancellationToken);
+    SetCapacityCommand? capacityCommand = null;
+    if (input.ProtocolVersion >= 3)
+    {
+      capacityCommand = await _capacityCommandStore.ApplyConnectorSyncAsync(
+          identity.NodeId,
+          input.CapacityOperator,
+          input.CapacityCommandOutcome,
+          acceptedAt,
+          acceptedAt.Subtract(
+              TimeSpan.FromSeconds(
+                  _options.Value.CapacityCommandRedeliverySeconds)),
+          cancellationToken);
+    }
     return new ConnectorSyncResult(
         ConnectorSyncStatus.Accepted,
         null,
         new ConnectorSyncResponse(
             acceptedAt,
             _options.Value.ConnectorPollSeconds,
-            credentialRotation));
+            credentialRotation,
+            capacityCommand));
+  }
+
+  internal static bool IsValidCapacityOperator(
+      CapacityOperatorCapability? capability)
+  {
+    if (capability is null)
+    {
+      return true;
+    }
+    if (capability.Profiles is null ||
+        capability.Profiles.Count > 256)
+    {
+      return false;
+    }
+
+    var profileIds = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase);
+    foreach (var profile in capability.Profiles)
+    {
+      if (!IsValidProfileId(profile.ProfileId) ||
+          !profileIds.Add(profile.ProfileId) ||
+          profile.Generation < 1 ||
+          profile.CurrentMaximum < 1 ||
+          profile.MaximumAllowed > 1_000_000 ||
+          profile.MaximumAllowed < profile.CurrentMaximum)
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  internal static bool IsValidCapacityOutcome(
+      CapacityCommandOutcome? outcome)
+  {
+    if (outcome is null)
+    {
+      return true;
+    }
+    if (outcome.CommandId == Guid.Empty ||
+        outcome.CompletedAt == default ||
+        outcome.Message?.Length > 512 ||
+        outcome.Status is not (
+            "succeeded" or
+            "rejected" or
+            "failed"))
+    {
+      return false;
+    }
+    return outcome.Status == "succeeded"
+        ? outcome.AcceptedGeneration is >= 1
+        : outcome.AcceptedGeneration is null;
   }
 
   internal static bool IsValidProfile(ManagerObservedState profile)
@@ -302,7 +388,7 @@ internal sealed class SyncConnectorUnitOfWork(
     };
   }
 
-  private static bool IsValidProfileId(string profileId)
+  internal static bool IsValidProfileId(string profileId)
   {
     if (profileId.Length is < 1 or > 32 ||
         profileId[0] is < 'a' or > 'z')

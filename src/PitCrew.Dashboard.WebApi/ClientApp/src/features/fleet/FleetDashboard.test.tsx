@@ -70,6 +70,30 @@ function fleetResponse(profiles: ReadonlyArray<unknown>) {
   };
 }
 
+function capacityFleetResponse(latestCommand: unknown | null) {
+  const response = fleetResponse([
+    {
+      ...profileResponse('default', [slotResponse('repo-default-000001', null)], null),
+      configuredSlots: 30,
+    },
+  ]);
+  return {
+    ...response,
+    nodes: response.nodes.map((node) => ({
+      ...node,
+      capacityControls: [
+        {
+          profileId: 'default',
+          generation: 7,
+          currentMaximum: 30,
+          maximumAllowed: 50,
+          latestCommand,
+        },
+      ],
+    })),
+  };
+}
+
 function autoscalingResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     mode: 'scale-set',
@@ -115,6 +139,63 @@ describe('FleetDashboard', () => {
             profiles: [],
           },
         ],
+      });
+
+      it('queues an absolute capacity maximum and renders pending state', async () => {
+        let fleetReads = 0;
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+          if (init?.method === 'POST') {
+            return new Response(
+              JSON.stringify({
+                commandId: '729cb29e-21d9-4510-a285-397483891dc2',
+                status: 'pending',
+              }),
+              {
+                status: 202,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            );
+          }
+          fleetReads++;
+          return jsonResponse(
+            capacityFleetResponse(
+              fleetReads > 1
+                ? {
+                    commandId: '729cb29e-21d9-4510-a285-397483891dc2',
+                    requestedMaximum: 40,
+                    status: 'pending',
+                    requestedAt: '2026-07-24T12:00:00+00:00',
+                    deliveredAt: null,
+                    completedAt: null,
+                    resultMessage: null,
+                  }
+                : null,
+            ),
+          );
+        });
+        vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+        const user = userEvent.setup();
+
+        render(<FleetDashboard tenantId="local" canAdminister antiforgeryToken="token" />);
+
+        const input = await screen.findByLabelText('Absolute maximum');
+        await user.clear(input);
+        await user.type(input, '40');
+        await user.click(screen.getByRole('button', { name: 'Queue change' }));
+
+        await waitFor(() => {
+          expect(screen.getByTestId('profile-capacity-control-default')).toHaveTextContent(
+            'pending',
+          );
+        });
+        const mutation = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+        expect(mutation).toBeDefined();
+        const [url, init] = mutation ?? [];
+        expect(String(url)).toMatch(
+          /\/api\/tenants\/local\/fleet\/v1\/nodes\/a6235ec4-2a15-4f91-a9e0-811152869a51\/profiles\/default\/capacity-maximum$/,
+        );
+        expect(new Headers(init?.headers).get('X-PitCrew-Antiforgery')).toBe('token');
+        expect(JSON.parse(String(init?.body))).toEqual({ maximum: 40 });
       });
     });
     const user = userEvent.setup();

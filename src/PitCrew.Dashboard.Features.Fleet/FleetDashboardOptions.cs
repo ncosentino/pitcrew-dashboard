@@ -29,6 +29,18 @@ public sealed class FleetDashboardOptions
   public int EnrollmentCodeLifetimeMinutes { get; set; } = 15;
 
   /// <summary>
+  /// Gets or sets how long a queued capacity command remains deliverable.
+  /// </summary>
+  [Range(1, 1440)]
+  public int CapacityCommandLifetimeMinutes { get; set; } = 10;
+
+  /// <summary>
+  /// Gets or sets when an unacknowledged delivered command becomes eligible for redelivery.
+  /// </summary>
+  [Range(30, 3600)]
+  public int CapacityCommandRedeliverySeconds { get; set; } = 120;
+
+  /// <summary>
   /// Validates relationships between connector polling and dashboard freshness settings.
   /// </summary>
   /// <returns>Cross-property validation failures.</returns>

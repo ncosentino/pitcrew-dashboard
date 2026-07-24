@@ -70,6 +70,38 @@ public sealed class ConnectorOptions
   public int MaximumBackoffSeconds { get; set; } = 300;
 
   /// <summary>
+  /// Gets or sets whether typed capacity operations may execute on this host.
+  /// </summary>
+  public bool OperatorModeEnabled { get; set; }
+
+  /// <summary>
+  /// Gets or sets the local PitCrew checkout used to resolve the setup script.
+  /// </summary>
+  public string PitCrewRoot { get; set; } = string.Empty;
+
+  /// <summary>
+  /// Gets or sets the profile allowlist for capacity operations.
+  /// </summary>
+  public string[] AllowedCapacityProfiles { get; set; } = [];
+
+  /// <summary>
+  /// Gets or sets the local maximum accepted for any capacity command.
+  /// </summary>
+  [Range(1, 1_000_000)]
+  public int CapacityMaximumCeiling { get; set; } = 100;
+
+  /// <summary>
+  /// Gets or sets the maximum duration of one local setup invocation.
+  /// </summary>
+  [Range(30, 3600)]
+  public int CapacityCommandTimeoutSeconds { get; set; } = 300;
+
+  /// <summary>
+  /// Gets or sets the locally configured PowerShell executable.
+  /// </summary>
+  public string PowerShellExecutable { get; set; } = "pwsh";
+
+  /// <summary>
   /// Validates relationships between connector polling and heartbeat settings.
   /// </summary>
   /// <returns>Cross-property validation failures.</returns>
@@ -80,5 +112,48 @@ public sealed class ConnectorOptions
       yield return
           "HeartbeatSeconds must be greater than or equal to PollSeconds.";
     }
+    if (!OperatorModeEnabled)
+    {
+      yield break;
+    }
+    if (string.IsNullOrWhiteSpace(PitCrewRoot))
+    {
+      yield return "PitCrewRoot is required when OperatorModeEnabled is true.";
+    }
+    if (string.IsNullOrWhiteSpace(PowerShellExecutable))
+    {
+      yield return
+          "PowerShellExecutable is required when OperatorModeEnabled is true.";
+    }
+    if (AllowedCapacityProfiles.Length == 0)
+    {
+      yield return
+          "AllowedCapacityProfiles requires at least one profile when OperatorModeEnabled is true.";
+    }
+    var seenProfiles = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase);
+    foreach (var profile in AllowedCapacityProfiles)
+    {
+      if (!IsValidProfileId(profile) ||
+          !seenProfiles.Add(profile))
+      {
+        yield return
+            "AllowedCapacityProfiles must contain unique PitCrew profile identifiers.";
+        yield break;
+      }
+    }
+  }
+
+  private static bool IsValidProfileId(string profileId)
+  {
+    if (profileId.Length is < 1 or > 32 ||
+        profileId[0] is < 'a' or > 'z')
+    {
+      return false;
+    }
+    return profileId.All(character =>
+        character is >= 'a' and <= 'z' or
+            >= '0' and <= '9' or
+            '-');
   }
 }

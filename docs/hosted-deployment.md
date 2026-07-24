@@ -129,9 +129,13 @@ PitCrew__Connector__IdentityPath=/var/lib/pitcrew-connector/identity.json
 ```
 
 Persist the identity path and mount the PitCrew state root read-only. The
-connector needs no Docker socket, inbound port, or GitHub runner-registration
-credential. Remove the consumed enrollment code from hosted connector
-configuration after the identity file has been persisted.
+containerized connector needs no Docker socket, inbound port, or GitHub
+runner-registration credential. Remove the consumed enrollment code from
+hosted connector configuration after the identity file has been persisted.
+
+Container deployments remain read-only. Run the connector binary as an
+opt-in host service for the typed capacity operation described in
+[Capacity operations](capacity-operations.md).
 
 ## Credential lifecycle
 
@@ -153,6 +157,7 @@ connector instance reuses the existing dashboard node identity.
 
 ## Out of scope
 
-- Remote capacity control or arbitrary node commands.
+- Remote operations other than the typed capacity maximum; arbitrary node
+  commands.
 - Workflow log or workload data shipping.
 - Horizontal SQLite replicas.

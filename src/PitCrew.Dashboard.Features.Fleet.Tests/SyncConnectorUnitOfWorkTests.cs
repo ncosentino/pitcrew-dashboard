@@ -5,6 +5,77 @@ namespace PitCrew.Dashboard.Features.Fleet.Tests;
 public sealed class SyncConnectorUnitOfWorkTests
 {
   [Test]
+  public async Task Capacity_Operation_Validation_Accepts_Complete_V3_State()
+  {
+    var completedAt = new DateTimeOffset(
+        2026,
+        7,
+        24,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    var capability = new CapacityOperatorCapability(
+        [
+            new CapacityOperatorProfile(
+                "default",
+                7,
+                30,
+                50),
+        ]);
+    var outcome = new CapacityCommandOutcome(
+        Guid.NewGuid(),
+        "succeeded",
+        "Capacity maximum was acknowledged.",
+        8,
+        completedAt);
+
+    await Assert.That(
+            SyncConnectorUnitOfWork.IsValidCapacityOperator(capability))
+        .IsTrue()
+        .Because("complete capacity capability should be accepted");
+    await Assert.That(
+            SyncConnectorUnitOfWork.IsValidCapacityOutcome(outcome))
+        .IsTrue()
+        .Because("complete capacity outcome should be accepted");
+  }
+
+  [Test]
+  public async Task Capacity_Operation_Validation_Rejects_Duplicate_And_Invalid_State()
+  {
+    var duplicateCapability = new CapacityOperatorCapability(
+        [
+            new CapacityOperatorProfile(
+                "default",
+                7,
+                30,
+                50),
+            new CapacityOperatorProfile(
+                "default",
+                7,
+                30,
+                50),
+        ]);
+    var invalidOutcome = new CapacityCommandOutcome(
+        Guid.NewGuid(),
+        "failed",
+        null,
+        8,
+        DateTimeOffset.UtcNow);
+
+    await Assert.That(
+            SyncConnectorUnitOfWork.IsValidCapacityOperator(
+                duplicateCapability))
+        .IsFalse()
+        .Because("duplicate profile capabilities are ambiguous");
+    await Assert.That(
+            SyncConnectorUnitOfWork.IsValidCapacityOutcome(
+                invalidOutcome))
+        .IsFalse()
+        .Because("failed outcomes cannot report an accepted generation");
+  }
+
+  [Test]
   public async Task IsValidProfile_Accepts_Compatible_Resource_Telemetry()
   {
     var sampledAt = new DateTimeOffset(

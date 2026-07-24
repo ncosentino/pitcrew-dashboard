@@ -15,6 +15,7 @@ internal sealed partial class ConnectorWorker(
     ConnectorIdentityStore _identityStore,
     ConnectorApiClient _apiClient,
     ObservedStateReader _observedStateReader,
+    CapacityCommandExecutor _capacityCommandExecutor,
     IOptions<ConnectorOptions> _options,
     TimeProvider _timeProvider,
     ILogger<ConnectorWorker> _logger) : BackgroundService
@@ -34,6 +35,7 @@ internal sealed partial class ConnectorWorker(
     var consecutiveFailures = 0;
     var lastSentHash = string.Empty;
     var lastSentAt = DateTimeOffset.MinValue;
+    CapacityCommandOutcome? pendingCapacityOutcome = null;
 
     while (!stoppingToken.IsCancellationRequested)
     {
@@ -50,6 +52,9 @@ internal sealed partial class ConnectorWorker(
         else
         {
           var now = _timeProvider.GetUtcNow();
+          var capacityOperator =
+              await _capacityCommandExecutor.ReadCapabilityAsync(
+                  stoppingToken);
           var heartbeatDue =
               now - lastSentAt >=
               TimeSpan.FromSeconds(
@@ -58,7 +63,8 @@ internal sealed partial class ConnectorWorker(
               lastSentHash,
               observedState.AggregateHash,
               StringComparison.Ordinal) ||
-              heartbeatDue)
+              heartbeatDue ||
+              pendingCapacityOutcome is not null)
           {
             var response = await _apiClient.SyncAsync(
                 identity.Credential!,
@@ -66,8 +72,11 @@ internal sealed partial class ConnectorWorker(
                     PitCrewProtocol.Version,
                     ConnectorVersion,
                     now,
-                    observedState.Profiles),
+                    observedState.Profiles,
+                    capacityOperator,
+                    pendingCapacityOutcome),
                 stoppingToken);
+            pendingCapacityOutcome = null;
             if (response.CredentialRotation is not null)
             {
               identity = identity with
@@ -89,6 +98,16 @@ internal sealed partial class ConnectorWorker(
                     5,
                     3600));
             nextDelay = successfulPollDelay;
+            if (response.CapacityCommand is not null)
+            {
+              pendingCapacityOutcome =
+                  await _capacityCommandExecutor.ExecuteAsync(
+                      response.CapacityCommand,
+                      stoppingToken);
+              lastSentHash = string.Empty;
+              lastSentAt = DateTimeOffset.MinValue;
+              nextDelay = TimeSpan.Zero;
+            }
             LogSynchronized(
                 observedState.Profiles.Count,
                 nextDelay);

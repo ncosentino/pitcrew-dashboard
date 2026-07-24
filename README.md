@@ -4,7 +4,7 @@
 
 <h1 align="center">PitCrew Dashboard</h1>
 
-<p align="center"><strong>Authenticated, read-only fleet visibility for PitCrew runner pools.</strong></p>
+<p align="center"><strong>Authenticated fleet visibility with opt-in, locally constrained capacity control.</strong></p>
 
 <p align="center">
   <a href="https://github.com/ncosentino/pitcrew-dashboard/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/ncosentino/pitcrew-dashboard/actions/workflows/ci.yml/badge.svg"></a>
@@ -25,9 +25,9 @@ PitCrew server
 ├── one privileged manager per profile
 ├── ephemeral worker containers
 └── one optional connector
-    ├── read-only .pitcrew-state mount
+    ├── read-only container mode, or opt-in host operator mode
     ├── no Docker socket
-    ├── no GitHub runner-registration token
+    ├── no transmitted GitHub runner-registration token
     └── outbound HTTP(S) synchronization
                     |
                     v
@@ -61,6 +61,14 @@ scale-set count, and degraded errors. Maximum capacity is a ceiling rather than
 a health target, so an idle profile with zero active runners can be healthy.
 Older connectors may omit these additive fields; those observations continue
 to appear as fixed-capacity profiles.
+
+Connector protocol 3 adds one typed write capability for host-installed,
+explicitly allowlisted connectors: setting the absolute capacity maximum of an
+existing single-target profile. Container connectors remain read-only. See
+[Capacity operations](docs/capacity-operations.md). Releases include
+self-contained host connector archives and an installer that migrates the
+existing connector identity and rolls back to the container if service startup
+fails.
 
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
@@ -183,7 +191,9 @@ npm test
 ## Security boundaries
 
 - Only PitCrew managers mount the Docker socket.
-- Connectors mount only the non-secret state root and their own identity volume.
+- Container connectors mount only the non-secret state root and their own
+  identity volume. Opt-in host-service connectors can invoke the typed
+  capacity-only setup path without receiving server-supplied commands or paths.
 - Connector credentials are high-entropy, node-scoped, hashed in SQLite, and
   returned only during enrollment or loss-safe rotation delivery.
 - Enrollment codes are high-entropy, tenant-scoped, hashed, expiring, and

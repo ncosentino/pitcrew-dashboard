@@ -13,6 +13,8 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
         .AddOptions<ConnectorOptions>()
         .BindConfiguration("PitCrew:Connector");
     options.Services.AddSingleton(TimeProvider.System);
+    options.Services.AddSingleton<ICapacityProcessRunner, CapacityProcessRunner>();
+    options.Services.AddSingleton<CapacityCommandExecutor>();
     options.Services.AddHttpClient<ConnectorApiClient>(
         static (services, client) =>
         {

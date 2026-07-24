@@ -23,6 +23,21 @@ public sealed record CreateEnrollmentCodeResponse(
 /// <param name="DisplayName">New operator-facing server name.</param>
 public sealed record RenameNodeRequest(string DisplayName);
 
+/// <summary>
+/// Requests an absolute maximum for one connector-advertised profile target.
+/// </summary>
+/// <param name="Maximum">Requested absolute capacity maximum.</param>
+public sealed record SetCapacityMaximumRequest(int Maximum);
+
+/// <summary>
+/// Returns the queued capacity command.
+/// </summary>
+/// <param name="CommandId">Dashboard-assigned command identifier.</param>
+/// <param name="Status">Initial command status.</param>
+public sealed record SetCapacityMaximumResponse(
+    Guid CommandId,
+    string Status);
+
 internal sealed record CreatedEnrollmentCode(
     Guid EnrollmentCodeId,
     string Code,
