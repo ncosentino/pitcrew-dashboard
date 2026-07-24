@@ -14,6 +14,120 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 public sealed class SqliteFleetStoreTests
 {
   [Test]
+  public async Task Capacity_Command_Queues_Delivers_And_Completes_Idempotently(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-store-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          7,
+          24,
+          12,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken);
+      var store = new SqliteCapacityCommandStore(connectionFactory);
+      var initialCapability = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  7,
+                  30,
+                  50),
+          ]);
+      var initialClaim = await store.ApplyConnectorSyncAsync(
+          nodeId,
+          initialCapability,
+          null,
+          now,
+          now.AddMinutes(-2),
+          cancellationToken);
+      await Assert.That(initialClaim).IsNull();
+
+      var queued = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          40,
+          "1",
+          now.AddSeconds(1),
+          now.AddMinutes(10),
+          cancellationToken);
+      await Assert.That(queued.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Queued);
+      await Assert.That(queued.CommandId).IsNotNull();
+
+      var conflict = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          45,
+          "1",
+          now.AddSeconds(2),
+          now.AddMinutes(10),
+          cancellationToken);
+      await Assert.That(conflict.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Conflict);
+
+      var delivered = await store.ApplyConnectorSyncAsync(
+          nodeId,
+          initialCapability,
+          null,
+          now.AddSeconds(3),
+          now.AddMinutes(-2),
+          cancellationToken);
+      await Assert.That(delivered).IsNotNull();
+      await Assert.That(delivered!.CommandId)
+          .IsEqualTo(queued.CommandId!.Value);
+      await Assert.That(delivered.ExpectedGeneration).IsEqualTo(7);
+      await Assert.That(delivered.Maximum).IsEqualTo(40);
+
+      var completed = await store.ApplyConnectorSyncAsync(
+          nodeId,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                      "default",
+                      8,
+                      40,
+                      50),
+              ]),
+          null,
+          now.AddMinutes(3),
+          now.AddMinutes(1),
+          cancellationToken);
+      await Assert.That(completed).IsNull();
+
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+      await Assert.That(controls).HasSingleItem();
+      await Assert.That(controls[0].Profiles).HasSingleItem();
+      await Assert.That(controls[0].Profiles[0].CurrentMaximum)
+          .IsEqualTo(40);
+      await Assert.That(controls[0].Profiles[0].LatestCommand)
+          .IsNotNull();
+      await Assert.That(
+              controls[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("succeeded");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Observed_State_Round_Trips_And_Legacy_Payload_Remains_Readable(
       CancellationToken cancellationToken)
   {

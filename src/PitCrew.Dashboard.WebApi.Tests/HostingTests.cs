@@ -180,6 +180,118 @@ public sealed class HostingTests
   }
 
   [Test]
+  public async Task Administrator_Queues_And_Observes_Capacity_Command(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+            databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Capacity server",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-capacity",
+          "Capacity Server",
+          code.Code,
+          cancellationToken);
+      var observed = DashboardTestHelpers.CreateObservedState(
+          "default",
+          "https://github.com/example/project");
+      var capability = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                    "default",
+                    3,
+                    1,
+                    50),
+            ]);
+      await DashboardTestHelpers.SynchronizeCapacityAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          observed,
+          capability,
+          null,
+          cancellationToken);
+      using var queue = await DashboardTestHelpers.PostAuthenticatedAsync(
+          client,
+          $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/capacity-maximum",
+          session.AntiforgeryToken,
+          new SetCapacityMaximumRequest(10),
+          cancellationToken);
+      await Assert.That(queue.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+
+      var delivery = await DashboardTestHelpers.SynchronizeCapacityAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          observed,
+          capability,
+          null,
+          cancellationToken);
+      await Assert.That(delivery.CapacityCommand).IsNotNull();
+      await Assert.That(delivery.CapacityCommand!.Maximum)
+          .IsEqualTo(10);
+
+      var updatedObserved = observed with
+      {
+        Generation = 4,
+        DesiredSlots = 10,
+        ConfiguredSlots = 10,
+      };
+      await DashboardTestHelpers.SynchronizeCapacityAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          updatedObserved,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                        "default",
+                        4,
+                        10,
+                        50),
+              ]),
+          new CapacityCommandOutcome(
+              delivery.CapacityCommand.CommandId,
+              "succeeded",
+              "Capacity maximum was acknowledged.",
+              4,
+              updatedObserved.ObservedAt.AddSeconds(1)),
+          cancellationToken);
+
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          "/api/tenants/local/fleet/v1/nodes",
+          cancellationToken);
+      await Assert.That(fleet).IsNotNull();
+      await Assert.That(fleet!.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].CapacityControls).HasSingleItem();
+      await Assert.That(
+              fleet.Nodes[0].CapacityControls[0].CurrentMaximum)
+          .IsEqualTo(10);
+      await Assert.That(
+              fleet.Nodes[0].CapacityControls[0].LatestCommand?.Status)
+          .IsEqualTo("succeeded");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Administrator_Renames_Revoked_Node_Without_Changing_Identity(
       CancellationToken cancellationToken)
   {

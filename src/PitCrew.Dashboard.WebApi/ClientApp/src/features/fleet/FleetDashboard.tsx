@@ -12,6 +12,8 @@ import {
   renameNode,
   requestCredentialRotation,
   revokeNode,
+  setCapacityMaximum,
+  type CapacityControlState,
   type EnrollmentCodeResponse,
   type FleetResponse,
   type ManagerObservedState,
@@ -71,6 +73,7 @@ function statusClasses(status: string): string {
     case 'online':
     case 'running':
     case 'accepted':
+    case 'succeeded':
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
     case 'partial':
     case 'draining':
@@ -78,12 +81,16 @@ function statusClasses(status: string): string {
     case 'rotation requested':
     case 'starting':
     case 'stopping':
+    case 'delivered':
+    case 'pending':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
     case 'degraded':
     case 'invalid':
     case 'conflict':
     case 'revoked':
+    case 'rejected':
+    case 'failed':
     case 'unavailable':
       return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
     default:
@@ -121,7 +128,90 @@ function CapacityMetric({ label, value, testId }: CapacityMetricProps) {
   );
 }
 
-function CapacitySummary({ profile }: { readonly profile: ManagerObservedState }) {
+interface CapacityMaximumControlProps {
+  readonly control: CapacityControlState;
+  readonly disabled: boolean;
+  readonly onSetMaximum: (maximum: number) => Promise<void>;
+}
+
+function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMaximumControlProps) {
+  const [draft, setDraft] = useState(String(control.currentMaximum));
+
+  const parsed = Number(draft);
+  const active =
+    control.latestCommand?.status === 'pending' || control.latestCommand?.status === 'delivered';
+  const valid =
+    Number.isInteger(parsed) &&
+    parsed >= 1 &&
+    parsed <= control.maximumAllowed &&
+    parsed !== control.currentMaximum;
+
+  return (
+    <div
+      className="grid gap-2 rounded-md border bg-background px-3 py-3"
+      data-testid={`profile-capacity-control-${control.profileId}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium">Capacity maximum</div>
+          <div className="text-xs text-muted-foreground">
+            Local ceiling {control.maximumAllowed} · generation {control.generation}
+          </div>
+        </div>
+        {control.latestCommand ? <StatusBadge status={control.latestCommand.status} /> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs font-medium" htmlFor={`capacity-maximum-${control.profileId}`}>
+          Absolute maximum
+        </label>
+        <input
+          id={`capacity-maximum-${control.profileId}`}
+          className="h-9 w-28 rounded-md border bg-background px-3 text-sm tabular-nums"
+          type="number"
+          min={1}
+          max={control.maximumAllowed}
+          value={draft}
+          disabled={disabled || active}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled || active || !valid}
+          onClick={() => {
+            if (globalThis.confirm(`Set ${control.profileId} capacity maximum to ${parsed}?`)) {
+              void onSetMaximum(parsed);
+            }
+          }}
+        >
+          Queue change
+        </Button>
+      </div>
+      {control.latestCommand ? (
+        <div className="text-xs text-muted-foreground">
+          Requested {control.latestCommand.requestedMaximum} ·{' '}
+          {control.latestCommand.resultMessage ?? 'Awaiting connector result.'}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface CapacitySummaryProps {
+  readonly profile: ManagerObservedState;
+  readonly control: CapacityControlState | null;
+  readonly canAdminister: boolean;
+  readonly isMutating: boolean;
+  readonly onSetMaximum: (maximum: number) => Promise<void>;
+}
+
+function CapacitySummary({
+  profile,
+  control,
+  canAdminister,
+  isMutating,
+  onSetMaximum,
+}: CapacitySummaryProps) {
   const autoscaling = profile.autoscaling ?? null;
   if (autoscaling === null) {
     return (
@@ -160,6 +250,14 @@ function CapacitySummary({ profile }: { readonly profile: ManagerObservedState }
             testId={`profile-capacity-draining-${profile.profileId}`}
           />
         </dl>
+        {canAdminister && control ? (
+          <CapacityMaximumControl
+            key={`${control.profileId}-${control.currentMaximum}`}
+            control={control}
+            disabled={isMutating}
+            onSetMaximum={onSetMaximum}
+          />
+        ) : null}
       </section>
     );
   }
@@ -210,6 +308,14 @@ function CapacitySummary({ profile }: { readonly profile: ManagerObservedState }
           />
         ))}
       </dl>
+      {canAdminister && control ? (
+        <CapacityMaximumControl
+          key={`${control.profileId}-${control.currentMaximum}`}
+          control={control}
+          disabled={isMutating}
+          onSetMaximum={onSetMaximum}
+        />
+      ) : null}
       <div
         className={cn(
           'rounded-md border px-3 py-2 text-sm',
@@ -444,6 +550,12 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
     );
   };
 
+  const queueCapacityMaximum = async (nodeId: string, profileId: string, maximum: number) => {
+    await mutate(async () => {
+      await setCapacityMaximum(tenantId, nodeId, profileId, maximum, antiforgeryToken);
+    });
+  };
+
   return (
     <>
       <section className="grid gap-2">
@@ -590,47 +702,61 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
                   The connector has not reported any profile observations.
                 </p>
               ) : null}
-              {node.profiles.map((profile) => (
-                <section key={profile.profileId} className="overflow-hidden rounded-lg border">
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/50 px-4 py-3">
-                    <div>
-                      <h3 className="font-semibold">{profile.profileId}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {profile.scope} scope · generation {profile.generation} · manager contract{' '}
-                        {profile.managerContractVersion}
-                      </p>
+              {node.profiles.map((profile) => {
+                const capacityControl =
+                  node.capacityControls.find(
+                    (control) => control.profileId === profile.profileId,
+                  ) ?? null;
+                return (
+                  <section key={profile.profileId} className="overflow-hidden rounded-lg border">
+                    <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/50 px-4 py-3">
+                      <div>
+                        <h3 className="font-semibold">{profile.profileId}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {profile.scope} scope · generation {profile.generation} · manager contract{' '}
+                          {profile.managerContractVersion}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={profile.managerStatus} />
+                        <StatusBadge status={profile.desiredStateStatus} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={profile.managerStatus} />
-                      <StatusBadge status={profile.desiredStateStatus} />
+                    <CapacitySummary
+                      profile={profile}
+                      control={capacityControl}
+                      canAdminister={canAdminister}
+                      isMutating={isMutating || !node.isOnline || node.isRevoked}
+                      onSetMaximum={(maximum) =>
+                        queueCapacityMaximum(node.nodeId, profile.profileId, maximum)
+                      }
+                    />
+                    <ResourceTelemetrySummary profile={profile} />
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-4xl text-left text-sm">
+                        <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">Slot</th>
+                            <th className="px-3 py-2 font-medium">Repository</th>
+                            <th className="px-3 py-2 font-medium">Target</th>
+                            <th className="px-3 py-2 font-medium">Activity</th>
+                            <th className="px-3 py-2 font-medium">State</th>
+                            <th className="px-3 py-2 text-right font-medium">Failures</th>
+                            <th className="px-3 py-2 text-right font-medium">CPU cores</th>
+                            <th className="px-3 py-2 text-right font-medium">Memory</th>
+                            <th className="px-3 py-2 text-right font-medium">PIDs</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {profile.slots.map((slot) => (
+                            <SlotRow key={slot.key} slot={slot} />
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  </div>
-                  <CapacitySummary profile={profile} />
-                  <ResourceTelemetrySummary profile={profile} />
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-4xl text-left text-sm">
-                      <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">Slot</th>
-                          <th className="px-3 py-2 font-medium">Repository</th>
-                          <th className="px-3 py-2 font-medium">Target</th>
-                          <th className="px-3 py-2 font-medium">Activity</th>
-                          <th className="px-3 py-2 font-medium">State</th>
-                          <th className="px-3 py-2 text-right font-medium">Failures</th>
-                          <th className="px-3 py-2 text-right font-medium">CPU cores</th>
-                          <th className="px-3 py-2 text-right font-medium">Memory</th>
-                          <th className="px-3 py-2 text-right font-medium">PIDs</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {profile.slots.map((slot) => (
-                          <SlotRow key={slot.key} slot={slot} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              ))}
+                  </section>
+                );
+              })}
             </CardContent>
           </Card>
         ))}

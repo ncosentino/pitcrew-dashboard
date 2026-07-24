@@ -115,11 +115,55 @@ internal static class DashboardTestHelpers
             "Synchronization response was empty.");
   }
 
+  public static async Task<ConnectorSyncResponse> SynchronizeCapacityAsync(
+      HttpClient client,
+      string credential,
+      string connectorVersion,
+      ManagerObservedState observedState,
+      CapacityOperatorCapability? capability,
+      CapacityCommandOutcome? outcome,
+      CancellationToken cancellationToken)
+  {
+    using var response = await SendSynchronizationAsync(
+        client,
+        credential,
+        connectorVersion,
+        observedState,
+        capability,
+        outcome,
+        cancellationToken);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadFromJsonAsync<
+        ConnectorSyncResponse>(
+            cancellationToken) ??
+        throw new InvalidOperationException(
+            "Synchronization response was empty.");
+  }
+
   public static async Task<HttpResponseMessage> SendSynchronizationAsync(
       HttpClient client,
       string credential,
       string connectorVersion,
       ManagerObservedState observedState,
+      CancellationToken cancellationToken)
+  {
+    return await SendSynchronizationAsync(
+        client,
+        credential,
+        connectorVersion,
+        observedState,
+        null,
+        null,
+        cancellationToken);
+  }
+
+  private static async Task<HttpResponseMessage> SendSynchronizationAsync(
+      HttpClient client,
+      string credential,
+      string connectorVersion,
+      ManagerObservedState observedState,
+      CapacityOperatorCapability? capability,
+      CapacityCommandOutcome? outcome,
       CancellationToken cancellationToken)
   {
     using var synchronization = new HttpRequestMessage(
@@ -130,7 +174,9 @@ internal static class DashboardTestHelpers
             PitCrewProtocol.Version,
             connectorVersion,
             observedState.ObservedAt,
-            [observedState])),
+            [observedState],
+            capability,
+            outcome)),
     };
     synchronization.Headers.Authorization =
         new AuthenticationHeaderValue(

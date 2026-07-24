@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 2;
+  public const int Version = 3;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -136,17 +136,72 @@ public sealed record ConnectorEnrollmentResponse(
     string Credential);
 
 /// <summary>
+/// Describes one profile whose single capacity target may be changed remotely.
+/// </summary>
+/// <param name="ProfileId">Locally resolved profile identifier.</param>
+/// <param name="Generation">Current desired-capacity generation.</param>
+/// <param name="CurrentMaximum">Current configured maximum.</param>
+/// <param name="MaximumAllowed">Local policy ceiling enforced by the connector.</param>
+public sealed record CapacityOperatorProfile(
+    [property: JsonRequired] string ProfileId,
+    [property: JsonRequired] int Generation,
+    [property: JsonRequired] int CurrentMaximum,
+    [property: JsonRequired] int MaximumAllowed);
+
+/// <summary>
+/// Advertises the locally enabled capacity-operation surface.
+/// </summary>
+/// <param name="Profiles">Profiles whose single existing capacity target is controllable.</param>
+public sealed record CapacityOperatorCapability(
+    [property: JsonRequired]
+    IReadOnlyList<CapacityOperatorProfile> Profiles);
+
+/// <summary>
+/// Requests one absolute capacity maximum through an outbound connector.
+/// </summary>
+/// <param name="CommandId">Dashboard-assigned idempotency identifier.</param>
+/// <param name="ProfileId">Locally resolved profile identifier.</param>
+/// <param name="ExpectedGeneration">Generation that must still be current before execution.</param>
+/// <param name="Maximum">Requested absolute capacity maximum.</param>
+/// <param name="ExpiresAt">Time after which the connector must reject the command.</param>
+public sealed record SetCapacityCommand(
+    [property: JsonRequired] Guid CommandId,
+    [property: JsonRequired] string ProfileId,
+    [property: JsonRequired] int ExpectedGeneration,
+    [property: JsonRequired] int Maximum,
+    [property: JsonRequired] DateTimeOffset ExpiresAt);
+
+/// <summary>
+/// Reports the locally observed result of one capacity command.
+/// </summary>
+/// <param name="CommandId">Command identifier supplied by the dashboard.</param>
+/// <param name="Status">Final status: succeeded, rejected, or failed.</param>
+/// <param name="Message">Bounded operator-facing result detail.</param>
+/// <param name="AcceptedGeneration">Acknowledged generation after success; otherwise <see langword="null"/>.</param>
+/// <param name="CompletedAt">Connector time when execution completed.</param>
+public sealed record CapacityCommandOutcome(
+    [property: JsonRequired] Guid CommandId,
+    [property: JsonRequired] string Status,
+    [property: JsonRequired] string? Message,
+    [property: JsonRequired] int? AcceptedGeneration,
+    [property: JsonRequired] DateTimeOffset CompletedAt);
+
+/// <summary>
 /// Sends the latest complete profile projections from one authenticated connector.
 /// </summary>
 /// <param name="ProtocolVersion">Connector synchronization protocol version.</param>
 /// <param name="ConnectorVersion">Connector application version.</param>
 /// <param name="SentAt">Connector time when the request was created.</param>
 /// <param name="Profiles">Latest readable profile projections from configured state roots.</param>
+/// <param name="CapacityOperator">Locally enabled capacity-operation capability, or <see langword="null"/>.</param>
+/// <param name="CapacityCommandOutcome">Most recent unacknowledged command outcome, or <see langword="null"/>.</param>
 public sealed record ConnectorSyncRequest(
     int ProtocolVersion,
     string ConnectorVersion,
     DateTimeOffset SentAt,
-    IReadOnlyList<ManagerObservedState> Profiles);
+    IReadOnlyList<ManagerObservedState> Profiles,
+    CapacityOperatorCapability? CapacityOperator,
+    CapacityCommandOutcome? CapacityCommandOutcome);
 
 /// <summary>
 /// Delivers a staged replacement node credential to the connector.
@@ -160,10 +215,12 @@ public sealed record ConnectorCredentialRotation(string Credential);
 /// <param name="AcceptedAt">Dashboard time when the synchronization was committed.</param>
 /// <param name="NextPollSeconds">Recommended minimum delay before the next synchronization.</param>
 /// <param name="CredentialRotation">Replacement credential when rotation was staged; otherwise <see langword="null"/>.</param>
+/// <param name="CapacityCommand">Capacity command claimed for this connector, or <see langword="null"/>.</param>
 public sealed record ConnectorSyncResponse(
     DateTimeOffset AcceptedAt,
     int NextPollSeconds,
-    ConnectorCredentialRotation? CredentialRotation);
+    ConnectorCredentialRotation? CredentialRotation,
+    SetCapacityCommand? CapacityCommand);
 
 /// <summary>
 /// Provides source-generated JSON metadata for connector and dashboard protocol messages.
@@ -179,6 +236,10 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(ManagerObservedState))]
 [JsonSerializable(typeof(ConnectorEnrollmentRequest))]
 [JsonSerializable(typeof(ConnectorEnrollmentResponse))]
+[JsonSerializable(typeof(CapacityOperatorProfile))]
+[JsonSerializable(typeof(CapacityOperatorCapability))]
+[JsonSerializable(typeof(SetCapacityCommand))]
+[JsonSerializable(typeof(CapacityCommandOutcome))]
 [JsonSerializable(typeof(ConnectorSyncRequest))]
 [JsonSerializable(typeof(ConnectorCredentialRotation))]
 [JsonSerializable(typeof(ConnectorSyncResponse))]

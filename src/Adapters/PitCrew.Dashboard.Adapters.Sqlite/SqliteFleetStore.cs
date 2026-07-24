@@ -484,7 +484,8 @@ internal sealed class SqliteFleetStore(
           isOnline,
           row.IsRevoked,
           row.CredentialRotationRequested,
-          profilesByNode[pair.Key]));
+          profilesByNode[pair.Key],
+          []));
     }
 
     return new FleetResponse(generatedAt, nodes);

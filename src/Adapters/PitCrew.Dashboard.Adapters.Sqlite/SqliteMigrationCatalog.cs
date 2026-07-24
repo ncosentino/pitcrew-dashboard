@@ -144,5 +144,54 @@ internal static class SqliteMigrationCatalog
             ALTER TABLE nodes
                 ADD COLUMN display_name_override TEXT NULL;
             """),
+      new(
+            5,
+            "capacity-operation-queue",
+            """
+            ALTER TABLE nodes
+                ADD COLUMN capacity_capability_json TEXT NULL;
+
+            ALTER TABLE nodes
+                ADD COLUMN capacity_capability_at TEXT NULL;
+
+            CREATE TABLE capacity_commands (
+                command_id TEXT PRIMARY KEY,
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                expected_generation INTEGER NOT NULL
+                    CHECK (expected_generation >= 1),
+                requested_maximum INTEGER NOT NULL
+                    CHECK (requested_maximum >= 1),
+                maximum_allowed_at_request INTEGER NOT NULL
+                    CHECK (maximum_allowed_at_request >= requested_maximum),
+                status TEXT NOT NULL
+                    CHECK (status IN (
+                        'pending',
+                        'delivered',
+                        'succeeded',
+                        'rejected',
+                        'failed')),
+                requested_by_github_user_id TEXT NOT NULL,
+                requested_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                delivered_at TEXT NULL,
+                delivery_attempts INTEGER NOT NULL DEFAULT 0
+                    CHECK (delivery_attempts >= 0),
+                completed_at TEXT NULL,
+                accepted_generation INTEGER NULL,
+                result_message TEXT NULL,
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_github_user_id)
+                    REFERENCES dashboard_users(github_user_id)
+            );
+
+            CREATE UNIQUE INDEX ix_capacity_commands_profile_active
+                ON capacity_commands (node_id, profile_id)
+                WHERE status IN ('pending', 'delivered');
+
+            CREATE INDEX ix_capacity_commands_node_requested
+                ON capacity_commands (node_id, requested_at DESC);
+            """),
     ];
 }

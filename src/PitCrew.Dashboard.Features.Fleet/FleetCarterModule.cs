@@ -53,6 +53,12 @@ public sealed class FleetCarterModule : ICarterModule
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
             AccessPolicies.TenantAdministrator);
+    fleet.MapPost(
+            "/nodes/{nodeId:guid}/profiles/{profileId}/capacity-maximum",
+            SetCapacityMaximumAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .RequireAuthorization(
+            AccessPolicies.TenantAdministrator);
   }
 
   private static async Task<IResult> EnrollAsync(
@@ -112,7 +118,9 @@ public sealed class FleetCarterModule : ICarterModule
             request.ProtocolVersion,
             request.ConnectorVersion,
             request.SentAt,
-            request.Profiles),
+            request.Profiles,
+            request.CapacityOperator,
+            request.CapacityCommandOutcome),
         cancellationToken);
     return result.Status switch
     {
@@ -230,6 +238,80 @@ public sealed class FleetCarterModule : ICarterModule
               tenantId,
               nodeId,
               cancellationToken));
+
+  private static async Task<IResult> SetCapacityMaximumAsync(
+      HttpContext context,
+      string tenantId,
+      Guid nodeId,
+      string profileId,
+      SetCapacityMaximumRequest request,
+      ISetCapacityMaximumUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    if (!SyncConnectorUnitOfWork.IsValidProfileId(profileId) ||
+        request.Maximum is < 1 or > 1_000_000)
+    {
+      return Results.BadRequest(new
+      {
+        error = new
+        {
+          code = "invalid_capacity_request",
+          message =
+              "Profile ID must be valid and maximum must be between 1 and 1000000.",
+        },
+      });
+    }
+
+    var result = await unitOfWork.QueueOrNullAsync(
+        context.User,
+        tenantId,
+        nodeId,
+        profileId,
+        request.Maximum,
+        cancellationToken);
+    if (result is null)
+    {
+      return Results.Unauthorized();
+    }
+    return result.Status switch
+    {
+      CapacityCommandQueueStatus.Queued => Results.Accepted(
+          value: new SetCapacityMaximumResponse(
+              result.CommandId!.Value,
+              "pending")),
+      CapacityCommandQueueStatus.NodeNotFound => Results.NotFound(),
+      CapacityCommandQueueStatus.Unsupported => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "capacity_not_supported",
+          message =
+              "The connector has not enabled capacity operations for this profile.",
+        },
+      }),
+      CapacityCommandQueueStatus.InvalidMaximum => Results.BadRequest(new
+      {
+        error = new
+        {
+          code = "capacity_out_of_policy",
+          message =
+              "The requested maximum is unchanged or outside the connector's local capacity policy.",
+        },
+      }),
+      CapacityCommandQueueStatus.Conflict => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "capacity_command_active",
+          message =
+              "Another capacity command is already active for this profile.",
+        },
+      }),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported capacity command result."),
+    };
+  }
 
   private static IResult NodeMutationResult(
       NodeMutationStatus status) =>
