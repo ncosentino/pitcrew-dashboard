@@ -1,0 +1,80 @@
+name: Publish host connector
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-host-connector-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [linux-x64, linux-arm64]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Publish self-contained connector
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $output = Join-Path $PWD "artifacts/$($env:RID)"
+          dotnet publish `
+              src/PitCrew.Connector.App/PitCrew.Connector.App.csproj `
+              --configuration Release `
+              --runtime $env:RID `
+              --self-contained true `
+              -p:PublishSingleFile=true `
+              -p:DebugType=None `
+              -p:DebugSymbols=false `
+              --output $output
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+          $asset = "pitcrew-connector-$version-$($env:RID).tar.gz"
+          tar -C $output -czf $asset .
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Set-Content "$asset.sha256" -NoNewline
+
+      - name: Upload connector release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          asset="pitcrew-connector-${version}-${{ matrix.rid }}.tar.gz"
+          gh release upload "$RELEASE_TAG" "$asset" "$asset.sha256" --clobber
+
+      - name: Upload operator installer
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload \
+            "$RELEASE_TAG" \
+            scripts/Enable-PitCrewCapacityOperations.ps1 \
+            --clobber

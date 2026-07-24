@@ -65,7 +65,10 @@ to appear as fixed-capacity profiles.
 Connector protocol 3 adds one typed write capability for host-installed,
 explicitly allowlisted connectors: setting the absolute capacity maximum of an
 existing single-target profile. Container connectors remain read-only. See
-[Capacity operations](docs/capacity-operations.md).
+[Capacity operations](docs/capacity-operations.md). Releases include
+self-contained host connector archives and an installer that migrates the
+existing connector identity and rolls back to the container if service startup
+fails.
 
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,

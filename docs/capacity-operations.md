@@ -22,19 +22,34 @@ the same connector binary to run as a host service with:
 
 No additional container or inbound port is required.
 
-Publish and run the existing connector application directly on the host:
+Dashboard releases publish self-contained `linux-x64` and `linux-arm64`
+connector archives plus `Enable-PitCrewCapacityOperations.ps1`. The installer:
 
-```text
-dotnet publish src/PitCrew.Connector.App -c Release -o /opt/pitcrew-connector
-dotnet /opt/pitcrew-connector/PitCrew.Connector.App.dll
+1. locates the exact running Compose connector;
+2. downloads and verifies the release-pinned host binary;
+3. stops the connector container;
+4. migrates its identity without displaying it;
+5. installs and starts `pitcrew-connector.service`;
+6. restores the original container if service startup fails.
+
+The operational workflow is one installer invocation, normally driven by the
+PitCrew Copilot operations skill:
+
+```powershell
+./Enable-PitCrewCapacityOperations.ps1 `
+    -Version 0.3.3 `
+    -PitCrewRoot /opt/pitcrew `
+    -DashboardUrl https://pitcrew.example.com `
+    -Profiles copilot-cli `
+    -CapacityMaximumCeiling 30
 ```
 
-Use the host's normal service manager to supervise that process and persist its
-existing identity path.
+The installer currently targets Linux hosts with systemd. Run it as root; the
+installed service runs as the invoking sudo user when available.
 
 ## Configuration
 
-Operator mode is disabled by default. Configure the host process with values
+Operator mode is disabled by default. The installer writes host configuration
 equivalent to:
 
 ```json

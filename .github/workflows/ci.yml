@@ -62,6 +62,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate host connector installer syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path 'scripts/Enable-PitCrewCapacityOperations.ps1'),
+              [ref]$tokens,
+              [ref]$errors)
+          if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Host "::error::$($_.Message)" }
+              exit 1
+          }
+
       - name: NuGet cache
         uses: actions/cache@v6
         with:
