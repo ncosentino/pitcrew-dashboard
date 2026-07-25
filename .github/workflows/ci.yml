@@ -144,19 +144,20 @@ jobs:
           ALL_DLLS=()
           while IFS= read -r dll; do
             DLL_NAME=$(basename "$dll" .dll)
-            PROJECT_DIR=$(echo "$dll" | sed 's|^\./||' | cut -d'/' -f1)
+            PROJECT_DIR=$(basename "${dll%%/bin/Release/*}")
             if [ "$DLL_NAME" != "$PROJECT_DIR" ]; then
               continue
             fi
             ALL_DLLS+=("$dll")
-          done < <(find . -path "*/bin/Release/net*/*.Tests.dll" | sort)
+          done < <(find . -type f -path "*/bin/Release/net*/*.Tests.dll" | sort)
 
           if [ ${#ALL_DLLS[@]} -eq 0 ]; then
-            echo "⚠️ No test DLLs found"
-            echo "batch_count=1" >> "$GITHUB_OUTPUT"
-            echo "batch_matrix=[0]" >> "$GITHUB_OUTPUT"
-            echo "batch_0=" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::No test DLLs were discovered after a successful build."
+            exit 1
+          fi
+
+          if [ "$RUNNER_COUNT" -gt "${#ALL_DLLS[@]}" ]; then
+            RUNNER_COUNT=${#ALL_DLLS[@]}
           fi
 
           echo "📦 Found ${#ALL_DLLS[@]} test DLLs"
@@ -315,9 +316,8 @@ jobs:
           esac
 
           if [ -z "$PROJECTS" ]; then
-            echo "⚠️ No projects assigned to batch ${{ matrix.batch }}"
-            echo "projects=" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::No test projects were assigned to batch ${{ matrix.batch }}."
+            exit 1
           fi
 
           echo "📋 Batch ${{ matrix.batch }} projects:"
@@ -332,9 +332,8 @@ jobs:
 
           DLLS="${{ steps.batch.outputs.projects }}"
           if [ -z "$DLLS" ]; then
-            echo "⚠️ No projects assigned to this batch"
-            echo "batch_exit=0" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::No test projects were provided to batch ${{ matrix.batch }}."
+            exit 1
           fi
 
           BATCH_EXIT=0
@@ -344,7 +343,8 @@ jobs:
             DLL_NAME=$(basename "$DLL_PATH" .dll)
 
             if [ ! -f "$DLL_PATH" ]; then
-              echo "⚠️ DLL not found: $DLL_PATH — skipping"
+              echo "::error::Test DLL not found: $DLL_PATH"
+              BATCH_EXIT=1
               continue
             fi
 
@@ -404,6 +404,34 @@ jobs:
           path: test-timings-batch-${{ matrix.batch }}.json
           retention-days: 1
           if-no-files-found: ignore
+
+  required:
+    name: CI required
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [frontend, build, test]
+    if: always()
+    steps:
+      - name: Verify required jobs
+        env:
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          failed=0
+          if [ "$FRONTEND_RESULT" != "success" ]; then
+            echo "::error::Frontend gate finished with '$FRONTEND_RESULT'."
+            failed=1
+          fi
+          if [ "$BUILD_RESULT" != "success" ]; then
+            echo "::error::Build finished with '$BUILD_RESULT'."
+            failed=1
+          fi
+          if [ "$TEST_RESULT" != "success" ]; then
+            echo "::error::Tests finished with '$TEST_RESULT'."
+            failed=1
+          fi
+          exit "$failed"
 
   cleanup:
     runs-on: ubuntu-latest
