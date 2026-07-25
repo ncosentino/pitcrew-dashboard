@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 using NexusLabs.Needlr;
@@ -9,6 +10,13 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
 {
   public void Configure(ServiceCollectionPluginOptions options)
   {
+    if (OperatingSystem.IsWindows())
+    {
+      options.Services.AddWindowsService(service =>
+      {
+        service.ServiceName = "PitCrewConnector";
+      });
+    }
     options.Services
         .AddOptions<ConnectorOptions>()
         .BindConfiguration("PitCrew:Connector");

@@ -22,14 +22,16 @@ the same connector binary to run as a host service with:
 
 No additional container or inbound port is required.
 
-Dashboard releases publish self-contained `linux-x64` and `linux-arm64`
-connector archives plus `Enable-PitCrewCapacityOperations.ps1`. The installer:
+Dashboard releases publish self-contained `linux-x64`, `linux-arm64`,
+`win-x64`, and `win-arm64` connector archives plus
+`Enable-PitCrewCapacityOperations.ps1`. The installer:
 
 1. locates the exact running Compose connector;
 2. downloads and verifies the release-pinned host binary;
 3. stops the connector container;
 4. migrates its identity without displaying it;
-5. installs and starts `pitcrew-connector.service`;
+5. installs and starts `pitcrew-connector.service` on Linux or the
+   `PitCrewConnector` Windows Service;
 6. restores the original container if service startup fails.
 
 The operational workflow is one installer invocation, normally driven by the
@@ -37,15 +39,25 @@ PitCrew Copilot operations skill:
 
 ```powershell
 ./Enable-PitCrewCapacityOperations.ps1 `
-    -Version 0.3.3 `
-    -PitCrewRoot /opt/pitcrew `
+    -Version 0.3.4 `
+    -PitCrewRoot C:\dev\pitcrew `
     -DashboardUrl https://pitcrew.example.com `
     -Profiles copilot-cli `
     -CapacityMaximumCeiling 30
 ```
 
-The installer currently targets Linux hosts with systemd. Run it as root; the
-installed service runs as the invoking sudo user when available.
+On Linux, run the installer as root; the systemd service runs as the invoking
+sudo user when available. On Windows, the installer requests UAC elevation when
+needed and reports the elevated operation's actual result rather than trusting
+the shell process exit code. The Windows Service runs as `LocalSystem`, stores
+binaries below `C:\Program Files\PitCrew\Connector`, and stores its protected
+identity below `C:\ProgramData\PitCrew\Connector`. Rolling service logs are
+written below the same protected data directory.
+
+`LocalSystem` is deliberate: executing `Setup-Runner.ps1 -CapacityOnly`
+requires access to the Docker engine, which is already host-equivalent
+privilege. The connector still accepts only the typed capacity command and
+never receives a dashboard-supplied path, executable, or argument.
 
 ## Configuration
 
@@ -57,8 +69,8 @@ equivalent to:
   "PitCrew": {
     "Connector": {
       "OperatorModeEnabled": true,
-      "PitCrewRoot": "/opt/pitcrew",
-      "StateRoot": "/opt/pitcrew/.pitcrew-state",
+      "PitCrewRoot": "C:\\dev\\pitcrew",
+      "StateRoot": "C:\\dev\\pitcrew\\.pitcrew-state",
       "AllowedCapacityProfiles": ["default", "copilot-cli"],
       "CapacityMaximumCeiling": 50,
       "CapacityCommandTimeoutSeconds": 300,
