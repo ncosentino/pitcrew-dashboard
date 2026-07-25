@@ -118,6 +118,12 @@ in local privilege compared with the read-only connector. Capacity commands can
 take as long as the setup acknowledgement timeout, and the next connector sync
 may be delayed while one executes.
 
+Linux installations use systemd and the invoking sudo user. Windows
+installations use a native .NET Windows Service running as `LocalSystem`.
+Windows requires Docker-engine access, which is already host-equivalent
+privilege; the local allowlist, ceiling, and typed command reconstruction remain
+the security boundary.
+
 Multi-repository profile control is intentionally unavailable until the protocol
 exposes distinct local targets without accepting server-supplied repository
 identities.
