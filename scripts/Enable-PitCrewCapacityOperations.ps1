@@ -103,7 +103,11 @@ function Invoke-WindowsElevatedInstaller {
         [hashtable]$InstallerParameters
     )
 
-    $powerShell = Get-Command pwsh -CommandType Application -ErrorAction Stop
+    $powerShell = Get-Command `
+        pwsh `
+        -CommandType Application `
+        -ErrorAction Stop |
+        Select-Object -First 1
     $elevationRoot = Join-Path (
         [IO.Path]::GetTempPath()
     ) "pitcrew-connector-elevation-$([Guid]::NewGuid().ToString('N'))"
@@ -348,7 +352,10 @@ foreach ($command in $requiredCommands) {
         throw "Required command '$command' is unavailable."
     }
 }
-$powerShellExecutable = (Get-Command pwsh -CommandType Application).Source
+$powerShellExecutable = [string](
+    Get-Command pwsh -CommandType Application |
+        Select-Object -First 1 -ExpandProperty Source
+)
 
 $resolvedPitCrewRoot = (Resolve-Path -LiteralPath $PitCrewRoot).Path
 if ($IsWindows -and $resolvedPitCrewRoot.StartsWith(
@@ -608,26 +615,26 @@ try {
 
         $environmentLines = [System.Collections.Generic.List[string]]::new()
         $environmentLines.Add(
-            "PitCrew__Connector__DashboardUrl=$(ConvertTo-EnvironmentValue $DashboardUrl)")
+            "PitCrew__Connector__DashboardUrl=$(ConvertTo-EnvironmentValue -Value ([string]$DashboardUrl))")
         $environmentLines.Add('PitCrew__Connector__AllowInsecureHttp="false"')
         $environmentLines.Add('PitCrew__Connector__EnrollmentCode=""')
         $environmentLines.Add(
-            "PitCrew__Connector__DisplayName=$(ConvertTo-EnvironmentValue $displayName)")
+            "PitCrew__Connector__DisplayName=$(ConvertTo-EnvironmentValue -Value ([string]$displayName))")
         $environmentLines.Add(
-            "PitCrew__Connector__StateRoot=$(ConvertTo-EnvironmentValue $stateRoot)")
+            "PitCrew__Connector__StateRoot=$(ConvertTo-EnvironmentValue -Value ([string]$stateRoot))")
         $environmentLines.Add(
-            "PitCrew__Connector__IdentityPath=$(ConvertTo-EnvironmentValue $identityPath)")
+            "PitCrew__Connector__IdentityPath=$(ConvertTo-EnvironmentValue -Value ([string]$identityPath))")
         $environmentLines.Add('PitCrew__Connector__OperatorModeEnabled="true"')
         $environmentLines.Add(
-            "PitCrew__Connector__PitCrewRoot=$(ConvertTo-EnvironmentValue $resolvedPitCrewRoot)")
+            "PitCrew__Connector__PitCrewRoot=$(ConvertTo-EnvironmentValue -Value ([string]$resolvedPitCrewRoot))")
         $environmentLines.Add(
-            "PitCrew__Connector__CapacityMaximumCeiling=$(ConvertTo-EnvironmentValue ([string]$CapacityMaximumCeiling))")
+            "PitCrew__Connector__CapacityMaximumCeiling=$(ConvertTo-EnvironmentValue -Value ([string]$CapacityMaximumCeiling))")
         $environmentLines.Add('PitCrew__Connector__CapacityCommandTimeoutSeconds="300"')
         $environmentLines.Add(
-            "PitCrew__Connector__PowerShellExecutable=$(ConvertTo-EnvironmentValue $powerShellExecutable)")
+            "PitCrew__Connector__PowerShellExecutable=$(ConvertTo-EnvironmentValue -Value ([string]$powerShellExecutable))")
         for ($index = 0; $index -lt $normalizedProfiles.Count; $index++) {
             $environmentLines.Add(
-                "PitCrew__Connector__AllowedCapacityProfiles__${index}=$(ConvertTo-EnvironmentValue $normalizedProfiles[$index])")
+                "PitCrew__Connector__AllowedCapacityProfiles__${index}=$(ConvertTo-EnvironmentValue -Value ([string]$normalizedProfiles[$index]))")
         }
         [IO.File]::WriteAllLines(
             $environmentPath,

@@ -395,14 +395,15 @@ try {
         }
     }
     Add-Check $rollbackFailedAsExpected 'The installer did not report the simulated service startup failure.'
+    $expectedRollbackFailure = if ($IsWindows) {
+        'Simulated Windows service startup failure'
+    } else {
+        "'systemctl' exited with code 1"
+    }
     Add-Check (
-        $rollbackFailureMessage -match (
-            if ($IsWindows) {
-                'Simulated Windows service startup failure'
-            } else {
-                "'systemctl' exited with code 1"
-            }
-        )
+        $rollbackFailureMessage.Contains(
+            $expectedRollbackFailure,
+            [StringComparison]::Ordinal)
     ) 'The rollback scenario failed before the simulated service startup failure.'
     Add-Check (
         $global:PitCrewInstallerDockerStarts -eq 1
