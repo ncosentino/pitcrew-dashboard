@@ -136,8 +136,8 @@ export function EnrollmentSettingsPage() {
                 Expires {formatTime(code.expiresAt)}. It is not stored in recoverable form.
               </div>
               <div className="text-xs">
-                Set <code>PitCrew__Connector__EnrollmentCode</code> to this value, start the
-                connector, then remove the consumed code from its configuration.
+                Set PitCrew__Connector__EnrollmentCode to this value, start the connector, then
+                remove the consumed code from its configuration.
               </div>
             </div>
           ) : null}

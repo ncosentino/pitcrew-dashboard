@@ -168,7 +168,8 @@ describe('authenticated routing', () => {
     expect(await screen.findByText('Enroll a connector')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create one-time code' }));
     expect(await screen.findByText('one-time-code')).toBeInTheDocument();
-    expect(screen.getByText(/Expires .*not stored in recoverable form/)).toBeInTheDocument();
+    expect(screen.getByText(/Expires/)).toBeInTheDocument();
+    expect(screen.getByText(/not stored in recoverable form/)).toBeInTheDocument();
     expect(screen.getByText(/PitCrew__Connector__EnrollmentCode/)).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Tenant settings' })).toHaveTextContent(
       'Enrollment',
