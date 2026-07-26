@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SessionProvider } from '@/core/auth';
 import { createTestRouter } from '@/core/routing/createAppRouter';
 import { features } from '@/features.registry';
+
+const logoutMock = vi.hoisted(() => vi.fn(() => new Promise<void>(() => undefined)));
+
+vi.mock('@/core/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/core/auth')>();
+  return { ...actual, logout: logoutMock };
+});
 
 const ownerSession = {
   user: {
@@ -50,6 +57,7 @@ function renderRoute(path: string) {
 describe('authenticated routing', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    logoutMock.mockClear();
   });
 
   it('preserves a deep local path and query in the login URL', async () => {
@@ -90,7 +98,9 @@ describe('authenticated routing', () => {
 
     renderRoute('/');
 
-    expect(await screen.findByText('No tenant access')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'No tenant access' }),
+    ).toBeInTheDocument();
   });
 
   it('does not substitute another tenant for an invalid tenant ID', async () => {
@@ -124,7 +134,9 @@ describe('authenticated routing', () => {
     mockSession(ownerSession);
     const router = renderRoute('/admin/tenants');
 
-    expect(await screen.findByText('No tenant access')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'No tenant access' }),
+    ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/no-access');
     expect(screen.queryByText('Create tenant')).not.toBeInTheDocument();
   });
@@ -280,13 +292,158 @@ describe('authenticated routing', () => {
     mockSession(ownerSession);
     const router = renderRoute('/tenants/local/nodes/node-1');
 
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Node node-1' }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Fleet',
+      }),
+    ).toHaveAttribute('href', '/tenants/local/fleet');
+    expect(
+      screen.getByText('Node node-1', { selector: '[aria-current="page"]' }),
+    ).toBeInTheDocument();
     expect(await screen.findByText('Node not found')).toBeInTheDocument();
 
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1/profiles/build');
     });
 
-    expect(await screen.findByText('Profile build')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Profile build' }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Node node-1',
+      }),
+    ).toHaveAttribute('href', '/tenants/local/nodes/node-1');
+  });
+
+  it.each([
+    {
+      role: 'viewer',
+      visible: ['Fleet'],
+      hidden: ['Settings', 'Enrollment'],
+    },
+    {
+      role: 'administrator',
+      visible: ['Fleet', 'Enrollment'],
+      hidden: ['Settings'],
+    },
+    {
+      role: 'owner',
+      visible: ['Fleet', 'Settings', 'Enrollment'],
+      hidden: [],
+    },
+  ] as const)('shows only $role tenant navigation', async ({ role, visible, hidden }) => {
+    mockSession({
+      ...ownerSession,
+      tenants: [{ ...ownerSession.tenants[0], role }],
+    });
+    renderRoute('/tenants/local/fleet');
+
+    const navigation = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    for (const label of visible) {
+      expect(within(navigation).getByRole('link', { name: label })).toBeInTheDocument();
+    }
+    for (const label of hidden) {
+      expect(within(navigation).queryByRole('link', { name: label })).not.toBeInTheDocument();
+    }
+  });
+
+  it('marks nested fleet routes active and exposes system administration from its manifest', async () => {
+    mockSession({ ...ownerSession, isSystemAdministrator: true });
+    renderRoute('/tenants/local/nodes/node-1');
+
+    const navigation = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    expect(within(navigation).getByRole('link', { name: 'Fleet' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(
+      within(navigation).getByRole('link', { name: 'Tenant administration' }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders settings and administration breadcrumbs with their route headings', async () => {
+    mockSession({ ...ownerSession, isSystemAdministrator: true });
+    const router = renderRoute('/tenants/local/settings/access');
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Tenant access' }),
+    ).toBeInTheDocument();
+    const settingsBreadcrumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(settingsBreadcrumbs).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/tenants/local/settings/general',
+    );
+    expect(within(settingsBreadcrumbs).getByText('Access')).toHaveAttribute('aria-current', 'page');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', {
+        name: 'Settings',
+      }),
+    ).toHaveAttribute('aria-current', 'page');
+
+    await act(async () => {
+      await router.navigate('/admin/tenants');
+    });
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Tenant administration' }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText(
+        'Tenant administration',
+      ),
+    ).toHaveAttribute('aria-current', 'page');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', {
+        name: 'Fleet',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders accessible shell landmarks and a skip target', async () => {
+    mockSession(ownerSession);
+    renderRoute('/tenants/local/fleet');
+
+    const skipLink = await screen.findByRole('link', { name: 'Skip to content' });
+    expect(skipLink).toHaveAttribute('href', '#main-content');
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  });
+
+  it('signs out with the session antiforgery token', async () => {
+    mockSession(ownerSession);
+    renderRoute('/tenants/local/fleet');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    expect(logoutMock).toHaveBeenCalledWith('test-antiforgery-token');
+  });
+
+  it('closes mobile navigation after keyboard navigation and restores trigger focus', async () => {
+    mockSession(ownerSession);
+    const router = renderRoute('/tenants/local/fleet');
+    const user = userEvent.setup();
+    const trigger = await screen.findByRole('button', { name: 'Open navigation' });
+
+    trigger.focus();
+    await user.keyboard('{Enter}');
+    const dialog = await screen.findByRole('dialog', { name: 'Navigation' });
+    expect(
+      within(dialog)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['Fleet', 'Runners', 'Settings', 'Enrollment']);
+    expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('link', { name: 'Enrollment' }));
+
+    expect(router.state.location.pathname).toBe('/tenants/local/settings/enrollment');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
   });
 
   it('reuses fleet polling across fleet routes and stops it on settings routes', async () => {
@@ -315,7 +472,9 @@ describe('authenticated routing', () => {
     await act(async () => {
       await router.navigate('/tenants/local/settings/general');
     });
-    expect(await screen.findByText('Tenant settings')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Tenant settings' }),
+    ).toBeInTheDocument();
     expect(fleetSignal?.aborted).toBe(true);
   });
 });
