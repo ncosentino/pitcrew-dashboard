@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from 'react-router-dom';
+import { isRouteErrorResponse, Link, Navigate, useLocation, useRouteError } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +25,48 @@ export function NoAccessPage() {
         </CardDescription>
       </CardHeader>
     </Card>
+  );
+}
+
+/** Explains that no registered dashboard route matches the requested URL. */
+export function NotFoundPage() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Page not found</CardTitle>
+        <CardDescription>
+          This dashboard route does not exist or is no longer available.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button asChild>
+          <Link to="/">Return to the dashboard</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Contains an unexpected route failure without exposing internal exception details. */
+export function RouteErrorPage() {
+  const error = useRouteError();
+  const status = isRouteErrorResponse(error) ? ` (${error.status})` : '';
+  return (
+    <main className="mx-auto flex min-h-screen max-w-xl items-center px-4" role="alert">
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>Page could not be displayed{status}</CardTitle>
+          <CardDescription>
+            An unexpected routing error occurred. Return to the dashboard and try again.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <a href="/">Return to the dashboard</a>
+          </Button>
+        </CardContent>
+      </Card>
+    </main>
   );
 }
 

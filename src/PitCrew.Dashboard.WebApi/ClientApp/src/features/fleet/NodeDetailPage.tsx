@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -255,23 +256,25 @@ export default function NodeDetailPage() {
                 >
                   Rotate credential
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  disabled={isMutating || node.isRevoked}
-                  onClick={() => {
-                    if (
-                      globalThis.confirm(
-                        `Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`,
-                      )
-                    ) {
-                      void mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken));
-                    }
-                  }}
-                >
-                  Revoke
-                </Button>
+                <ConfirmActionDialog
+                  title={`Revoke ${node.displayName}?`}
+                  description={`Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`}
+                  confirmLabel="Revoke node"
+                  confirmVariant="destructive"
+                  trigger={
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      disabled={isMutating || node.isRevoked}
+                    >
+                      Revoke
+                    </Button>
+                  }
+                  onConfirm={() =>
+                    mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken))
+                  }
+                />
               </div>
             </div>
           ) : null}

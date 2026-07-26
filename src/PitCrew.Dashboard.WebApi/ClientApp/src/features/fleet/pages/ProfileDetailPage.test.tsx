@@ -281,7 +281,6 @@ describe('ProfileDetailPage', () => {
       if (init?.method === 'POST') return await mutation;
       return jsonResponse(fleetResponse());
     });
-    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     renderProfile(fleetResponse(), 'owner', fetchMock);
     const user = userEvent.setup();
 
@@ -290,7 +289,11 @@ describe('ProfileDetailPage', () => {
     await user.type(input, '40');
     await user.click(screen.getByRole('button', { name: 'Queue change' }));
 
-    expect(globalThis.confirm).toHaveBeenCalledWith('Set default capacity maximum to 40?');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText('Set default capacity maximum to 40?')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm capacity change' }));
+
     expect(await screen.findByRole('status')).toHaveTextContent('Queuing capacity change');
     expect(input).toBeDisabled();
     const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');

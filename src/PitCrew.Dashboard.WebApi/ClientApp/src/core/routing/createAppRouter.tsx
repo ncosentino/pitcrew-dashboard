@@ -3,7 +3,7 @@ import { createBrowserRouter, createMemoryRouter, type RouteObject } from 'react
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
 
 import { AuthenticatedShell } from './AuthenticatedShell';
-import { NoAccessPage, RootRedirect } from './pages';
+import { NoAccessPage, NotFoundPage, RootRedirect, RouteErrorPage } from './pages';
 import { SessionBoundary } from './SessionBoundary';
 
 function createRoutes(features: ReadonlyArray<FeatureManifest>): RouteObject[] {
@@ -11,6 +11,7 @@ function createRoutes(features: ReadonlyArray<FeatureManifest>): RouteObject[] {
   return [
     {
       element: <SessionBoundary />,
+      errorElement: <RouteErrorPage />,
       children: [
         {
           path: '/',
@@ -19,7 +20,7 @@ function createRoutes(features: ReadonlyArray<FeatureManifest>): RouteObject[] {
             { index: true, element: <RootRedirect /> },
             { path: 'no-access', element: <NoAccessPage /> },
             ...featureRoutes,
-            { path: '*', element: <NoAccessPage /> },
+            { path: '*', element: <NotFoundPage /> },
           ],
         },
       ],

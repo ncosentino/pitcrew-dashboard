@@ -349,17 +349,39 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                   </caption>
                   <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
                     <tr>
-                      <th className="px-3 py-2 font-medium">Node</th>
-                      <th className="px-3 py-2 font-medium">Profile</th>
-                      <th className="px-3 py-2 font-medium">Slot</th>
-                      <th className="px-3 py-2 font-medium">Repository</th>
-                      <th className="px-3 py-2 font-medium">Target</th>
-                      <th className="px-3 py-2 font-medium">Activity</th>
-                      <th className="px-3 py-2 font-medium">Lifecycle state</th>
-                      <th className="px-3 py-2 text-right font-medium">Failures</th>
-                      <th className="px-3 py-2 text-right font-medium">CPU</th>
-                      <th className="px-3 py-2 text-right font-medium">Memory</th>
-                      <th className="px-3 py-2 text-right font-medium">PIDs</th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Node
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Profile
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Slot
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Repository
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Target
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Activity
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Lifecycle state
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        Failures
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        CPU
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        Memory
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        PIDs
+                      </th>
                     </tr>
                   </thead>
                   <tbody>

@@ -74,6 +74,26 @@ One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.
 
+## Dashboard navigation
+
+The authenticated application uses tenant-scoped routes and persistent
+navigation:
+
+- **Fleet** summarizes nodes and links to node and profile detail.
+- **Runners** searches slots across every node and profile in the active tenant.
+- **Settings** separates tenant naming, access, and connector enrollment from
+  operational fleet views.
+- **Tenant administration** remains visible only to configured system
+  administrators.
+
+Capacity changes and node lifecycle actions remain on their relevant detail
+pages rather than the fleet overview. Direct links survive authentication and
+browser refresh through the ASP.NET SPA fallback.
+
+Contributor guidance for feature manifests, route ownership, shared polling,
+and boundary checks is in
+[Frontend architecture](docs/frontend-architecture.md).
+
 ## Local dashboard
 
 Requirements:
@@ -188,6 +208,9 @@ npm install
 npm test
 ```
 
+See [Frontend architecture](docs/frontend-architecture.md) before adding routes,
+navigation, or shared frontend data.
+
 ## Security boundaries
 
 - Only PitCrew managers mount the Docker socket.
@@ -203,8 +226,8 @@ npm test
 - OAuth access tokens are used only to read the GitHub user profile during
   sign-in and are not stored in SQLite or the authentication cookie.
 - The dashboard does not receive GitHub registration or workload credentials.
-- Remote capacity control, arbitrary command execution, and log shipping are not
-  implemented.
+- Remote operations are limited to the typed, locally constrained capacity
+  maximum. Arbitrary command execution and log shipping are not implemented.
 
 ## About
 

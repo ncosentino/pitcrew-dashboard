@@ -210,15 +210,32 @@ export default function FleetOverviewPage() {
           ) : (
             <section className="overflow-x-auto rounded-lg border bg-card">
               <table className="w-full min-w-5xl text-left text-sm">
+                <caption className="p-3 text-left text-sm font-semibold">
+                  Fleet nodes for the active tenant
+                </caption>
                 <thead className="bg-muted/50 text-xs text-muted-foreground uppercase">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Node</th>
-                    <th className="px-4 py-3 font-medium">State</th>
-                    <th className="px-4 py-3 font-medium">Connector</th>
-                    <th className="px-4 py-3 font-medium">Last seen</th>
-                    <th className="px-4 py-3 text-right font-medium">Profiles</th>
-                    <th className="px-4 py-3 text-right font-medium">Configured / active</th>
-                    <th className="px-4 py-3 text-right font-medium">Current CPU / memory</th>
+                    <th scope="col" className="px-4 py-3 font-medium">
+                      Node
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium">
+                      State
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium">
+                      Connector
+                    </th>
+                    <th scope="col" className="px-4 py-3 font-medium">
+                      Last seen
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-right font-medium">
+                      Profiles
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-right font-medium">
+                      Configured / active
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-right font-medium">
+                      Current CPU / memory
+                    </th>
                   </tr>
                 </thead>
                 <tbody>

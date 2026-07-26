@@ -64,3 +64,32 @@ test('reports static and dynamic sibling feature imports', () => {
     ],
   );
 });
+
+test('allows only the registry and tests to import feature internals from outside features', () => {
+  const root = fixture({
+    'src/features/fleet/manifest.ts': 'export const fleet = true;',
+    'src/features.registry.ts': "import { fleet } from '@/features/fleet/manifest'; void fleet;",
+    'src/App.test.tsx': "import { fleet } from '@/features/fleet/manifest'; void fleet;",
+    'src/core/app.ts': "import { fleet } from '@/features/fleet/manifest'; void fleet;",
+  });
+
+  const result = checkFeatureBoundaries(root);
+
+  assert.equal(result.scanned, 1);
+  assert.deepEqual(
+    result.violations.map(({ file, targetFeature, specifier, registryBypass }) => ({
+      file,
+      targetFeature,
+      specifier,
+      registryBypass,
+    })),
+    [
+      {
+        file: 'src/core/app.ts',
+        targetFeature: 'fleet',
+        specifier: '@/features/fleet/manifest',
+        registryBypass: true,
+      },
+    ],
+  );
+});

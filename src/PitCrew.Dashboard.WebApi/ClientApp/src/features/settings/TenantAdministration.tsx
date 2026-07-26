@@ -93,11 +93,18 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
         {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
         <div className="overflow-x-auto">
           <table className="w-full min-w-xl text-left text-sm">
+            <caption className="px-2 py-2 text-left font-semibold">Tenant members</caption>
             <thead className="text-xs text-muted-foreground uppercase">
               <tr>
-                <th className="px-2 py-2">User</th>
-                <th className="px-2 py-2">Role</th>
-                <th className="px-2 py-2 text-right">Action</th>
+                <th scope="col" className="px-2 py-2">
+                  User
+                </th>
+                <th scope="col" className="px-2 py-2">
+                  Role
+                </th>
+                <th scope="col" className="px-2 py-2 text-right">
+                  Action
+                </th>
               </tr>
             </thead>
             <tbody>

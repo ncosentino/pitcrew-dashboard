@@ -292,7 +292,6 @@ describe('fleet overview and node detail', () => {
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     const router = createTestRouter(features, [`/tenants/local/nodes/${alphaId}`]);
     render(
       <SessionProvider>
@@ -312,6 +311,13 @@ describe('fleet overview and node detail', () => {
     await user.click(screen.getByRole('button', { name: 'Rotate credential' }));
     await waitFor(() => expect(screen.getByText('rotation requested')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Revoke' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(
+      within(dialog).getByText(
+        'Revoke Renamed Alpha? The connector will stop synchronizing until it re-enrolls with a new one-time code.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke node' }));
     expect(await screen.findByText(/This node is revoked/)).toBeInTheDocument();
 
     const mutationCalls = fetchMock.mock.calls.filter(([, init]) =>

@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
+import { Button } from '@/components/ui/button';
+
 interface FeatureErrorBoundaryProps {
   readonly children: ReactNode;
   readonly featureId: string;
@@ -27,8 +29,16 @@ export class FeatureErrorBoundary extends Component<
   public render() {
     if (this.state.failed) {
       return (
-        <section role="alert" className="rounded-lg border border-red-300 p-4 text-red-900">
-          This feature could not be loaded. Refresh the page to try again.
+        <section
+          role="alert"
+          className="grid gap-3 rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+        >
+          <p>The {this.props.featureId} feature could not be displayed.</p>
+          <div>
+            <Button asChild variant="outline">
+              <a href={globalThis.location.href}>Reload page</a>
+            </Button>
+          </div>
         </section>
       );
     }
