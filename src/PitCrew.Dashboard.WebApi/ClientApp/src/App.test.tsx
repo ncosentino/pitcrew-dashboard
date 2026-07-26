@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -287,5 +287,35 @@ describe('authenticated routing', () => {
     });
 
     expect(await screen.findByText('Profile build')).toBeInTheDocument();
+  });
+
+  it('reuses fleet polling across fleet routes and stops it on settings routes', async () => {
+    let fleetSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return Promise.resolve(jsonResponse(ownerSession));
+      if (url.endsWith('/fleet/v1/nodes')) {
+        fleetSignal = init?.signal as AbortSignal;
+        return new Promise<Response>(() => undefined);
+      }
+      return Promise.resolve(
+        jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404),
+      );
+    });
+    const router = renderRoute('/tenants/local/fleet');
+
+    await screen.findByRole('heading', { level: 2, name: 'Fleet status' });
+    await waitFor(() => expect(fleetSignal).toBeDefined());
+    await act(async () => {
+      await router.navigate('/tenants/local/nodes/node-1');
+    });
+    expect(await screen.findByText('Node node-1')).toBeInTheDocument();
+    expect(fleetSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      await router.navigate('/tenants/local/settings/general');
+    });
+    expect(await screen.findByText('Tenant settings')).toBeInTheDocument();
+    expect(fleetSignal?.aborted).toBe(true);
   });
 });
