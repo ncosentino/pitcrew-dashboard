@@ -40,7 +40,7 @@ interface ShellPanelProps {
   readonly onTenantChange: (tenantId: string) => void;
 }
 
-const keepPanelOpen = () => undefined;
+const noOp = () => undefined;
 
 function ShellPanel({
   session,
@@ -166,7 +166,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           navigation={navigation}
           pathname={pathname}
           tenantSelectId="tenant-context"
-          onNavigate={keepPanelOpen}
+          onNavigate={noOp}
           onTenantChange={switchTenant}
         />
       </aside>

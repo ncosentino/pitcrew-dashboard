@@ -14,7 +14,7 @@ const noAccessPresentation: FeatureRoutePresentation = {
 };
 
 export function formatRouteLabel(label: string, params: Params<string>): string {
-  return label.replaceAll(/:([A-Za-z0-9_]+)/g, (_, key: string) => params[key] ?? '');
+  return label.replaceAll(/:([A-Za-z0-9_]+)/g, (token, key: string) => params[key] ?? token);
 }
 
 /** Resolves route presentation without importing a feature into the shell. */

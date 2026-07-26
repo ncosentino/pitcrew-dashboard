@@ -17,7 +17,10 @@ export function Breadcrumbs({ match }: BreadcrumbsProps) {
           const label = formatRouteLabel(item.label, match.params);
           const path = item.path ? generatePath(item.path, match.params) : null;
           return (
-            <li className="flex min-w-0 items-center gap-2" key={`${item.label}-${index}`}>
+            <li
+              className="flex min-w-0 items-center gap-2"
+              key={`${item.path ?? 'current'}-${item.label}`}
+            >
               {index > 0 ? <span aria-hidden="true">/</span> : null}
               {path ? (
                 <Link
