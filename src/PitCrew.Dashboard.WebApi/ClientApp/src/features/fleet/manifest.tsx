@@ -5,7 +5,7 @@ import { TenantRouteGuard } from '@/core/routing/guards';
 const FleetOverviewPage = lazyFeature('fleet', () => import('./FleetOverviewPage'));
 const FleetRouteGroup = lazyFeature('fleet', () => import('./FleetRouteGroup'));
 const NodeDetailPage = lazyFeature('fleet', () => import('./NodeDetailPage'));
-const ProfilePlaceholderPage = lazyFeature('fleet', () => import('./ProfilePlaceholderPage'));
+const ProfileDetailPage = lazyFeature('fleet', () => import('./pages/ProfileDetailPage'));
 
 /** Fleet feature routes and navigation contribution. */
 export const fleetManifest: FeatureManifest = {
@@ -22,7 +22,7 @@ export const fleetManifest: FeatureManifest = {
             { path: 'tenants/:tenantId/nodes/:nodeId', element: <NodeDetailPage /> },
             {
               path: 'tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
-              element: <ProfilePlaceholderPage />,
+              element: <ProfileDetailPage />,
             },
           ],
         },
