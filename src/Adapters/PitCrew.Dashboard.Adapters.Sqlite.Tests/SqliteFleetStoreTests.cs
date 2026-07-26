@@ -180,7 +180,7 @@ public sealed class SqliteFleetStoreTests
           null);
       var profile = new ManagerObservedState(
           1,
-          8,
+          10,
           "default",
           "manager-instance",
           "running",
@@ -204,11 +204,13 @@ public sealed class SqliteFleetStoreTests
                   observedAt,
                   expectedSlotResources,
                   "busy",
-                  "scale-set-linux"),
+                  "scale-set-linux",
+                  "connected"),
           ],
           expectedTelemetry,
           30,
-          expectedAutoscaling);
+          expectedAutoscaling,
+          1);
       await store.ApplySyncAsync(
           nodeId,
           "2.0.0",
@@ -233,6 +235,8 @@ public sealed class SqliteFleetStoreTests
           .IsEqualTo(30);
       await Assert.That(fleet.Nodes[0].Profiles[0].Autoscaling)
           .IsEqualTo(expectedAutoscaling);
+      await Assert.That(fleet.Nodes[0].Profiles[0].EligibleSlots)
+          .IsEqualTo(1);
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots).HasSingleItem();
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots[0].Resources)
           .IsEqualTo(expectedSlotResources);
@@ -240,10 +244,14 @@ public sealed class SqliteFleetStoreTests
           .IsEqualTo("busy");
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots[0].Target)
           .IsEqualTo("scale-set-linux");
+      await Assert.That(
+              fleet.Nodes[0].Profiles[0].Slots[0].RegistrationStatus)
+          .IsEqualTo("connected");
 
       var legacyProfile = profile with
       {
         ObservedAt = observedAt.AddSeconds(30),
+        ManagerContractVersion = 7,
         Slots =
         [
             profile.Slots[0] with
@@ -251,11 +259,13 @@ public sealed class SqliteFleetStoreTests
               Resources = null,
               Activity = null,
               Target = null,
+              RegistrationStatus = null,
             },
         ],
         ResourceTelemetry = null,
         ConfiguredSlots = null,
         Autoscaling = null,
+        EligibleSlots = null,
       };
       await store.ApplySyncAsync(
           nodeId,
@@ -276,12 +286,14 @@ public sealed class SqliteFleetStoreTests
       legacyPayload.Remove("resourceTelemetry");
       legacyPayload.Remove("configuredSlots");
       legacyPayload.Remove("autoscaling");
+      legacyPayload.Remove("eligibleSlots");
       foreach (var slot in legacyPayload["slots"]!.AsArray())
       {
         var slotObject = slot!.AsObject();
         slotObject.Remove("resources");
         slotObject.Remove("activity");
         slotObject.Remove("target");
+        slotObject.Remove("registrationStatus");
       }
       await using (var connection = await connectionFactory.OpenAsync(
           cancellationToken))
@@ -322,6 +334,9 @@ public sealed class SqliteFleetStoreTests
       await Assert.That(
               legacyFleet.Nodes[0].Profiles[0].Autoscaling)
           .IsNull();
+      await Assert.That(
+              legacyFleet.Nodes[0].Profiles[0].EligibleSlots)
+          .IsNull();
       await Assert.That(legacyFleet.Nodes[0].Profiles[0].Slots)
           .HasSingleItem();
       await Assert.That(
@@ -332,6 +347,9 @@ public sealed class SqliteFleetStoreTests
           .IsNull();
       await Assert.That(
               legacyFleet.Nodes[0].Profiles[0].Slots[0].Target)
+          .IsNull();
+      await Assert.That(
+              legacyFleet.Nodes[0].Profiles[0].Slots[0].RegistrationStatus)
           .IsNull();
     }
     finally

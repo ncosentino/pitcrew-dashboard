@@ -50,7 +50,7 @@ function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <dl className="grid gap-3 text-sm sm:grid-cols-4">
+        <dl className="grid gap-3 text-sm sm:grid-cols-5">
           <div>
             <dt className="text-xs text-muted-foreground uppercase">Configured</dt>
             <dd className="mt-1 font-semibold tabular-nums">{configured}</dd>
@@ -60,8 +60,14 @@ function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
             <dd className="mt-1 font-semibold tabular-nums">{profile.desiredSlots}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground uppercase">Active</dt>
+            <dt className="text-xs text-muted-foreground uppercase">Local slots</dt>
             <dd className="mt-1 font-semibold tabular-nums">{profile.activeSlots}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground uppercase">GitHub eligible</dt>
+            <dd className="mt-1 font-semibold tabular-nums">
+              {profile.eligibleSlots ?? 'Unknown'}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground uppercase">Draining</dt>
@@ -224,9 +230,12 @@ export default function NodeDetailPage() {
               <dd className="mt-1 font-medium">{formatTime(node.enrolledAt)}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground uppercase">Configured / active</dt>
+              <dt className="text-xs text-muted-foreground uppercase">
+                Configured / local / GitHub eligible
+              </dt>
               <dd className="mt-1 font-medium tabular-nums">
-                {aggregate.configuredSlots} / {aggregate.activeSlots}
+                {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
+                {aggregate.eligibleSlots ?? 'Unknown'}
               </dd>
             </div>
           </dl>

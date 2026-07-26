@@ -132,7 +132,7 @@ export function ProfileCapacitySummary({
           </div>
           <StatusBadge status="fixed" />
         </div>
-        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-center sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-center sm:grid-cols-5">
           <CapacityMetric
             label="Configured"
             value={profile.configuredSlots ?? profile.desiredSlots}
@@ -144,9 +144,14 @@ export function ProfileCapacitySummary({
             testId={`profile-capacity-desired-${profile.profileId}`}
           />
           <CapacityMetric
-            label="Active"
+            label="Local slots"
             value={profile.activeSlots}
             testId={`profile-capacity-active-${profile.profileId}`}
+          />
+          <CapacityMetric
+            label="GitHub eligible"
+            value={profile.eligibleSlots ?? 'Unknown'}
+            testId={`profile-capacity-eligible-${profile.profileId}`}
           />
           <CapacityMetric
             label="Draining"
@@ -169,7 +174,8 @@ export function ProfileCapacitySummary({
   const capacityMetrics = [
     ['Maximum', autoscaling.maximumSlots, 'maximum'],
     ['Target', autoscaling.targetSlots, 'target'],
-    ['Active', profile.activeSlots, 'active'],
+    ['Local slots', profile.activeSlots, 'active'],
+    ['GitHub eligible', profile.eligibleSlots ?? 'Unknown', 'eligible'],
     ['Draining', profile.drainingSlots, 'draining'],
     ['Assigned', autoscaling.assignedJobs, 'assigned'],
     ['Running', autoscaling.runningJobs, 'running'],

@@ -44,6 +44,11 @@ public sealed class ObservedStateReaderTests
                   .GetProperty("configuredSlots")
                   .GetInt32())
           .IsEqualTo(30);
+      await Assert.That(
+              observedStateJson.RootElement
+                  .GetProperty("eligibleSlots")
+                  .GetInt32())
+          .IsEqualTo(1);
       await Assert.That(autoscaling.GetProperty("mode").GetString())
           .IsEqualTo("scale-set");
       await Assert.That(autoscaling.GetProperty("maximumSlots").GetInt32())
@@ -52,6 +57,9 @@ public sealed class ObservedStateReaderTests
           .IsEqualTo("busy");
       await Assert.That(serializedSlot.GetProperty("target").GetString())
           .IsEqualTo("scale-set-linux");
+      await Assert.That(
+              serializedSlot.GetProperty("registrationStatus").GetString())
+          .IsEqualTo("connected");
       await Assert.That(
               managerResources.GetProperty("cpuCores").GetDouble())
           .IsEqualTo(0.25);
@@ -85,12 +93,16 @@ public sealed class ObservedStateReaderTests
           .IsEqualTo(observedState.ConfiguredSlots);
       await Assert.That(initial.Profiles[0].Autoscaling)
           .IsEqualTo(observedState.Autoscaling);
+      await Assert.That(initial.Profiles[0].EligibleSlots)
+          .IsEqualTo(observedState.EligibleSlots);
       await Assert.That(initial.Profiles[0].Slots[0].Resources)
           .IsEqualTo(observedState.Slots[0].Resources);
       await Assert.That(initial.Profiles[0].Slots[0].Activity)
           .IsEqualTo(observedState.Slots[0].Activity);
       await Assert.That(initial.Profiles[0].Slots[0].Target)
           .IsEqualTo(observedState.Slots[0].Target);
+      await Assert.That(initial.Profiles[0].Slots[0].RegistrationStatus)
+          .IsEqualTo(observedState.Slots[0].RegistrationStatus);
 
       await File.WriteAllTextAsync(
           observedStatePath,
@@ -139,12 +151,14 @@ public sealed class ObservedStateReaderTests
       payload.Remove("resourceTelemetry");
       payload.Remove("configuredSlots");
       payload.Remove("autoscaling");
+      payload.Remove("eligibleSlots");
       foreach (var slot in payload["slots"]!.AsArray())
       {
         var slotObject = slot!.AsObject();
         slotObject.Remove("resources");
         slotObject.Remove("activity");
         slotObject.Remove("target");
+        slotObject.Remove("registrationStatus");
       }
       await File.WriteAllTextAsync(
           Path.Combine(
@@ -168,10 +182,13 @@ public sealed class ObservedStateReaderTests
       await Assert.That(result.Profiles[0].ResourceTelemetry).IsNull();
       await Assert.That(result.Profiles[0].ConfiguredSlots).IsNull();
       await Assert.That(result.Profiles[0].Autoscaling).IsNull();
+      await Assert.That(result.Profiles[0].EligibleSlots).IsNull();
       await Assert.That(result.Profiles[0].Slots).HasSingleItem();
       await Assert.That(result.Profiles[0].Slots[0].Resources).IsNull();
       await Assert.That(result.Profiles[0].Slots[0].Activity).IsNull();
       await Assert.That(result.Profiles[0].Slots[0].Target).IsNull();
+      await Assert.That(result.Profiles[0].Slots[0].RegistrationStatus)
+          .IsNull();
     }
     finally
     {

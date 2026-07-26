@@ -13,6 +13,9 @@ function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
       <td className="px-3 py-2" data-testid={`slot-activity-${slot.key}`}>
         {slot.activity ? <StatusBadge status={slot.activity} /> : '—'}
       </td>
+      <td className="px-3 py-2" data-testid={`slot-registration-${slot.key}`}>
+        <StatusBadge status={slot.registrationStatus ?? 'unknown'} />
+      </td>
       <td className="px-3 py-2">
         <StatusBadge status={slot.state} />
       </td>
@@ -64,7 +67,10 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
               Activity
             </th>
             <th scope="col" className="px-3 py-2 font-medium">
-              State
+              GitHub registration
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              Local state
             </th>
             <th scope="col" className="px-3 py-2 text-right font-medium">
               Failures

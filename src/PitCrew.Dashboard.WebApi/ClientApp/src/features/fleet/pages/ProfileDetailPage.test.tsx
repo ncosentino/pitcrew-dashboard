@@ -48,6 +48,7 @@ function slotResponse(overrides: Readonly<Record<string, unknown>> = {}) {
     },
     activity: 'busy',
     target: 'scale-set-linux',
+    registrationStatus: 'connected',
     ...overrides,
   };
 }
@@ -55,7 +56,7 @@ function slotResponse(overrides: Readonly<Record<string, unknown>> = {}) {
 function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     schemaVersion: 1,
-    managerContractVersion: 8,
+    managerContractVersion: 10,
     profileId: 'default',
     managerInstanceId: 'manager-default',
     managerStatus: 'running',
@@ -67,6 +68,7 @@ function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
     configuredSlots: 30,
     desiredSlots: 1,
     activeSlots: 1,
+    eligibleSlots: 1,
     drainingSlots: 0,
     slots: [slotResponse()],
     resourceTelemetry: {
@@ -180,11 +182,12 @@ describe('ProfileDetailPage', () => {
     expect(await screen.findByTestId('profile-capacity-target-default')).toHaveTextContent('3');
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(
-      screen.getByText('repo scope · generation 4 · manager contract 8', { exact: false }),
+      screen.getByText('repo scope · generation 4 · manager contract 10', { exact: false }),
     ).toBeInTheDocument();
     expect(screen.getByTestId('profile-autoscaling-error-default')).toHaveTextContent(
       'GitHub queue observation failed.',
     );
+    expect(screen.getByTestId('profile-capacity-eligible-default')).toHaveTextContent('1');
     expect(screen.getByTestId('profile-resource-telemetry-default')).toHaveTextContent('partial');
     expect(screen.getByTestId('profile-resource-host-default')).toHaveTextContent('Unavailable');
     expect(screen.getByTestId('profile-resource-manager-default')).toHaveTextContent(
@@ -199,6 +202,7 @@ describe('ProfileDetailPage', () => {
     expect(within(table).getByText('https://github.com/example/project')).toBeInTheDocument();
     expect(within(table).getByText('scale-set-linux')).toBeInTheDocument();
     expect(within(table).getByText('busy')).toBeInTheDocument();
+    expect(within(table).getByText('connected')).toBeInTheDocument();
     expect(within(table).getByText('online')).toBeInTheDocument();
     expect(within(table).getByText('2')).toBeInTheDocument();
   });
@@ -210,6 +214,7 @@ describe('ProfileDetailPage', () => {
       slots: [],
       desiredSlots: 0,
       activeSlots: 0,
+      eligibleSlots: 0,
       configuredSlots: 2,
     });
     renderProfile(fleetResponse([nodeResponse({ profiles: [profile] })]), 'viewer');
@@ -222,6 +227,23 @@ describe('ProfileDetailPage', () => {
     expect(
       screen.getByText('The manager has not reported any slots for this profile.'),
     ).toBeInTheDocument();
+  });
+
+  it('treats registration eligibility from older manager contracts as unknown', async () => {
+    const legacySlot = slotResponse({ registrationStatus: undefined });
+    const profile = profileResponse({
+      managerContractVersion: 9,
+      eligibleSlots: undefined,
+      slots: [legacySlot],
+    });
+    renderProfile(fleetResponse([nodeResponse({ profiles: [profile] })]));
+
+    expect(await screen.findByTestId('profile-capacity-eligible-default')).toHaveTextContent(
+      'Unknown',
+    );
+    expect(screen.getByTestId('slot-registration-repo-default-000001')).toHaveTextContent(
+      'unknown',
+    );
   });
 
   it.each([

@@ -32,6 +32,7 @@ public static class PitCrewProtocol
 /// <param name="Resources">Point-in-time worker resource usage when available; otherwise <see langword="null"/>.</param>
 /// <param name="Activity">Demand-driven runner activity when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Target">Current scale-set target associated with the slot when reported; otherwise <see langword="null"/>.</param>
+/// <param name="RegistrationStatus">GitHub registration eligibility when reported; otherwise <see langword="null"/>.</param>
 public sealed record ObservedSlotState(
     string Key,
     string? Repository,
@@ -43,7 +44,8 @@ public sealed record ObservedSlotState(
     DateTimeOffset? UpdatedAt,
     ResourceUsage? Resources,
     string? Activity,
-    string? Target);
+    string? Target,
+    string? RegistrationStatus = null);
 
 /// <summary>
 /// Describes the demand-driven scale-set projection published by one profile manager.
@@ -98,6 +100,7 @@ public sealed record ManagerAutoscalingState(
 /// <param name="ResourceTelemetry">Point-in-time manager and host telemetry when available; otherwise <see langword="null"/>.</param>
 /// <param name="ConfiguredSlots">Configured maximum slot count when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Autoscaling">Demand-driven autoscaling projection, or <see langword="null"/> for fixed-capacity profiles.</param>
+/// <param name="EligibleSlots">Number of slots GitHub currently reports as connected, or <see langword="null"/> when unavailable.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -115,7 +118,8 @@ public sealed record ManagerObservedState(
     IReadOnlyList<ObservedSlotState> Slots,
     ManagerResourceTelemetry? ResourceTelemetry,
     int? ConfiguredSlots,
-    ManagerAutoscalingState? Autoscaling);
+    ManagerAutoscalingState? Autoscaling,
+    int? EligibleSlots = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.

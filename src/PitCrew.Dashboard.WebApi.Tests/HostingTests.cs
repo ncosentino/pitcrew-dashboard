@@ -155,6 +155,11 @@ public sealed class HostingTests
       await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
       await Assert.That(fleet.Nodes[0].Profiles[0].Slots)
           .HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles[0].EligibleSlots)
+          .IsEqualTo(1);
+      await Assert.That(
+              fleet.Nodes[0].Profiles[0].Slots[0].RegistrationStatus)
+          .IsEqualTo("connected");
       await Assert.That(
               fleet.Nodes[0].Profiles[0].ResourceTelemetry?.Host)
           .IsEqualTo(new HostResourceCapacity(

@@ -28,6 +28,7 @@ function slotResponse(
     resources: { cpuCores: 1.5, memoryWorkingSetBytes: 1_048_576, pids: 4 },
     activity: 'idle',
     target: 'ubuntu-latest',
+    registrationStatus: 'connected',
     ...overrides,
   };
 }
@@ -36,10 +37,12 @@ function profileResponse(
   profileId: string,
   slots: ReadonlyArray<Readonly<Record<string, unknown>>>,
   telemetryStatus: 'available' | 'partial' | 'unavailable' = 'available',
+  overrides: Readonly<Record<string, unknown>> = {},
 ) {
+  const eligibleSlots = slots.filter((slot) => slot.registrationStatus === 'connected').length;
   return {
     schemaVersion: 1,
-    managerContractVersion: 7,
+    managerContractVersion: 10,
     profileId,
     managerInstanceId: `manager-${profileId}`,
     managerStatus: 'running',
@@ -50,6 +53,7 @@ function profileResponse(
     desiredStateStatus: 'accepted',
     desiredSlots: slots.length,
     activeSlots: slots.length,
+    eligibleSlots,
     drainingSlots: 0,
     slots,
     resourceTelemetry: {
@@ -58,6 +62,7 @@ function profileResponse(
       host: null,
       manager: null,
     },
+    ...overrides,
   };
 }
 
@@ -133,6 +138,7 @@ function standardFleet() {
         slotResponse('slot-b', {
           repository: 'octo/beta',
           activity: 'draining',
+          registrationStatus: 'disconnected',
           state: 'draining',
         }),
       ]),
@@ -142,6 +148,7 @@ function standardFleet() {
         slotResponse('slot-c', {
           repository: 'other/gamma',
           activity: 'idle',
+          registrationStatus: 'registration-missing',
           state: 'running',
         }),
       ]),
@@ -198,13 +205,14 @@ describe('runners feature', () => {
   it('restores every filter and sorting field from a bookmarked URL', async () => {
     renderRunners(
       standardFleet(),
-      `/tenants/local/runners?node=${localNodeId}&profile=build&repository=ALPHA&activity=busy&state=degraded&sort=failures&direction=desc`,
+      `/tenants/local/runners?node=${localNodeId}&profile=build&repository=ALPHA&activity=busy&registration=connected&state=degraded&sort=failures&direction=desc`,
     );
 
     expect(await screen.findByLabelText('Node')).toHaveValue(localNodeId);
     expect(screen.getByLabelText('Profile')).toHaveValue('build');
     expect(screen.getByLabelText('Repository')).toHaveValue('ALPHA');
     expect(screen.getByLabelText('Activity')).toHaveValue('busy');
+    expect(screen.getByLabelText('GitHub registration')).toHaveValue('connected');
     expect(screen.getByLabelText('Lifecycle state')).toHaveValue('degraded');
     expect(screen.getByLabelText('Sort by')).toHaveValue('failures');
     expect(screen.getByLabelText('Sort direction')).toHaveValue('desc');
@@ -221,13 +229,14 @@ describe('runners feature', () => {
     await user.selectOptions(screen.getByLabelText('Profile'), 'deploy');
     await user.type(screen.getByLabelText('Repository'), 'beta');
     await user.selectOptions(screen.getByLabelText('Activity'), 'draining');
+    await user.selectOptions(screen.getByLabelText('GitHub registration'), 'disconnected');
     await user.selectOptions(screen.getByLabelText('Lifecycle state'), 'draining');
     await user.selectOptions(screen.getByLabelText('Sort by'), 'slot');
     await user.selectOptions(screen.getByLabelText('Sort direction'), 'desc');
 
     await waitFor(() =>
       expect(screen.getByLabelText('Current query')).toHaveTextContent(
-        `node=${localNodeId}&profile=deploy&repository=beta&activity=draining&state=draining&sort=slot&direction=desc`,
+        `node=${localNodeId}&profile=deploy&repository=beta&activity=draining&registration=disconnected&state=draining&sort=slot&direction=desc`,
       ),
     );
     expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(1);
@@ -271,6 +280,42 @@ describe('runners feature', () => {
     expect(within(zero).getByText('0 cores')).toBeInTheDocument();
     expect(within(zero).getByText('0 B')).toBeInTheDocument();
     expect(within(zero).getByText('0 PIDs')).toBeInTheDocument();
+  });
+
+  it('shows legacy slots as unknown instead of GitHub-eligible', async () => {
+    const legacySlot = slotResponse('legacy', { registrationStatus: undefined });
+    renderRunners(
+      fleetResponse([
+        nodeResponse(localNodeId, 'Alpha', [
+          profileResponse('build', [legacySlot], 'available', {
+            managerContractVersion: 9,
+            eligibleSlots: undefined,
+          }),
+        ]),
+      ]),
+    );
+
+    const registration = await screen.findByTestId(
+      `runner-registration-${localNodeId}-build-legacy`,
+    );
+    expect(registration).toHaveTextContent('unknown');
+  });
+
+  it('rejects inconsistent contract-ten eligible capacity', async () => {
+    renderRunners(
+      fleetResponse([
+        nodeResponse(localNodeId, 'Alpha', [
+          profileResponse('build', [slotResponse('invalid')], 'available', {
+            eligibleSlots: 0,
+          }),
+        ]),
+      ]),
+    );
+
+    expect(
+      await screen.findByText(/Runner data is unavailable: Response did not match expected schema/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
   it('distinguishes fleet-empty, filtered-empty, and offline-node states', async () => {
