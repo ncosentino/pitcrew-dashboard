@@ -51,6 +51,28 @@ internal static class SqliteProfileOperationSlot
     return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
   }
 
+  public static async Task<bool> IsHeldAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Guid nodeId,
+      string profileId,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT 1
+        FROM profile_active_operations
+        WHERE node_id = $nodeId
+          AND profile_id = $profileId
+        LIMIT 1;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$profileId", profileId);
+    return await command.ExecuteScalarAsync(cancellationToken) is not null;
+  }
+
   public static async Task ReleaseCompletedAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,

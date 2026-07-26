@@ -96,7 +96,13 @@ internal sealed class SqliteRecoveryCommandStore(
           RecoveryCommandQueueStatus.NotAllowed,
           null);
     }
-    if (profile.OperationActive)
+    if (profile.OperationActive ||
+        await SqliteProfileOperationSlot.IsHeldAsync(
+            connection,
+            transaction,
+            nodeId,
+            profile.ProfileId,
+            cancellationToken))
     {
       return new RecoveryCommandQueueResult(
           RecoveryCommandQueueStatus.Conflict,

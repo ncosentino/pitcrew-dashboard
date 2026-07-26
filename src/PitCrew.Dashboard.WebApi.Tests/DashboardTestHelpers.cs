@@ -157,6 +157,35 @@ internal static class DashboardTestHelpers
         cancellationToken);
   }
 
+  public static async Task<ConnectorSyncResponse> SynchronizeRecoveryAsync(
+      HttpClient client,
+      string credential,
+      string connectorVersion,
+      ManagerObservedState observedState,
+      RecoveryOperatorCapability? recoveryCapability,
+      RecoveryCommandProgress? recoveryProgress,
+      RecoveryCommandOutcome? recoveryOutcome,
+      CancellationToken cancellationToken)
+  {
+    using var response = await SendSynchronizationAsync(
+        client,
+        credential,
+        connectorVersion,
+        observedState,
+        null,
+        null,
+        recoveryCapability,
+        recoveryProgress,
+        recoveryOutcome,
+        cancellationToken);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadFromJsonAsync<
+        ConnectorSyncResponse>(
+            cancellationToken) ??
+        throw new InvalidOperationException(
+            "Synchronization response was empty.");
+  }
+
   private static async Task<HttpResponseMessage> SendSynchronizationAsync(
       HttpClient client,
       string credential,
@@ -164,6 +193,31 @@ internal static class DashboardTestHelpers
       ManagerObservedState observedState,
       CapacityOperatorCapability? capability,
       CapacityCommandOutcome? outcome,
+      CancellationToken cancellationToken)
+  {
+    return await SendSynchronizationAsync(
+        client,
+        credential,
+        connectorVersion,
+        observedState,
+        capability,
+        outcome,
+        null,
+        null,
+        null,
+        cancellationToken);
+  }
+
+  private static async Task<HttpResponseMessage> SendSynchronizationAsync(
+      HttpClient client,
+      string credential,
+      string connectorVersion,
+      ManagerObservedState observedState,
+      CapacityOperatorCapability? capability,
+      CapacityCommandOutcome? outcome,
+      RecoveryOperatorCapability? recoveryCapability,
+      RecoveryCommandProgress? recoveryProgress,
+      RecoveryCommandOutcome? recoveryOutcome,
       CancellationToken cancellationToken)
   {
     using var synchronization = new HttpRequestMessage(
@@ -176,7 +230,10 @@ internal static class DashboardTestHelpers
             observedState.ObservedAt,
             [observedState],
             capability,
-            outcome)),
+            outcome,
+            recoveryCapability,
+            recoveryProgress,
+            recoveryOutcome)),
     };
     synchronization.Headers.Authorization =
         new AuthenticationHeaderValue(

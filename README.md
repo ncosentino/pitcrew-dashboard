@@ -77,6 +77,13 @@ self-contained host connector archives and an installer that migrates the
 existing connector identity and rolls back to the container if service startup
 fails.
 
+Connector protocol 4 adds one additional typed write capability: recovering a
+wedged manager for an existing profile. Recovery is queued only for connectors
+that advertise the capability, is limited to tenant administrators, executes at
+most once per queued command, and cannot run while a capacity command is active
+for the same profile. Protocol 1-3 connectors never receive recovery work. See
+[ADR-0002](docs/adr/adr-0002-typed-manager-recovery.md).
+
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.
