@@ -190,11 +190,11 @@ describe('authenticated routing', () => {
     expect(await screen.findByRole('option', { name: 'Remote · viewer' })).toBeInTheDocument();
   });
 
-  it('declares node and profile deep-link placeholders', async () => {
+  it('declares node detail and profile deep-link routes', async () => {
     mockSession(ownerSession);
     const router = renderRoute('/tenants/local/nodes/node-1');
 
-    expect(await screen.findByText('Node node-1')).toBeInTheDocument();
+    expect(await screen.findByText('Node not found')).toBeInTheDocument();
 
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1/profiles/build');
@@ -223,7 +223,7 @@ describe('authenticated routing', () => {
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1');
     });
-    expect(await screen.findByText('Node node-1')).toBeInTheDocument();
+    expect(await screen.findByText('Loading node…')).toBeInTheDocument();
     expect(fleetSignal?.aborted).toBe(false);
 
     await act(async () => {

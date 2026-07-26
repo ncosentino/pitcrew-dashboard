@@ -2,9 +2,9 @@ import type { FeatureManifest } from '@/core/features/FeatureManifest';
 import { lazyFeature } from '@/core/features/lazyFeature';
 import { TenantRouteGuard } from '@/core/routing/guards';
 
-const FleetRoute = lazyFeature('fleet', () => import('./FleetRoute'));
+const FleetOverviewPage = lazyFeature('fleet', () => import('./FleetOverviewPage'));
 const FleetRouteGroup = lazyFeature('fleet', () => import('./FleetRouteGroup'));
-const NodePlaceholderPage = lazyFeature('fleet', () => import('./NodePlaceholderPage'));
+const NodeDetailPage = lazyFeature('fleet', () => import('./NodeDetailPage'));
 const ProfilePlaceholderPage = lazyFeature('fleet', () => import('./ProfilePlaceholderPage'));
 
 /** Fleet feature routes and navigation contribution. */
@@ -18,8 +18,8 @@ export const fleetManifest: FeatureManifest = {
         {
           element: <FleetRouteGroup />,
           children: [
-            { path: 'tenants/:tenantId/fleet', element: <FleetRoute /> },
-            { path: 'tenants/:tenantId/nodes/:nodeId', element: <NodePlaceholderPage /> },
+            { path: 'tenants/:tenantId/fleet', element: <FleetOverviewPage /> },
+            { path: 'tenants/:tenantId/nodes/:nodeId', element: <NodeDetailPage /> },
             {
               path: 'tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
               element: <ProfilePlaceholderPage />,
