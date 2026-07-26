@@ -10,8 +10,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "npm run lint && npm run format:check && vitest run",
+    "test": "npm run lint && npm run format:check && npm run test:boundaries && npm run check:boundaries && vitest run --exclude scripts/check-feature-boundaries.test.mjs",
     "test:watch": "vitest",
+    "test:boundaries": "node --test scripts/check-feature-boundaries.test.mjs",
+    "check:boundaries": "node scripts/check-feature-boundaries.mjs",
     "lint": "eslint .",
     "format": "prettier --write . --ignore-path .gitignore --ignore-path .prettierignore",
     "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore"
@@ -23,7 +25,8 @@
     "clsx": "^2.1.1",
     "tailwind-merge": "^3.6.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",

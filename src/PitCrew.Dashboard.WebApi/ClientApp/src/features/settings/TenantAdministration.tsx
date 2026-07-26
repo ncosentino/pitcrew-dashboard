@@ -3,16 +3,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/core/api/httpClient';
+import type { DashboardUser, TenantRole } from '@/core/auth';
 
 import {
   getAvailableUsers,
   getTenantMembers,
   removeTenantMembership,
   setTenantMembership,
-  type DashboardUser,
   type TenantMember,
-  type TenantRole,
-} from './accessApi';
+} from './settingsApi';
 
 /** Props for owner-managed tenant membership administration. */
 export interface TenantAdministrationProps {
@@ -135,7 +134,6 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
             </tbody>
           </table>
         </div>
-
         <div className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_auto_auto]">
           <select
             aria-label="User"

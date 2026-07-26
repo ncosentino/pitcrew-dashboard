@@ -4,57 +4,35 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
 import { ApiError } from '@/core/api/httpClient';
+import {
+  formatBytes,
+  formatCpuCores,
+  formatPids,
+  formatSeconds,
+  formatTime,
+} from '@/core/formatting/formatters';
+import { StatusBadge } from '@/core/ui/StatusBadge';
 import { cn } from '@/lib/utils';
 
 import {
-  createEnrollmentCode,
   getFleet,
   renameNode,
   requestCredentialRotation,
   revokeNode,
   setCapacityMaximum,
   type CapacityControlState,
-  type EnrollmentCodeResponse,
   type FleetResponse,
   type ManagerObservedState,
   type ObservedSlot,
 } from './fleetApi';
 
 const refreshIntervalMilliseconds = 5_000;
-const byteUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] as const;
 
 /** Props for tenant-scoped fleet visibility and node administration. */
 export interface FleetDashboardProps {
   readonly tenantId: string;
   readonly canAdminister: boolean;
   readonly antiforgeryToken: string;
-}
-
-function formatTime(value: string | null): string {
-  if (value === null) return 'Never';
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(new Date(value));
-}
-
-function formatBytes(value: number): string {
-  if (value === 0) return '0 B';
-  const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)), byteUnits.length - 1);
-  const unitValue = value / 1024 ** unitIndex;
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(unitValue)} ${byteUnits[unitIndex]}`;
-}
-
-function formatCpuCores(value: number): string {
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)} cores`;
-}
-
-function formatPids(value: number): string {
-  return `${new Intl.NumberFormat(undefined).format(value)} PIDs`;
-}
-
-function formatSeconds(value: number): string {
-  return `${new Intl.NumberFormat(undefined).format(value)} seconds`;
 }
 
 function formatScaleDownCountdown(value: string | null): string {
@@ -64,51 +42,6 @@ function formatScaleDownCountdown(value: string | null): string {
   return secondsRemaining === 0
     ? `Due now · ${schedule}`
     : `${formatSeconds(secondsRemaining)} remaining · ${schedule}`;
-}
-
-function statusClasses(status: string): string {
-  switch (status) {
-    case 'available':
-    case 'idle':
-    case 'online':
-    case 'running':
-    case 'accepted':
-    case 'succeeded':
-      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
-    case 'partial':
-    case 'draining':
-    case 'restarting':
-    case 'rotation requested':
-    case 'starting':
-    case 'stopping':
-    case 'delivered':
-    case 'pending':
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
-    case 'backoff':
-    case 'degraded':
-    case 'invalid':
-    case 'conflict':
-    case 'revoked':
-    case 'rejected':
-    case 'failed':
-    case 'unavailable':
-      return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
-    default:
-      return 'bg-muted text-muted-foreground';
-  }
-}
-
-function StatusBadge({ status }: { readonly status: string }) {
-  return (
-    <span
-      className={cn(
-        'inline-flex rounded-full px-2 py-1 text-xs font-semibold capitalize',
-        statusClasses(status),
-      )}
-    >
-      {status}
-    </span>
-  );
 }
 
 interface CapacityMetricProps {
@@ -457,8 +390,6 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
-  const [enrollmentLabel, setEnrollmentLabel] = useState('New server');
-  const [enrollmentCode, setEnrollmentCode] = useState<EnrollmentCodeResponse | null>(null);
   const refreshSequence = useRef(0);
 
   const refresh = useCallback(
@@ -517,23 +448,6 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
     }
   };
 
-  const issueEnrollmentCode = async () => {
-    setIsMutating(true);
-    try {
-      const response = await createEnrollmentCode(
-        tenantId,
-        enrollmentLabel.trim(),
-        antiforgeryToken,
-      );
-      setEnrollmentCode(response);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Enrollment code could not be created.');
-    } finally {
-      setIsMutating(false);
-    }
-  };
-
   const renameServer = async (nodeId: string, displayName: string) => {
     await renameNode(tenantId, nodeId, displayName, antiforgeryToken);
     refreshSequence.current++;
@@ -571,46 +485,6 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
           </div>
         </div>
       </section>
-
-      {canAdminister ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Enroll a connector</CardTitle>
-            <CardDescription>
-              Codes expire quickly and are consumed by exactly one enrollment or re-enrollment.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            <div className="flex flex-wrap gap-3">
-              <input
-                className="h-9 min-w-64 flex-1 rounded-md border bg-background px-3 text-sm"
-                value={enrollmentLabel}
-                onChange={(event) => setEnrollmentLabel(event.target.value)}
-                maxLength={128}
-              />
-              <Button
-                type="button"
-                disabled={isMutating || enrollmentLabel.trim().length === 0}
-                onClick={() => void issueEnrollmentCode()}
-              >
-                Create one-time code
-              </Button>
-            </div>
-            {enrollmentCode ? (
-              <div className="grid gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                <div className="text-sm font-semibold">Copy this code now</div>
-                <code className="overflow-x-auto rounded bg-background p-3 text-xs">
-                  {enrollmentCode.code}
-                </code>
-                <div className="text-xs">
-                  Expires {formatTime(enrollmentCode.expiresAt)}. It is not stored in recoverable
-                  form.
-                </div>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
 
       {error ? (
         <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">

@@ -716,6 +716,107 @@ public sealed class HostingTests
   }
 
   [Test]
+  public async Task Nested_Spa_Route_Returns_Index_Without_Shadowing_Apis(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      using var spa = new SpaTestContent();
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+
+      using var nestedResponse = await client.GetAsync(
+          "/tenants/local/nodes/node-1",
+          cancellationToken);
+      var nestedBody = await nestedResponse.Content.ReadAsStringAsync(
+          cancellationToken);
+      using var apiResponse = await client.GetAsync(
+          "/api/session",
+          cancellationToken);
+
+      nestedResponse.EnsureSuccessStatusCode();
+      apiResponse.EnsureSuccessStatusCode();
+      await Assert.That(nestedBody)
+          .IsEqualTo("<!doctype html><title>PitCrew SPA test</title>");
+      await Assert.That(apiResponse.Content.Headers.ContentType?.MediaType)
+          .IsEqualTo("application/json");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Missing_Static_Asset_Returns_NotFound(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      using var spa = new SpaTestContent();
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+
+      using var response = await client.GetAsync(
+          "/assets/missing.js",
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.NotFound);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  [Arguments(
+      "/tenants/local/nodes/node-1?tab=activity",
+      "/tenants/local/nodes/node-1?tab=activity")]
+  [Arguments("https://example.test/steal", "/")]
+  [Arguments("//example.test/steal", "/")]
+  [Arguments("/\\example.test/steal", "/")]
+  public async Task Login_Uses_Only_Local_Return_Urls(
+      string returnUrl,
+      string expectedLocation,
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient(
+          new WebApplicationFactoryClientOptions
+          {
+            AllowAutoRedirect = false,
+          });
+      var requestPath = $"/auth/login?returnUrl={Uri.EscapeDataString(returnUrl)}";
+
+      using var response = await client.GetAsync(
+          requestPath,
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.Redirect);
+      await Assert.That(response.Headers.Location?.OriginalString)
+          .IsEqualTo(expectedLocation);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Authenticated_Mutation_Requires_Antiforgery_Token(
       CancellationToken cancellationToken)
   {
