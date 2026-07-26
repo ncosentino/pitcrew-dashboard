@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
-import { ApiError } from '@/core/api/httpClient';
+import {
+  useFleet,
+  type CapacityControlState,
+  type FleetResponse,
+  type ManagerObservedState,
+  type ObservedSlot,
+} from '@/core/fleet';
 import {
   formatBytes,
   formatCpuCores,
@@ -14,25 +20,18 @@ import {
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { cn } from '@/lib/utils';
 
-import {
-  getFleet,
-  renameNode,
-  requestCredentialRotation,
-  revokeNode,
-  setCapacityMaximum,
-  type CapacityControlState,
-  type FleetResponse,
-  type ManagerObservedState,
-  type ObservedSlot,
-} from './fleetApi';
-
-const refreshIntervalMilliseconds = 5_000;
+import { renameNode, requestCredentialRotation, revokeNode, setCapacityMaximum } from './fleetApi';
 
 /** Props for tenant-scoped fleet visibility and node administration. */
 export interface FleetDashboardProps {
   readonly tenantId: string;
   readonly canAdminister: boolean;
   readonly antiforgeryToken: string;
+}
+
+interface MutationError {
+  readonly message: string;
+  readonly fleet: FleetResponse | null;
 }
 
 function formatScaleDownCountdown(value: string | null): string {
@@ -386,63 +385,22 @@ function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
 
 /** Renders one tenant's live fleet plus authorized enrollment and node controls. */
 export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: FleetDashboardProps) {
-  const [fleet, setFleet] = useState<FleetResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { fleet, error, isLoading, refreshNow } = useFleet();
+  const [mutationError, setMutationError] = useState<MutationError | null>(null);
   const [isMutating, setIsMutating] = useState(false);
-  const refreshSequence = useRef(0);
-
-  const refresh = useCallback(
-    async (signal: AbortSignal) => {
-      const sequence = ++refreshSequence.current;
-      try {
-        const response = await getFleet(tenantId, signal);
-        if (sequence !== refreshSequence.current) return;
-        setFleet(response);
-        setError(null);
-      } catch (caught) {
-        if (caught instanceof Error && caught.name === 'AbortError') return;
-        if (sequence !== refreshSequence.current) return;
-        setError(
-          caught instanceof ApiError
-            ? caught.message
-            : caught instanceof Error
-              ? caught.message
-              : 'Fleet status could not be loaded.',
-        );
-      } finally {
-        if (!signal.aborted && sequence === refreshSequence.current) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [tenantId],
-  );
-
-  useEffect(() => {
-    let controller = new AbortController();
-    const load = () => {
-      controller.abort();
-      controller = new AbortController();
-      void refresh(controller.signal);
-    };
-    const initialTimer = window.setTimeout(load, 0);
-    const refreshTimer = window.setInterval(load, refreshIntervalMilliseconds);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(initialTimer);
-      window.clearInterval(refreshTimer);
-    };
-  }, [refresh]);
+  const currentMutationError = mutationError?.fleet === fleet ? mutationError.message : null;
 
   const mutate = async (operation: () => Promise<void>) => {
     setIsMutating(true);
+    setMutationError(null);
     try {
       await operation();
-      await refresh(new AbortController().signal);
+      await refreshNow();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Fleet administration failed.');
+      setMutationError({
+        message: caught instanceof Error ? caught.message : 'Fleet administration failed.',
+        fleet,
+      });
     } finally {
       setIsMutating(false);
     }
@@ -450,18 +408,7 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
 
   const renameServer = async (nodeId: string, displayName: string) => {
     await renameNode(tenantId, nodeId, displayName, antiforgeryToken);
-    refreshSequence.current++;
-    setError(null);
-    setFleet((current) =>
-      current
-        ? {
-            ...current,
-            nodes: current.nodes
-              .map((node) => (node.nodeId === nodeId ? { ...node, displayName } : node))
-              .sort((left, right) => left.displayName.localeCompare(right.displayName)),
-          }
-        : current,
-    );
+    await refreshNow();
   };
 
   const queueCapacityMaximum = async (nodeId: string, profileId: string, maximum: number) => {
@@ -486,9 +433,9 @@ export function FleetDashboard({ tenantId, canAdminister, antiforgeryToken }: Fl
         </div>
       </section>
 
-      {error ? (
+      {(currentMutationError ?? error) ? (
         <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
-          {error}
+          {currentMutationError ?? error}
         </div>
       ) : null}
 
