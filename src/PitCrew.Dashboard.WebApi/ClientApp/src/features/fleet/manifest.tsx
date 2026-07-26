@@ -3,6 +3,7 @@ import { lazyFeature } from '@/core/features/lazyFeature';
 import { TenantRouteGuard } from '@/core/routing/guards';
 
 const FleetRoute = lazyFeature('fleet', () => import('./FleetRoute'));
+const FleetRouteGroup = lazyFeature('fleet', () => import('./FleetRouteGroup'));
 const NodePlaceholderPage = lazyFeature('fleet', () => import('./NodePlaceholderPage'));
 const ProfilePlaceholderPage = lazyFeature('fleet', () => import('./ProfilePlaceholderPage'));
 
@@ -48,11 +49,16 @@ export const fleetManifest: FeatureManifest = {
     {
       element: <TenantRouteGuard minimumRole="viewer" />,
       children: [
-        { path: 'tenants/:tenantId/fleet', element: <FleetRoute /> },
-        { path: 'tenants/:tenantId/nodes/:nodeId', element: <NodePlaceholderPage /> },
         {
-          path: 'tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
-          element: <ProfilePlaceholderPage />,
+          element: <FleetRouteGroup />,
+          children: [
+            { path: 'tenants/:tenantId/fleet', element: <FleetRoute /> },
+            { path: 'tenants/:tenantId/nodes/:nodeId', element: <NodePlaceholderPage /> },
+            {
+              path: 'tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
+              element: <ProfilePlaceholderPage />,
+            },
+          ],
         },
       ],
     },
