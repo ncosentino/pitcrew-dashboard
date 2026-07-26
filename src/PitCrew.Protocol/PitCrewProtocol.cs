@@ -33,6 +33,8 @@ public static class PitCrewProtocol
 /// <param name="Activity">Demand-driven runner activity when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Target">Current scale-set target associated with the slot when reported; otherwise <see langword="null"/>.</param>
 /// <param name="RegistrationStatus">GitHub registration eligibility when reported; otherwise <see langword="null"/>.</param>
+/// <param name="ImageId">Immutable local Docker image identity (<c>sha256:</c> and 64 hexadecimal characters) when reported; otherwise <see langword="null"/>.</param>
+/// <param name="LastExit">Bounded manager contract 11 exit evidence when available; otherwise <see langword="null"/>, which never means a clean exit.</param>
 public sealed record ObservedSlotState(
     string Key,
     string? Repository,
@@ -45,7 +47,9 @@ public sealed record ObservedSlotState(
     ResourceUsage? Resources,
     string? Activity,
     string? Target,
-    string? RegistrationStatus = null);
+    string? RegistrationStatus = null,
+    string? ImageId = null,
+    WorkerLastExitDiagnostic? LastExit = null);
 
 /// <summary>
 /// Describes the demand-driven scale-set projection published by one profile manager.
@@ -64,6 +68,8 @@ public sealed record ObservedSlotState(
 /// <param name="ScaleSetCount">Number of scale sets contributing to the aggregate projection.</param>
 /// <param name="ScaleDownAt">Scheduled scale-down time when surplus capacity is pending; otherwise <see langword="null"/>.</param>
 /// <param name="LastError">Most recent autoscaling error when degraded; otherwise <see langword="null"/>.</param>
+/// <param name="MaximumActiveWorkers">Manager contract 11 profile-wide active-worker admission ceiling when reported; otherwise <see langword="null"/>.</param>
+/// <param name="Targets">Manager contract 11 per-target local and GitHub evidence when reported; otherwise <see langword="null"/>.</param>
 public sealed record ManagerAutoscalingState(
     [property: JsonRequired] string Mode,
     [property: JsonRequired] string Status,
@@ -78,7 +84,9 @@ public sealed record ManagerAutoscalingState(
     [property: JsonRequired] int ScaleDownDelaySeconds,
     [property: JsonRequired] int ScaleSetCount,
     [property: JsonRequired] DateTimeOffset? ScaleDownAt,
-    [property: JsonRequired] string? LastError);
+    [property: JsonRequired] string? LastError,
+    int? MaximumActiveWorkers = null,
+    IReadOnlyList<AutoscalingTargetState>? Targets = null);
 
 /// <summary>
 /// Represents the credential-free operational projection published by one Pitcrew profile manager.
@@ -101,6 +109,7 @@ public sealed record ManagerAutoscalingState(
 /// <param name="ConfiguredSlots">Configured maximum slot count when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Autoscaling">Demand-driven autoscaling projection, or <see langword="null"/> for fixed-capacity profiles.</param>
 /// <param name="EligibleSlots">Number of slots GitHub currently reports as connected, or <see langword="null"/> when unavailable.</param>
+/// <param name="ResourcePolicy">Manager contract 11 per-worker resource admission policy when reported; otherwise <see langword="null"/>.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -119,7 +128,8 @@ public sealed record ManagerObservedState(
     ManagerResourceTelemetry? ResourceTelemetry,
     int? ConfiguredSlots,
     ManagerAutoscalingState? Autoscaling,
-    int? EligibleSlots = null);
+    int? EligibleSlots = null,
+    WorkerResourcePolicy? ResourcePolicy = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.
@@ -233,6 +243,10 @@ public sealed record ConnectorSyncResponse(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     GenerationMode = JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(ResourceUsage))]
+[JsonSerializable(typeof(WorkerResourcePolicy))]
+[JsonSerializable(typeof(WorkerLastExitDiagnostic))]
+[JsonSerializable(typeof(ScaleSetStatistics))]
+[JsonSerializable(typeof(AutoscalingTargetState))]
 [JsonSerializable(typeof(HostResourceCapacity))]
 [JsonSerializable(typeof(ManagerResourceTelemetry))]
 [JsonSerializable(typeof(ObservedSlotState))]

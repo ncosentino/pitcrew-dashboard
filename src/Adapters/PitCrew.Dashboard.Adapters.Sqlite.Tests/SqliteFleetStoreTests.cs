@@ -528,6 +528,177 @@ public sealed class SqliteFleetStoreTests
     }
   }
 
+  [Test]
+  public async Task Contract_Eleven_Observed_State_Round_Trips(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-fleet-{Guid.NewGuid():N}.db");
+    try
+    {
+      var observedAt = new DateTimeOffset(
+          2026,
+          7,
+          26,
+          12,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (_, store, nodeId) = await CreateEnrolledStoreAsync(
+          databasePath,
+          observedAt,
+          cancellationToken);
+      var expectedPolicy = new WorkerResourcePolicy(
+          8_589_934_592,
+          10_737_418_240,
+          "2.5",
+          1024);
+      var expectedStatistics = new ScaleSetStatistics(
+          observedAt.AddMinutes(-1),
+          0,
+          0,
+          1,
+          1,
+          8,
+          1,
+          7);
+      var expectedTarget = new AutoscalingTargetState(
+          "repo:example/project",
+          "https://github.com/example/project",
+          8,
+          1,
+          1,
+          0,
+          1,
+          0,
+          expectedStatistics);
+      var expectedResources = new ResourceUsage(
+          1.25,
+          1_073_741_824,
+          48,
+          1_048_576,
+          0,
+          536_870_912,
+          null);
+      var expectedLastExit = new WorkerLastExitDiagnostic(
+          observedAt.AddMinutes(-5),
+          "oom-killed",
+          137,
+          9,
+          true,
+          "docker-inspect");
+      const string expectedImageId =
+          "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+      var profile = new ManagerObservedState(
+          1,
+          11,
+          "default",
+          "manager-instance",
+          "running",
+          observedAt,
+          "repo",
+          1,
+          new string('a', 64),
+          "accepted",
+          1,
+          1,
+          0,
+          [
+              new ObservedSlotState(
+                  "repo-example-000001",
+                  "https://github.com/example/project",
+                  true,
+                  true,
+                  "online",
+                  0,
+                  0,
+                  observedAt,
+                  expectedResources,
+                  "busy",
+                  "repo:example/project",
+                  "connected",
+                  expectedImageId,
+                  expectedLastExit),
+          ],
+          new ManagerResourceTelemetry(
+              observedAt,
+              "available",
+              new HostResourceCapacity(
+                  16,
+                  68_719_476_736),
+              new ResourceUsage(
+                  0.5,
+                  201_326_592,
+                  11)),
+          8,
+          new ManagerAutoscalingState(
+              "scale-set",
+              "running",
+              0,
+              8,
+              1,
+              1,
+              1,
+              0,
+              0,
+              1,
+              120,
+              1,
+              null,
+              null,
+              6,
+              [expectedTarget]),
+          1,
+          expectedPolicy);
+      await store.ApplySyncAsync(
+          nodeId,
+          "2.0.0",
+          observedAt,
+          [profile],
+          new ConnectorCredentialUpdate(
+              ConnectorCredentialUpdateKind.None,
+              string.Empty),
+          cancellationToken);
+
+      var fleet = await store.GetFleetAsync(
+          "tenant",
+          observedAt,
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(fleet.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
+      var storedProfile = fleet.Nodes[0].Profiles[0];
+      await Assert.That(storedProfile.ResourcePolicy)
+          .IsEqualTo(expectedPolicy);
+      await Assert.That(storedProfile.Autoscaling?.MaximumActiveWorkers)
+          .IsEqualTo(6);
+      await Assert.That(storedProfile.Autoscaling?.Targets)
+          .IsNotNull();
+      await Assert.That(storedProfile.Autoscaling!.Targets!)
+          .HasSingleItem();
+      await Assert.That(storedProfile.Autoscaling.Targets![0])
+          .IsEqualTo(expectedTarget);
+      await Assert.That(storedProfile.Slots).HasSingleItem();
+      await Assert.That(storedProfile.Slots[0].ImageId)
+          .IsEqualTo(expectedImageId);
+      await Assert.That(storedProfile.Slots[0].LastExit)
+          .IsEqualTo(expectedLastExit);
+      await Assert.That(storedProfile.Slots[0].Resources)
+          .IsEqualTo(expectedResources);
+      await Assert.That(storedProfile.Slots[0].Resources?.NetworkTxBytes)
+          .IsEqualTo(0);
+      await Assert.That(storedProfile.Slots[0].Resources?.BlockWriteBytes)
+          .IsNull();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
   private static async Task CreateEnrollmentCodeAsync(
       SqliteFleetStore store,
       string tenantId,
