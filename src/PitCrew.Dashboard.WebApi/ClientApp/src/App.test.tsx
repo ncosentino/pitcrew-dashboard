@@ -213,13 +213,13 @@ describe('authenticated routing', () => {
     expect(await screen.findByText('No servers enrolled')).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/tenants/new-tenant/fleet');
     expect(sessionLoads).toBe(2);
-    const creationRequest = fetchMock.mock.calls.find(
+    const creationCall = fetchMock.mock.calls.find(
       ([input, init]) => String(input).endsWith('/api/tenants') && init?.method === 'POST',
     );
-    expect(new Headers(creationRequest?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
+    expect(new Headers(creationCall?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
       'test-antiforgery-token',
     );
-    expect(JSON.parse(String(creationRequest?.[1]?.body))).toEqual({
+    expect(JSON.parse(String(creationCall?.[1]?.body))).toEqual({
       tenantId: 'new-tenant',
       displayName: 'New tenant',
     });
