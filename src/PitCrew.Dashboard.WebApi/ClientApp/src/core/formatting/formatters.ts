@@ -31,3 +31,15 @@ export function formatPids(value: number): string {
 export function formatSeconds(value: number): string {
   return `${new Intl.NumberFormat(undefined).format(value)} seconds`;
 }
+
+/** Formats a whole count, keeping an unavailable measurement distinct from zero. */
+export function formatCounter(value: number | null | undefined): string {
+  if (value == null) return 'Unavailable';
+  return new Intl.NumberFormat(undefined).format(value);
+}
+
+/** Formats a byte count, keeping an unavailable measurement distinct from zero. */
+export function formatOptionalBytes(value: number | null | undefined): string {
+  if (value == null) return 'Unavailable';
+  return formatBytes(value);
+}

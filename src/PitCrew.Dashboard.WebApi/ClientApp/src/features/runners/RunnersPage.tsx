@@ -2,8 +2,14 @@ import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { useFleet } from '@/core/fleet';
-import { formatBytes, formatCpuCores, formatPids } from '@/core/formatting/formatters';
+import {
+  formatBytes,
+  formatCpuCores,
+  formatOptionalBytes,
+  formatPids,
+} from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
 import { flattenFleetSlots, type FleetSlot } from './runnerRows';
 
@@ -23,7 +29,11 @@ type SortKey =
   | 'failures'
   | 'cpu'
   | 'memory'
-  | 'pids';
+  | 'pids'
+  | 'network'
+  | 'block'
+  | 'image'
+  | 'exit';
 type SortDirection = 'asc' | 'desc';
 
 const sortKeys = new Set<SortKey>([
@@ -39,6 +49,10 @@ const sortKeys = new Set<SortKey>([
   'cpu',
   'memory',
   'pids',
+  'network',
+  'block',
+  'image',
+  'exit',
 ]);
 
 function compareText(left: string | null | undefined, right: string | null | undefined): number {
@@ -76,7 +90,23 @@ function sortValue(row: FleetSlot, key: SortKey): string | number | null | undef
       return row.slot.resources?.memoryWorkingSetBytes;
     case 'pids':
       return row.slot.resources?.pids;
+    case 'network':
+      return sumCounters(row.slot.resources?.networkRxBytes, row.slot.resources?.networkTxBytes);
+    case 'block':
+      return sumCounters(row.slot.resources?.blockReadBytes, row.slot.resources?.blockWriteBytes);
+    case 'image':
+      return row.slot.imageId;
+    case 'exit':
+      return row.slot.lastExit?.classification;
   }
+}
+
+function sumCounters(
+  left: number | null | undefined,
+  right: number | null | undefined,
+): number | null {
+  if (left == null && right == null) return null;
+  return (left ?? 0) + (right ?? 0);
 }
 
 function compareRows(left: FleetSlot, right: FleetSlot, key: SortKey): number {
@@ -132,6 +162,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
   const activityFilter = searchParams.get('activity') ?? '';
   const registrationFilter = searchParams.get('registration') ?? '';
   const stateFilter = searchParams.get('state') ?? '';
+  const exitFilter = searchParams.get('exit') ?? '';
   const requestedSort = searchParams.get('sort');
   const sort: SortKey =
     requestedSort && sortKeys.has(requestedSort as SortKey) ? (requestedSort as SortKey) : 'node';
@@ -155,6 +186,13 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     [allRows],
   );
   const states = useMemo(() => uniqueSorted(allRows.map((row) => row.slot.state)), [allRows]);
+  const exitClassifications = useMemo(
+    () =>
+      uniqueSorted(
+        allRows.flatMap((row) => (row.slot.lastExit ? [row.slot.lastExit.classification] : [])),
+      ),
+    [allRows],
+  );
   const rows = useMemo(() => {
     const repositoryQuery = repositoryFilter.trim().toLocaleLowerCase();
     const filtered = allRows.filter(
@@ -166,7 +204,11 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
         (!activityFilter || row.slot.activity === activityFilter) &&
         (!registrationFilter ||
           (row.slot.registrationStatus ?? 'unknown') === registrationFilter) &&
-        (!stateFilter || row.slot.state === stateFilter),
+        (!stateFilter || row.slot.state === stateFilter) &&
+        (!exitFilter ||
+          (exitFilter === 'none'
+            ? row.slot.lastExit === null
+            : row.slot.lastExit?.classification === exitFilter)),
     );
     return filtered.sort((left, right) => {
       const comparison = compareRows(left, right, sort);
@@ -176,6 +218,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     activityFilter,
     allRows,
     direction,
+    exitFilter,
     nodeFilter,
     profileFilter,
     registrationFilter,
@@ -202,7 +245,8 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     repositoryFilter ||
     activityFilter ||
     registrationFilter ||
-    stateFilter,
+    stateFilter ||
+    exitFilter,
   );
   const offlineCount = rows.filter((row) => !row.nodeOnline).length;
 
@@ -321,6 +365,23 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 ))}
               </select>
             </label>
+            <label className="grid gap-1 text-sm" htmlFor="runners-exit-filter">
+              Last exit
+              <select
+                id="runners-exit-filter"
+                className="h-9 rounded-md border bg-background px-3"
+                value={exitFilter}
+                onChange={(event) => setParameter('exit', event.target.value)}
+              >
+                <option value="">All exit evidence</option>
+                <option value="none">No exit evidence recorded</option>
+                {exitClassifications.map((classification) => (
+                  <option key={classification} value={classification}>
+                    {classification.replaceAll('-', ' ')}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="grid gap-1 text-sm" htmlFor="runners-sort">
               Sort by
               <select
@@ -341,6 +402,10 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 <option value="cpu">CPU</option>
                 <option value="memory">Memory</option>
                 <option value="pids">PIDs</option>
+                <option value="network">Network I/O</option>
+                <option value="block">Block I/O</option>
+                <option value="image">Worker image</option>
+                <option value="exit">Last exit</option>
               </select>
             </label>
             <label className="grid gap-1 text-sm" htmlFor="runners-sort-direction">
@@ -419,6 +484,18 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                       <th scope="col" className="px-3 py-2 text-right font-medium">
                         PIDs
                       </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        Network I/O
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        Block I/O
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Worker image
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Last exit
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -474,6 +551,34 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {row.slot.resources ? formatPids(row.slot.resources.pids) : 'Unavailable'}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums"
+                          data-testid={`runner-network-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                        >
+                          {row.slot.resources
+                            ? `${formatOptionalBytes(row.slot.resources.networkRxBytes)} in · ${formatOptionalBytes(row.slot.resources.networkTxBytes)} out`
+                            : 'Unavailable'}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums"
+                          data-testid={`runner-block-io-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                        >
+                          {row.slot.resources
+                            ? `${formatOptionalBytes(row.slot.resources.blockReadBytes)} read · ${formatOptionalBytes(row.slot.resources.blockWriteBytes)} written`
+                            : 'Unavailable'}
+                        </td>
+                        <td
+                          className="px-3 py-2"
+                          data-testid={`runner-image-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                        >
+                          <WorkerImageIdentity imageId={row.slot.imageId} />
+                        </td>
+                        <td
+                          className="px-3 py-2"
+                          data-testid={`runner-last-exit-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                        >
+                          <WorkerExitEvidence lastExit={row.slot.lastExit} />
                         </td>
                       </tr>
                     ))}

@@ -275,11 +275,70 @@ describe('runners feature', () => {
 
     expect(await screen.findByText(/Partial resource data: 1 of 2/)).toBeInTheDocument();
     const missing = screen.getByTestId(`runner-row-${localNodeId}-build-missing`);
-    expect(within(missing).getAllByText('Unavailable')).toHaveLength(3);
+    expect(within(missing).getAllByText('Unavailable')).toHaveLength(6);
+    expect(screen.getByTestId(`runner-network-${localNodeId}-build-missing`)).toHaveTextContent(
+      'Unavailable',
+    );
+    expect(screen.getByTestId(`runner-block-io-${localNodeId}-build-missing`)).toHaveTextContent(
+      'Unavailable',
+    );
     const zero = screen.getByTestId(`runner-row-${localNodeId}-build-zero`);
     expect(within(zero).getByText('0 cores')).toBeInTheDocument();
     expect(within(zero).getByText('0 B')).toBeInTheDocument();
     expect(within(zero).getByText('0 PIDs')).toBeInTheDocument();
+  });
+
+  it('filters and displays contract 11 image, I/O, and exit evidence', async () => {
+    const digest = `sha256:${'cd'.repeat(32)}`;
+    renderRunners(
+      fleetResponse([
+        nodeResponse(localNodeId, 'Alpha', [
+          profileResponse('build', [
+            slotResponse('oom', {
+              imageId: digest,
+              resources: {
+                cpuCores: 1,
+                memoryWorkingSetBytes: 1_048_576,
+                pids: 4,
+                networkRxBytes: 0,
+                networkTxBytes: null,
+                blockReadBytes: 2_097_152,
+                blockWriteBytes: 0,
+              },
+              lastExit: {
+                observedAt: '2026-07-26T01:59:00+00:00',
+                classification: 'oom-killed',
+                exitCode: 137,
+                signal: 9,
+                dockerOomKilled: true,
+                evidence: 'docker-inspect',
+              },
+            }),
+            slotResponse('quiet', { imageId: null, lastExit: null }),
+          ]),
+        ]),
+      ]),
+    );
+
+    const oomRow = await screen.findByTestId(`runner-row-${localNodeId}-build-oom`);
+    expect(within(oomRow).getByTestId(`runner-image-${localNodeId}-build-oom`)).toHaveTextContent(
+      'cdcdcdcdcdcd',
+    );
+    expect(within(oomRow).getByTestId(`runner-network-${localNodeId}-build-oom`)).toHaveTextContent(
+      '0 B in · Unavailable out',
+    );
+    expect(
+      within(oomRow).getByTestId(`runner-block-io-${localNodeId}-build-oom`),
+    ).toHaveTextContent('2 MiB read · 0 B written');
+    expect(
+      within(oomRow).getByTestId(`runner-last-exit-${localNodeId}-build-oom`),
+    ).toHaveTextContent('Docker confirmed an out-of-memory kill');
+
+    await userEvent.selectOptions(screen.getByLabelText('Last exit'), 'oom-killed');
+
+    expect(screen.getByTestId(`runner-row-${localNodeId}-build-oom`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`runner-row-${localNodeId}-build-quiet`)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Current query')).toHaveTextContent('exit=oom-killed');
   });
 
   it('shows legacy slots as unknown instead of GitHub-eligible', async () => {

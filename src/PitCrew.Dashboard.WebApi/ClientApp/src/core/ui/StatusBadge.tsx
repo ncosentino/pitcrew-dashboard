@@ -13,6 +13,7 @@ function statusClasses(status: string): string {
     case 'running':
     case 'accepted':
     case 'succeeded':
+    case 'clean':
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
     case 'partial':
     case 'draining':
@@ -22,6 +23,7 @@ function statusClasses(status: string): string {
     case 'stopping':
     case 'delivered':
     case 'pending':
+    case 'stale':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
     case 'disconnected':
@@ -33,6 +35,11 @@ function statusClasses(status: string): string {
     case 'registration-missing':
     case 'failed':
     case 'unavailable':
+    case 'oom-killed':
+    case 'sigkill':
+    case 'signal':
+    case 'error':
+    case 'launch-failure':
       return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
     default:
       return 'bg-muted text-muted-foreground';
