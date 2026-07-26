@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,18 +16,21 @@ interface TenantCreationPageProps {
 /** Creates tenants for an authorized system administrator. */
 export default function TenantCreationPage({ createTenant }: TenantCreationPageProps) {
   const { session, refreshSession } = useSession();
+  const navigate = useNavigate();
   const [tenantId, setTenantId] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState<string | null>(null);
   if (!session) return null;
 
   const create = async () => {
+    const nextTenantId = tenantId.trim();
     try {
-      await createTenant(tenantId.trim(), displayName.trim(), session.antiforgeryToken);
+      await createTenant(nextTenantId, displayName.trim(), session.antiforgeryToken);
       setTenantId('');
       setDisplayName('');
       setError(null);
       await refreshSession();
+      navigate(`/tenants/${nextTenantId}/fleet`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Tenant could not be created.');
     }
