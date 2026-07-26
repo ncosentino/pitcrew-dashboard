@@ -1,13 +1,7 @@
 import { Navigate, Outlet, useParams } from 'react-router-dom';
 
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useSession, type TenantRole } from '@/core/auth';
-
-const roleRanks: Record<TenantRole, number> = {
-  viewer: 0,
-  administrator: 1,
-  owner: 2,
-};
+import { hasMinimumTenantRole, useSession, type TenantRole } from '@/core/auth';
 
 interface TenantRouteGuardProps {
   readonly minimumRole: TenantRole;
@@ -32,7 +26,7 @@ export function TenantRouteGuard({ minimumRole }: TenantRouteGuardProps) {
     );
   }
 
-  if (roleRanks[tenant.role] < roleRanks[minimumRole]) {
+  if (!hasMinimumTenantRole(tenant.role, minimumRole)) {
     return (
       <Card>
         <CardHeader>

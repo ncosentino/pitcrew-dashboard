@@ -2,16 +2,10 @@ import { useMemo } from 'react';
 import { Link, Outlet, useNavigate, useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
-import { logout, useSession, type TenantRole } from '@/core/auth';
+import { hasMinimumTenantRole, logout, useSession } from '@/core/auth';
 import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
 import { ThemeToggle } from '@/core/theme/ThemeToggle';
-
-const roleRanks: Record<TenantRole, number> = {
-  viewer: 0,
-  administrator: 1,
-  owner: 2,
-};
 
 interface AuthenticatedShellProps {
   readonly features: ReadonlyArray<FeatureManifest>;
@@ -85,7 +79,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
               .filter(
                 (item) =>
                   !item.minimumTenantRole ||
-                  roleRanks[selectedTenant.role] >= roleRanks[item.minimumTenantRole],
+                  hasMinimumTenantRole(selectedTenant.role, item.minimumTenantRole),
               )
               .map((item) => (
                 <Button key={`${item.label}-${item.path}`} asChild variant="outline" size="sm">

@@ -780,6 +780,7 @@ public sealed class HostingTests
   [Arguments(
       "/tenants/local/nodes/node-1?tab=activity",
       "/tenants/local/nodes/node-1?tab=activity")]
+  [Arguments("/tenants/local/fleet#capacity", "/tenants/local/fleet#capacity")]
   [Arguments("https://example.test/steal", "/")]
   [Arguments("//example.test/steal", "/")]
   [Arguments("/\\example.test/steal", "/")]

@@ -86,7 +86,11 @@ export function EnrollmentSettingsPage() {
             Create one-time code
           </Button>
         </div>
-        {error ? <p role="alert">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+            {error}
+          </p>
+        ) : null}
         {code ? (
           <div className="grid gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
             <div className="text-sm font-semibold">Copy this code now</div>
