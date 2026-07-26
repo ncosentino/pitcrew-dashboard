@@ -69,6 +69,21 @@ reports connected, disconnected, registration-missing, or unknown. Older
 manager observations remain readable but display registration eligibility as
 unknown rather than treating local process state as usable capacity.
 
+PitCrew manager contract 11 adds worker admission policy, image identity,
+container I/O, and bounded exit evidence without changing connector protocol
+version 3. Profile detail shows the configured per-worker memory, memory plus
+swap, CPU, and PID limits alongside the profile admission ceiling, and lists
+each scale-set target with local Docker worker counts kept separate from
+timestamped GitHub scale-set statistics. Divergence such as two live containers
+against eight registered runners is surfaced without implying that a live
+container is eligible for work or that a registration is safe to remove, and
+statistics are labelled current, stale, or unavailable. Slot and runner views
+add the worker image digest, cumulative network and block I/O counters, and the
+last-exit classification, exit code, signal, Docker out-of-memory flag, and
+evidence source. Unmeasured values read as unavailable rather than zero, and
+absent exit evidence is never described as a clean exit. Contract 10 and older
+observations remain accepted and display the new evidence as unavailable.
+
 Connector protocol 3 adds one typed write capability for host-installed,
 explicitly allowlisted connectors: setting the absolute capacity maximum of an
 existing single-target profile. Container connectors remain read-only. See
