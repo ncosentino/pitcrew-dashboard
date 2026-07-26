@@ -1,6 +1,6 @@
 ---
 title: "ADR-0002: Typed manager recovery as a second concrete operation"
-status: "Proposed"
+status: "Accepted"
 date: "2026-07-26"
 authors: ["Nick Cosentino"]
 tags: ["architecture", "operations", "security"]
