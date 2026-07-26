@@ -17,6 +17,20 @@ export function createAdminManifest(createTenant: CreateTenant): FeatureManifest
 
   return {
     id: 'admin',
+    navigation: [
+      {
+        label: 'Tenant administration',
+        path: '/admin/tenants',
+        requiresSystemAdministrator: true,
+      },
+    ],
+    routePresentations: [
+      {
+        path: '/admin/tenants',
+        title: 'Tenant administration',
+        breadcrumbs: [{ label: 'Tenant administration' }],
+      },
+    ],
     routes: [
       {
         element: <SystemAdministratorGuard />,
