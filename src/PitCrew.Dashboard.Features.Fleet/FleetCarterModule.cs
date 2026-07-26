@@ -59,6 +59,12 @@ public sealed class FleetCarterModule : ICarterModule
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
             AccessPolicies.TenantAdministrator);
+    fleet.MapPost(
+            "/nodes/{nodeId:guid}/profiles/{profileId}/manager-recovery",
+            RecoverManagerAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .RequireAuthorization(
+            AccessPolicies.TenantAdministrator);
   }
 
   private static async Task<IResult> EnrollAsync(
@@ -120,7 +126,10 @@ public sealed class FleetCarterModule : ICarterModule
             request.SentAt,
             request.Profiles,
             request.CapacityOperator,
-            request.CapacityCommandOutcome),
+            request.CapacityCommandOutcome,
+            request.RecoveryOperator,
+            request.RecoveryCommandProgress,
+            request.RecoveryCommandOutcome),
         cancellationToken);
     return result.Status switch
     {
@@ -310,6 +319,97 @@ public sealed class FleetCarterModule : ICarterModule
       _ => Results.Problem(
           statusCode: StatusCodes.Status500InternalServerError,
           title: "Unsupported capacity command result."),
+    };
+  }
+
+  private static async Task<IResult> RecoverManagerAsync(
+      HttpContext context,
+      string tenantId,
+      Guid nodeId,
+      string profileId,
+      RecoverManagerRequest request,
+      IRecoverManagerUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    if (!SyncConnectorUnitOfWork.IsValidProfileId(profileId) ||
+        !SyncConnectorUnitOfWork.IsValidRecoveryFences(
+            request.ExpectedManagerInstanceId,
+            request.ExpectedGeneration,
+            request.ExpectedDesiredStateHash))
+    {
+      return Results.BadRequest(new
+      {
+        error = new
+        {
+          code = "invalid_recovery_request",
+          message =
+              "Profile ID, expected manager instance, generation, and desired-state hash must be valid.",
+        },
+      });
+    }
+
+    var result = await unitOfWork.QueueOrNullAsync(
+        context.User,
+        tenantId,
+        nodeId,
+        profileId,
+        new RecoveryCommandFences(
+            request.ExpectedManagerInstanceId,
+            request.ExpectedGeneration,
+            request.ExpectedDesiredStateHash),
+        cancellationToken);
+    if (result is null)
+    {
+      return Results.Unauthorized();
+    }
+    return result.Status switch
+    {
+      RecoveryCommandQueueStatus.Queued => Results.Accepted(
+          value: new RecoverManagerResponse(
+              result.CommandId!.Value,
+              "queued")),
+      RecoveryCommandQueueStatus.NodeNotFound => Results.NotFound(),
+      RecoveryCommandQueueStatus.Unsupported => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "recovery_not_supported",
+          message =
+              "The connector has not enabled manager recovery for this profile.",
+        },
+      }),
+      RecoveryCommandQueueStatus.NotAllowed => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "recovery_not_allowed",
+          message =
+              "Local connector policy currently disallows manager recovery for this profile.",
+        },
+      }),
+      RecoveryCommandQueueStatus.StaleFence => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "recovery_fence_stale",
+          message =
+              "The expected manager instance, generation, desired-state hash, or projection is no longer current.",
+        },
+      }),
+      RecoveryCommandQueueStatus.Conflict => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "profile_operation_active",
+          message =
+              "Another operation is already active for this profile.",
+        },
+      }),
+      RecoveryCommandQueueStatus.RateLimited => Results.StatusCode(
+          StatusCodes.Status429TooManyRequests),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported manager recovery result."),
     };
   }
 

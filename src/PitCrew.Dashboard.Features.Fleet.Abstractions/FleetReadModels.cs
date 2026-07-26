@@ -15,6 +15,7 @@ namespace PitCrew.Dashboard.Features.Fleet.Abstractions;
 /// <param name="CredentialRotationRequested">Whether an administrator requested credential rotation.</param>
 /// <param name="Profiles">Latest profile projections for the node.</param>
 /// <param name="CapacityControls">Connector-advertised capacity controls and command state.</param>
+/// <param name="RecoveryControls">Connector-advertised manager-recovery controls and command state.</param>
 public sealed record FleetNode(
     Guid NodeId,
     string DisplayName,
@@ -25,7 +26,8 @@ public sealed record FleetNode(
     bool IsRevoked,
     bool CredentialRotationRequested,
     IReadOnlyList<ManagerObservedState> Profiles,
-    IReadOnlyList<CapacityControlState> CapacityControls);
+    IReadOnlyList<CapacityControlState> CapacityControls,
+    IReadOnlyList<RecoveryControlState> RecoveryControls);
 
 /// <summary>
 /// Returns the current fleet projection visible to one dashboard tenant.

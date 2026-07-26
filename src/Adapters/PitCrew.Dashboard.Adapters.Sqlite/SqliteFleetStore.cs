@@ -485,6 +485,7 @@ internal sealed class SqliteFleetStore(
           row.IsRevoked,
           row.CredentialRotationRequested,
           profilesByNode[pair.Key],
+          [],
           []));
     }
 

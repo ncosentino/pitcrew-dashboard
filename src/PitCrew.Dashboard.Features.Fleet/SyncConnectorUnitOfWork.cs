@@ -23,7 +23,10 @@ internal sealed record ConnectorSynchronizationInput(
     DateTimeOffset SentAt,
     IReadOnlyList<ManagerObservedState> Profiles,
     CapacityOperatorCapability? CapacityOperator,
-    CapacityCommandOutcome? CapacityCommandOutcome);
+    CapacityCommandOutcome? CapacityCommandOutcome,
+    RecoveryOperatorCapability? RecoveryOperator,
+    RecoveryCommandProgress? RecoveryCommandProgress,
+    RecoveryCommandOutcome? RecoveryCommandOutcome);
 
 internal interface ISyncConnectorUnitOfWork
 {
@@ -36,6 +39,7 @@ internal interface ISyncConnectorUnitOfWork
 internal sealed class SyncConnectorUnitOfWork(
     IFleetStore _fleetStore,
     ICapacityCommandStore _capacityCommandStore,
+    IRecoveryCommandStore _recoveryCommandStore,
     ConnectorCredentialService _credentialService,
     IOptions<FleetDashboardOptions> _options,
     TimeProvider _timeProvider) : ISyncConnectorUnitOfWork
@@ -116,6 +120,25 @@ internal sealed class SyncConnectorUnitOfWork(
           "Capacity operation state does not satisfy the protocol contract.",
           null);
     }
+    if (input.ProtocolVersion < 4 &&
+        (input.RecoveryOperator is not null ||
+         input.RecoveryCommandProgress is not null ||
+         input.RecoveryCommandOutcome is not null))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Manager recovery fields require connector protocol version 4.",
+          null);
+    }
+    if (!IsValidRecoveryOperator(input.RecoveryOperator) ||
+        !IsValidRecoveryProgress(input.RecoveryCommandProgress) ||
+        !IsValidRecoveryOutcome(input.RecoveryCommandOutcome))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Manager recovery state does not satisfy the protocol contract.",
+          null);
+    }
 
     var acceptedAt = _timeProvider.GetUtcNow();
     var credentialUpdate = new ConnectorCredentialUpdate(
@@ -159,6 +182,20 @@ internal sealed class SyncConnectorUnitOfWork(
                   _options.Value.CapacityCommandRedeliverySeconds)),
           cancellationToken);
     }
+    RecoverManagerCommand? recoveryCommand = null;
+    if (input.ProtocolVersion >= 4)
+    {
+      recoveryCommand = await _recoveryCommandStore.ApplyConnectorSyncAsync(
+          identity.NodeId,
+          input.RecoveryOperator,
+          input.RecoveryCommandProgress,
+          input.RecoveryCommandOutcome,
+          acceptedAt,
+          acceptedAt.Subtract(
+              TimeSpan.FromSeconds(
+                  _options.Value.RecoveryCommandRedeliverySeconds)),
+          cancellationToken);
+    }
     return new ConnectorSyncResult(
         ConnectorSyncStatus.Accepted,
         null,
@@ -166,7 +203,8 @@ internal sealed class SyncConnectorUnitOfWork(
             acceptedAt,
             _options.Value.ConnectorPollSeconds,
             credentialRotation,
-            capacityCommand));
+            capacityCommand,
+            recoveryCommand));
   }
 
   internal static bool IsValidCapacityOperator(
@@ -219,6 +257,101 @@ internal sealed class SyncConnectorUnitOfWork(
     return outcome.Status == "succeeded"
         ? outcome.AcceptedGeneration is >= 1
         : outcome.AcceptedGeneration is null;
+  }
+
+  internal static bool IsValidRecoveryOperator(
+      RecoveryOperatorCapability? capability)
+  {
+    if (capability is null)
+    {
+      return true;
+    }
+    if (capability.Profiles is null ||
+        capability.Profiles.Count > 256)
+    {
+      return false;
+    }
+
+    var profileIds = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase);
+    foreach (var profile in capability.Profiles)
+    {
+      if (!IsValidProfileId(profile.ProfileId) ||
+          !profileIds.Add(profile.ProfileId) ||
+          profile.ManagerContractVersion < 1 ||
+          profile.DesiredGeneration < 0 ||
+          profile.ObservedStateAgeSeconds < 0 ||
+          profile.CommandTimeoutSeconds is < 1 or > 3600 ||
+          profile.MaximumExpirySeconds is < 1 or > 86400 ||
+          profile.ExpectedManagerInstanceId?.Length > 128 ||
+          profile.DesiredStateHash is not null &&
+          profile.DesiredStateHash.Length != 64)
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  internal static bool IsValidRecoveryProgress(
+      RecoveryCommandProgress? progress) =>
+      progress is null ||
+      progress.CommandId != Guid.Empty &&
+      progress.ReportedAt != default &&
+      progress.Phase is ("claimed" or "started");
+
+  internal static bool IsValidRecoveryOutcome(
+      RecoveryCommandOutcome? outcome)
+  {
+    if (outcome is null)
+    {
+      return true;
+    }
+    if (outcome.CommandId == Guid.Empty ||
+        outcome.CompletedAt == default ||
+        outcome.Message?.Length > 512 ||
+        outcome.BeforeManagerInstanceId?.Length > 128 ||
+        outcome.AfterManagerInstanceId?.Length > 128 ||
+        outcome.Status is not (
+            "succeeded" or
+            "rejected" or
+            "failed" or
+            "indeterminate"))
+    {
+      return false;
+    }
+    return outcome.Status == "succeeded"
+        ? outcome.FailureCategory is null &&
+            !string.IsNullOrWhiteSpace(outcome.AfterManagerInstanceId)
+        : outcome.FailureCategory is (
+            "not-allowed" or
+            "stale-fence" or
+            "expired" or
+            "manager-unresolved" or
+            "operation-active" or
+            "timeout" or
+            "process-failure" or
+            "unknown");
+  }
+
+  internal static bool IsValidRecoveryFences(
+      string expectedManagerInstanceId,
+      int expectedGeneration,
+      string? expectedDesiredStateHash)
+  {
+    if (string.IsNullOrWhiteSpace(expectedManagerInstanceId) ||
+        expectedManagerInstanceId.Length > 128 ||
+        expectedGeneration < 0)
+    {
+      return false;
+    }
+
+    return expectedDesiredStateHash is null ||
+        expectedDesiredStateHash.Length == 64 &&
+        expectedDesiredStateHash.All(character =>
+            character is >= '0' and <= '9' or
+                >= 'a' and <= 'f' or
+                >= 'A' and <= 'F');
   }
 
   internal static bool IsValidProfile(ManagerObservedState profile)

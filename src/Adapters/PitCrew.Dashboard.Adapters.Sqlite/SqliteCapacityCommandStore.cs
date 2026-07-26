@@ -77,31 +77,22 @@ internal sealed class SqliteCapacityCommandStore(
           null);
     }
 
-    await using (var activeCommand = connection.CreateCommand())
+    var commandId = Guid.NewGuid();
+    if (!await SqliteProfileOperationSlot.AcquireAsync(
+        connection,
+        transaction,
+        nodeId,
+        profile.ProfileId,
+        SqliteProfileOperationSlot.CapacityKind,
+        commandId,
+        requestedAt,
+        cancellationToken))
     {
-      activeCommand.Transaction = transaction;
-      activeCommand.CommandText =
-          """
-          SELECT 1
-          FROM capacity_commands
-          WHERE node_id = $nodeId
-            AND profile_id = $profileId
-            AND status IN ('pending', 'delivered')
-          LIMIT 1;
-          """;
-      activeCommand.Parameters.AddWithValue(
-          "$nodeId",
-          nodeId.ToString("D"));
-      activeCommand.Parameters.AddWithValue("$profileId", profile.ProfileId);
-      if (await activeCommand.ExecuteScalarAsync(cancellationToken) is not null)
-      {
-        return new CapacityCommandQueueResult(
-            CapacityCommandQueueStatus.Conflict,
-            null);
-      }
+      return new CapacityCommandQueueResult(
+          CapacityCommandQueueStatus.Conflict,
+          null);
     }
 
-    var commandId = Guid.NewGuid();
     await using (var insert = connection.CreateCommand())
     {
       insert.Transaction = transaction;
@@ -414,6 +405,11 @@ internal sealed class SqliteCapacityCommandStore(
       }
     }
 
+    await SqliteProfileOperationSlot.ReleaseCompletedAsync(
+        connection,
+        transaction,
+        nodeId,
+        cancellationToken);
     await transaction.CommitAsync(cancellationToken);
     return claimed;
   }
