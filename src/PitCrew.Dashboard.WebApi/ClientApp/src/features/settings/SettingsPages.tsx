@@ -26,6 +26,7 @@ interface SettingsPageProps {
 function SettingsPage({ children }: SettingsPageProps) {
   const { tenantId, tenant } = useCurrentTenant();
   if (!tenant) return null;
+  const settingsPath = `/tenants/${tenantId}/settings`;
 
   return (
     <section className="grid gap-4">
@@ -33,15 +34,15 @@ function SettingsPage({ children }: SettingsPageProps) {
         {tenant.role === 'owner' ? (
           <>
             <Button asChild variant="outline" size="sm">
-              <NavLink to={`/tenants/${tenantId}/settings/general`}>General</NavLink>
+              <NavLink to={`${settingsPath}/general`}>General</NavLink>
             </Button>
             <Button asChild variant="outline" size="sm">
-              <NavLink to={`/tenants/${tenantId}/settings/access`}>Access</NavLink>
+              <NavLink to={`${settingsPath}/access`}>Access</NavLink>
             </Button>
           </>
         ) : null}
         <Button asChild variant="outline" size="sm">
-          <NavLink to={`/tenants/${tenantId}/settings/enrollment`}>Enrollment</NavLink>
+          <NavLink to={`${settingsPath}/enrollment`}>Enrollment</NavLink>
         </Button>
       </nav>
       {children}
@@ -137,7 +138,8 @@ export function EnrollmentSettingsPage() {
               </div>
               <div className="text-xs">
                 Set the connector environment variable PitCrew__Connector__EnrollmentCode to this
-                value, start the connector, then remove the consumed variable from its environment.
+                value and start the connector. After enrollment succeeds, remove the consumed
+                variable from its environment.
               </div>
             </div>
           ) : null}
