@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { FleetProvider } from '@/core/fleet';
+
 import { FleetDashboard } from './FleetDashboard';
 
 function jsonResponse(value: unknown): Response {
@@ -114,14 +116,28 @@ function autoscalingResponse(overrides: Readonly<Record<string, unknown>> = {}) 
   };
 }
 
+function renderDashboard(canAdminister = false, antiforgeryToken = '') {
+  return render(
+    <FleetProvider tenantId="local">
+      <FleetDashboard
+        tenantId="local"
+        canAdminister={canAdminister}
+        antiforgeryToken={antiforgeryToken}
+      />
+    </FleetProvider>,
+  );
+}
+
 describe('FleetDashboard', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it('renames a revoked server and updates the fleet card immediately', async () => {
+    let renamed = false;
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       if (init?.method === 'PUT') {
+        renamed = true;
         return new Response(null, { status: 204 });
       }
       return jsonResponse({
@@ -129,7 +145,7 @@ describe('FleetDashboard', () => {
         nodes: [
           {
             nodeId: 'a6235ec4-2a15-4f91-a9e0-811152869a51',
-            displayName: 'Original server',
+            displayName: renamed ? 'Renamed server' : 'Original server',
             connectorVersion: '2.0.0',
             enrolledAt: '2026-07-18T15:00:00+00:00',
             lastSeenAt: '2026-07-18T15:30:00+00:00',
@@ -176,7 +192,7 @@ describe('FleetDashboard', () => {
         vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
         const user = userEvent.setup();
 
-        render(<FleetDashboard tenantId="local" canAdminister antiforgeryToken="token" />);
+        renderDashboard(true, 'token');
 
         const input = await screen.findByLabelText('Absolute maximum');
         await user.clear(input);
@@ -200,7 +216,7 @@ describe('FleetDashboard', () => {
     });
     const user = userEvent.setup();
 
-    render(<FleetDashboard tenantId="local" canAdminister antiforgeryToken="token" />);
+    renderDashboard(true, 'token');
 
     const input = await screen.findByLabelText('Server display name');
     await user.clear(input);
@@ -237,7 +253,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     const capacity = await screen.findByTestId('profile-capacity-autoscaled-idle-zero');
     expect(within(capacity).getByText('Demand-driven autoscaling')).toBeInTheDocument();
@@ -289,7 +305,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     await screen.findByTestId('profile-capacity-autoscaled-active-demand');
     expect(screen.getByTestId('profile-capacity-target-active-demand')).toHaveTextContent('3');
@@ -344,7 +360,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     await screen.findByTestId('profile-capacity-autoscaled-pending-scale-down');
     expect(
@@ -374,7 +390,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     await screen.findByTestId('profile-capacity-autoscaled-degraded-profile');
     expect(screen.getByTestId('profile-autoscaling-status-degraded-profile')).toHaveTextContent(
@@ -425,7 +441,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     const legacy = await screen.findByTestId('profile-capacity-fixed-legacy-fixed');
     const nullable = screen.getByTestId('profile-capacity-fixed-nullable-fixed');
@@ -479,7 +495,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     const summary = await screen.findByTestId('profile-resource-telemetry-available-profile');
     expect(within(summary).getByText('available')).toBeInTheDocument();
@@ -524,7 +540,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     const partial = await screen.findByTestId('profile-resource-telemetry-partial-profile');
     expect(within(partial).getByText('partial')).toBeInTheDocument();
@@ -565,7 +581,7 @@ describe('FleetDashboard', () => {
       ),
     );
 
-    render(<FleetDashboard tenantId="local" canAdminister={false} antiforgeryToken="" />);
+    renderDashboard();
 
     await screen.findByTestId('profile-resource-telemetry-legacy-omitted');
     for (const profileId of ['legacy-omitted', 'legacy-null']) {
