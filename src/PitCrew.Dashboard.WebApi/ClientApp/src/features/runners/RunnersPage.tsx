@@ -18,6 +18,7 @@ type SortKey =
   | 'repository'
   | 'target'
   | 'activity'
+  | 'registration'
   | 'state'
   | 'failures'
   | 'cpu'
@@ -32,6 +33,7 @@ const sortKeys = new Set<SortKey>([
   'repository',
   'target',
   'activity',
+  'registration',
   'state',
   'failures',
   'cpu',
@@ -62,6 +64,8 @@ function sortValue(row: FleetSlot, key: SortKey): string | number | null | undef
       return row.slot.target;
     case 'activity':
       return row.slot.activity;
+    case 'registration':
+      return row.slot.registrationStatus ?? 'unknown';
     case 'state':
       return row.slot.state;
     case 'failures':
@@ -126,6 +130,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
   const profileFilter = searchParams.get('profile') ?? '';
   const repositoryFilter = searchParams.get('repository') ?? '';
   const activityFilter = searchParams.get('activity') ?? '';
+  const registrationFilter = searchParams.get('registration') ?? '';
   const stateFilter = searchParams.get('state') ?? '';
   const requestedSort = searchParams.get('sort');
   const sort: SortKey =
@@ -145,6 +150,10 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     () => uniqueSorted(allRows.flatMap((row) => (row.slot.activity ? [row.slot.activity] : []))),
     [allRows],
   );
+  const registrations = useMemo(
+    () => uniqueSorted(allRows.map((row) => row.slot.registrationStatus ?? 'unknown')),
+    [allRows],
+  );
   const states = useMemo(() => uniqueSorted(allRows.map((row) => row.slot.state)), [allRows]);
   const rows = useMemo(() => {
     const repositoryQuery = repositoryFilter.trim().toLocaleLowerCase();
@@ -155,6 +164,8 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
         (!repositoryQuery ||
           (row.slot.repository ?? '').toLocaleLowerCase().includes(repositoryQuery)) &&
         (!activityFilter || row.slot.activity === activityFilter) &&
+        (!registrationFilter ||
+          (row.slot.registrationStatus ?? 'unknown') === registrationFilter) &&
         (!stateFilter || row.slot.state === stateFilter),
     );
     return filtered.sort((left, right) => {
@@ -167,6 +178,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     direction,
     nodeFilter,
     profileFilter,
+    registrationFilter,
     repositoryFilter,
     sort,
     stateFilter,
@@ -185,7 +197,12 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
   };
 
   const hasFilters = Boolean(
-    nodeFilter || profileFilter || repositoryFilter || activityFilter || stateFilter,
+    nodeFilter ||
+    profileFilter ||
+    repositoryFilter ||
+    activityFilter ||
+    registrationFilter ||
+    stateFilter,
   );
   const offlineCount = rows.filter((row) => !row.nodeOnline).length;
 
@@ -194,7 +211,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Runners and slots</h2>
         <p className="text-sm text-muted-foreground">
-          Read-only capacity across every node and profile in this tenant.
+          Local lifecycle and GitHub registration across every node and profile in this tenant.
         </p>
       </div>
 
@@ -272,6 +289,22 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 ))}
               </select>
             </label>
+            <label className="grid gap-1 text-sm" htmlFor="runners-registration-filter">
+              GitHub registration
+              <select
+                id="runners-registration-filter"
+                className="h-9 rounded-md border bg-background px-3"
+                value={registrationFilter}
+                onChange={(event) => setParameter('registration', event.target.value)}
+              >
+                <option value="">All registration states</option>
+                {registrations.map((registration) => (
+                  <option key={registration} value={registration}>
+                    {registration.replaceAll('-', ' ')}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="grid gap-1 text-sm" htmlFor="runners-state-filter">
               Lifecycle state
               <select
@@ -302,6 +335,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 <option value="repository">Repository</option>
                 <option value="target">Target</option>
                 <option value="activity">Activity</option>
+                <option value="registration">GitHub registration</option>
                 <option value="state">Lifecycle state</option>
                 <option value="failures">Failure count</option>
                 <option value="cpu">CPU</option>
@@ -368,7 +402,10 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                         Activity
                       </th>
                       <th scope="col" className="px-3 py-2 font-medium">
-                        Lifecycle state
+                        GitHub registration
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Local lifecycle state
                       </th>
                       <th scope="col" className="px-3 py-2 text-right font-medium">
                         Failures
@@ -412,6 +449,12 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                           ) : (
                             'Unavailable'
                           )}
+                        </td>
+                        <td
+                          className="px-3 py-2"
+                          data-testid={`runner-registration-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                        >
+                          <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
                         </td>
                         <td className="px-3 py-2">
                           <StatusBadge status={row.slot.state} />

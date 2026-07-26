@@ -7,6 +7,7 @@ interface StatusBadgeProps {
 function statusClasses(status: string): string {
   switch (status) {
     case 'available':
+    case 'connected':
     case 'idle':
     case 'online':
     case 'running':
@@ -23,11 +24,13 @@ function statusClasses(status: string): string {
     case 'pending':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
+    case 'disconnected':
     case 'degraded':
     case 'invalid':
     case 'conflict':
     case 'revoked':
     case 'rejected':
+    case 'registration-missing':
     case 'failed':
     case 'unavailable':
       return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
@@ -45,7 +48,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         statusClasses(status),
       )}
     >
-      {status}
+      {status.replaceAll('-', ' ')}
     </span>
   );
 }

@@ -62,6 +62,13 @@ a health target, so an idle profile with zero active runners can be healthy.
 Older connectors may omit these additive fields; those observations continue
 to appear as fixed-capacity profiles.
 
+PitCrew manager contract 10 adds authoritative GitHub registration state
+without changing connector protocol version 3. Fleet and runner views show
+local slot processes separately from GitHub-eligible capacity, and each slot
+reports connected, disconnected, registration-missing, or unknown. Older
+manager observations remain readable but display registration eligibility as
+unknown rather than treating local process state as usable capacity.
+
 Connector protocol 3 adds one typed write capability for host-installed,
 explicitly allowlisted connectors: setting the absolute capacity maximum of an
 existing single-target profile. Container connectors remain read-only. See

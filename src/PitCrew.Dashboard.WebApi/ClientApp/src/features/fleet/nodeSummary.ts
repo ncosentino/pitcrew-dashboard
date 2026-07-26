@@ -15,6 +15,7 @@ export interface ResourceAggregate {
 export interface NodeAggregate {
   readonly configuredSlots: number;
   readonly activeSlots: number;
+  readonly eligibleSlots: number | null;
   readonly resources: ResourceAggregate;
 }
 
@@ -33,6 +34,9 @@ export function aggregateNode(node: FleetNode): NodeAggregate {
     0,
   );
   const activeSlots = node.profiles.reduce((total, profile) => total + profile.activeSlots, 0);
+  const eligibleSlots = node.profiles.every((profile) => profile.eligibleSlots != null)
+    ? node.profiles.reduce((total, profile) => total + (profile.eligibleSlots ?? 0), 0)
+    : null;
   const profileResources = node.profiles.map(aggregateProfileResources);
   const resources = profileResources.reduce(
     (aggregate, profile) => ({
@@ -48,6 +52,7 @@ export function aggregateNode(node: FleetNode): NodeAggregate {
   return {
     configuredSlots,
     activeSlots,
+    eligibleSlots,
     resources: {
       ...resources,
       status:

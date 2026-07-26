@@ -74,7 +74,8 @@ function NodeSummaryRow({ node, tenantId, density }: NodeSummaryRowProps) {
       <td className="px-4 py-2">{formatTime(node.lastSeenAt)}</td>
       <td className="px-4 py-2 text-right tabular-nums">{node.profiles.length}</td>
       <td className="px-4 py-2 text-right tabular-nums">
-        {aggregate.configuredSlots} / {aggregate.activeSlots}
+        {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
+        {aggregate.eligibleSlots ?? 'Unknown'}
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
         {resources.reportingSources > 0 ? (
@@ -231,7 +232,7 @@ export default function FleetOverviewPage() {
                       Profiles
                     </th>
                     <th scope="col" className="px-4 py-3 text-right font-medium">
-                      Configured / active
+                      Configured / local / GitHub eligible
                     </th>
                     <th scope="col" className="px-4 py-3 text-right font-medium">
                       Current CPU / memory

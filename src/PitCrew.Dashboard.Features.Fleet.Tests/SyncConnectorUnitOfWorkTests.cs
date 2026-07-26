@@ -481,6 +481,125 @@ public sealed class SyncConnectorUnitOfWorkTests
   }
 
   [Test]
+  [Arguments("connected", 1)]
+  [Arguments("disconnected", 0)]
+  [Arguments("registration-missing", 0)]
+  [Arguments("unknown", 0)]
+  public async Task IsValidProfile_Accepts_Contract_Ten_Registration_State(
+      string registrationStatus,
+      int eligibleSlots)
+  {
+    var observedAt = new DateTimeOffset(
+        2026,
+        7,
+        27,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    var profile = CreateProfile(
+        observedAt,
+        null,
+        null);
+    var contractTenProfile = profile with
+    {
+      ManagerContractVersion = 10,
+      EligibleSlots = eligibleSlots,
+      Slots =
+      [
+          profile.Slots[0] with
+          {
+            RegistrationStatus = registrationStatus,
+          },
+      ],
+    };
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            contractTenProfile))
+        .IsTrue()
+        .Because($"registration status '{registrationStatus}' is a supported contract value");
+  }
+
+  [Test]
+  [Arguments("eligible-missing")]
+  [Arguments("eligible-negative")]
+  [Arguments("registration-missing")]
+  [Arguments("registration-invalid")]
+  [Arguments("eligible-mismatch")]
+  public async Task IsValidProfile_Rejects_Invalid_Contract_Ten_Registration_State(
+      string scenario)
+  {
+    var observedAt = new DateTimeOffset(
+        2026,
+        7,
+        27,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    var profile = CreateProfile(
+        observedAt,
+        null,
+        null);
+    var contractTenProfile = profile with
+    {
+      ManagerContractVersion = 10,
+      EligibleSlots = 1,
+      Slots =
+      [
+          profile.Slots[0] with
+          {
+            RegistrationStatus = "connected",
+          },
+      ],
+    };
+    var invalidProfile = scenario switch
+    {
+      "eligible-missing" => contractTenProfile with
+      {
+        EligibleSlots = null,
+      },
+      "eligible-negative" => contractTenProfile with
+      {
+        EligibleSlots = -1,
+      },
+      "registration-missing" => contractTenProfile with
+      {
+        Slots =
+        [
+            contractTenProfile.Slots[0] with
+            {
+              RegistrationStatus = null,
+            },
+        ],
+      },
+      "registration-invalid" => contractTenProfile with
+      {
+        Slots =
+        [
+            contractTenProfile.Slots[0] with
+            {
+              RegistrationStatus = "offline",
+            },
+        ],
+      },
+      "eligible-mismatch" => contractTenProfile with
+      {
+        EligibleSlots = 0,
+      },
+      _ => throw new ArgumentOutOfRangeException(
+          nameof(scenario),
+          scenario,
+          "Unknown registration validation scenario."),
+    };
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(
+            invalidProfile))
+        .IsFalse()
+        .Because($"registration validation must reject '{scenario}'");
+  }
+
+  [Test]
   [Arguments("configured-negative")]
   [Arguments("activity-invalid")]
   [Arguments("mode-invalid")]

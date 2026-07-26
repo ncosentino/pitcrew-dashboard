@@ -9,7 +9,7 @@ internal static class ConnectorTestData
       DateTimeOffset observedAt) =>
       new(
           1,
-          8,
+          10,
           profileId,
           "manager-instance",
           "running",
@@ -36,7 +36,8 @@ internal static class ConnectorTestData
                         536_870_912,
                         42),
                     "busy",
-                    "scale-set-linux"),
+                    "scale-set-linux",
+                    "connected"),
           ],
           new ManagerResourceTelemetry(
               observedAt,
@@ -63,7 +64,8 @@ internal static class ConnectorTestData
               300,
               1,
               observedAt.AddMinutes(5),
-              null));
+              null),
+          1);
 
   public static ConnectorOptions CreateOptions(
       string stateRoot,

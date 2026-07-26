@@ -234,6 +234,7 @@ internal sealed class SyncConnectorUnitOfWork(
         profile.DesiredSlots < 0 ||
         profile.ActiveSlots < 0 ||
         profile.DrainingSlots < 0 ||
+        profile.EligibleSlots is < 0 ||
         profile.Slots is null ||
         profile.Slots.Count > 10000 ||
         profile.ConfiguredSlots is < 0 ||
@@ -280,6 +281,12 @@ internal sealed class SyncConnectorUnitOfWork(
               "busy" or
               "draining" or
               "unknown") ||
+          slot.RegistrationStatus is not null &&
+          slot.RegistrationStatus is not (
+              "connected" or
+              "disconnected" or
+              "registration-missing" or
+              "unknown") ||
           !IsValidResourceUsage(slot.Resources) ||
           slot.State is not (
               "starting" or
@@ -291,6 +298,22 @@ internal sealed class SyncConnectorUnitOfWork(
       {
         return false;
       }
+    }
+
+    if (profile.ManagerContractVersion >= 10 &&
+        (profile.EligibleSlots is null ||
+         profile.Slots.Any(slot => slot.RegistrationStatus is null)))
+    {
+      return false;
+    }
+    if (profile.EligibleSlots is not null &&
+        profile.EligibleSlots != profile.Slots.Count(slot =>
+            string.Equals(
+                slot.RegistrationStatus,
+                "connected",
+                StringComparison.Ordinal)))
+    {
+      return false;
     }
 
     return IsConsistentResourceTelemetry(profile);

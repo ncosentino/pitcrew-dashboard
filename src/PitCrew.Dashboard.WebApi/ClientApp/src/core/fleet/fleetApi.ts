@@ -39,6 +39,13 @@ const managerAutoscalingStateSchema = z.object({
   lastError: z.string().nullable(),
 });
 
+const registrationStatusSchema = z.enum([
+  'connected',
+  'disconnected',
+  'registration-missing',
+  'unknown',
+]);
+
 const observedSlotSchema = z.object({
   key: z.string(),
   repository: z.string().nullable(),
@@ -51,27 +58,63 @@ const observedSlotSchema = z.object({
   resources: resourceUsageSchema.nullable().optional(),
   activity: z.enum(['starting', 'idle', 'busy', 'draining', 'unknown']).nullable().optional(),
   target: z.string().nullable().optional(),
+  registrationStatus: registrationStatusSchema.nullable().optional(),
 });
 
-const managerObservedStateSchema = z.object({
-  schemaVersion: z.number().int(),
-  managerContractVersion: z.number().int(),
-  profileId: z.string(),
-  managerInstanceId: z.string(),
-  managerStatus: z.string(),
-  observedAt: offsetDateTimeSchema,
-  scope: z.string(),
-  generation: z.number().int().nonnegative(),
-  desiredStateHash: z.string().nullable(),
-  desiredStateStatus: z.string(),
-  desiredSlots: z.number().int().nonnegative(),
-  activeSlots: z.number().int().nonnegative(),
-  drainingSlots: z.number().int().nonnegative(),
-  slots: z.array(observedSlotSchema),
-  resourceTelemetry: managerResourceTelemetrySchema.nullable().optional(),
-  configuredSlots: z.number().int().nonnegative().nullable().optional(),
-  autoscaling: managerAutoscalingStateSchema.nullable().optional(),
-});
+const managerObservedStateSchema = z
+  .object({
+    schemaVersion: z.number().int(),
+    managerContractVersion: z.number().int(),
+    profileId: z.string(),
+    managerInstanceId: z.string(),
+    managerStatus: z.string(),
+    observedAt: offsetDateTimeSchema,
+    scope: z.string(),
+    generation: z.number().int().nonnegative(),
+    desiredStateHash: z.string().nullable(),
+    desiredStateStatus: z.string(),
+    desiredSlots: z.number().int().nonnegative(),
+    activeSlots: z.number().int().nonnegative(),
+    eligibleSlots: z.number().int().nonnegative().nullable().optional(),
+    drainingSlots: z.number().int().nonnegative(),
+    slots: z.array(observedSlotSchema),
+    resourceTelemetry: managerResourceTelemetrySchema.nullable().optional(),
+    configuredSlots: z.number().int().nonnegative().nullable().optional(),
+    autoscaling: managerAutoscalingStateSchema.nullable().optional(),
+  })
+  .superRefine((profile, context) => {
+    if (profile.managerContractVersion >= 10) {
+      if (profile.eligibleSlots == null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Manager contract 10 requires eligible slot capacity.',
+          path: ['eligibleSlots'],
+        });
+      }
+      profile.slots.forEach((slot, index) => {
+        if (slot.registrationStatus == null) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Manager contract 10 requires slot registration status.',
+            path: ['slots', index, 'registrationStatus'],
+          });
+        }
+      });
+    }
+
+    if (profile.eligibleSlots != null) {
+      const connectedSlots = profile.slots.filter(
+        (slot) => slot.registrationStatus === 'connected',
+      ).length;
+      if (profile.eligibleSlots !== connectedSlots) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Eligible slot capacity must equal connected slot count.',
+          path: ['eligibleSlots'],
+        });
+      }
+    }
+  });
 
 const capacityCommandStateSchema = z.object({
   commandId: z.string().uuid(),

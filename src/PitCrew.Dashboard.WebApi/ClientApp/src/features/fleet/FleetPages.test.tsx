@@ -32,10 +32,10 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
-function profileResponse() {
+function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     schemaVersion: 1,
-    managerContractVersion: 7,
+    managerContractVersion: 10,
     profileId: 'build',
     managerInstanceId: 'manager-build',
     managerStatus: 'running',
@@ -47,6 +47,7 @@ function profileResponse() {
     desiredSlots: 3,
     configuredSlots: 4,
     activeSlots: 2,
+    eligibleSlots: 1,
     drainingSlots: 1,
     resourceTelemetry: {
       sampledAt: '2026-07-19T18:30:00+00:00',
@@ -73,6 +74,7 @@ function profileResponse() {
           memoryWorkingSetBytes: 2048,
           pids: 20,
         },
+        registrationStatus: 'connected',
       },
       {
         key: 'build-000002',
@@ -84,8 +86,10 @@ function profileResponse() {
         backoffSeconds: 0,
         updatedAt: null,
         resources: null,
+        registrationStatus: 'disconnected',
       },
     ],
+    ...overrides,
   };
 }
 
@@ -164,12 +168,47 @@ describe('fleet overview and node detail', () => {
     );
     expect(row).toHaveTextContent('2.0.0');
     expect(row).toHaveTextContent('1');
-    expect(row).toHaveTextContent('4 / 2');
+    expect(row).toHaveTextContent('4 / 2 / 1');
     expect(row).toHaveTextContent('1.5 cores / 3 KiB');
     expect(row).toHaveTextContent('2 of 3 sources');
     expect(row).toHaveTextContent('partial');
     expect(screen.queryByText('Absolute maximum')).not.toBeInTheDocument();
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
+  });
+
+  it('does not infer partial node eligibility from older manager contracts', async () => {
+    const response = fleetResponse();
+    response.nodes[1].profiles = [
+      profileResponse(),
+      profileResponse({
+        profileId: 'legacy',
+        managerInstanceId: 'manager-legacy',
+        managerContractVersion: 9,
+        eligibleSlots: undefined,
+        slots: [
+          {
+            ...profileResponse().slots[0],
+            key: 'legacy-000001',
+            registrationStatus: undefined,
+          },
+        ],
+      }),
+    ];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const router = createTestRouter(features, ['/tenants/local/fleet']);
+    render(
+      <SessionProvider>
+        <RouterProvider router={router} />
+      </SessionProvider>,
+    );
+
+    const row = await screen.findByTestId(`fleet-node-${alphaId}`);
+    expect(row).toHaveTextContent('8 / 4 / Unknown');
   });
 
   it('filters and sorts deterministically and persists density', async () => {
@@ -234,7 +273,8 @@ describe('fleet overview and node detail', () => {
       `/tenants/local/nodes/${alphaId}/profiles/build`,
     );
     expect(profile).toHaveTextContent('Configured4');
-    expect(profile).toHaveTextContent('Active2');
+    expect(profile).toHaveTextContent('Local slots2');
+    expect(profile).toHaveTextContent('GitHub eligible1');
     expect(profile).toHaveTextContent('Partial telemetry');
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
   });
