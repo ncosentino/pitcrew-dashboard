@@ -120,19 +120,11 @@ export type FleetNode = z.infer<typeof fleetNodeSchema>;
 /** Current tenant fleet response. */
 export type FleetResponse = z.infer<typeof fleetResponseSchema>;
 
-const enrollmentCodeResponseSchema = z.object({
-  enrollmentCodeId: z.string().uuid(),
-  code: z.string(),
-  expiresAt: offsetDateTimeSchema,
-});
-
 const setCapacityMaximumResponseSchema = z.object({
   commandId: z.string().uuid(),
   status: z.literal('pending'),
 });
 
-/** One-time connector enrollment code returned only at creation. */
-export type EnrollmentCodeResponse = z.infer<typeof enrollmentCodeResponseSchema>;
 /** Queued capacity command returned by the dashboard. */
 export type SetCapacityMaximumResponse = z.infer<typeof setCapacityMaximumResponseSchema>;
 
@@ -148,23 +140,6 @@ export async function getFleet(tenantId: string, signal: AbortSignal): Promise<F
       method: 'GET',
       schema: fleetResponseSchema,
       signal,
-    },
-  );
-}
-
-/** Creates one expiring enrollment code that is returned only once. */
-export async function createEnrollmentCode(
-  tenantId: string,
-  label: string,
-  antiforgeryToken: string,
-): Promise<EnrollmentCodeResponse> {
-  return await createClient().request(
-    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/enrollment-codes`,
-    {
-      method: 'POST',
-      body: { label },
-      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
-      schema: enrollmentCodeResponseSchema,
     },
   );
 }

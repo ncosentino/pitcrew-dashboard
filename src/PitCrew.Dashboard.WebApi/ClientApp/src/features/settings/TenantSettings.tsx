@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
 
-import { renameTenant } from './accessApi';
+import { renameTenant } from './settingsApi';
 
 /** Props for owner-managed tenant settings. */
 export interface TenantSettingsProps {

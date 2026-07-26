@@ -1,61 +1,34 @@
 import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
+import {
+  dashboardUserSchema,
+  tenantRoleSchema,
+  type DashboardUser,
+  type TenantRole,
+} from '@/core/auth/sessionApi';
 
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
-const tenantRoleSchema = z.enum(['viewer', 'administrator', 'owner']);
-
-const dashboardUserSchema = z.object({
-  githubUserId: z.string(),
-  githubLogin: z.string(),
-  displayName: z.string(),
-  avatarUrl: z.string().nullable(),
-});
-
-const tenantAccessSchema = z.object({
-  tenantId: z.string(),
-  displayName: z.string(),
-  role: tenantRoleSchema,
-});
-
-const dashboardSessionSchema = z.object({
-  user: dashboardUserSchema,
-  isSystemAdministrator: z.boolean(),
-  tenants: z.array(tenantAccessSchema),
-  antiforgeryToken: z.string(),
-});
-
 const tenantMemberSchema = z.object({
   user: dashboardUserSchema,
   role: tenantRoleSchema,
   createdAt: offsetDateTimeSchema,
 });
-
 const tenantMembersSchema = z.array(tenantMemberSchema);
 const dashboardUsersSchema = z.array(dashboardUserSchema);
+const enrollmentCodeResponseSchema = z.object({
+  enrollmentCodeId: z.string().uuid(),
+  code: z.string(),
+  expiresAt: offsetDateTimeSchema,
+});
 
-/** Authenticated GitHub identity returned by the dashboard. */
-export type DashboardUser = z.infer<typeof dashboardUserSchema>;
-/** Tenant authorization role returned by the dashboard. */
-export type TenantRole = z.infer<typeof tenantRoleSchema>;
-/** Tenant context available to the authenticated user. */
-export type TenantAccess = z.infer<typeof tenantAccessSchema>;
-/** Authenticated session, tenant contexts, and antiforgery token. */
-export type DashboardSession = z.infer<typeof dashboardSessionSchema>;
 /** Persisted tenant membership returned to an owner. */
 export type TenantMember = z.infer<typeof tenantMemberSchema>;
+/** One-time connector enrollment code returned only at creation. */
+export type EnrollmentCodeResponse = z.infer<typeof enrollmentCodeResponseSchema>;
 
 function createClient(): HttpClient {
   return new HttpClient({ baseUrl: globalThis.location.origin });
-}
-
-/** Loads the authenticated user, available tenants, and antiforgery token. */
-export async function getSession(signal: AbortSignal): Promise<DashboardSession> {
-  return await createClient().request('/api/session', {
-    method: 'GET',
-    schema: dashboardSessionSchema,
-    signal,
-  });
 }
 
 /** Creates one tenant and grants ownership to the current system administrator. */
@@ -143,10 +116,19 @@ export async function removeTenantMembership(
   );
 }
 
-/** Ends the authenticated dashboard cookie session. */
-export async function logout(antiforgeryToken: string): Promise<void> {
-  await createClient().request('/auth/logout', {
-    method: 'POST',
-    headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
-  });
+/** Creates one expiring enrollment code that is returned only once. */
+export async function createEnrollmentCode(
+  tenantId: string,
+  label: string,
+  antiforgeryToken: string,
+): Promise<EnrollmentCodeResponse> {
+  return await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/enrollment-codes`,
+    {
+      method: 'POST',
+      body: { label },
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+      schema: enrollmentCodeResponseSchema,
+    },
+  );
 }
