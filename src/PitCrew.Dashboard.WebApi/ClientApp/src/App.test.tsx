@@ -102,16 +102,47 @@ describe('authenticated routing', () => {
     expect(screen.queryByRole('heading', { name: 'Fleet status' })).not.toBeInTheDocument();
   });
 
-  it('enforces owner and administrator settings guards', async () => {
+  it.each([
+    ['viewer', '/tenants/local/settings/general', 'owner'],
+    ['viewer', '/tenants/local/settings/access', 'owner'],
+    ['administrator', '/tenants/local/settings/general', 'owner'],
+    ['administrator', '/tenants/local/settings/access', 'owner'],
+    ['viewer', '/tenants/local/settings/enrollment', 'administrator'],
+  ] as const)('rejects a %s from %s', async (role, path, requiredRole) => {
     mockSession({
       ...ownerSession,
-      tenants: [{ ...ownerSession.tenants[0], role: 'administrator' }],
+      tenants: [{ ...ownerSession.tenants[0], role }],
     });
 
-    renderRoute('/tenants/local/settings/general');
+    renderRoute(path);
 
     expect(await screen.findByText('Insufficient tenant role')).toBeInTheDocument();
-    expect(screen.getByText(/requires the owner role/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`requires the ${requiredRole} role`))).toBeInTheDocument();
+  });
+
+  it('rejects a non-system-administrator from tenant creation', async () => {
+    mockSession(ownerSession);
+    const router = renderRoute('/admin/tenants');
+
+    expect(await screen.findByText('No tenant access')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/no-access');
+    expect(screen.queryByText('Create tenant')).not.toBeInTheDocument();
+  });
+
+  it('renders owner settings-local navigation and access administration', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/members') || url.endsWith('/available-users')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderRoute('/tenants/local/settings/access');
+
+    expect(await screen.findByText('Tenant membership')).toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', { name: 'Tenant settings' });
+    expect(navigation).toHaveTextContent('General');
+    expect(navigation).toHaveTextContent('Access');
+    expect(navigation).toHaveTextContent('Enrollment');
   });
 
   it('allows an administrator to reach enrollment settings', async () => {
@@ -137,6 +168,61 @@ describe('authenticated routing', () => {
     expect(await screen.findByText('Enroll a connector')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create one-time code' }));
     expect(await screen.findByText('one-time-code')).toBeInTheDocument();
+    expect(screen.getByText(/Expires/)).toBeInTheDocument();
+    expect(screen.getByText(/not stored in recoverable form/)).toBeInTheDocument();
+    expect(screen.getByText(/PitCrew__Connector__EnrollmentCode/)).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Tenant settings' })).toHaveTextContent(
+      'Enrollment',
+    );
+    expect(screen.getByRole('navigation', { name: 'Tenant settings' })).not.toHaveTextContent(
+      'Access',
+    );
+  });
+
+  it('refreshes the session and routes to the new tenant fleet after creation', async () => {
+    const systemAdministratorSession = { ...ownerSession, isSystemAdministrator: true };
+    const createdSession = {
+      ...systemAdministratorSession,
+      tenants: [
+        ...ownerSession.tenants,
+        { tenantId: 'new-tenant', displayName: 'New tenant', role: 'owner' as const },
+      ],
+    };
+    let sessionLoads = 0;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) {
+        sessionLoads++;
+        return jsonResponse(sessionLoads === 1 ? systemAdministratorSession : createdSession);
+      }
+      if (url.endsWith('/api/tenants') && init?.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-18T16:00:00+00:00', nodes: [] });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const router = renderRoute('/admin/tenants');
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText('Tenant ID'), 'new-tenant');
+    await user.type(screen.getByLabelText('Tenant display name'), 'New tenant');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(await screen.findByText('No servers enrolled')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/tenants/new-tenant/fleet');
+    expect(sessionLoads).toBe(2);
+    const creationCall = fetchMock.mock.calls.find(
+      ([input, init]) => String(input).endsWith('/api/tenants') && init?.method === 'POST',
+    );
+    expect(new Headers(creationCall?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
+      'test-antiforgery-token',
+    );
+    expect(JSON.parse(String(creationCall?.[1]?.body))).toEqual({
+      tenantId: 'new-tenant',
+      displayName: 'New tenant',
+    });
   });
 
   it('refreshes the tenant selector after an owner renames the tenant', async () => {
