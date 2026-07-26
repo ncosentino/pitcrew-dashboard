@@ -33,8 +33,12 @@ export function createAdminManifest(createTenant: CreateTenant): FeatureManifest
     ],
     routes: [
       {
-        element: <SystemAdministratorGuard />,
-        children: [{ path: 'admin/tenants', element: <TenantCreationPage /> }],
+        path: 'admin/tenants',
+        element: (
+          <SystemAdministratorGuard>
+            <TenantCreationPage />
+          </SystemAdministratorGuard>
+        ),
       },
     ],
   };

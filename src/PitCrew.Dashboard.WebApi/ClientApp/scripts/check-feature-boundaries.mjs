@@ -60,7 +60,9 @@ function importReferences(node, references = []) {
 
 /** Checks that a feature never imports from a sibling feature. */
 export function checkFeatureBoundaries(root = process.cwd()) {
+  const srcRoot = resolve(root, 'src');
   const featuresRoot = resolve(root, 'src/features');
+  const registryFile = resolve(srcRoot, 'features.registry.ts');
   const files = statSync(featuresRoot).isDirectory() ? sourceFiles(featuresRoot) : [];
   const violations = [];
 
@@ -84,10 +86,45 @@ export function checkFeatureBoundaries(root = process.cwd()) {
     }
   }
 
+  const otherFiles = sourceFiles(srcRoot).filter((file) => {
+    if (file.startsWith(featuresRoot + sep) || file === featuresRoot) return false;
+    if (file === registryFile) return false;
+    if (/\.(test|spec)\.[tj]sx?$/.test(file)) return false;
+    if (file.includes(`${sep}__tests__${sep}`)) return false;
+    return true;
+  });
+
+  for (const file of otherFiles) {
+    const ast = parse(readFileSync(file, 'utf8'), {
+      sourceType: 'module',
+      plugins: ['typescript', 'jsx'],
+    });
+    for (const reference of importReferences(ast.program)) {
+      const targetFeature = importedFeature(root, file, reference.specifier);
+      if (targetFeature) {
+        violations.push({
+          file: relative(root, file).split(sep).join('/'),
+          line: reference.line,
+          sourceFeature: null,
+          targetFeature,
+          specifier: reference.specifier,
+          registryBypass: true,
+        });
+      }
+    }
+  }
+
   return { scanned: files.length, violations };
 }
 
 function formatViolation(violation) {
+  if (violation.registryBypass) {
+    return [
+      `  ${violation.file}:${violation.line}`,
+      '    only src/features.registry.ts may import feature internals',
+      `    import: ${violation.specifier}`,
+    ].join('\n');
+  }
   return [
     `  ${violation.file}:${violation.line}`,
     `    feature "${violation.sourceFeature}" imports from sibling feature "${violation.targetFeature}"`,

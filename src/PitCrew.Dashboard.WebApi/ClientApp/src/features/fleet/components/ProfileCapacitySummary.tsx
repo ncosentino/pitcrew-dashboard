@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
+import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
 import { type CapacityControlState, type ManagerObservedState } from '@/core/fleet';
 import { formatSeconds, formatTime } from '@/core/formatting/formatters';
@@ -77,18 +78,17 @@ function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMax
           disabled={disabled || active}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <Button
-          type="button"
-          size="sm"
-          disabled={disabled || active || !valid}
-          onClick={() => {
-            if (globalThis.confirm(`Set ${control.profileId} capacity maximum to ${parsed}?`)) {
-              void onSetMaximum(parsed);
-            }
-          }}
-        >
-          Queue change
-        </Button>
+        <ConfirmActionDialog
+          title="Queue capacity change?"
+          description={`Set ${control.profileId} capacity maximum to ${parsed}?`}
+          confirmLabel="Confirm capacity change"
+          trigger={
+            <Button type="button" size="sm" disabled={disabled || active || !valid}>
+              Queue change
+            </Button>
+          }
+          onConfirm={() => onSetMaximum(parsed)}
+        />
       </div>
       {control.latestCommand ? (
         <div className="text-xs text-muted-foreground">

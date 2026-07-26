@@ -13,6 +13,13 @@ const noAccessPresentation: FeatureRoutePresentation = {
   breadcrumbs: [{ label: 'No tenant access' }],
 };
 
+const notFoundPresentation: FeatureRoutePresentation = {
+  path: '*',
+  title: 'Page not found',
+  breadcrumbs: [{ label: 'Page not found' }],
+};
+
+/** Replaces route placeholders with the parameters from the active URL. */
 export function formatRouteLabel(label: string, params: Params<string>): string {
   return label.replaceAll(/:([A-Za-z0-9_]+)/g, (token, key: string) => params[key] ?? token);
 }
@@ -32,5 +39,5 @@ export function matchRoutePresentation(
     if (match) return { presentation, params: match.params };
   }
 
-  return { presentation: noAccessPresentation, params: {} };
+  return { presentation: notFoundPresentation, params: {} };
 }

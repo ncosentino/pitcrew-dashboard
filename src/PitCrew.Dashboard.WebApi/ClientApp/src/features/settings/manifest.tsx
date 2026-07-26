@@ -59,17 +59,28 @@ export const settingsManifest: FeatureManifest = {
   ],
   routes: [
     {
-      element: <TenantRouteGuard minimumRole="owner" />,
-      children: [
-        { path: 'tenants/:tenantId/settings/general', element: <GeneralSettingsPage /> },
-        { path: 'tenants/:tenantId/settings/access', element: <AccessSettingsPage /> },
-      ],
+      path: 'tenants/:tenantId/settings/general',
+      element: (
+        <TenantRouteGuard minimumRole="owner">
+          <GeneralSettingsPage />
+        </TenantRouteGuard>
+      ),
     },
     {
-      element: <TenantRouteGuard minimumRole="administrator" />,
-      children: [
-        { path: 'tenants/:tenantId/settings/enrollment', element: <EnrollmentSettingsPage /> },
-      ],
+      path: 'tenants/:tenantId/settings/access',
+      element: (
+        <TenantRouteGuard minimumRole="owner">
+          <AccessSettingsPage />
+        </TenantRouteGuard>
+      ),
+    },
+    {
+      path: 'tenants/:tenantId/settings/enrollment',
+      element: (
+        <TenantRouteGuard minimumRole="administrator">
+          <EnrollmentSettingsPage />
+        </TenantRouteGuard>
+      ),
     },
   ],
 };

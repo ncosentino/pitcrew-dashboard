@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MenuIcon } from 'lucide-react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -20,6 +20,7 @@ import {
 } from '@/core/auth';
 import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
+import { FleetProvider } from '@/core/fleet';
 import { ThemeToggle } from '@/core/theme/ThemeToggle';
 
 import { Breadcrumbs } from './Breadcrumbs';
@@ -111,6 +112,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   const { tenantId } = useParams();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const mainContent = useRef<HTMLElement>(null);
   const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false);
   const selectedTenant =
     session?.tenants.find((tenant) => tenant.tenantId === tenantId) ??
@@ -141,6 +143,13 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
     () => matchRoutePresentation(features, pathname),
     [features, pathname],
   );
+  const usesFleetData =
+    selectedTenant !== null &&
+    /^\/tenants\/[^/]+\/(?:fleet(?:\/|$)|nodes(?:\/|$)|runners(?:\/|$))/.test(pathname);
+
+  useEffect(() => {
+    mainContent.current?.focus({ preventScroll: true });
+  }, [pathname]);
 
   if (!session) return null;
 
@@ -199,6 +208,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
         </header>
 
         <main
+          ref={mainContent}
           id="main-content"
           className="mx-auto grid min-w-0 max-w-7xl gap-6 px-4 py-6 sm:px-8 sm:py-8"
           tabIndex={-1}
@@ -209,7 +219,13 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
               {formatRouteLabel(routePresentation.presentation.title, routePresentation.params)}
             </h1>
           </div>
-          <Outlet />
+          {usesFleetData ? (
+            <FleetProvider tenantId={selectedTenant.tenantId}>
+              <Outlet />
+            </FleetProvider>
+          ) : (
+            <Outlet />
+          )}
         </main>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider } from '@/core/auth';
+import type { FeatureManifest } from '@/core/features/FeatureManifest';
 import { createTestRouter } from '@/core/routing/createAppRouter';
 import { features } from '@/features.registry';
 
@@ -72,6 +73,34 @@ describe('authenticated routing', () => {
     );
   });
 
+  it('retries a failed session bootstrap without reloading the page', async () => {
+    let sessionLoads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) {
+        sessionLoads++;
+        return sessionLoads === 1
+          ? jsonResponse({ error: { code: 'unavailable', message: 'Session outage' } }, 503)
+          : jsonResponse(ownerSession);
+      }
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-18T16:00:00+00:00', nodes: [] });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderRoute('/');
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('Dashboard session is unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Session outage')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry session' }));
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Fleet status' }),
+    ).toBeInTheDocument();
+    expect(sessionLoads).toBe(2);
+  });
+
   it('redirects the root to the first authorized tenant and loads the session once', async () => {
     const fetchMock = mockSession(ownerSession);
     const router = renderRoute('/');
@@ -101,6 +130,47 @@ describe('authenticated routing', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'No tenant access' }),
     ).toBeInTheDocument();
+  });
+
+  it('renders a distinct not-found route instead of a tenant-access error', async () => {
+    mockSession(ownerSession);
+
+    const router = renderRoute('/tenants/local/unknown-page');
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/tenants/local/unknown-page'));
+    expect(
+      await screen.findByText('This dashboard route does not exist or is no longer available.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument();
+    expect(screen.queryByText('No tenant access')).not.toBeInTheDocument();
+  });
+
+  it('contains unexpected route render failures in a dedicated error page', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const brokenFeature: FeatureManifest = {
+      id: 'broken',
+      routes: [
+        {
+          path: 'broken',
+          element: <BrokenPage />,
+        },
+      ],
+    };
+    mockSession(ownerSession);
+    const router = createTestRouter([...features, brokenFeature], ['/broken']);
+
+    render(
+      <SessionProvider>
+        <RouterProvider router={router} />
+      </SessionProvider>,
+    );
+
+    expect(await screen.findByText(/Page could not be displayed/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Return to the dashboard' })).toHaveAttribute(
+      'href',
+      '/',
+    );
+    expect(consoleError).toHaveBeenCalled();
   });
 
   it('does not substitute another tenant for an invalid tenant ID', async () => {
@@ -134,6 +204,7 @@ describe('authenticated routing', () => {
     mockSession(ownerSession);
     const router = renderRoute('/admin/tenants');
 
+    await waitFor(() => expect(router.state.location.pathname).toBe('/no-access'));
     expect(
       await screen.findByRole('heading', { level: 1, name: 'No tenant access' }),
     ).toBeInTheDocument();
@@ -414,6 +485,23 @@ describe('authenticated routing', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 
+  it('moves focus to the main content after route navigation', async () => {
+    mockSession(ownerSession);
+    const router = renderRoute('/tenants/local/fleet');
+    await screen.findByRole('heading', { level: 2, name: 'Fleet status' });
+    const main = document.querySelector<HTMLElement>('#main-content');
+    expect(main).not.toBeNull();
+    await waitFor(() => expect(main).toHaveFocus());
+
+    await act(async () => {
+      await router.navigate('/tenants/local/runners');
+    });
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/tenants/local/runners'));
+    await screen.findByText('Runners and slots');
+    await waitFor(() => expect(main).toHaveFocus());
+  });
+
   it('signs out with the session antiforgery token', async () => {
     mockSession(ownerSession);
     renderRoute('/tenants/local/fleet');
@@ -423,6 +511,10 @@ describe('authenticated routing', () => {
 
     expect(logoutMock).toHaveBeenCalledWith('test-antiforgery-token');
   });
+
+  function BrokenPage(): never {
+    throw new Error('Simulated route render failure.');
+  }
 
   it('closes mobile navigation after keyboard navigation and restores trigger focus', async () => {
     mockSession(ownerSession);
