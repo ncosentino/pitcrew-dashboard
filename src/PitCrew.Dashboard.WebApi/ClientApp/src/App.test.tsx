@@ -134,7 +134,9 @@ describe('authenticated routing', () => {
     mockSession(ownerSession);
     const router = renderRoute('/admin/tenants');
 
-    expect(await screen.findByText('No tenant access')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'No tenant access' }),
+    ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/no-access');
     expect(screen.queryByText('Create tenant')).not.toBeInTheDocument();
   });
@@ -286,7 +288,7 @@ describe('authenticated routing', () => {
     expect(await screen.findByRole('option', { name: 'Remote · viewer' })).toBeInTheDocument();
   });
 
-  it('declares node and profile deep-link placeholders', async () => {
+  it('declares node detail and profile deep-link routes', async () => {
     mockSession(ownerSession);
     const router = renderRoute('/tenants/local/nodes/node-1');
 
@@ -301,6 +303,7 @@ describe('authenticated routing', () => {
     expect(
       screen.getByText('Node node-1', { selector: '[aria-current="page"]' }),
     ).toBeInTheDocument();
+    expect(await screen.findByText('Node not found')).toBeInTheDocument();
 
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1/profiles/build');
@@ -434,7 +437,7 @@ describe('authenticated routing', () => {
       within(dialog)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Fleet', 'Settings', 'Enrollment']);
+    ).toEqual(['Fleet', 'Runners', 'Settings', 'Enrollment']);
     expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     await user.click(within(dialog).getByRole('link', { name: 'Enrollment' }));
 
@@ -463,9 +466,7 @@ describe('authenticated routing', () => {
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1');
     });
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Node node-1' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Loading node…')).toBeInTheDocument();
     expect(fleetSignal?.aborted).toBe(false);
 
     await act(async () => {
