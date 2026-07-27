@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import {
   buildDeficitReasonChanges,
+  buildHistoryPresets,
   buildHistorySeries,
   describeDeficitEvidence,
   describeHistoryAvailability,
@@ -10,6 +11,7 @@ import {
   describeSubsystemHealthEvidence,
   resolveCadenceMilliseconds,
   useFleetHistory,
+  useHistoryCapabilities,
   type NodeHistoryResponse,
   type ProfileHistory,
 } from '@/core/fleet';
@@ -24,75 +26,28 @@ interface FleetHistoryPanelProps {
   readonly testId: string;
 }
 
-interface HistoryRange {
-  readonly hours: number;
-  readonly label: string;
-  readonly resolution: 'raw' | 'hourly';
-  readonly pointLimit: number;
-  readonly eventLimit: number;
-  readonly diagnosticLimit: number;
-  readonly description: string;
-}
-
 const scrollRegionClasses =
   'max-h-64 overflow-auto rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600';
-
-const ranges: readonly HistoryRange[] = [
-  {
-    hours: 4,
-    label: 'Last 4 hours (every observation)',
-    resolution: 'raw',
-    pointLimit: 1000,
-    eventLimit: 200,
-    diagnosticLimit: 200,
-    description:
-      'Showing up to 1000 retained per-observation samples per profile. At the usual heartbeat rate that covers roughly the last four hours; longer per-observation ranges cannot be shown truthfully because the response is capped.',
-  },
-  {
-    hours: 24,
-    label: 'Last 24 hours (hourly peaks)',
-    resolution: 'hourly',
-    pointLimit: 48,
-    eventLimit: 200,
-    diagnosticLimit: 200,
-    description:
-      'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
-  },
-  {
-    hours: 168,
-    label: 'Last 7 days (hourly peaks)',
-    resolution: 'hourly',
-    pointLimit: 200,
-    eventLimit: 200,
-    diagnosticLimit: 200,
-    description:
-      'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
-  },
-  {
-    hours: 720,
-    label: 'Last 30 days (hourly peaks)',
-    resolution: 'hourly',
-    pointLimit: 800,
-    eventLimit: 200,
-    diagnosticLimit: 200,
-    description:
-      'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
-  },
-];
 
 function ProfileHistorySections({
   history,
   resolution,
+  expectedRawCadenceSeconds,
 }: {
   readonly history: ProfileHistory;
   readonly resolution: 'raw' | 'hourly';
+  readonly expectedRawCadenceSeconds: number | null;
 }) {
   const availability = describeHistoryAvailability(history, resolution);
   const journal = describeHistoryJournal(history);
   const deficitEvidence = describeDeficitEvidence(history);
   const subsystemEvidence = describeSubsystemHealthEvidence(history);
   const groups = buildHistorySeries(history, resolution);
-  const cadenceMilliseconds = resolveCadenceMilliseconds(history, resolution);
+  const cadenceMilliseconds = resolveCadenceMilliseconds(
+    history,
+    resolution,
+    expectedRawCadenceSeconds,
+  );
   const deficits = buildDeficitReasonChanges(history);
 
   return (
@@ -262,10 +217,12 @@ function ProfileHistoryDisclosure({
   history,
   resolution,
   isInitiallyOpen,
+  expectedRawCadenceSeconds,
 }: {
   readonly history: ProfileHistory;
   readonly resolution: 'raw' | 'hourly';
   readonly isInitiallyOpen: boolean;
+  readonly expectedRawCadenceSeconds: number | null;
 }) {
   const [isOpen, setIsOpen] = useState(isInitiallyOpen);
 
@@ -286,7 +243,13 @@ function ProfileHistoryDisclosure({
         </span>
       </summary>
       <div className="border-t px-3 py-3">
-        {isOpen ? <ProfileHistorySections history={history} resolution={resolution} /> : null}
+        {isOpen ? (
+          <ProfileHistorySections
+            expectedRawCadenceSeconds={expectedRawCadenceSeconds}
+            history={history}
+            resolution={resolution}
+          />
+        ) : null}
       </div>
     </details>
   );
@@ -307,11 +270,39 @@ function describeResponseTruncation(history: NodeHistoryResponse | null): string
   }
   if (history.diagnosticsTruncated) {
     capped.push(
-      `diagnostics (${history.profileDiagnosticLimit} per profile, ${history.nodeDiagnosticLimit} across all profiles)`,
+      `diagnostics (${history.profileSubsystemHealthLimit} subsystem-health and ${history.profileCapacityDeficitLimit} capacity-deficit rows per profile, ${history.nodeDiagnosticLimit} combined across all profiles)`,
     );
   }
   if (capped.length === 0) return null;
   return `This response reached its limits for ${capped.join(', ')}. The most recent data inside the range is shown and older retained data inside the same range is hidden. Open a single profile or narrow the range to see the hidden observations.`;
+}
+
+/**
+ * Composes the single assertive-free status announcement for the panel.
+ *
+ * Loading, showing a stale range, and reaching a response limit are separate facts that can all be
+ * true at once. They are merged into one message inside one live region so a screen reader is never
+ * given two simultaneous status announcements that race each other.
+ */
+function describeLiveState({
+  isBusy,
+  isStale,
+  truncation,
+}: {
+  readonly isBusy: boolean;
+  readonly isStale: boolean;
+  readonly truncation: string | null;
+}): string | null {
+  const parts: string[] = [];
+  if (isBusy) {
+    parts.push(
+      isStale ? 'Loading the selected range; showing the previous range…' : 'Loading history…',
+    );
+  }
+  if (truncation != null) {
+    parts.push(truncation);
+  }
+  return parts.length === 0 ? null : parts.join(' ');
 }
 
 /**
@@ -322,25 +313,32 @@ function describeResponseTruncation(history: NodeHistoryResponse | null): string
  * node with many profiles does not render an unbounded wall of charts.
  */
 export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: FleetHistoryPanelProps) {
-  const [rangeHours, setRangeHours] = useState(ranges[0].hours);
+  const [presetKey, setPresetKey] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const range = ranges.find((candidate) => candidate.hours === rangeHours) ?? ranges[0];
+  const {
+    capabilities,
+    error: capabilitiesError,
+    isLoading: isLoadingCapabilities,
+  } = useHistoryCapabilities(tenantId, isOpen);
+  const presets = capabilities == null ? [] : buildHistoryPresets(capabilities);
+  const range = presets.find((candidate) => candidate.key === presetKey) ?? presets[0] ?? null;
   const { history, error, isLoading, isStale } = useFleetHistory({
     tenantId,
     nodeId,
     profileId,
-    rangeHours: range.hours,
-    resolution: range.resolution,
-    pointLimit: range.pointLimit,
-    eventLimit: range.eventLimit,
-    diagnosticLimit: range.diagnosticLimit,
-    enabled: isOpen,
+    rangeHours: range?.hours ?? 0,
+    resolution: range?.resolution ?? 'raw',
+    pointLimit: range?.pointLimit ?? null,
+    eventLimit: range?.eventLimit ?? null,
+    diagnosticLimit: range?.diagnosticLimit ?? null,
+    enabled: isOpen && range != null,
   });
-  const liveMessage = isLoading
-    ? isStale
-      ? 'Loading the selected range; showing the previous range…'
-      : 'Loading history…'
-    : describeResponseTruncation(history);
+  const isBusy = isLoadingCapabilities || isLoading;
+  const liveMessage = describeLiveState({
+    isBusy,
+    isStale,
+    truncation: isBusy ? null : describeResponseTruncation(history),
+  });
 
   return (
     <details
@@ -368,17 +366,18 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
           </label>
           <select
             className="rounded border bg-background px-2 py-1 text-xs"
+            disabled={presets.length === 0}
             id={`${testId}-range`}
-            onChange={(event) => setRangeHours(Number(event.currentTarget.value))}
-            value={String(range.hours)}
+            onChange={(event) => setPresetKey(event.currentTarget.value)}
+            value={range?.key ?? ''}
           >
-            {ranges.map((candidate) => (
-              <option key={candidate.hours} value={String(candidate.hours)}>
+            {presets.map((candidate) => (
+              <option key={candidate.key} value={candidate.key}>
                 {candidate.label}
               </option>
             ))}
           </select>
-          <span className="text-xs text-muted-foreground">{range.description}</span>
+          <span className="text-xs text-muted-foreground">{range?.description ?? ''}</span>
         </div>
         {liveMessage == null ? null : (
           <p
@@ -392,6 +391,14 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
             {liveMessage}
           </p>
         )}
+        {capabilitiesError != null ? (
+          <p
+            className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+            role="alert"
+          >
+            {capabilitiesError}
+          </p>
+        ) : null}
         {error != null ? (
           <p
             className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
@@ -408,6 +415,7 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
         {history?.profiles.map((profile) => (
           <ProfileHistoryDisclosure
             history={profile}
+            expectedRawCadenceSeconds={capabilities?.expectedRawCadenceSeconds ?? null}
             isInitiallyOpen={history.profiles.length === 1}
             key={profile.profileId}
             resolution={history.resolution}

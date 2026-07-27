@@ -40,6 +40,11 @@ internal interface IGetFleetHistoryUnitOfWork
       string profileId,
       HistoryQueryInput input,
       CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Advertises the configured history query limits so a client never guesses a rejected request.
+  /// </summary>
+  HistoryCapabilities GetCapabilities();
 }
 
 internal sealed class GetFleetHistoryUnitOfWork(
@@ -47,6 +52,9 @@ internal sealed class GetFleetHistoryUnitOfWork(
     IOptions<FleetDashboardOptions> _options,
     TimeProvider _timeProvider) : IGetFleetHistoryUnitOfWork
 {
+  public HistoryCapabilities GetCapabilities() =>
+      FleetHistoryPolicy.CreateCapabilities(_options.Value);
+
   public async Task<HistoryQueryResult> GetNodeHistoryAsync(
       string tenantId,
       Guid nodeId,

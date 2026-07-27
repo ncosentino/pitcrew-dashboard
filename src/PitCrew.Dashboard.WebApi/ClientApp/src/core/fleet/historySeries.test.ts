@@ -136,6 +136,7 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
       earliestRetainedCapacityDeficit: '2026-07-26T11:00:00+00:00',
       droppedCapacityDeficits: 0,
       rejectedFutureSamples: 0,
+      historyExpiredAt: null,
     },
     journal: {
       status: 'current',
@@ -413,7 +414,7 @@ describe('describeHistoryJournal', () => {
   });
 
   it('resolves the hourly cadence as one whole hour', () => {
-    expect(resolveCadenceMilliseconds(history(), 'hourly')).toBe(3_600_000);
+    expect(resolveCadenceMilliseconds(history(), 'hourly', null)).toBe(3_600_000);
   });
 
   it('resolves the per-observation cadence from the observed median spacing', () => {
@@ -427,12 +428,45 @@ describe('describeHistoryJournal', () => {
         ],
       }),
       'raw',
+      null,
     );
 
     expect(cadence).toBe(15_000);
   });
 
   it('reports no per-observation cadence when too few samples are retained', () => {
-    expect(resolveCadenceMilliseconds(history({ samples: [sample()] }), 'raw')).toBeNull();
+    expect(resolveCadenceMilliseconds(history({ samples: [sample()] }), 'raw', null)).toBeNull();
+  });
+
+  it('prefers the server-advertised per-observation cadence over the observed spacing', () => {
+    const cadence = resolveCadenceMilliseconds(
+      history({
+        samples: [
+          sample({ observedAt: '2026-07-26T12:00:00+00:00' }),
+          sample({ observedAt: '2026-07-26T12:00:15+00:00' }),
+          sample({ observedAt: '2026-07-26T13:00:00+00:00' }),
+        ],
+      }),
+      'raw',
+      15,
+    );
+
+    expect(cadence).toBe(15_000);
+  });
+
+  it('estimates the per-observation cadence from three points without swallowing a long gap', () => {
+    const cadence = resolveCadenceMilliseconds(
+      history({
+        samples: [
+          sample({ observedAt: '2026-07-26T12:00:00+00:00' }),
+          sample({ observedAt: '2026-07-26T12:00:15+00:00' }),
+          sample({ observedAt: '2026-07-26T12:59:45+00:00' }),
+        ],
+      }),
+      'raw',
+      null,
+    );
+
+    expect(cadence).toBe(15_000);
   });
 });

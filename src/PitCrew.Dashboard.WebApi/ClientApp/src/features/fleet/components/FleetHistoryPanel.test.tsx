@@ -101,7 +101,26 @@ function profile(profileId: string, observedAt: string) {
       earliestRetainedCapacityDeficit: observedAt,
       droppedCapacityDeficits: 0,
       rejectedFutureSamples: 0,
+      historyExpiredAt: null,
     },
+  };
+}
+
+function capabilities(overrides: Record<string, unknown> = {}) {
+  return {
+    defaultRangeHours: 4,
+    maximumRangeHours: 720,
+    resolutions: ['raw', 'hourly'],
+    maximumPoints: 1000,
+    maximumEvents: 200,
+    maximumDiagnostics: 200,
+    nodePointLimit: 5000,
+    nodeEventLimit: 1000,
+    nodeDiagnosticLimit: 1000,
+    expectedRawCadenceSeconds: 15,
+    sampleRetentionHours: 336,
+    rollupRetentionHours: 2160,
+    ...overrides,
   };
 }
 
@@ -118,7 +137,8 @@ function historyResponse(overrides: Record<string, unknown>) {
     diagnosticsTruncated: false,
     profilePointLimit: 1000,
     profileEventLimit: 200,
-    profileDiagnosticLimit: 200,
+    profileSubsystemHealthLimit: 200,
+    profileCapacityDeficitLimit: 200,
     nodePointLimit: 5000,
     nodeEventLimit: 1000,
     nodeDiagnosticLimit: 1000,
@@ -141,8 +161,29 @@ async function openPanel(testId: string) {
   return panel;
 }
 
-function requestedUrl(mock: ReturnType<typeof vi.spyOn>, call: number): string {
-  return String(mock.mock.calls[call]?.[0]);
+function isCapabilitiesRequest(url: string): boolean {
+  return url.includes('/history/capabilities');
+}
+
+function historyUrls(mock: ReturnType<typeof vi.spyOn>): readonly string[] {
+  return (mock.mock.calls as readonly unknown[][])
+    .map((call) => String(call[0]))
+    .filter((url: string) => !isCapabilitiesRequest(url));
+}
+
+function mockFetch(
+  handlers: readonly (() => Response | Promise<Response>)[],
+  capabilityOverrides: Record<string, unknown> = {},
+) {
+  let index = 0;
+  return vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+    if (isCapabilitiesRequest(String(input))) {
+      return Promise.resolve(jsonResponse(capabilities(capabilityOverrides)));
+    }
+    const handler = handlers[Math.min(index, handlers.length - 1)];
+    index += 1;
+    return Promise.resolve(handler());
+  });
 }
 
 describe('FleetHistoryPanel', () => {
@@ -151,10 +192,8 @@ describe('FleetHistoryPanel', () => {
     vi.restoreAllMocks();
   });
 
-  it('requests a bounded range with explicit caps only after the panel is opened', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(jsonResponse(historyResponse({})));
+  it('requests a server-advertised bounded range only after the panel is opened', async () => {
+    const fetchMock = mockFetch([() => jsonResponse(historyResponse({}))]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
@@ -162,27 +201,49 @@ describe('FleetHistoryPanel', () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     await openPanel('history');
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(historyUrls(fetchMock)).toHaveLength(1));
 
-    const url = requestedUrl(fetchMock, 0);
+    const url = historyUrls(fetchMock)[0];
     expect(url).toContain('resolution=raw');
-    expect(url).toContain('points=1000');
-    expect(url).toContain('events=200');
-    expect(url).toContain('diagnostics=200');
+    expect(url).toContain('points=960');
+    expect(url).not.toContain('events=');
+    expect(url).not.toContain('diagnostics=');
     expect(await screen.findByTestId('history-disclosure-default')).toBeInTheDocument();
+  });
+
+  it('offers a valid preset when the server advertises a maximum range under four hours', async () => {
+    const fetchMock = mockFetch([() => jsonResponse(historyResponse({}))], {
+      maximumRangeHours: 2,
+      maximumPoints: 120,
+      maximumEvents: 20,
+      maximumDiagnostics: 20,
+    });
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+    await waitFor(() => expect(historyUrls(fetchMock)).toHaveLength(1));
+
+    const url = new URL(historyUrls(fetchMock)[0], 'https://dashboard.invalid');
+    const from = Date.parse(url.searchParams.get('from') ?? '');
+    const to = Date.parse(url.searchParams.get('to') ?? '');
+    expect(url.searchParams.get('resolution')).toBe('raw');
+    expect(to - from).toBeLessThanOrEqual(2 * 60 * 60 * 1000);
+    expect(Number(url.searchParams.get('points'))).toBeLessThanOrEqual(120);
+    expect(url.searchParams.get('events')).toBeNull();
+    expect(url.searchParams.get('diagnostics')).toBeNull();
   });
 
   it('switches to hour-aligned hourly requests and keeps the previous range visible while loading', async () => {
     let releaseSecond: (value: Response) => void = () => undefined;
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse(historyResponse({})))
-      .mockImplementationOnce(
-        () =>
-          new Promise<Response>((resolve) => {
-            releaseSecond = resolve;
-          }),
-      );
+    const fetchMock = mockFetch([
+      () => jsonResponse(historyResponse({})),
+      () =>
+        new Promise<Response>((resolve) => {
+          releaseSecond = resolve;
+        }),
+    ]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
@@ -190,12 +251,12 @@ describe('FleetHistoryPanel', () => {
     await openPanel('history');
     await screen.findByTestId('history-disclosure-default');
 
-    await userEvent.selectOptions(screen.getByLabelText('Time range'), '168');
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await userEvent.selectOptions(screen.getByLabelText('Time range'), 'hourly-168');
+    await waitFor(() => expect(historyUrls(fetchMock)).toHaveLength(2));
 
-    const url = new URL(requestedUrl(fetchMock, 1), 'https://dashboard.invalid');
+    const url = new URL(historyUrls(fetchMock)[1], 'https://dashboard.invalid');
     expect(url.searchParams.get('resolution')).toBe('hourly');
-    expect(url.searchParams.get('points')).toBe('200');
+    expect(url.searchParams.get('points')).toBe('168');
     expect(url.searchParams.get('from')?.endsWith(':00:00.000Z')).toBe(true);
     expect(url.searchParams.get('to')?.endsWith(':00:00.000Z')).toBe(true);
     expect(screen.getByTestId('history-disclosure-default')).toBeInTheDocument();
@@ -207,9 +268,9 @@ describe('FleetHistoryPanel', () => {
   });
 
   it('states the per-profile and node-wide limits it reached rather than implying completeness', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse(historyResponse({ pointsTruncated: true, diagnosticsTruncated: true })),
-    );
+    mockFetch([
+      () => jsonResponse(historyResponse({ pointsTruncated: true, diagnosticsTruncated: true })),
+    ]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
@@ -218,35 +279,35 @@ describe('FleetHistoryPanel', () => {
 
     const banner = await screen.findByText(/reached its limits/);
     expect(banner).toHaveTextContent('points (1000 per profile, 5000 across all profiles)');
-    expect(banner).toHaveTextContent('diagnostics (200 per profile, 1000 across all profiles)');
+    expect(banner).toHaveTextContent(
+      'diagnostics (200 subsystem-health and 200 capacity-deficit rows per profile, 1000 combined across all profiles)',
+    );
     expect(banner).toHaveTextContent('older retained data inside the same range is hidden');
   });
 
   it('announces loading and truncation through a single live region', async () => {
     let releaseSecond: (value: Response) => void = () => undefined;
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse(historyResponse({ pointsTruncated: true })))
-      .mockImplementationOnce(
-        () =>
-          new Promise<Response>((resolve) => {
-            releaseSecond = resolve;
-          }),
-      );
+    const fetchMock = mockFetch([
+      () => jsonResponse(historyResponse({ pointsTruncated: true })),
+      () =>
+        new Promise<Response>((resolve) => {
+          releaseSecond = resolve;
+        }),
+    ]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
     );
     await openPanel('history');
     await screen.findByTestId('history-disclosure-default');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
 
-    await userEvent.selectOptions(screen.getByLabelText('Time range'), '168');
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await userEvent.selectOptions(screen.getByLabelText('Time range'), 'hourly-168');
+    await waitFor(() => expect(historyUrls(fetchMock)).toHaveLength(2));
 
     const regions = screen.getAllByRole('status');
     expect(regions).toHaveLength(1);
     expect(regions[0]).toHaveTextContent('showing the previous range');
-    expect(regions[0]).not.toHaveTextContent('reached its limits');
 
     await act(async () => {
       releaseSecond(jsonResponse(historyResponse({ resolution: 'hourly' })));
@@ -256,18 +317,19 @@ describe('FleetHistoryPanel', () => {
   it('accepts a target repository at the full contract length', async () => {
     const repository = `contoso/${'a'.repeat(2000)}`;
     const retained = profile('default', '2026-07-26T11:59:45+00:00');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse(
-        historyResponse({
-          profiles: [
-            {
-              ...retained,
-              capacityDeficits: [{ ...retained.capacityDeficits[0], repository }],
-            },
-          ],
-        }),
-      ),
-    );
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            profiles: [
+              {
+                ...retained,
+                capacityDeficits: [{ ...retained.capacityDeficits[0], repository }],
+              },
+            ],
+          }),
+        ),
+    ]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
@@ -279,12 +341,13 @@ describe('FleetHistoryPanel', () => {
   });
 
   it('reports a failed history load as an error instead of an empty range', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{"title":"History is unavailable."}', {
-        status: 503,
-        headers: { 'Content-Type': 'application/problem+json' },
-      }),
-    );
+    mockFetch([
+      () =>
+        new Response('{"title":"History is unavailable."}', {
+          status: 503,
+          headers: { 'Content-Type': 'application/problem+json' },
+        }),
+    ]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
@@ -298,16 +361,17 @@ describe('FleetHistoryPanel', () => {
   });
 
   it('groups every profile behind its own disclosure instead of rendering every chart at once', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse(
-        historyResponse({
-          profiles: [
-            profile('default', '2026-07-26T11:59:45+00:00'),
-            profile('builds', '2026-07-26T11:59:30+00:00'),
-          ],
-        }),
-      ),
-    );
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            profiles: [
+              profile('default', '2026-07-26T11:59:45+00:00'),
+              profile('builds', '2026-07-26T11:59:30+00:00'),
+            ],
+          }),
+        ),
+    ]);
 
     render(
       <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
