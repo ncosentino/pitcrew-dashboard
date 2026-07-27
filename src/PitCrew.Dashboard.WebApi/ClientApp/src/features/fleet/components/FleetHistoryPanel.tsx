@@ -25,8 +25,8 @@ interface HistoryRange {
   readonly hours: number;
   readonly label: string;
   readonly resolution: 'raw' | 'hourly';
-  readonly points: number;
-  readonly events: number;
+  readonly pointLimit: number;
+  readonly eventLimit: number;
   readonly description: string;
 }
 
@@ -38,8 +38,8 @@ const ranges: readonly HistoryRange[] = [
     hours: 4,
     label: 'Last 4 hours (every observation)',
     resolution: 'raw',
-    points: 1000,
-    events: 200,
+    pointLimit: 1000,
+    eventLimit: 200,
     description:
       'Showing up to 1000 retained per-observation samples per profile. At the usual heartbeat rate that covers roughly the last four hours; longer per-observation ranges cannot be shown truthfully because the response is capped.',
   },
@@ -47,8 +47,8 @@ const ranges: readonly HistoryRange[] = [
     hours: 24,
     label: 'Last 24 hours (hourly peaks)',
     resolution: 'hourly',
-    points: 48,
-    events: 200,
+    pointLimit: 48,
+    eventLimit: 200,
     description:
       'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
   },
@@ -56,8 +56,8 @@ const ranges: readonly HistoryRange[] = [
     hours: 168,
     label: 'Last 7 days (hourly peaks)',
     resolution: 'hourly',
-    points: 200,
-    events: 200,
+    pointLimit: 200,
+    eventLimit: 200,
     description:
       'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
   },
@@ -65,8 +65,8 @@ const ranges: readonly HistoryRange[] = [
     hours: 720,
     label: 'Last 30 days (hourly peaks)',
     resolution: 'hourly',
-    points: 800,
-    events: 200,
+    pointLimit: 800,
+    eventLimit: 200,
     description:
       'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
   },
@@ -299,8 +299,8 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
     profileId,
     rangeHours: range.hours,
     resolution: range.resolution,
-    pointLimit: range.points,
-    eventLimit: range.events,
+    pointLimit: range.pointLimit,
+    eventLimit: range.eventLimit,
     enabled: isOpen,
   });
 

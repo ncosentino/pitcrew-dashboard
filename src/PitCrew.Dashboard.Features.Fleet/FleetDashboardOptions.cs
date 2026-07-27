@@ -69,10 +69,10 @@ public sealed class FleetDashboardOptions
   /// </summary>
   /// <remarks>
   /// A retained sample measures at roughly 444 bytes of checkpointed SQLite growth, measured after
-  /// <c>PRAGMA wal_checkpoint(TRUNCATE)</c> and including its hourly rollup, manager events,
-  /// subsystem health changes, capacity-deficit evidence, and cursor overhead. A profile polled
-  /// every fifteen seconds therefore costs about 2.4 MiB per day and about 17 MiB across this
-  /// default window.
+  /// <c>PRAGMA wal_checkpoint(TRUNCATE)</c>. That figure accounts for the sample row plus its
+  /// proportional share of hourly rollups, manager events, subsystem health changes,
+  /// capacity-deficit evidence, cursor rows, and supporting indexes. A profile polled every fifteen
+  /// seconds therefore costs about 2.4 MiB per day and about 17 MiB across this default window.
   /// </remarks>
   [Range(1, 3650)]
   public int TelemetrySampleRetentionDays { get; set; } = 7;

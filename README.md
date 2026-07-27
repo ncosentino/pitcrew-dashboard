@@ -279,10 +279,11 @@ and events.
 Retention is bounded by measured growth. A retained sample measures at about
 **444 bytes** of checkpointed SQLite growth (425,984 bytes of database file for
 960 samples, measured after `PRAGMA wal_checkpoint(TRUNCATE)` in
-`SqliteFleetHistoryStoreTests`). That figure is the total cost of the append,
-not the sample row alone: it includes the sample's hourly rollup, manager
-events, subsystem health changes, target-keyed capacity-deficit evidence, cursor
-rows, and every supporting index. The write-ahead log is measured separately and
+`SqliteFleetHistoryStoreTests`). That figure is the total cost of the append
+divided by the samples appended, not the sample row alone: it also covers the
+hourly rollups those samples aggregate into, manager events, subsystem health
+changes, target-keyed capacity-deficit evidence, cursor rows, and every
+supporting index. The write-ahead log is measured separately and
 peaked at about **4.0 MB** (4,157,112 bytes) across those 960 single-heartbeat
 transactions before checkpointing, which is transient working space rather than
 retained growth.
