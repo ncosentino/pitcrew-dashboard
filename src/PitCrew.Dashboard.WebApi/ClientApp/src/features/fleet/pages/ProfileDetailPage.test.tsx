@@ -325,6 +325,122 @@ function contractElevenFleet(
   ]);
 }
 
+function managerEvent(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    sequence: 41,
+    managerInstanceId: 'manager-default',
+    observedAt: '2026-07-19T18:29:00+00:00',
+    subsystem: 'docker',
+    operation: 'docker-run',
+    target: 'repo-default-000001',
+    outcome: 'retry-scheduled',
+    durationMilliseconds: 1_200,
+    attempt: 3,
+    consecutiveFailures: 2,
+    retryAt: '2026-07-19T18:30:30+00:00',
+    reason: 'docker-failed',
+    evidence: 'Docker refused to start the worker container.',
+    ...overrides,
+  };
+}
+
+function operationJournal(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    status: 'current',
+    capacity: 32,
+    highestSequence: 41,
+    droppedEvents: 0,
+    events: [
+      managerEvent({
+        sequence: 40,
+        managerInstanceId: 'manager-previous',
+        observedAt: '2026-07-19T18:28:00+00:00',
+        subsystem: 'recovery',
+        operation: 'manager-start',
+        target: null,
+        outcome: 'succeeded',
+        durationMilliseconds: 0,
+        attempt: null,
+        consecutiveFailures: null,
+        retryAt: null,
+        reason: 'none',
+        evidence: null,
+      }),
+      managerEvent(),
+    ],
+    ...overrides,
+  };
+}
+
+function subsystemHealth(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    docker: {
+      state: 'degraded',
+      observedAt: '2026-07-19T18:30:00+00:00',
+      consecutiveFailures: 2,
+      retryAt: '2026-07-19T18:30:30+00:00',
+      lastSuccess: {
+        operation: 'docker-ping',
+        observedAt: '2026-07-19T18:25:00+00:00',
+        durationMilliseconds: 4,
+        reason: 'none',
+        evidence: null,
+      },
+      lastFailure: {
+        operation: 'docker-run',
+        observedAt: '2026-07-19T18:29:00+00:00',
+        durationMilliseconds: 1_200,
+        reason: 'docker-failed',
+        evidence: 'Docker refused to start the worker container.',
+      },
+    },
+    github: {
+      state: 'unknown',
+      observedAt: '2026-07-19T18:30:00+00:00',
+      consecutiveFailures: 0,
+      retryAt: null,
+      lastSuccess: null,
+      lastFailure: null,
+    },
+    ...overrides,
+  };
+}
+
+function targetDeficit(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    key: 'scale-set-linux',
+    repository: 'https://github.com/example/project',
+    observedAt: '2026-07-19T18:30:00+00:00',
+    freshness: 'current',
+    targetSlots: 3,
+    activeWorkers: 2,
+    startingWorkers: 0,
+    drainingWorkers: 0,
+    cleanupPendingWorkers: 0,
+    eligibleWorkers: 1,
+    localDeficit: 1,
+    eligibilityDeficit: 2,
+    reason: 'docker-failed',
+    evidence: 'Docker refused to start the worker container.',
+    ...overrides,
+  };
+}
+
+function contractTwelveProfile(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    ...contractElevenProfile(),
+    managerContractVersion: 12,
+    operationJournal: operationJournal(),
+    subsystemHealth: subsystemHealth(),
+    capacityEvidence: { fixed: null, targets: [targetDeficit()] },
+    ...overrides,
+  };
+}
+
+function contractTwelveFleet(overrides: Readonly<Record<string, unknown>> = {}) {
+  return fleetResponse([nodeResponse({ profiles: [contractTwelveProfile(overrides)] })]);
+}
+
 describe('ProfileDetailPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -860,6 +976,298 @@ describe('ProfileDetailPage', () => {
       'No manager recovery has been requested',
     );
     expect(screen.getByRole('heading', { name: 'Manager recovery' })).toBeInTheDocument();
+  });
+
+  it('shows contract-12 subsystem health, capacity deficits, and manager chronology', async () => {
+    renderProfile(contractTwelveFleet());
+
+    expect(
+      await screen.findByTestId('profile-subsystem-docker-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('degraded');
+    expect(screen.getByTestId('profile-subsystem-docker-default-state')).toHaveTextContent(
+      'degraded',
+    );
+    expect(screen.getByTestId('profile-subsystem-docker-default')).toHaveTextContent(
+      'not the health of Docker itself',
+    );
+    expect(screen.getByTestId('profile-subsystem-docker-default-last-success')).toHaveTextContent(
+      'docker-ping',
+    );
+    expect(screen.getByTestId('profile-subsystem-docker-default-last-failure')).toHaveTextContent(
+      'Manager evidence: Docker refused to start the worker container.',
+    );
+    expect(screen.getByTestId('profile-subsystem-docker-default-backoff')).toHaveTextContent(
+      'Retry scheduled for',
+    );
+    expect(screen.getByTestId('profile-subsystem-github-default-state')).toHaveTextContent(
+      'unknown',
+    );
+
+    expect(
+      screen.getByTestId('profile-capacity-deficit-target-default-scale-set-linux'),
+    ).toHaveTextContent('3');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-label-default-scale-set-linux'),
+    ).toHaveTextContent('1 short of target');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-reason-default-scale-set-linux'),
+    ).toHaveTextContent('docker-failed');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-linux'),
+    ).toHaveTextContent('The manager-supplied blocking reason is docker-failed.');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-linux'),
+    ).not.toHaveTextContent('30');
+
+    const chronology = screen.getByRole('list', {
+      name: 'Manager operations for profile default, newest first',
+    });
+    const events = within(chronology).getAllByRole('listitem');
+    expect(events).toHaveLength(2);
+    expect(events[0]).toHaveTextContent('docker-run');
+    expect(events[0]).toHaveTextContent('Retry scheduled for');
+    expect(events[1]).toHaveTextContent('manager-start');
+    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
+      'intact window',
+    );
+  });
+
+  it('reports contract-11 observations as unavailable rather than healthy or empty', async () => {
+    renderProfile(contractElevenFleet());
+
+    expect(
+      await screen.findByTestId('profile-capacity-evidence-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('unavailable rather than zero');
+    expect(screen.getByTestId('profile-subsystem-docker-default-state')).toHaveTextContent(
+      'unavailable',
+    );
+    expect(screen.getByTestId('profile-subsystem-github-default')).toHaveTextContent(
+      'unavailable rather than healthy',
+    );
+    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
+      'unavailable rather than absent',
+    );
+    expect(
+      screen.queryByRole('list', {
+        name: 'Manager operations for profile default, newest first',
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'truncated',
+      { status: 'truncated', droppedEvents: 4 },
+      'discarded 4 older or rejected entries',
+    ],
+    [
+      'unavailable',
+      { status: 'unavailable', highestSequence: null, droppedEvents: 0, events: [] },
+      'could not read or restore its durable journal',
+    ],
+  ])('explains a %s manager journal', async (_name, overrides, message) => {
+    renderProfile(contractTwelveFleet({ operationJournal: operationJournal(overrides) }));
+
+    expect(
+      await screen.findByTestId('profile-operations-availability-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent(message);
+  });
+
+  it('keeps unavailable and measured-zero capacity evidence distinct', async () => {
+    renderProfile(
+      contractTwelveFleet({
+        capacityEvidence: {
+          fixed: null,
+          targets: [
+            targetDeficit({
+              freshness: 'unavailable',
+              eligibleWorkers: null,
+              eligibilityDeficit: null,
+              localDeficit: 0,
+              reason: 'unknown',
+            }),
+            targetDeficit({
+              key: 'scale-set-windows',
+              eligibleWorkers: 0,
+              eligibilityDeficit: 3,
+              localDeficit: 0,
+              reason: 'none',
+            }),
+          ],
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByTestId(
+        'profile-capacity-deficit-eligible-default-scale-set-linux',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toHaveTextContent('Unavailable');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-linux'),
+    ).toHaveTextContent('unavailable rather than zero');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-eligible-default-scale-set-windows'),
+    ).toHaveTextContent('0');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-label-default-scale-set-windows'),
+    ).toHaveTextContent('3 short of eligibility');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-windows'),
+    ).toHaveTextContent('local capacity meets the target');
+  });
+
+  it('reports an eligibility-only shortfall and keeps a met target current', async () => {
+    renderProfile(
+      contractTwelveFleet({
+        capacityEvidence: {
+          fixed: null,
+          targets: [
+            targetDeficit({
+              activeWorkers: 3,
+              eligibleWorkers: 1,
+              eligibilityDeficit: 2,
+              localDeficit: 0,
+              reason: 'none',
+              evidence: null,
+            }),
+            targetDeficit({
+              key: 'scale-set-windows',
+              activeWorkers: 3,
+              eligibleWorkers: null,
+              eligibilityDeficit: null,
+              localDeficit: 0,
+              reason: 'none',
+              evidence: null,
+            }),
+          ],
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByTestId(
+        'profile-capacity-deficit-label-default-scale-set-linux',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toHaveTextContent('2 short of eligibility');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-label-default-scale-set-windows'),
+    ).toHaveTextContent('No reported shortfall');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-windows'),
+    ).toHaveTextContent('unavailable rather than zero');
+  });
+
+  it('surfaces adverse manager outcomes and degraded subsystems in the collapsed summaries', async () => {
+    renderProfile(
+      contractTwelveFleet({
+        operationJournal: operationJournal({
+          events: [
+            managerEvent({ sequence: 41, outcome: 'timed-out', reason: 'timeout' }),
+            managerEvent({
+              sequence: 40,
+              outcome: 'blocked',
+              reason: 'capacity-ceiling',
+              retryAt: null,
+            }),
+            managerEvent({
+              sequence: 39,
+              outcome: 'recovered',
+              reason: 'recovered',
+              retryAt: null,
+            }),
+          ],
+        }),
+      }),
+    );
+
+    expect(
+      await screen.findByTestId('profile-operations-adverse-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('2 adverse events');
+    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
+      '2 adverse events it did not complete',
+    );
+    expect(
+      screen.getByTestId('profile-operation-outcome-default-41').firstElementChild,
+    ).toHaveClass('bg-red-100');
+    expect(
+      screen.getByTestId('profile-operation-outcome-default-40').firstElementChild,
+    ).toHaveClass('bg-red-100');
+    expect(
+      screen.getByTestId('profile-operation-outcome-default-39').firstElementChild,
+    ).toHaveClass('bg-emerald-100');
+    expect(
+      screen.getByTestId('profile-subsystem-summary-docker-default').lastElementChild,
+    ).toHaveClass('bg-red-100');
+    expect(screen.getByTestId('profile-subsystem-summary-docker-default')).toHaveTextContent(
+      'degraded',
+    );
+    expect(screen.getByTestId('profile-subsystem-summary-github-default')).toHaveTextContent(
+      'unknown',
+    );
+  });
+
+  it('renders fixed capacity evidence against desired slots', async () => {
+    renderProfile(
+      fleetResponse([
+        nodeResponse({
+          profiles: [
+            profileResponse({
+              managerContractVersion: 12,
+              autoscaling: null,
+              resourceTelemetry: null,
+              slots: [],
+              desiredSlots: 2,
+              activeSlots: 0,
+              eligibleSlots: 0,
+              configuredSlots: 2,
+              operationJournal: operationJournal({ events: [], highestSequence: null }),
+              subsystemHealth: subsystemHealth(),
+              capacityEvidence: {
+                fixed: {
+                  observedAt: '2026-07-19T18:30:00+00:00',
+                  freshness: 'current',
+                  targetSlots: 2,
+                  activeWorkers: 0,
+                  startingWorkers: 1,
+                  drainingWorkers: 0,
+                  cleanupPendingWorkers: 0,
+                  eligibleWorkers: null,
+                  localDeficit: 2,
+                  eligibilityDeficit: null,
+                  reason: 'launch-pending',
+                  evidence: null,
+                },
+                targets: [],
+              },
+            }),
+          ],
+        }),
+      ]),
+    );
+
+    expect(
+      await screen.findByTestId(
+        'profile-capacity-deficit-label-default-default',
+        {},
+        {
+          timeout: 5_000,
+        },
+      ),
+    ).toHaveTextContent('2 short of target');
+    expect(screen.getByTestId('profile-capacity-deficit-target-default-default')).toHaveTextContent(
+      '2',
+    );
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-default'),
+    ).toHaveTextContent('The manager-supplied blocking reason is launch-pending.');
+    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
+      'no notable operation',
+    );
   });
 
   it.each([

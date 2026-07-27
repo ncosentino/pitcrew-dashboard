@@ -259,6 +259,212 @@ public sealed class ProtocolCompatibilityTests
   }
 
   [Test]
+  public async Task Contract_Twelve_Observed_State_Round_Trips_Through_Json()
+  {
+    var profile = JsonSerializer.Deserialize(
+        """
+        {
+          "schemaVersion": 1,
+          "managerContractVersion": 12,
+          "profileId": "default",
+          "managerInstanceId": "manager-instance",
+          "managerStatus": "running",
+          "observedAt": "2026-07-26T12:00:00+00:00",
+          "scope": "repo",
+          "generation": 1,
+          "desiredStateHash": null,
+          "desiredStateStatus": "accepted",
+          "desiredSlots": 1,
+          "activeSlots": 0,
+          "drainingSlots": 0,
+          "eligibleSlots": 0,
+          "resourcePolicy": null,
+          "slots": [],
+          "resourceTelemetry": null,
+          "configuredSlots": 1,
+          "autoscaling": null,
+          "operationJournal": {
+            "status": "truncated",
+            "capacity": 32,
+            "highestSequence": 41,
+            "droppedEvents": 9,
+            "events": [
+              {
+                "sequence": 40,
+                "managerInstanceId": "manager-instance-0",
+                "observedAt": "2026-07-26T11:58:00+00:00",
+                "subsystem": "recovery",
+                "operation": "manager-shutdown",
+                "target": null,
+                "outcome": "succeeded",
+                "durationMilliseconds": 0,
+                "attempt": null,
+                "consecutiveFailures": null,
+                "retryAt": null,
+                "reason": "none",
+                "evidence": null
+              },
+              {
+                "sequence": 41,
+                "managerInstanceId": "manager-instance",
+                "observedAt": "2026-07-26T11:59:30+00:00",
+                "subsystem": "docker",
+                "operation": "docker-run",
+                "target": "repo-example-000001",
+                "outcome": "retry-scheduled",
+                "durationMilliseconds": 1200,
+                "attempt": 3,
+                "consecutiveFailures": 2,
+                "retryAt": "2026-07-26T12:00:30+00:00",
+                "reason": "docker-failed",
+                "evidence": "Docker refused to start the worker container."
+              }
+            ]
+          },
+          "subsystemHealth": {
+            "docker": {
+              "state": "degraded",
+              "observedAt": "2026-07-26T12:00:00+00:00",
+              "consecutiveFailures": 2,
+              "retryAt": "2026-07-26T12:00:30+00:00",
+              "lastSuccess": {
+                "operation": "docker-ping",
+                "observedAt": "2026-07-26T11:55:00+00:00",
+                "durationMilliseconds": 4,
+                "reason": "none",
+                "evidence": null
+              },
+              "lastFailure": {
+                "operation": "docker-run",
+                "observedAt": "2026-07-26T11:59:30+00:00",
+                "durationMilliseconds": 1200,
+                "reason": "docker-failed",
+                "evidence": "Docker refused to start the worker container."
+              }
+            },
+            "github": {
+              "state": "unknown",
+              "observedAt": "2026-07-26T12:00:00+00:00",
+              "consecutiveFailures": 0,
+              "retryAt": null,
+              "lastSuccess": null,
+              "lastFailure": null
+            }
+          },
+          "capacityEvidence": {
+            "fixed": {
+              "observedAt": "2026-07-26T12:00:00+00:00",
+              "freshness": "current",
+              "targetSlots": 1,
+              "activeWorkers": 0,
+              "startingWorkers": 0,
+              "drainingWorkers": 0,
+              "cleanupPendingWorkers": 0,
+              "eligibleWorkers": null,
+              "localDeficit": 1,
+              "eligibilityDeficit": null,
+              "reason": "docker-failed",
+              "evidence": "Docker refused to start the worker container."
+            },
+            "targets": []
+          }
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(profile).IsNotNull();
+    var reserialized = JsonSerializer.Deserialize(
+        JsonSerializer.Serialize(
+            profile!,
+            PitCrewProtocolJsonContext.Default.ManagerObservedState),
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(reserialized).IsNotNull();
+    await Assert.That(reserialized!.OperationJournal).IsNotNull();
+    await Assert.That(reserialized.OperationJournal!.Status)
+        .IsEqualTo("truncated");
+    await Assert.That(reserialized.OperationJournal.DroppedEvents)
+        .IsEqualTo(9);
+    await Assert.That(reserialized.OperationJournal.Events.Count)
+        .IsEqualTo(2);
+    await Assert.That(reserialized.OperationJournal.Events[0].DurationMilliseconds)
+        .IsEqualTo(0);
+    await Assert.That(reserialized.OperationJournal.Events[1].RetryAt)
+        .IsNotNull();
+    await Assert.That(reserialized.OperationJournal.Events[1])
+        .IsEqualTo(profile!.OperationJournal!.Events[1]);
+    await Assert.That(reserialized.SubsystemHealth!.Docker)
+        .IsEqualTo(profile.SubsystemHealth!.Docker);
+    await Assert.That(reserialized.SubsystemHealth.Github.State)
+        .IsEqualTo("unknown");
+    await Assert.That(reserialized.CapacityEvidence!.Fixed)
+        .IsEqualTo(profile.CapacityEvidence!.Fixed);
+    await Assert.That(reserialized.CapacityEvidence.Fixed!.EligibleWorkers)
+        .IsNull();
+    await Assert.That(reserialized.CapacityEvidence.Targets).IsEmpty();
+  }
+
+  [Test]
+  public async Task Contract_Twelve_Target_Evidence_Round_Trips_Through_Json()
+  {
+    var evidence = new TargetCapacityDeficitEvidence(
+        "repo:example/project",
+        "https://github.com/example/project",
+        new DateTimeOffset(2026, 7, 26, 12, 0, 0, TimeSpan.Zero),
+        "stale",
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        2,
+        "listener-unavailable",
+        "The scale-set listener is unavailable.");
+
+    var reserialized = JsonSerializer.Deserialize(
+        JsonSerializer.Serialize(
+            evidence,
+            PitCrewProtocolJsonContext.Default.TargetCapacityDeficitEvidence),
+        PitCrewProtocolJsonContext.Default.TargetCapacityDeficitEvidence);
+
+    await Assert.That(reserialized).IsEqualTo(evidence);
+  }
+
+  [Test]
+  public async Task Contract_Eleven_Observed_State_Remains_Readable_Without_Contract_Twelve_Fields()
+  {
+    var profile = JsonSerializer.Deserialize(
+        """
+        {
+          "schemaVersion": 1,
+          "managerContractVersion": 11,
+          "profileId": "default",
+          "managerInstanceId": "manager-instance",
+          "managerStatus": "running",
+          "observedAt": "2026-07-26T12:00:00+00:00",
+          "scope": "repo",
+          "generation": 1,
+          "desiredStateHash": null,
+          "desiredStateStatus": "accepted",
+          "desiredSlots": 0,
+          "activeSlots": 0,
+          "drainingSlots": 0,
+          "eligibleSlots": 0,
+          "resourcePolicy": null,
+          "slots": []
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(profile).IsNotNull();
+    await Assert.That(profile!.OperationJournal).IsNull();
+    await Assert.That(profile.SubsystemHealth).IsNull();
+    await Assert.That(profile.CapacityEvidence).IsNull();
+  }
+
+  [Test]
   public async Task Recovery_Command_Round_Trips_On_Protocol_Four()
   {
     var response = JsonSerializer.Deserialize(

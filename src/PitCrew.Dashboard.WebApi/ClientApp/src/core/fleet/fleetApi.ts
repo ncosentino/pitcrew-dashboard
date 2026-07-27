@@ -145,6 +145,172 @@ const observedSlotSchema = z.object({
   lastExit: workerLastExitSchema.nullable().default(null),
 });
 
+const managerEventSubsystemSchema = z.enum([
+  'docker',
+  'registration',
+  'scale-set-session',
+  'listener',
+  'jit',
+  'worker-launch',
+  'worker-exit',
+  'telemetry',
+  'reconciliation',
+  'cleanup',
+  'admission',
+  'recovery',
+]);
+
+const managerEventOperationSchema = z.enum([
+  'docker-ping',
+  'docker-run',
+  'docker-inspect',
+  'docker-remove',
+  'docker-events',
+  'registration-token-request',
+  'runner-registration',
+  'runner-removal',
+  'session-create',
+  'session-refresh',
+  'session-delete',
+  'message-poll',
+  'message-acknowledge',
+  'jit-config-generate',
+  'worker-launch',
+  'worker-exit',
+  'telemetry-sample',
+  'desired-state-load',
+  'desired-state-apply',
+  'capacity-acknowledge',
+  'observed-state-publish',
+  'registration-cleanup',
+  'container-cleanup',
+  'admission-reserve',
+  'admission-settle',
+  'manager-start',
+  'manager-shutdown',
+  'journal-restore',
+]);
+
+const managerEventOutcomeSchema = z.enum([
+  'succeeded',
+  'failed',
+  'timed-out',
+  'retry-scheduled',
+  'blocked',
+  'recovered',
+  'unknown',
+]);
+
+const managerEventReasonSchema = z.enum([
+  'none',
+  'docker-unavailable',
+  'docker-failed',
+  'timeout',
+  'rate-limited',
+  'authorization-failed',
+  'not-found',
+  'conflict',
+  'invalid-state',
+  'capacity-ceiling',
+  'retry-backoff',
+  'cancelled',
+  'recovered',
+  'unknown',
+]);
+
+const sanitizedEvidenceSchema = z.string().max(160).nullable();
+
+const managerEventSchema = z.object({
+  sequence: z.number().int().positive(),
+  managerInstanceId: z.string().min(1).max(128),
+  observedAt: offsetDateTimeSchema,
+  subsystem: managerEventSubsystemSchema,
+  operation: managerEventOperationSchema,
+  target: z.string().min(1).max(128).nullable(),
+  outcome: managerEventOutcomeSchema,
+  durationMilliseconds: z.number().int().nonnegative().nullable(),
+  attempt: z.number().int().positive().nullable(),
+  consecutiveFailures: z.number().int().nonnegative().nullable(),
+  retryAt: offsetDateTimeSchema.nullable(),
+  reason: managerEventReasonSchema,
+  evidence: sanitizedEvidenceSchema,
+});
+
+const managerOperationJournalSchema = z.object({
+  status: z.enum(['current', 'truncated', 'unavailable']),
+  capacity: z.number().int().positive().max(64),
+  highestSequence: z.number().int().positive().nullable(),
+  droppedEvents: z.number().int().nonnegative(),
+  events: z.array(managerEventSchema).max(64),
+});
+
+const subsystemOperationEvidenceSchema = z.object({
+  operation: managerEventOperationSchema,
+  observedAt: offsetDateTimeSchema,
+  durationMilliseconds: z.number().int().nonnegative().nullable(),
+  reason: managerEventReasonSchema,
+  evidence: sanitizedEvidenceSchema,
+});
+
+const subsystemHealthSummarySchema = z.object({
+  state: z.enum(['healthy', 'degraded', 'unavailable', 'unknown']),
+  observedAt: offsetDateTimeSchema,
+  consecutiveFailures: z.number().int().nonnegative(),
+  retryAt: offsetDateTimeSchema.nullable(),
+  lastSuccess: subsystemOperationEvidenceSchema.nullable(),
+  lastFailure: subsystemOperationEvidenceSchema.nullable(),
+});
+
+const managerSubsystemHealthSchema = z.object({
+  docker: subsystemHealthSummarySchema,
+  github: subsystemHealthSummarySchema,
+});
+
+const capacityDeficitReasonSchema = z.enum([
+  'none',
+  'admission-ceiling',
+  'launch-pending',
+  'docker-unavailable',
+  'docker-failed',
+  'jit-pending',
+  'jit-failed',
+  'listener-unavailable',
+  'session-unavailable',
+  'registration-cleanup-pending',
+  'worker-draining',
+  'invalid-desired-state',
+  'retry-backoff',
+  'unknown',
+]);
+
+const capacityDeficitFields = {
+  observedAt: offsetDateTimeSchema,
+  freshness: z.enum(['current', 'stale', 'unavailable']),
+  targetSlots: z.number().int().nonnegative(),
+  activeWorkers: z.number().int().nonnegative(),
+  startingWorkers: z.number().int().nonnegative(),
+  drainingWorkers: z.number().int().nonnegative(),
+  cleanupPendingWorkers: z.number().int().nonnegative(),
+  eligibleWorkers: z.number().int().nonnegative().nullable(),
+  localDeficit: z.number().int().nonnegative(),
+  eligibilityDeficit: z.number().int().nonnegative().nullable(),
+  reason: capacityDeficitReasonSchema,
+  evidence: sanitizedEvidenceSchema,
+};
+
+const capacityDeficitEvidenceSchema = z.object(capacityDeficitFields);
+
+const targetCapacityDeficitEvidenceSchema = z.object({
+  key: z.string().min(1).max(128),
+  repository: z.string().nullable(),
+  ...capacityDeficitFields,
+});
+
+const managerCapacityEvidenceSchema = z.object({
+  fixed: capacityDeficitEvidenceSchema.nullable(),
+  targets: z.array(targetCapacityDeficitEvidenceSchema).max(64),
+});
+
 const managerObservedStateSchema = z
   .object({
     schemaVersion: z.number().int(),
@@ -166,6 +332,9 @@ const managerObservedStateSchema = z
     configuredSlots: z.number().int().nonnegative().nullable().optional(),
     autoscaling: managerAutoscalingStateSchema.nullable().optional(),
     resourcePolicy: workerResourcePolicySchema.nullable().default(null),
+    operationJournal: managerOperationJournalSchema.nullable().default(null),
+    subsystemHealth: managerSubsystemHealthSchema.nullable().default(null),
+    capacityEvidence: managerCapacityEvidenceSchema.nullable().default(null),
   })
   .superRefine((profile, context) => {
     if (profile.managerContractVersion >= 10) {
@@ -268,6 +437,91 @@ const managerObservedStateSchema = z
         });
       }
     });
+
+    if (profile.managerContractVersion >= 12) {
+      if (profile.operationJournal == null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Manager contract 12 requires a durable operation journal.',
+          path: ['operationJournal'],
+        });
+      }
+      if (profile.subsystemHealth == null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Manager contract 12 requires Docker and GitHub subsystem health.',
+          path: ['subsystemHealth'],
+        });
+      }
+      if (profile.capacityEvidence == null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Manager contract 12 requires capacity-deficit evidence.',
+          path: ['capacityEvidence'],
+        });
+      }
+    }
+
+    const journal = profile.operationJournal;
+    if (journal != null) {
+      const sequences = new Set(journal.events.map((event) => event.sequence));
+      if (sequences.size !== journal.events.length) {
+        context.addIssue({
+          code: 'custom',
+          message: 'One durable sequence identifies exactly one manager event.',
+          path: ['operationJournal', 'events'],
+        });
+      }
+      if (journal.status === 'unavailable' && journal.events.length > 0) {
+        context.addIssue({
+          code: 'custom',
+          message: 'An unavailable journal cannot carry retained events.',
+          path: ['operationJournal', 'events'],
+        });
+      }
+      if (journal.status === 'truncated' && journal.droppedEvents < 1) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A truncated journal must report the discarded entries.',
+          path: ['operationJournal', 'droppedEvents'],
+        });
+      }
+    }
+
+    const capacityEvidence = profile.capacityEvidence;
+    if (capacityEvidence != null) {
+      if (profile.autoscaling == null && capacityEvidence.fixed == null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'A fixed-capacity profile reports fixed deficit evidence.',
+          path: ['capacityEvidence', 'fixed'],
+        });
+      }
+      if (profile.autoscaling != null && capacityEvidence.fixed != null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'An autoscaled profile reports per-target deficit evidence.',
+          path: ['capacityEvidence', 'fixed'],
+        });
+      }
+      [capacityEvidence.fixed, ...capacityEvidence.targets].forEach((deficit, index) => {
+        if (deficit == null) return;
+        if ((deficit.eligibleWorkers == null) !== (deficit.eligibilityDeficit == null)) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Eligible worker evidence and its deficit are available together.',
+            path: ['capacityEvidence', index],
+          });
+        }
+        if (deficit.localDeficit >= 1 && deficit.reason === 'none') {
+          context.addIssue({
+            code: 'custom',
+            message: 'A reported shortfall carries a manager-supplied reason.',
+            path: ['capacityEvidence', index, 'reason'],
+          });
+        }
+      });
+    }
   });
 
 const capacityCommandStateSchema = z.object({
@@ -360,6 +614,22 @@ export type WorkerLastExit = z.infer<typeof workerLastExitSchema>;
 export type ScaleSetStatistics = z.infer<typeof scaleSetStatisticsSchema>;
 /** One scale-set target with separate local and GitHub evidence. */
 export type AutoscalingTarget = z.infer<typeof autoscalingTargetSchema>;
+/** One durable manager contract 12 operation event. */
+export type ManagerEvent = z.infer<typeof managerEventSchema>;
+/** Bounded manager contract 12 durable operation journal. */
+export type ManagerOperationJournal = z.infer<typeof managerOperationJournalSchema>;
+/** One manager operation recorded as subsystem health evidence. */
+export type SubsystemOperationEvidence = z.infer<typeof subsystemOperationEvidenceSchema>;
+/** Manager-reported health of the operations performed against one subsystem. */
+export type SubsystemHealthSummary = z.infer<typeof subsystemHealthSummarySchema>;
+/** Manager contract 12 Docker and GitHub operation health. */
+export type ManagerSubsystemHealth = z.infer<typeof managerSubsystemHealthSchema>;
+/** Manager-reported evidence for missing capacity against one activation target. */
+export type CapacityDeficitEvidence = z.infer<typeof capacityDeficitEvidenceSchema>;
+/** Manager-reported capacity-deficit evidence for one autoscaling target. */
+export type TargetCapacityDeficitEvidence = z.infer<typeof targetCapacityDeficitEvidenceSchema>;
+/** Fixed or per-target manager contract 12 capacity-deficit evidence. */
+export type ManagerCapacityEvidence = z.infer<typeof managerCapacityEvidenceSchema>;
 /** Credential-free projection published by one PitCrew manager. */
 export type ManagerObservedState = z.infer<typeof managerObservedStateSchema>;
 /** Lifecycle state of one connector capacity command. */

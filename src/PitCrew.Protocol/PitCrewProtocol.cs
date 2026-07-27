@@ -110,6 +110,9 @@ public sealed record ManagerAutoscalingState(
 /// <param name="Autoscaling">Demand-driven autoscaling projection, or <see langword="null"/> for fixed-capacity profiles.</param>
 /// <param name="EligibleSlots">Number of slots GitHub currently reports as connected, or <see langword="null"/> when unavailable.</param>
 /// <param name="ResourcePolicy">Manager contract 11 per-worker resource admission policy when reported; otherwise <see langword="null"/>.</param>
+/// <param name="OperationJournal">Manager contract 12 bounded durable operation journal when reported; otherwise <see langword="null"/>.</param>
+/// <param name="SubsystemHealth">Manager contract 12 Docker and GitHub operation health when reported; otherwise <see langword="null"/>.</param>
+/// <param name="CapacityEvidence">Manager contract 12 fixed or per-target capacity-deficit evidence when reported; otherwise <see langword="null"/>.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -129,7 +132,10 @@ public sealed record ManagerObservedState(
     int? ConfiguredSlots,
     ManagerAutoscalingState? Autoscaling,
     int? EligibleSlots = null,
-    WorkerResourcePolicy? ResourcePolicy = null);
+    WorkerResourcePolicy? ResourcePolicy = null,
+    ManagerOperationJournal? OperationJournal = null,
+    ManagerSubsystemHealth? SubsystemHealth = null,
+    ManagerCapacityEvidence? CapacityEvidence = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.
@@ -257,6 +263,14 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(AutoscalingTargetState))]
 [JsonSerializable(typeof(HostResourceCapacity))]
 [JsonSerializable(typeof(ManagerResourceTelemetry))]
+[JsonSerializable(typeof(ManagerEvent))]
+[JsonSerializable(typeof(ManagerOperationJournal))]
+[JsonSerializable(typeof(SubsystemOperationEvidence))]
+[JsonSerializable(typeof(SubsystemHealthSummary))]
+[JsonSerializable(typeof(ManagerSubsystemHealth))]
+[JsonSerializable(typeof(CapacityDeficitEvidence))]
+[JsonSerializable(typeof(TargetCapacityDeficitEvidence))]
+[JsonSerializable(typeof(ManagerCapacityEvidence))]
 [JsonSerializable(typeof(ObservedSlotState))]
 [JsonSerializable(typeof(ManagerAutoscalingState))]
 [JsonSerializable(typeof(ManagerObservedState))]

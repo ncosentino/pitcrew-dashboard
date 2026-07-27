@@ -13,6 +13,8 @@ function statusClasses(status: string): string {
     case 'running':
     case 'accepted':
     case 'succeeded':
+    case 'recovered':
+    case 'healthy':
     case 'clean':
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
     case 'partial':
@@ -24,6 +26,7 @@ function statusClasses(status: string): string {
     case 'delivered':
     case 'pending':
     case 'stale':
+    case 'retry-scheduled':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
     case 'disconnected':
@@ -34,6 +37,8 @@ function statusClasses(status: string): string {
     case 'rejected':
     case 'registration-missing':
     case 'failed':
+    case 'timed-out':
+    case 'blocked':
     case 'unavailable':
     case 'oom-killed':
     case 'sigkill':

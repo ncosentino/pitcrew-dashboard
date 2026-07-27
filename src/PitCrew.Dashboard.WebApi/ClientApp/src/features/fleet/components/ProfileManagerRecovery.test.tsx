@@ -39,6 +39,9 @@ const profile: ManagerObservedState = {
   drainingSlots: 0,
   slots: [],
   resourcePolicy: null,
+  operationJournal: null,
+  subsystemHealth: null,
+  capacityEvidence: null,
 };
 
 const control: RecoveryControlState = {
