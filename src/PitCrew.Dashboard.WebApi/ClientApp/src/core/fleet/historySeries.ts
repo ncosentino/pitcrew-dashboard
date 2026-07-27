@@ -27,13 +27,16 @@ export interface HistorySeriesGroup {
   readonly series: readonly HistorySeries[];
 }
 
-/** One recorded change in manager-reported capacity-deficit evidence. */
+/** One recorded change in manager-reported capacity-deficit evidence for one target. */
 export interface DeficitReasonChange {
   readonly at: string;
-  readonly reason: string | null;
-  readonly freshness: string | null;
-  readonly localDeficit: number | null;
+  readonly targetKey: string;
+  readonly repository: string | null;
+  readonly reason: string;
+  readonly freshness: string;
+  readonly localDeficit: number;
   readonly eligibilityDeficit: number | null;
+  readonly evidence: string | null;
 }
 
 /** Explicit availability of one rendered history range. */
@@ -58,9 +61,15 @@ interface GroupDefinition {
   readonly key: string;
   readonly label: string;
   readonly description: string;
+  readonly hourlyNote: string;
   readonly unit: HistorySeriesUnit;
   readonly series: readonly SeriesDefinition[];
 }
+
+const peakNote =
+  'Hourly points are the peak value measured inside each whole UTC hour, not an average.';
+const cumulativePeakNote =
+  'Hourly points are the highest cumulative counter value seen inside each whole UTC hour. They are not per-hour usage, and they reset when workers are replaced.';
 
 const groupDefinitions: readonly GroupDefinition[] = [
   {
@@ -68,6 +77,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     label: 'Capacity',
     description:
       'Accepted desired capacity against the slots the manager was still running or draining.',
+    hourlyNote: peakNote,
     unit: 'count',
     series: [
       {
@@ -97,7 +107,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
         description:
           'Accepted autoscaling activation target. Unavailable for fixed-capacity profiles.',
         fromSample: (sample) => sample.targetSlots,
-        fromRollup: () => null,
+        fromRollup: (rollup) => rollup.maximumTargetSlots,
       },
     ],
   },
@@ -106,6 +116,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     label: 'Local workers against control-plane runners',
     description:
       'Locally observed worker processes and GitHub control-plane runner counts are separate evidence and are never collapsed into one number.',
+    hourlyNote: peakNote,
     unit: 'count',
     series: [
       {
@@ -128,21 +139,21 @@ const groupDefinitions: readonly GroupDefinition[] = [
         label: 'Control-plane busy runners',
         description: 'Runners GitHub reported as busy.',
         fromSample: (sample) => sample.busyRunners,
-        fromRollup: () => null,
+        fromRollup: (rollup) => rollup.maximumBusyRunners,
       },
       {
         key: 'idle-runners',
         label: 'Control-plane idle runners',
         description: 'Runners GitHub reported as idle.',
         fromSample: (sample) => sample.idleRunners,
-        fromRollup: () => null,
+        fromRollup: (rollup) => rollup.maximumIdleRunners,
       },
       {
         key: 'assigned-jobs',
         label: 'Control-plane assigned jobs',
         description: 'Jobs GitHub reported as assigned to this scale set.',
         fromSample: (sample) => sample.assignedJobs,
-        fromRollup: () => null,
+        fromRollup: (rollup) => rollup.maximumAssignedJobs,
       },
     ],
   },
@@ -150,6 +161,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     key: 'cpu',
     label: 'CPU',
     description: 'Manager and summed worker CPU usage sampled by the manager.',
+    hourlyNote: peakNote,
     unit: 'cores',
     series: [
       {
@@ -173,6 +185,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     key: 'memory',
     label: 'Memory',
     description: 'Manager and summed worker working-set memory sampled by the manager.',
+    hourlyNote: peakNote,
     unit: 'bytes',
     series: [
       {
@@ -196,6 +209,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     key: 'pids',
     label: 'Processes',
     description: 'Manager and summed worker process-identifier counts.',
+    hourlyNote: peakNote,
     unit: 'pids',
     series: [
       {
@@ -220,6 +234,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     label: 'Network',
     description:
       'Cumulative worker network counters. These only ever increase while the same workers run, and reset when workers are replaced.',
+    hourlyNote: cumulativePeakNote,
     unit: 'bytes',
     series: [
       {
@@ -243,6 +258,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     label: 'Block I/O',
     description:
       'Cumulative worker block-device counters. These only ever increase while the same workers run, and reset when workers are replaced.',
+    hourlyNote: cumulativePeakNote,
     unit: 'bytes',
     series: [
       {
@@ -266,6 +282,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     label: 'Worker exits',
     description:
       'Workers whose latest exit evidence the manager reported, and how many of those exits were not classified as clean.',
+    hourlyNote: peakNote,
     unit: 'count',
     series: [
       {
@@ -289,6 +306,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
     label: 'Capacity deficits',
     description:
       'Manager-reported shortfalls between requested capacity and the workers or runners that actually appeared.',
+    hourlyNote: peakNote,
     unit: 'count',
     series: [
       {
@@ -303,7 +321,7 @@ const groupDefinitions: readonly GroupDefinition[] = [
         label: 'Eligibility shortfall',
         description: 'Local workers that never became eligible in the control plane.',
         fromSample: (sample) => sample.eligibilityCapacityDeficit,
-        fromRollup: () => null,
+        fromRollup: (rollup) => rollup.maximumEligibilityCapacityDeficit,
       },
     ],
   },
@@ -319,57 +337,82 @@ export function buildHistorySeries(
   history: ProfileHistory,
   resolution: 'raw' | 'hourly',
 ): readonly HistorySeriesGroup[] {
+  const isHourly = resolution === 'hourly';
   return groupDefinitions.map((group) => ({
     key: group.key,
-    label: group.label,
-    description: group.description,
+    label: isHourly ? `${group.label} peaks` : group.label,
+    description: isHourly ? `${group.description} ${group.hourlyNote}` : group.description,
     unit: group.unit,
     series: group.series.map((series) => ({
       key: series.key,
-      label: series.label,
-      description: series.description,
+      label: isHourly ? `Peak ${lowerFirst(series.label)}` : series.label,
+      description: isHourly ? `${series.description} ${group.hourlyNote}` : series.description,
       unit: group.unit,
-      points:
-        resolution === 'hourly'
-          ? history.rollups.map((rollup) => ({
-              at: rollup.bucketStart,
-              value: series.fromRollup(rollup),
-            }))
-          : history.samples.map((sample) => ({
-              at: sample.observedAt,
-              value: series.fromSample(sample),
-            })),
+      points: isHourly
+        ? history.rollups.map((rollup) => ({
+            at: rollup.bucketStart,
+            value: series.fromRollup(rollup),
+          }))
+        : history.samples.map((sample) => ({
+            at: sample.observedAt,
+            value: series.fromSample(sample),
+          })),
     })),
   }));
 }
 
+function lowerFirst(value: string): string {
+  return value.charAt(0).toLowerCase() + value.slice(1);
+}
+
 /**
- * Returns only the observations where manager capacity-deficit evidence changed, so that a steady
- * reason is not repeated for every retained sample.
+ * Returns the retained target-keyed capacity-deficit observations newest first.
+ *
+ * The dashboard persists one row per change in manager-reported evidence for every autoscaling
+ * target, so no target is collapsed away and a steady reason is not repeated for every heartbeat.
  */
 export function buildDeficitReasonChanges(history: ProfileHistory): readonly DeficitReasonChange[] {
-  const changes: DeficitReasonChange[] = [];
-  let previous: DeficitReasonChange | null = null;
-  for (const sample of history.samples) {
-    const current: DeficitReasonChange = {
-      at: sample.observedAt,
-      reason: sample.capacityDeficitReason,
-      freshness: sample.capacityDeficitFreshness,
-      localDeficit: sample.localCapacityDeficit,
-      eligibilityDeficit: sample.eligibilityCapacityDeficit,
+  return [...history.capacityDeficits]
+    .map((observation) => ({
+      at: observation.observedAt,
+      targetKey: observation.targetKey,
+      repository: observation.repository,
+      reason: observation.reason,
+      freshness: observation.freshness,
+      localDeficit: observation.localDeficit,
+      eligibilityDeficit: observation.eligibilityDeficit,
+      evidence: observation.evidence,
+    }))
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+}
+
+/**
+ * Describes why no capacity-deficit evidence is listed, distinguishing an empty range from
+ * evidence that dashboard retention already deleted.
+ */
+export function describeDeficitEvidence(history: ProfileHistory): HistoryAvailability {
+  if (history.capacityDeficits.length > 0) {
+    return {
+      status: 'available',
+      label: 'Retained',
+      description:
+        'Every change in manager-reported capacity-deficit evidence retained inside this range is listed, for every autoscaling target.',
     };
-    if (
-      previous == null ||
-      previous.reason !== current.reason ||
-      previous.freshness !== current.freshness ||
-      previous.localDeficit !== current.localDeficit ||
-      previous.eligibilityDeficit !== current.eligibilityDeficit
-    ) {
-      changes.push(current);
-      previous = current;
-    }
   }
-  return changes.reverse();
+  if (history.retention.droppedSamples > 0) {
+    return {
+      status: 'partial',
+      label: 'Retention floor',
+      description:
+        'No capacity-deficit evidence is retained inside this range. Dashboard retention has already deleted older evidence, so this is not proof that no deficit occurred.',
+    };
+  }
+  return {
+    status: 'unavailable',
+    label: 'None retained',
+    description:
+      'No retained observation inside this range carried manager capacity-deficit evidence.',
+  };
 }
 
 /** Describes whether the rendered range carries retained points, and whether it was truncated. */
@@ -377,26 +420,34 @@ export function describeHistoryAvailability(
   history: ProfileHistory,
   resolution: 'raw' | 'hourly',
 ): HistoryAvailability {
-  const points = resolution === 'hourly' ? history.rollups.length : history.samples.length;
+  const isHourly = resolution === 'hourly';
+  const points = isHourly ? history.rollups.length : history.samples.length;
+  const floor = isHourly
+    ? history.retention.earliestRetainedRollup
+    : history.retention.earliestRetainedSample;
+  const dropped = isHourly ? history.retention.droppedRollups : history.retention.droppedSamples;
+  const retentionNote =
+    dropped > 0
+      ? ` Dashboard retention has already deleted ${dropped} older ${isHourly ? 'hourly buckets' : 'samples'}${floor == null ? '' : `, so nothing before ${floor} is retained`}.`
+      : '';
   if (points === 0) {
     return {
       status: 'unavailable',
       label: 'No retained history',
-      description:
-        'No observation was retained inside this range. History is retained only while a connector reports advancing manager observations.',
+      description: `No ${isHourly ? 'hourly bucket' : 'observation'} was retained inside this range. History is retained only while a connector reports advancing manager observations.${retentionNote}`,
     };
   }
   if (history.pointsTruncated) {
     return {
       status: 'partial',
       label: 'Truncated',
-      description: `Only the ${points} most recent points inside this range are shown. Narrow the range to see the observations that were hidden.`,
+      description: `Only the ${points} most recent ${isHourly ? 'hourly buckets' : 'observations'} inside this range are shown; older points inside the same range are hidden. Narrow the range or raise the requested point limit to see them.${retentionNote}`,
     };
   }
   return {
     status: 'available',
     label: 'Complete',
-    description: `All ${points} retained points inside this range are shown.`,
+    description: `All ${points} retained ${isHourly ? 'hourly buckets' : 'observations'} inside this range are shown.${retentionNote}`,
   };
 }
 
@@ -430,6 +481,25 @@ export function describeHistoryJournal(history: ProfileHistory): HistoryAvailabi
   }
   if (history.eventsTruncated) {
     gaps.push('older retained events are hidden by the requested event limit');
+  }
+  if (history.retention.droppedEvents > 0) {
+    gaps.push(
+      `dashboard retention deleted ${history.retention.droppedEvents} older retained events${
+        history.retention.earliestRetainedEvent == null
+          ? ''
+          : `, so nothing before ${history.retention.earliestRetainedEvent} remains`
+      }`,
+    );
+  }
+  if (journal.epochResets > 0) {
+    gaps.push(
+      `the manager journal restarted its sequence ${journal.epochResets} time(s), so earlier and later sequences belong to different journal generations`,
+    );
+  }
+  if (journal.rejectedFutureEvents > 0) {
+    gaps.push(
+      `${journal.rejectedFutureEvents} events were rejected because they claimed an implausibly future timestamp`,
+    );
   }
   if (gaps.length === 0) {
     return {

@@ -67,6 +67,11 @@ const telemetryRollupSchema = z.object({
   maximumExitReports: z.number().int().nonnegative(),
   maximumAdverseExitReports: z.number().int().nonnegative(),
   maximumLocalCapacityDeficit: z.number().int().nonnegative().nullable(),
+  maximumEligibilityCapacityDeficit: z.number().int().nonnegative().nullable(),
+  maximumTargetSlots: z.number().int().nonnegative().nullable(),
+  maximumAssignedJobs: z.number().int().nonnegative().nullable(),
+  maximumIdleRunners: z.number().int().nonnegative().nullable(),
+  maximumBusyRunners: z.number().int().nonnegative().nullable(),
 });
 
 const eventJournalStateSchema = z.object({
@@ -78,7 +83,52 @@ const eventJournalStateSchema = z.object({
   managerDroppedEvents: z.number().int().nonnegative(),
   missedEvents: z.number().int().nonnegative(),
   undeliveredEvents: z.number().int().nonnegative(),
+  epoch: z.number().int().nonnegative(),
+  epochResets: z.number().int().nonnegative(),
+  rejectedFutureEvents: z.number().int().nonnegative(),
   updatedAt: offsetDateTimeSchema.nullable(),
+});
+
+const retentionFloorSchema = z.object({
+  earliestRetainedSample: offsetDateTimeSchema.nullable(),
+  droppedSamples: z.number().int().nonnegative(),
+  earliestRetainedRollup: offsetDateTimeSchema.nullable(),
+  droppedRollups: z.number().int().nonnegative(),
+  earliestRetainedEvent: offsetDateTimeSchema.nullable(),
+  droppedEvents: z.number().int().nonnegative(),
+  rejectedFutureSamples: z.number().int().nonnegative(),
+});
+
+const subsystemHealthChangeSchema = z.object({
+  subsystem: z.string().min(1).max(32),
+  observedAt: offsetDateTimeSchema,
+  state: z.string().min(1).max(32),
+  consecutiveFailures: z.number().int().nonnegative(),
+  retryAt: offsetDateTimeSchema.nullable(),
+  lastSuccessOperation: z.string().min(1).max(64).nullable(),
+  lastSuccessObservedAt: offsetDateTimeSchema.nullable(),
+  lastSuccessReason: z.string().min(1).max(128).nullable(),
+  lastFailureOperation: z.string().min(1).max(64).nullable(),
+  lastFailureObservedAt: offsetDateTimeSchema.nullable(),
+  lastFailureReason: z.string().min(1).max(128).nullable(),
+  lastFailureEvidence: z.string().min(1).max(512).nullable(),
+});
+
+const capacityDeficitObservationSchema = z.object({
+  targetKey: z.string().min(1).max(128),
+  observedAt: offsetDateTimeSchema,
+  repository: z.string().min(1).max(128).nullable(),
+  freshness: z.string().min(1).max(32),
+  targetSlots: z.number().int(),
+  activeWorkers: z.number().int(),
+  startingWorkers: z.number().int(),
+  drainingWorkers: z.number().int(),
+  cleanupPendingWorkers: z.number().int(),
+  eligibleWorkers: z.number().int().nullable(),
+  localDeficit: z.number().int(),
+  eligibilityDeficit: z.number().int().nullable(),
+  reason: z.string().min(1).max(128),
+  evidence: z.string().min(1).max(512).nullable(),
 });
 
 const profileHistorySchema = z.object({
@@ -86,9 +136,12 @@ const profileHistorySchema = z.object({
   samples: z.array(telemetrySampleSchema),
   rollups: z.array(telemetryRollupSchema),
   events: z.array(managerEventSchema),
+  subsystemHealthChanges: z.array(subsystemHealthChangeSchema),
+  capacityDeficits: z.array(capacityDeficitObservationSchema),
   pointsTruncated: z.boolean(),
   eventsTruncated: z.boolean(),
   journal: eventJournalStateSchema,
+  retention: retentionFloorSchema,
 });
 
 const nodeHistorySchema = z.object({
@@ -98,6 +151,10 @@ const nodeHistorySchema = z.object({
   to: offsetDateTimeSchema,
   resolution: historyResolutionSchema,
   profiles: z.array(profileHistorySchema),
+  pointsTruncated: z.boolean(),
+  eventsTruncated: z.boolean(),
+  pointLimit: z.number().int().positive(),
+  eventLimit: z.number().int().positive(),
 });
 
 /** Stored resolution served by one bounded history query. */
@@ -106,6 +163,12 @@ export type HistoryResolution = z.infer<typeof historyResolutionSchema>;
 export type ProfileTelemetrySample = z.infer<typeof telemetrySampleSchema>;
 /** One deterministic hourly rollup derived from retained samples. */
 export type ProfileTelemetryRollup = z.infer<typeof telemetryRollupSchema>;
+/** Retention floor and dropped counters for one retained profile. */
+export type ProfileRetentionFloor = z.infer<typeof retentionFloorSchema>;
+/** One retained contract-12 subsystem health change. */
+export type ProfileSubsystemHealthChange = z.infer<typeof subsystemHealthChangeSchema>;
+/** One retained target-keyed capacity-deficit observation. */
+export type ProfileCapacityDeficitObservation = z.infer<typeof capacityDeficitObservationSchema>;
 /** Explicit durable manager-journal availability and gap state. */
 export type ProfileEventJournalState = z.infer<typeof eventJournalStateSchema>;
 /** Bounded retained history for one profile. */

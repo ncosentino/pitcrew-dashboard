@@ -19,11 +19,15 @@ export interface TimeSeriesDefinition {
   readonly points: readonly TimeSeriesPoint[];
 }
 
+/** Heading element used for one chart title so the surrounding outline stays correct. */
+export type TimeSeriesHeadingLevel = 'h3' | 'h4';
+
 interface TimeSeriesChartProps {
   readonly title: string;
   readonly description: string;
   readonly unit: TimeSeriesUnit;
   readonly series: readonly TimeSeriesDefinition[];
+  readonly headingLevel: TimeSeriesHeadingLevel;
   readonly testId: string;
 }
 
@@ -75,6 +79,12 @@ function orderedTimestamps(series: readonly TimeSeriesDefinition[]): string[] {
   return [...seen].sort((left, right) => Date.parse(left) - Date.parse(right));
 }
 
+/**
+ * Plots one series with time-proportional horizontal positions.
+ *
+ * Points are positioned by their observation time rather than by their index, so a real gap in
+ * retained observations is drawn as a gap instead of as evenly spaced continuous data.
+ */
 function buildSegments(
   entry: TimeSeriesDefinition,
   timestamps: readonly string[],
@@ -82,18 +92,21 @@ function buildSegments(
   maximum: number,
 ): string[] {
   const span = maximum - minimum === 0 ? 1 : maximum - minimum;
-  const step = timestamps.length <= 1 ? 0 : viewWidth / (timestamps.length - 1);
-  const indexByTimestamp = new Map(timestamps.map((value, index) => [value, index]));
+  const times = timestamps.map((value) => Date.parse(value));
+  const earliest = times.length === 0 ? 0 : Math.min(...times);
+  const latest = times.length === 0 ? 0 : Math.max(...times);
+  const timeSpan = latest - earliest;
+  const known = new Set(timestamps);
   const segments: string[] = [];
   let current: string[] = [];
   for (const point of entry.points) {
-    const index = indexByTimestamp.get(point.at);
-    if (point.value == null || index === undefined) {
+    const at = Date.parse(point.at);
+    if (point.value == null || !known.has(point.at) || Number.isNaN(at)) {
       if (current.length > 0) segments.push(current.join(' '));
       current = [];
       continue;
     }
-    const x = timestamps.length <= 1 ? viewWidth / 2 : index * step;
+    const x = timeSpan === 0 ? viewWidth / 2 : ((at - earliest) / timeSpan) * viewWidth;
     const y = viewHeight - ((point.value - minimum) / span) * viewHeight;
     current.push(`${x.toFixed(2)},${y.toFixed(2)}`);
   }
@@ -113,9 +126,11 @@ export function TimeSeriesChart({
   description,
   unit,
   series,
+  headingLevel,
   testId,
 }: TimeSeriesChartProps) {
   const tableId = useId();
+  const Heading = headingLevel;
   const timestamps = orderedTimestamps(series);
   const measured = measuredValues(series);
   const minimum = measured.length === 0 ? 0 : Math.min(...measured, 0);
@@ -124,7 +139,7 @@ export function TimeSeriesChart({
   return (
     <section className="space-y-2" data-testid={testId}>
       <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
+        <Heading className="text-sm font-semibold">{title}</Heading>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       {measured.length === 0 ? (
@@ -171,7 +186,12 @@ export function TimeSeriesChart({
         <summary className="cursor-pointer text-muted-foreground">
           Show {title.toLowerCase()} measurements as a table
         </summary>
-        <div className="mt-2 max-h-64 overflow-auto">
+        <div
+          aria-label={`${title} measurements`}
+          className="mt-2 max-h-64 overflow-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+          role="region"
+          tabIndex={0}
+        >
           <table className="w-full text-left" id={tableId}>
             <caption className="sr-only">
               {title}. {description}

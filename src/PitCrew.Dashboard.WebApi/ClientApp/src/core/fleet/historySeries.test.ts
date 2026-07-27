@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ProfileHistory, ProfileTelemetryRollup, ProfileTelemetrySample } from './historyApi';
+import type {
+  ProfileCapacityDeficitObservation,
+  ProfileHistory,
+  ProfileTelemetryRollup,
+  ProfileTelemetrySample,
+} from './historyApi';
 import {
   buildDeficitReasonChanges,
   buildHistorySeries,
+  describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
 } from './historySeries';
@@ -73,6 +79,33 @@ function rollup(overrides: Partial<ProfileTelemetryRollup> = {}): ProfileTelemet
     maximumExitReports: 1,
     maximumAdverseExitReports: 0,
     maximumLocalCapacityDeficit: 1,
+    maximumEligibilityCapacityDeficit: 0,
+    maximumTargetSlots: 3,
+    maximumAssignedJobs: 1,
+    maximumIdleRunners: 1,
+    maximumBusyRunners: 1,
+    ...overrides,
+  };
+}
+
+function deficit(
+  overrides: Partial<ProfileCapacityDeficitObservation> = {},
+): ProfileCapacityDeficitObservation {
+  return {
+    targetKey: 'repo:contoso/pitcrew',
+    observedAt: '2026-07-26T12:00:00+00:00',
+    repository: 'contoso/pitcrew',
+    freshness: 'current',
+    targetSlots: 3,
+    activeWorkers: 2,
+    startingWorkers: 0,
+    drainingWorkers: 0,
+    cleanupPendingWorkers: 0,
+    eligibleWorkers: 2,
+    localDeficit: 1,
+    eligibilityDeficit: 0,
+    reason: 'docker-failed',
+    evidence: null,
     ...overrides,
   };
 }
@@ -83,8 +116,19 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
     samples: [sample()],
     rollups: [rollup()],
     events: [],
+    subsystemHealthChanges: [],
+    capacityDeficits: [deficit()],
     pointsTruncated: false,
     eventsTruncated: false,
+    retention: {
+      earliestRetainedSample: '2026-07-26T11:00:00+00:00',
+      droppedSamples: 0,
+      earliestRetainedRollup: '2026-07-26T11:00:00+00:00',
+      droppedRollups: 0,
+      earliestRetainedEvent: '2026-07-26T11:00:00+00:00',
+      droppedEvents: 0,
+      rejectedFutureSamples: 0,
+    },
     journal: {
       status: 'current',
       capacity: 32,
@@ -94,6 +138,9 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
       managerDroppedEvents: 0,
       missedEvents: 0,
       undeliveredEvents: 0,
+      epoch: 0,
+      epochResets: 0,
+      rejectedFutureEvents: 0,
       updatedAt: '2026-07-26T12:00:00+00:00',
     },
     ...overrides,
@@ -134,6 +181,30 @@ describe('buildHistorySeries', () => {
     expect(managerCpu?.points).toEqual([{ at: '2026-07-26T12:00:00+00:00', value: 0.5 }]);
   });
 
+  it('labels hourly aggregates as peaks and never as hourly usage', () => {
+    const groups = buildHistorySeries(history(), 'hourly');
+    const network = groups.find((group) => group.key === 'network');
+    const capacity = groups.find((group) => group.key === 'capacity');
+
+    expect(capacity?.series.find((series) => series.key === 'desired-slots')?.label).toBe(
+      'Peak desired slots',
+    );
+    expect(network?.description).toContain('not per-hour usage');
+  });
+
+  it('projects every hourly series the server persists rather than dropping them to unavailable', () => {
+    const groups = buildHistorySeries(history(), 'hourly');
+    const counts = groups.find((group) => group.key === 'counts');
+    const deficits = groups.find((group) => group.key === 'deficits');
+
+    expect(counts?.series.find((series) => series.key === 'busy-runners')?.points[0]?.value).toBe(
+      1,
+    );
+    expect(
+      deficits?.series.find((series) => series.key === 'eligibility-deficit')?.points[0]?.value,
+    ).toBe(0);
+  });
+
   it('covers every series required by the historical telemetry views', () => {
     const groups = buildHistorySeries(history(), 'raw');
 
@@ -152,15 +223,16 @@ describe('buildHistorySeries', () => {
 });
 
 describe('buildDeficitReasonChanges', () => {
-  it('records only the observations where manager deficit evidence changed', () => {
+  it('lists every retained target-keyed deficit change newest first', () => {
     const changes = buildDeficitReasonChanges(
       history({
-        samples: [
-          sample({ observedAt: '2026-07-26T12:00:00+00:00' }),
-          sample({ observedAt: '2026-07-26T12:00:15+00:00' }),
-          sample({
+        capacityDeficits: [
+          deficit({ observedAt: '2026-07-26T12:00:00+00:00' }),
+          deficit({
+            targetKey: 'repo:contoso/other',
+            repository: 'contoso/other',
             observedAt: '2026-07-26T12:00:30+00:00',
-            capacityDeficitReason: 'registration-missing',
+            reason: 'registration-missing',
           }),
         ],
       }),
@@ -170,25 +242,43 @@ describe('buildDeficitReasonChanges', () => {
       '2026-07-26T12:00:30+00:00',
       '2026-07-26T12:00:00+00:00',
     ]);
+    expect(changes.map((change) => change.targetKey)).toEqual([
+      'repo:contoso/other',
+      'repo:contoso/pitcrew',
+    ]);
   });
 
-  it('keeps unreported deficit evidence distinct from a measured zero shortfall', () => {
+  it('keeps an unavailable eligibility shortfall distinct from a measured zero', () => {
     const changes = buildDeficitReasonChanges(
+      history({ capacityDeficits: [deficit({ eligibilityDeficit: null })] }),
+    );
+
+    expect(changes[0]?.eligibilityDeficit).toBe(null);
+  });
+
+  it('serves the same target-keyed evidence at the hourly resolution', () => {
+    const hourly = history({ samples: [] });
+
+    expect(buildDeficitReasonChanges(hourly)).toHaveLength(1);
+    expect(describeDeficitEvidence(hourly).status).toBe('available');
+  });
+});
+
+describe('describeDeficitEvidence', () => {
+  it('does not claim an absence of deficits when retention already deleted evidence', () => {
+    const evidence = describeDeficitEvidence(
       history({
-        samples: [
-          sample({ capacityDeficitReason: null, localCapacityDeficit: null }),
-          sample({
-            observedAt: '2026-07-26T12:00:15+00:00',
-            capacityDeficitReason: null,
-            localCapacityDeficit: 0,
-          }),
-        ],
+        capacityDeficits: [],
+        retention: { ...history().retention, droppedSamples: 12 },
       }),
     );
 
-    expect(changes).toHaveLength(2);
-    expect(changes[1]?.localDeficit).toBe(null);
-    expect(changes[0]?.localDeficit).toBe(0);
+    expect(evidence.status).toBe('partial');
+    expect(evidence.description).toContain('retention');
+  });
+
+  it('reports an empty retained range as none retained', () => {
+    expect(describeDeficitEvidence(history({ capacityDeficits: [] })).status).toBe('unavailable');
   });
 });
 
@@ -202,6 +292,16 @@ describe('describeHistoryAvailability', () => {
 
     expect(availability.status).toBe('partial');
     expect(availability.description).toContain('most recent');
+    expect(availability.description).toContain('older points inside the same range are hidden');
+  });
+
+  it('discloses dashboard retention deletions instead of calling an old range complete', () => {
+    const availability = describeHistoryAvailability(
+      history({ retention: { ...history().retention, droppedSamples: 40 } }),
+      'raw',
+    );
+
+    expect(availability.description).toContain('40 older samples');
   });
 });
 
@@ -226,6 +326,24 @@ describe('describeHistoryJournal', () => {
     );
 
     expect(journal.description).toContain('2 sequences');
+  });
+
+  it('reports a manager journal sequence reset as an explicit gap', () => {
+    const journal = describeHistoryJournal(
+      history({ journal: { ...history().journal, epoch: 1, epochResets: 1 } }),
+    );
+
+    expect(journal.status).toBe('partial');
+    expect(journal.description).toContain('restarted its sequence');
+  });
+
+  it('reports dashboard-retention event deletions as an explicit gap', () => {
+    const journal = describeHistoryJournal(
+      history({ retention: { ...history().retention, droppedEvents: 7 } }),
+    );
+
+    expect(journal.status).toBe('partial');
+    expect(journal.description).toContain('deleted 7 older retained events');
   });
 
   it('reports an unreported journal as unavailable rather than empty', () => {

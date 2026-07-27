@@ -3,6 +3,7 @@ import { useState } from 'react';
 import {
   buildDeficitReasonChanges,
   buildHistorySeries,
+  describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
   describeManagerEvent,
@@ -20,14 +21,58 @@ interface FleetHistoryPanelProps {
   readonly testId: string;
 }
 
-const ranges = [
-  { hours: 6, label: 'Last 6 hours', resolution: 'raw' as const },
-  { hours: 24, label: 'Last 24 hours', resolution: 'raw' as const },
-  { hours: 168, label: 'Last 7 days', resolution: 'hourly' as const },
-  { hours: 720, label: 'Last 30 days', resolution: 'hourly' as const },
+interface HistoryRange {
+  readonly hours: number;
+  readonly label: string;
+  readonly resolution: 'raw' | 'hourly';
+  readonly points: number;
+  readonly events: number;
+  readonly description: string;
+}
+
+const scrollRegionClasses =
+  'max-h-64 overflow-auto rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600';
+
+const ranges: readonly HistoryRange[] = [
+  {
+    hours: 4,
+    label: 'Last 4 hours (every observation)',
+    resolution: 'raw',
+    points: 1000,
+    events: 200,
+    description:
+      'Showing up to 1000 retained per-observation samples per profile. At the usual heartbeat rate that covers roughly the last four hours; longer per-observation ranges cannot be shown truthfully because the response is capped.',
+  },
+  {
+    hours: 24,
+    label: 'Last 24 hours (hourly peaks)',
+    resolution: 'hourly',
+    points: 48,
+    events: 200,
+    description:
+      'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
+  },
+  {
+    hours: 168,
+    label: 'Last 7 days (hourly peaks)',
+    resolution: 'hourly',
+    points: 200,
+    events: 200,
+    description:
+      'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
+  },
+  {
+    hours: 720,
+    label: 'Last 30 days (hourly peaks)',
+    resolution: 'hourly',
+    points: 800,
+    events: 200,
+    description:
+      'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
+  },
 ];
 
-function ProfileHistoryCharts({
+function ProfileHistorySections({
   history,
   resolution,
 }: {
@@ -36,13 +81,13 @@ function ProfileHistoryCharts({
 }) {
   const availability = describeHistoryAvailability(history, resolution);
   const journal = describeHistoryJournal(history);
+  const deficitEvidence = describeDeficitEvidence(history);
   const groups = buildHistorySeries(history, resolution);
   const deficits = buildDeficitReasonChanges(history);
 
   return (
-    <section className="grid gap-4" data-testid={`history-profile-${history.profileId}`}>
+    <div className="grid gap-4" data-testid={`history-profile-${history.profileId}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="font-semibold">{history.profileId}</h3>
         <StatusBadge status={availability.status} />
         <p className="text-xs text-muted-foreground">{availability.description}</p>
       </div>
@@ -51,6 +96,7 @@ function ProfileHistoryCharts({
           {groups.map((group) => (
             <TimeSeriesChart
               description={group.description}
+              headingLevel="h4"
               key={group.key}
               series={group.series}
               testId={`history-chart-${history.profileId}-${group.key}`}
@@ -63,27 +109,29 @@ function ProfileHistoryCharts({
 
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-semibold">Capacity-deficit reasons</h3>
-          <p className="text-xs text-muted-foreground">
-            Only observations where manager-reported deficit evidence changed are listed.
-          </p>
+          <h4 className="text-sm font-semibold">Capacity-deficit reasons</h4>
+          <StatusBadge status={deficitEvidence.status} />
+          <p className="text-xs text-muted-foreground">{deficitEvidence.description}</p>
         </div>
-        {deficits.length === 0 ? (
-          <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
-            No retained observation carried manager capacity-deficit evidence in this range.
-          </p>
-        ) : (
-          <div className="max-h-64 overflow-auto">
+        {deficits.length === 0 ? null : (
+          <div
+            aria-label={`Capacity-deficit reason changes for profile ${history.profileId}`}
+            className={scrollRegionClasses}
+            role="region"
+            tabIndex={0}
+          >
             <table
               className="w-full text-left text-xs"
               data-testid={`history-deficits-${history.profileId}`}
             >
               <caption className="sr-only">
-                Manager capacity-deficit reason changes for profile {history.profileId}.
+                Manager capacity-deficit reason changes for profile {history.profileId}, for every
+                autoscaling target.
               </caption>
               <thead className="text-muted-foreground">
                 <tr>
                   <th scope="col">Observed at</th>
+                  <th scope="col">Target</th>
                   <th scope="col">Reason</th>
                   <th scope="col">Freshness</th>
                   <th scope="col">Local shortfall</th>
@@ -92,13 +140,14 @@ function ProfileHistoryCharts({
               </thead>
               <tbody>
                 {deficits.map((change) => (
-                  <tr key={change.at}>
+                  <tr key={`${change.targetKey}-${change.at}`}>
                     <th className="font-normal" scope="row">
                       {formatTime(change.at)}
                     </th>
-                    <td>{change.reason ?? 'Unreported'}</td>
-                    <td>{change.freshness ?? 'Unreported'}</td>
-                    <td>{change.localDeficit ?? 'Unavailable'}</td>
+                    <td>{change.repository ?? change.targetKey}</td>
+                    <td>{change.reason}</td>
+                    <td>{change.freshness}</td>
+                    <td>{change.localDeficit}</td>
                     <td>{change.eligibilityDeficit ?? 'Unavailable'}</td>
                   </tr>
                 ))}
@@ -110,7 +159,59 @@ function ProfileHistoryCharts({
 
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-semibold">Manager operations</h3>
+          <h4 className="text-sm font-semibold">Subsystem health changes</h4>
+          <p className="text-xs text-muted-foreground">
+            Only observations where manager-reported subsystem health changed are listed.
+          </p>
+        </div>
+        {history.subsystemHealthChanges.length === 0 ? (
+          <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
+            No retained observation inside this range carried a manager subsystem health change.
+          </p>
+        ) : (
+          <div
+            aria-label={`Subsystem health changes for profile ${history.profileId}`}
+            className={scrollRegionClasses}
+            role="region"
+            tabIndex={0}
+          >
+            <table
+              className="w-full text-left text-xs"
+              data-testid={`history-subsystems-${history.profileId}`}
+            >
+              <caption className="sr-only">
+                Manager subsystem health changes for profile {history.profileId}.
+              </caption>
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th scope="col">Observed at</th>
+                  <th scope="col">Subsystem</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Consecutive failures</th>
+                  <th scope="col">Last failure</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.subsystemHealthChanges.map((change) => (
+                  <tr key={`${change.subsystem}-${change.observedAt}`}>
+                    <th className="font-normal" scope="row">
+                      {formatTime(change.observedAt)}
+                    </th>
+                    <td>{change.subsystem}</td>
+                    <td>{change.state}</td>
+                    <td>{change.consecutiveFailures}</td>
+                    <td>{change.lastFailureReason ?? 'Unreported'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold">Manager operations</h4>
           <StatusBadge status={journal.status} />
           <p className="text-xs text-muted-foreground">{journal.description}</p>
         </div>
@@ -119,27 +220,65 @@ function ProfileHistoryCharts({
             No durable manager operation was retained in this range.
           </p>
         ) : (
-          <ul
-            className="max-h-64 space-y-1 overflow-auto text-xs"
-            data-testid={`history-events-${history.profileId}`}
+          <div
+            aria-label={`Retained manager operations for profile ${history.profileId}`}
+            className={scrollRegionClasses}
+            role="region"
+            tabIndex={0}
           >
-            {history.events.map((event) => (
-              <li
-                className="rounded border px-3 py-2"
-                key={`${event.managerInstanceId}-${event.sequence}`}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono">#{event.sequence}</span>
-                  <StatusBadge status={event.outcome} />
-                  <span className="text-muted-foreground">{formatTime(event.observedAt)}</span>
-                </div>
-                <p className="mt-1 text-muted-foreground">{describeManagerEvent(event)}</p>
-              </li>
-            ))}
-          </ul>
+            <ul className="space-y-1 text-xs" data-testid={`history-events-${history.profileId}`}>
+              {history.events.map((event) => (
+                <li
+                  className="rounded border px-3 py-2"
+                  key={`${event.managerInstanceId}-${event.sequence}-${event.observedAt}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono">#{event.sequence}</span>
+                    <StatusBadge status={event.outcome} />
+                    <span className="text-muted-foreground">{formatTime(event.observedAt)}</span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{describeManagerEvent(event)}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
-    </section>
+    </div>
+  );
+}
+
+function ProfileHistoryDisclosure({
+  history,
+  resolution,
+  isInitiallyOpen,
+}: {
+  readonly history: ProfileHistory;
+  readonly resolution: 'raw' | 'hourly';
+  readonly isInitiallyOpen: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(isInitiallyOpen);
+
+  return (
+    <details
+      className="group rounded border"
+      data-testid={`history-disclosure-${history.profileId}`}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      open={isOpen}
+    >
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
+        <h3 className="text-sm font-semibold">{history.profileId}</h3>
+        <span className="text-xs text-muted-foreground group-open:hidden">
+          Show profile history
+        </span>
+        <span className="hidden text-xs text-muted-foreground group-open:inline">
+          Hide profile history
+        </span>
+      </summary>
+      <div className="border-t px-3 py-3">
+        {isOpen ? <ProfileHistorySections history={history} resolution={resolution} /> : null}
+      </div>
+    </details>
   );
 }
 
@@ -147,18 +286,21 @@ function ProfileHistoryCharts({
  * Renders bounded retained history for one node or one profile.
  *
  * The same panel serves the node and profile views so the accessible chart, deficit, and manager
- * operation presentation is defined once.
+ * operation presentation is defined once. Every profile is grouped behind its own disclosure so a
+ * node with many profiles does not render an unbounded wall of charts.
  */
 export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: FleetHistoryPanelProps) {
-  const [rangeHours, setRangeHours] = useState(24);
+  const [rangeHours, setRangeHours] = useState(ranges[0].hours);
   const [isOpen, setIsOpen] = useState(false);
-  const range = ranges.find((candidate) => candidate.hours === rangeHours) ?? ranges[1];
-  const { history, error, isLoading } = useFleetHistory({
+  const range = ranges.find((candidate) => candidate.hours === rangeHours) ?? ranges[0];
+  const { history, error, isLoading, isStale } = useFleetHistory({
     tenantId,
     nodeId,
     profileId,
     rangeHours: range.hours,
     resolution: range.resolution,
+    pointLimit: range.points,
+    eventLimit: range.events,
     enabled: isOpen,
   });
 
@@ -198,15 +340,13 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
               </option>
             ))}
           </select>
-          <span className="text-xs text-muted-foreground">
-            {range.resolution === 'hourly'
-              ? 'Showing deterministic hourly rollups.'
-              : 'Showing retained per-observation samples.'}
-          </span>
+          <span className="text-xs text-muted-foreground">{range.description}</span>
         </div>
         {isLoading ? (
           <p className="text-xs text-muted-foreground" role="status">
-            Loading history…
+            {isStale
+              ? 'Loading the selected range; showing the previous range…'
+              : 'Loading history…'}
           </p>
         ) : null}
         {error != null ? (
@@ -217,14 +357,26 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
             {error}
           </p>
         ) : null}
+        {history != null && (history.pointsTruncated || history.eventsTruncated) ? (
+          <p
+            className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+            role="status"
+          >
+            This node response reached its overall limits of {history.pointLimit} points and{' '}
+            {history.eventLimit} events across all profiles. The most recent data inside the range
+            is shown and older data inside the same range is hidden. Open a single profile or narrow
+            the range to see the hidden observations.
+          </p>
+        ) : null}
         {history != null && history.profiles.length === 0 ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
             No retained history exists for this range.
           </p>
         ) : null}
         {history?.profiles.map((profile) => (
-          <ProfileHistoryCharts
+          <ProfileHistoryDisclosure
             history={profile}
+            isInitiallyOpen={history.profiles.length === 1}
             key={profile.profileId}
             resolution={history.resolution}
           />

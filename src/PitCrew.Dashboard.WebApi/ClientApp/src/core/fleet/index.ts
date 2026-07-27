@@ -55,14 +55,18 @@ export type {
   HistoryQuery,
   HistoryResolution,
   NodeHistoryResponse,
+  ProfileCapacityDeficitObservation,
   ProfileEventJournalState,
   ProfileHistory,
+  ProfileRetentionFloor,
+  ProfileSubsystemHealthChange,
   ProfileTelemetryRollup,
   ProfileTelemetrySample,
 } from './historyApi';
 export {
   buildDeficitReasonChanges,
   buildHistorySeries,
+  describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
 } from './historySeries';

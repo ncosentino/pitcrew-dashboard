@@ -19,6 +19,7 @@ describe('TimeSeriesChart', () => {
             ],
           },
         ]}
+        headingLevel="h3"
         testId="memory-chart"
         title="Memory"
         unit="bytes"
@@ -46,6 +47,7 @@ describe('TimeSeriesChart', () => {
             ],
           },
         ]}
+        headingLevel="h3"
         testId="counts-chart"
         title="Runners"
         unit="count"
@@ -69,6 +71,7 @@ describe('TimeSeriesChart', () => {
             points: [{ at: '2026-07-26T12:00:00+00:00', value: null }],
           },
         ]}
+        headingLevel="h3"
         testId="network-chart"
         title="Network"
         unit="bytes"
@@ -93,6 +96,7 @@ describe('TimeSeriesChart', () => {
             ],
           },
         ]}
+        headingLevel="h3"
         testId="exits-chart"
         title="Exits"
         unit="count"
@@ -102,6 +106,58 @@ describe('TimeSeriesChart', () => {
     expect(container.querySelector('polyline')?.getAttribute('points')).toBe(
       '0.00,120.00 600.00,120.00',
     );
+  });
+
+  it('positions points by observation time so a real gap is not drawn as continuous data', () => {
+    const { container } = render(
+      <TimeSeriesChart
+        description="Accepted desired capacity."
+        headingLevel="h3"
+        series={[
+          {
+            key: 'desired',
+            label: 'Desired slots',
+            description: 'Requested slots.',
+            points: [
+              { at: '2026-07-26T12:00:00+00:00', value: 0 },
+              { at: '2026-07-26T12:00:15+00:00', value: 0 },
+              { at: '2026-07-26T13:00:00+00:00', value: 0 },
+            ],
+          },
+        ]}
+        testId="capacity-chart"
+        title="Capacity"
+        unit="count"
+      />,
+    );
+
+    expect(container.querySelector('polyline')?.getAttribute('points')).toBe(
+      '0.00,120.00 2.50,120.00 600.00,120.00',
+    );
+  });
+
+  it('renders the measurement table inside a focusable labelled region', () => {
+    render(
+      <TimeSeriesChart
+        description="Accepted desired capacity."
+        headingLevel="h4"
+        series={[
+          {
+            key: 'desired',
+            label: 'Desired slots',
+            description: 'Requested slots.',
+            points: [{ at: '2026-07-26T12:00:00+00:00', value: 3 }],
+          },
+        ]}
+        testId="capacity-chart"
+        title="Capacity"
+        unit="count"
+      />,
+    );
+
+    const region = screen.getByRole('region', { name: 'Capacity measurements' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('heading', { level: 4, name: 'Capacity' })).toBeInTheDocument();
   });
 
   it('hides the decorative plot from assistive technology', () => {
@@ -116,6 +172,7 @@ describe('TimeSeriesChart', () => {
             points: [{ at: '2026-07-26T12:00:00+00:00', value: 3 }],
           },
         ]}
+        headingLevel="h3"
         testId="capacity-chart"
         title="Capacity"
         unit="count"
