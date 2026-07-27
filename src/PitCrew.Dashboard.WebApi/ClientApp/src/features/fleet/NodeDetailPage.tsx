@@ -10,6 +10,7 @@ import { useFleet, type ManagerObservedState } from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
+import { FleetHistoryPanel } from './components/FleetHistoryPanel';
 import { renameNode, requestCredentialRotation, revokeNode } from './fleetApi';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from './nodeSummary';
 
@@ -317,6 +318,17 @@ export default function NodeDetailPage() {
           ))
         )}
       </section>
+
+      <Card className="overflow-hidden">
+        <CardContent className="grid gap-0 p-0">
+          <FleetHistoryPanel
+            tenantId={tenantId}
+            nodeId={node.nodeId}
+            profileId={null}
+            testId="node-history"
+          />
+        </CardContent>
+      </Card>
     </>
   );
 }

@@ -7,6 +7,7 @@ import { useFleet } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
+import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { ProfileCapacityEvidence } from '../components/ProfileCapacityEvidence';
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
 import { ProfileManagerRecovery } from '../components/ProfileManagerRecovery';
@@ -175,6 +176,12 @@ export default function ProfileDetailPage() {
             <ProfileResourceTelemetry profile={profile} />
             <ProfileSlotsTable profile={profile} />
             <ProfileOperationJournal profile={profile} />
+            <FleetHistoryPanel
+              tenantId={tenantId}
+              nodeId={nodeId}
+              profileId={profileId}
+              testId="profile-history"
+            />
           </CardContent>
         </Card>
       ) : null}

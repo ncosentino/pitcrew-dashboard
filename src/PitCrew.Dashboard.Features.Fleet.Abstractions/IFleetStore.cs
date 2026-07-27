@@ -165,14 +165,16 @@ public interface IFleetStore
   /// <summary>
   /// Atomically applies one connector heartbeat and its complete profile projection.
   /// </summary>
+  /// <param name="transaction">Transaction that also carries the bounded history write for the heartbeat.</param>
   /// <param name="nodeId">Authenticated node identifier.</param>
   /// <param name="connectorVersion">Connector application version.</param>
   /// <param name="receivedAt">Dashboard time when the synchronization was accepted.</param>
   /// <param name="profiles">Latest profile observations visible to the connector.</param>
   /// <param name="credentialUpdate">Credential mutation committed with the snapshot.</param>
   /// <param name="cancellationToken">Token that cancels synchronization.</param>
-  /// <returns>A task that completes after the projection is committed.</returns>
+  /// <returns>A task that completes after the projection is written into the transaction.</returns>
   Task ApplySyncAsync(
+      IFleetStorageTransaction transaction,
       Guid nodeId,
       string connectorVersion,
       DateTimeOffset receivedAt,

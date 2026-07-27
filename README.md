@@ -138,6 +138,17 @@ navigation:
 - **Tenant administration** remains visible only to configured system
   administrators.
 
+Node and profile detail pages carry a collapsed **History** panel with truthful
+bounded ranges: the last four hours of per-observation samples, or hourly peaks
+over 24 hours, 7 days, or 30 days. Every range requests an explicit point and
+event cap, so the panel never claims a window wider than the data it shows.
+Charts are decorative for assistive technology and are always paired with an
+equivalent data table, plot points at time-proportional positions so a real gap
+in retained observations is drawn as a gap, and unavailable measurements break
+the plotted line instead of being drawn as zero. Scrollable tables and event
+lists are keyboard-focusable labelled regions, and node history groups each
+profile behind its own disclosure.
+
 Capacity changes and node lifecycle actions remain on their relevant detail
 pages rather than the fleet overview. Direct links survive authentication and
 browser refresh through the ASP.NET SPA fallback.
@@ -226,6 +237,109 @@ dashboard replicas or materially higher write concurrency are required.
 
 See [Database operations](docs/database-operations.md) for backup, verification,
 restore, and rollback commands.
+
+### Historical telemetry
+
+SQLite also stores bounded historical telemetry alongside the latest projection.
+Latest-state reads are unchanged. History and latest state are written inside one
+SQLite transaction on the connector heartbeat path, so a crash, cancellation, or
+history failure can never advance the latest projection while losing its sample
+and events.
+
+- A telemetry sample is appended only when the authoritative manager
+  `observedAt` advances, so a duplicated connector heartbeat creates no
+  duplicate sample.
+- A manager event is stored once per durable `(node, profile, epoch, sequence)`
+  identity. The epoch is a local, durable generation counter that advances when a
+  manager sequence regression proves the manager journal was lost, and also when
+  a delivered sequence that already exists in the current epoch carries different
+  manager identity or different content. A reset journal that reuses old
+  sequences and reaches the same or a higher high-water mark is therefore still
+  detected, while an ordinary heartbeat or manager restart replay of identical
+  events still deduplicates. The epoch advance and the batch insert happen in the
+  same transaction, so a reset batch is never split across epochs.
+- Hourly rollups accumulate incrementally as samples arrive and are never
+  recomputed from raw rows, so pruning raw samples can never lower or overwrite a
+  completed hourly peak or sample count.
+- Contract-12 subsystem health and every target-keyed capacity-deficit evidence
+  change is retained on change. Autoscaling targets are never collapsed into one
+  selected deficit, and success, failure, and backoff summaries are preserved.
+  Diagnostic rows are bounded exactly like samples and events: no row of any
+  subsystem or target key is exempt from the age bound, so a key that stops being
+  reported is not preserved forever, and per-profile and node-wide ceilings bound
+  subsystem and autoscaling-target key churn.
+- Observations and events stamped further ahead of dashboard time than the
+  configured clock-skew tolerance (five minutes by default) are rejected and
+  counted, so a mis-set manager clock cannot create future buckets that ordinary
+  age-based retention would never reach.
+- Retention sweeps every historical profile recorded for the node, including
+  profiles that are offline, removed, or absent from the newest heartbeat, and
+  expires the cursors themselves once every sample, rollup, event, and diagnostic
+  row of that profile is gone. Profile-identifier churn is additionally capped by
+  `MaximumProfilesPerNode`, which deletes the least recently updated profiles
+  outright, so churn cannot bypass the node-wide bounds.
+- Journal and retention gaps stay explicit: the dashboard records durable
+  sequences the manager advanced past between deliveries, sequences the manager
+  still retains above the highest delivered one, detected journal resets,
+  rejected future timestamps, and how many rows dashboard retention itself
+  deleted, with the oldest retained observation for each kind of row.
+- `null` continues to mean unavailable and `0` continues to mean measured zero.
+  Local worker counts and GitHub control-plane counts remain separate evidence.
+
+Retention is bounded by measured growth. A retained sample measures at about
+**444 bytes** of checkpointed SQLite growth (425,984 bytes of database file for
+960 samples, measured after `PRAGMA wal_checkpoint(TRUNCATE)` in
+`SqliteFleetHistoryStoreTests`). That figure is the total cost of the append
+divided by the samples appended, not the sample row alone: it also covers the
+hourly rollups those samples aggregate into, manager events, subsystem health
+changes, target-keyed capacity-deficit evidence, cursor rows, and every
+supporting index. The write-ahead log is measured separately and
+peaked at about **4.0 MB** (4,157,112 bytes) across those 960 single-heartbeat
+transactions before checkpointing, which is transient working space rather than
+retained growth.
+
+A profile polled every fifteen seconds therefore costs about **2.4 MiB per day**
+of checkpointed growth, so the conservative defaults are:
+
+| Tier | Default | Approximate cost per profile |
+| ---- | ------- | ---------------------------- |
+| Per-observation samples | 7 days, at most 60,000 rows | about 17 MB |
+| Hourly rollups | 90 days | under 1 MB |
+| Durable manager events | 30 days, at most 20,000 rows | a few MB |
+| Subsystem health and target deficits | 30 days, at most 5,000 rows each | under 1 MB |
+
+Every tier is configurable through `FleetDashboard` options. Each is capped by a
+hard per-profile row ceiling and by hard node-wide ceilings
+(`MaximumTelemetrySamplesPerNode`, `MaximumTelemetryRollupsPerNode`,
+`MaximumManagerEventsPerNode`, `MaximumDiagnosticsPerNode`), and the number of
+retained profiles is capped by `MaximumProfilesPerNode`, so a misbehaving
+connector cannot grow the database without bound even by rotating profile
+identifiers, subsystem names, or autoscaling target keys.
+
+History is read through bounded, tenant-scoped, time-range endpoints:
+
+- `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/history`
+- `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/profiles/{profileId}/history`
+
+Both accept `from`, `to`, `resolution` (`raw` or `hourly`), `points`, `events`,
+and `diagnostics`. The range defaults to 24 hours, is rejected beyond the
+configured maximum, and every response is capped by explicit per-profile and
+node-wide point, event, and diagnostic limits. Every response reports the actual
+per-profile and node-wide limits it applied along with per-kind truncation flags,
+so capped or retention-deleted evidence is never presented as a complete record. Truncation always keeps the most recent data inside the requested range
+and hides older data inside the same range. Each response is served from one
+consistent SQLite read transaction, so ownership, points, events, cursors, and
+gaps always describe the same instant.
+
+Hourly requests are served on whole UTC hour boundaries. The served range is
+aligned inward — `from` is rounded up and `to` is rounded down to a whole hour —
+and the aligned bounds are returned in the response, so an hourly answer never
+includes a bucket that reaches outside the requested range. A request narrower
+than one whole hour at hourly resolution is rejected instead of being answered
+with an edge bucket that contains data from outside the range. The dashboard
+aligns its own hourly requests the same way.
+
+A node owned by another tenant is indistinguishable from a missing node.
 
 ## Images
 

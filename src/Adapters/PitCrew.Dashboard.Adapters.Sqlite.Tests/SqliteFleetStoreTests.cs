@@ -211,7 +211,9 @@ public sealed class SqliteFleetStoreTests
           30,
           expectedAutoscaling,
           1);
-      await store.ApplySyncAsync(
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
           nodeId,
           "2.0.0",
           observedAt,
@@ -267,7 +269,9 @@ public sealed class SqliteFleetStoreTests
         Autoscaling = null,
         EligibleSlots = null,
       };
-      await store.ApplySyncAsync(
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
           nodeId,
           "2.0.0",
           legacyProfile.ObservedAt,
@@ -545,7 +549,7 @@ public sealed class SqliteFleetStoreTests
           0,
           0,
           TimeSpan.Zero);
-      var (_, store, nodeId) = await CreateEnrolledStoreAsync(
+      var (connectionFactory, store, nodeId) = await CreateEnrolledStoreAsync(
           databasePath,
           observedAt,
           cancellationToken);
@@ -651,7 +655,9 @@ public sealed class SqliteFleetStoreTests
               [expectedTarget]),
           1,
           expectedPolicy);
-      await store.ApplySyncAsync(
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
           nodeId,
           "2.0.0",
           observedAt,
@@ -716,7 +722,7 @@ public sealed class SqliteFleetStoreTests
           0,
           0,
           TimeSpan.Zero);
-      var (_, store, nodeId) = await CreateEnrolledStoreAsync(
+      var (connectionFactory, store, nodeId) = await CreateEnrolledStoreAsync(
           databasePath,
           observedAt,
           cancellationToken);
@@ -820,14 +826,18 @@ public sealed class SqliteFleetStoreTests
           ConnectorCredentialUpdateKind.None,
           string.Empty);
 
-      await store.ApplySyncAsync(
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
           nodeId,
           "2.0.0",
           observedAt,
           [profile],
           credentialUpdate,
           cancellationToken);
-      await store.ApplySyncAsync(
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
           nodeId,
           "2.0.0",
           observedAt.AddSeconds(5),
@@ -842,7 +852,9 @@ public sealed class SqliteFleetStoreTests
           cancellationToken);
       var heartbeatJournal = RequireJournal(afterHeartbeat);
 
-      await store.ApplySyncAsync(
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
           nodeId,
           "2.0.0",
           observedAt.AddMinutes(1),

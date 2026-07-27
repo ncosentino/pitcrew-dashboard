@@ -246,6 +246,7 @@ internal sealed class SqliteFleetStore(
   }
 
   public async Task ApplySyncAsync(
+      IFleetStorageTransaction storageTransaction,
       Guid nodeId,
       string connectorVersion,
       DateTimeOffset receivedAt,
@@ -253,10 +254,9 @@ internal sealed class SqliteFleetStore(
       ConnectorCredentialUpdate credentialUpdate,
       CancellationToken cancellationToken)
   {
-    await using var connection = await _connectionFactory.OpenAsync(
-        cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    var enlisted = SqliteFleetTransaction.Resolve(storageTransaction);
+    var connection = enlisted.Connection;
+    var transaction = enlisted.Transaction;
 
     await using (var nodeCommand = connection.CreateCommand())
     {
@@ -390,7 +390,6 @@ internal sealed class SqliteFleetStore(
     {
       await profileCommand.ExecuteNonQueryAsync(cancellationToken);
     }
-    await transaction.CommitAsync(cancellationToken);
   }
 
   public async Task<FleetResponse> GetFleetAsync(

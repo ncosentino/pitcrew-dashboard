@@ -48,3 +48,35 @@ export type {
   WorkerLastExit,
   WorkerResourcePolicy,
 } from './fleetApi';
+export { useFleetHistory } from './useFleetHistory';
+export type { FleetHistoryRequest, FleetHistoryState } from './useFleetHistory';
+export { getNodeHistory, getProfileHistory } from './historyApi';
+export type {
+  HistoryQuery,
+  HistoryResolution,
+  NodeHistoryResponse,
+  ProfileCapacityDeficitObservation,
+  ProfileEventJournalState,
+  ProfileHistory,
+  ProfileRetentionFloor,
+  ProfileSubsystemHealthChange,
+  ProfileTelemetryRollup,
+  ProfileTelemetrySample,
+} from './historyApi';
+export {
+  buildDeficitReasonChanges,
+  buildHistorySeries,
+  describeDeficitEvidence,
+  describeHistoryAvailability,
+  describeHistoryJournal,
+  describeSubsystemHealthEvidence,
+  resolveCadenceMilliseconds,
+} from './historySeries';
+export type {
+  DeficitReasonChange,
+  HistoryAvailability,
+  HistoryPoint,
+  HistorySeries,
+  HistorySeriesGroup,
+  HistorySeriesUnit,
+} from './historySeries';
