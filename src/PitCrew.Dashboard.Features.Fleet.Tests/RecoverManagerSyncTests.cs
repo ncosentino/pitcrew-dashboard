@@ -262,6 +262,7 @@ public sealed class RecoverManagerSyncTests
             false));
     fleetStore
         .Setup(store => store.ApplySyncAsync(
+            It.IsNotNull<IFleetStorageTransaction>(),
             It.Is<Guid>(nodeId => nodeId != Guid.Empty),
             "2.0.0",
             It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
@@ -284,17 +285,30 @@ public sealed class RecoverManagerSyncTests
     var historyStore = _mocks.Create<IFleetHistoryStore>();
     historyStore
         .Setup(store => store.AppendAsync(
+            It.IsNotNull<IFleetStorageTransaction>(),
             It.Is<Guid>(nodeId => nodeId != Guid.Empty),
             It.Is<IReadOnlyList<ManagerObservedState>>(
                 profiles => profiles.Count == 0),
             It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
-            It.Is<HistoryRetentionPolicy>(
-                retention => retention.MaximumSamplesPerProfile > 0),
+            It.Is<HistoryAppendPolicy>(
+                policy => policy.Retention.MaximumSamplesPerProfile > 0),
             It.IsAny<CancellationToken>()))
         .Returns(Task.CompletedTask);
+    var transactionFactory = _mocks.Create<IFleetStorageTransactionFactory>();
+    var transaction = _mocks.Create<IFleetStorageTransaction>();
+    transaction
+        .Setup(scope => scope.CommitAsync(It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
+    transaction
+        .Setup(scope => scope.DisposeAsync())
+        .Returns(ValueTask.CompletedTask);
+    transactionFactory
+        .Setup(factory => factory.BeginAsync(It.IsAny<CancellationToken>()))
+        .ReturnsAsync(transaction.Object);
     return new SyncConnectorUnitOfWork(
         fleetStore.Object,
         historyStore.Object,
+        transactionFactory.Object,
         capacityStore.Object,
         recoveryStore.Object,
         new ConnectorCredentialService(),

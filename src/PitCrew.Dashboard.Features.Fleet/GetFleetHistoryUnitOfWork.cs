@@ -172,6 +172,18 @@ internal sealed class GetFleetHistoryUnitOfWork(
       }
     }
 
+    if (resolution == HistoryResolution.Hourly)
+    {
+      from = CeilingHour(from.Value);
+      to = FloorHour(to.Value);
+      if (from.Value >= to.Value)
+      {
+        error =
+            "An hourly history range must contain at least one whole UTC hour.";
+        return null;
+      }
+    }
+
     var points = ParseLimitOrNull(
         input.Points,
         options.MaximumHistoryPoints);
@@ -196,7 +208,30 @@ internal sealed class GetFleetHistoryUnitOfWork(
         to.Value,
         resolution,
         points.Value,
-        events.Value);
+        events.Value,
+        options.MaximumNodeHistoryPoints,
+        options.MaximumNodeHistoryEvents);
+  }
+
+  private static DateTimeOffset FloorHour(DateTimeOffset value)
+  {
+    var utc = value.ToUniversalTime();
+    return new DateTimeOffset(
+        utc.Year,
+        utc.Month,
+        utc.Day,
+        utc.Hour,
+        0,
+        0,
+        TimeSpan.Zero);
+  }
+
+  private static DateTimeOffset CeilingHour(DateTimeOffset value)
+  {
+    var floor = FloorHour(value);
+    return floor == value.ToUniversalTime()
+        ? floor
+        : floor.AddHours(1);
   }
 
   private static DateTimeOffset? ParseTimeOrNull(

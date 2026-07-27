@@ -187,7 +187,11 @@ public sealed class GetFleetHistoryUnitOfWorkTests
           Now.AddHours(-24),
           Now,
           "raw",
-          []);
+          [],
+          false,
+          false,
+          1000,
+          200);
 
   private static GetFleetHistoryUnitOfWork CreateUnitOfWork(
       Mock<IFleetHistoryStore> store,

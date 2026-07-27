@@ -20,12 +20,19 @@ public sealed class SqliteFleetHistoryStoreTests
       0,
       TimeSpan.Zero);
 
+  private const int NodePointLimit = 100_000;
+
+  private const int NodeEventLimit = 100_000;
+
   private static readonly HistoryRetentionPolicy Retention = new(
       TimeSpan.FromDays(14),
       TimeSpan.FromDays(90),
       TimeSpan.FromDays(30),
       100_000,
-      20_000);
+      20_000,
+      500_000,
+      200_000,
+      200_000);
 
   [Test]
   public async Task Duplicate_Heartbeat_Creates_No_Duplicate_Sample_Or_Event(
@@ -44,13 +51,17 @@ public sealed class SqliteFleetHistoryStoreTests
               "current",
               [CreateEvent(1, Origin), CreateEvent(2, Origin)]));
 
-      await store.AppendAsync(
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
           nodeId,
           [profile],
           Origin,
           Retention,
           cancellationToken);
-      await store.AppendAsync(
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
           nodeId,
           [profile],
           Origin.AddSeconds(15),
@@ -89,7 +100,9 @@ public sealed class SqliteFleetHistoryStoreTests
       var store = new SqliteFleetHistoryStore(connectionFactory);
       for (var index = 0; index < 4; index++)
       {
-        await store.AppendAsync(
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
             nodeId,
             [
                 CreateProfile(
@@ -147,7 +160,9 @@ public sealed class SqliteFleetHistoryStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      await store.AppendAsync(
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
           nodeId,
           [
               CreateProfile(
@@ -159,7 +174,9 @@ public sealed class SqliteFleetHistoryStoreTests
           Origin,
           Retention,
           cancellationToken);
-      await store.AppendAsync(
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
           nodeId,
           [
               CreateProfile(
@@ -204,7 +221,9 @@ public sealed class SqliteFleetHistoryStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      await store.AppendAsync(
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
           nodeId,
           [CreateProfile(Origin)],
           Origin,
@@ -258,10 +277,15 @@ public sealed class SqliteFleetHistoryStoreTests
           TimeSpan.FromMinutes(90),
           TimeSpan.FromMinutes(30),
           2,
-          2);
+          2,
+          500_000,
+          200_000,
+          200_000);
       for (var index = 0; index < 5; index++)
       {
-        await store.AppendAsync(
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
             nodeId,
             [
                 CreateProfile(
@@ -285,7 +309,9 @@ public sealed class SqliteFleetHistoryStoreTests
       await Assert.That(history.Events.Count).IsEqualTo(2);
       await Assert.That(history.Events[0].Sequence).IsEqualTo(5L);
 
-      await store.AppendAsync(
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
           nodeId,
           [CreateProfile(Origin.AddHours(3))],
           Origin.AddHours(3),
@@ -320,7 +346,9 @@ public sealed class SqliteFleetHistoryStoreTests
       var store = new SqliteFleetHistoryStore(connectionFactory);
       for (var index = 0; index < 6; index++)
       {
-        await store.AppendAsync(
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
             nodeId,
             [
                 CreateProfile(
@@ -369,13 +397,15 @@ public sealed class SqliteFleetHistoryStoreTests
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
       const int samples = 960;
-      var baseline = await MeasureDatabaseBytesAsync(
-          connectionFactory,
-          cancellationToken);
+      await CheckpointAsync(connectionFactory, cancellationToken);
+      var baseline = new FileInfo(databasePath).Length;
+      long peakWalBytes = 0;
       for (var index = 0; index < samples; index++)
       {
         var observedAt = Origin.AddSeconds(15 * index);
-        await store.AppendAsync(
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
             nodeId,
             [
                 CreateProfile(
@@ -395,21 +425,26 @@ public sealed class SqliteFleetHistoryStoreTests
             observedAt,
             Retention,
             cancellationToken);
+        var wal = new FileInfo(databasePath + "-wal");
+        if (wal.Exists && wal.Length > peakWalBytes)
+        {
+          peakWalBytes = wal.Length;
+        }
       }
 
-      var measured = await MeasureDatabaseBytesAsync(
-          connectionFactory,
-          cancellationToken);
-      var growth = measured - baseline;
+      await CheckpointAsync(connectionFactory, cancellationToken);
+      var checkpointed = new FileInfo(databasePath).Length;
+      var growth = checkpointed - baseline;
       var bytesPerSample = growth / (double)samples;
       var measurement = string.Create(
           CultureInfo.InvariantCulture,
-          $"Measured history growth: {growth} bytes for {samples} samples ({bytesPerSample:F1} bytes per sample).");
+          $"Measured checkpointed history growth: {growth} bytes for {samples} samples ({bytesPerSample:F1} bytes per sample, including hourly rollups, manager events, subsystem health, capacity deficit and cursor overhead). Peak write-ahead log: {peakWalBytes} bytes.");
       if (TestContext.Current is { } testContext)
       {
         await testContext.OutputWriter.WriteLineAsync(measurement);
       }
-      await Assert.That(bytesPerSample).IsLessThan(400d);
+      await Assert.That(bytesPerSample).IsLessThan(550d);
+      await Assert.That(peakWalBytes).IsLessThan(8L * 1024 * 1024);
 
       var history = await ReadProfileHistoryAsync(
           store,
@@ -424,6 +459,17 @@ public sealed class SqliteFleetHistoryStoreTests
     {
       Cleanup(databasePath);
     }
+  }
+
+  private static async Task CheckpointAsync(
+      SqliteConnectionFactory connectionFactory,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   private static async Task<long> MeasureDatabaseBytesAsync(
@@ -514,7 +560,24 @@ public sealed class SqliteFleetHistoryStoreTests
           Origin.AddDays(1),
           resolution,
           pointLimit,
-          eventLimit);
+          eventLimit,
+          NodePointLimit,
+          NodeEventLimit);
+
+  private static HistoryWindow CreateNodeWindow(
+      HistoryResolution resolution,
+      int pointLimit,
+      int eventLimit,
+      int nodePointLimit,
+      int nodeEventLimit) =>
+      new(
+          Origin.AddDays(-1),
+          Origin.AddDays(1),
+          resolution,
+          pointLimit,
+          eventLimit,
+          nodePointLimit,
+          nodeEventLimit);
 
   private static ManagerEvent CreateEvent(
       long sequence,

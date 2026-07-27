@@ -99,6 +99,38 @@ public sealed class FleetDashboardOptions
   public int MaximumManagerEventsPerProfile { get; set; } = 20_000;
 
   /// <summary>
+  /// Gets or sets the hard node-wide ceiling on retained telemetry samples.
+  /// </summary>
+  /// <remarks>
+  /// Profile identifier churn cannot bypass this bound because retention sweeps every historical
+  /// profile recorded for the node, not only the profiles present in the newest heartbeat.
+  /// </remarks>
+  [Range(100, 5_000_000)]
+  public int MaximumTelemetrySamplesPerNode { get; set; } = 250_000;
+
+  /// <summary>
+  /// Gets or sets the hard node-wide ceiling on retained hourly telemetry rollups.
+  /// </summary>
+  [Range(100, 5_000_000)]
+  public int MaximumTelemetryRollupsPerNode { get; set; } = 100_000;
+
+  /// <summary>
+  /// Gets or sets the hard node-wide ceiling on retained manager events.
+  /// </summary>
+  [Range(100, 5_000_000)]
+  public int MaximumManagerEventsPerNode { get; set; } = 100_000;
+
+  /// <summary>
+  /// Gets or sets how far ahead of dashboard time an observation may claim to be observed.
+  /// </summary>
+  /// <remarks>
+  /// Observations and events beyond this bounded skew allowance are rejected and counted so a
+  /// mis-set connector clock cannot create unbounded future rollup buckets.
+  /// </remarks>
+  [Range(0, 86_400)]
+  public int HistoryClockSkewToleranceSeconds { get; set; } = 300;
+
+  /// <summary>
   /// Gets or sets the default served history range when a caller supplies no bounds.
   /// </summary>
   [Range(1, 8760)]
@@ -121,6 +153,18 @@ public sealed class FleetDashboardOptions
   /// </summary>
   [Range(10, 5000)]
   public int MaximumHistoryEvents { get; set; } = 200;
+
+  /// <summary>
+  /// Gets or sets the maximum samples or rollups one bounded query returns for the whole node.
+  /// </summary>
+  [Range(10, 20_000)]
+  public int MaximumNodeHistoryPoints { get; set; } = 5000;
+
+  /// <summary>
+  /// Gets or sets the maximum manager events one bounded query returns for the whole node.
+  /// </summary>
+  [Range(10, 20_000)]
+  public int MaximumNodeHistoryEvents { get; set; } = 1000;
 
   /// <summary>
   /// Validates relationships between connector polling and dashboard freshness settings.
@@ -147,6 +191,26 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "DefaultHistoryRangeHours cannot exceed MaximumHistoryRangeHours.";
+    }
+    if (MaximumNodeHistoryPoints < MaximumHistoryPoints)
+    {
+      yield return
+          "MaximumNodeHistoryPoints must be at least MaximumHistoryPoints.";
+    }
+    if (MaximumNodeHistoryEvents < MaximumHistoryEvents)
+    {
+      yield return
+          "MaximumNodeHistoryEvents must be at least MaximumHistoryEvents.";
+    }
+    if (MaximumTelemetrySamplesPerNode < MaximumTelemetrySamplesPerProfile)
+    {
+      yield return
+          "MaximumTelemetrySamplesPerNode must be at least MaximumTelemetrySamplesPerProfile.";
+    }
+    if (MaximumManagerEventsPerNode < MaximumManagerEventsPerProfile)
+    {
+      yield return
+          "MaximumManagerEventsPerNode must be at least MaximumManagerEventsPerProfile.";
     }
   }
 }

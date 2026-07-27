@@ -26,12 +26,16 @@ public enum HistoryResolution
 /// <param name="Resolution">Stored resolution to return.</param>
 /// <param name="PointLimit">Maximum samples or rollups returned per profile.</param>
 /// <param name="EventLimit">Maximum manager events returned per profile.</param>
+/// <param name="NodePointLimit">Maximum samples or rollups returned across every profile of the node.</param>
+/// <param name="NodeEventLimit">Maximum manager events returned across every profile of the node.</param>
 public sealed record HistoryWindow(
     DateTimeOffset From,
     DateTimeOffset To,
     HistoryResolution Resolution,
     int PointLimit,
-    int EventLimit);
+    int EventLimit,
+    int NodePointLimit,
+    int NodeEventLimit);
 
 /// <summary>
 /// Bounds retained history by measured policy.
@@ -41,12 +45,32 @@ public sealed record HistoryWindow(
 /// <param name="EventRetention">Maximum age of a retained durable manager event.</param>
 /// <param name="MaximumSamplesPerProfile">Hard per-profile ceiling on retained samples.</param>
 /// <param name="MaximumEventsPerProfile">Hard per-profile ceiling on retained manager events.</param>
+/// <param name="MaximumSamplesPerNode">Hard node-wide ceiling on retained samples across every profile.</param>
+/// <param name="MaximumEventsPerNode">Hard node-wide ceiling on retained manager events across every profile.</param>
+/// <param name="MaximumRollupsPerNode">Hard node-wide ceiling on retained hourly rollups across every profile.</param>
 public sealed record HistoryRetentionPolicy(
     TimeSpan SampleRetention,
     TimeSpan RollupRetention,
     TimeSpan EventRetention,
     int MaximumSamplesPerProfile,
-    int MaximumEventsPerProfile);
+    int MaximumEventsPerProfile,
+    int MaximumSamplesPerNode,
+    int MaximumEventsPerNode,
+    int MaximumRollupsPerNode);
+
+/// <summary>
+/// Bounds one history append in retention and in accepted manager clock skew.
+/// </summary>
+/// <remarks>
+/// A manager observation stamped further ahead than <paramref name="MaximumClockSkew"/> is rejected
+/// rather than retained, so a wrong manager clock cannot create unbounded future buckets that
+/// ordinary age-based retention would never reach.
+/// </remarks>
+/// <param name="Retention">Retention applied after the append.</param>
+/// <param name="MaximumClockSkew">Largest accepted lead of a manager timestamp over dashboard time.</param>
+public sealed record HistoryAppendPolicy(
+    HistoryRetentionPolicy Retention,
+    TimeSpan MaximumClockSkew);
 
 /// <summary>
 /// Describes one retained profile observation.
@@ -135,9 +159,12 @@ public sealed record ProfileTelemetrySample(
 /// Describes one deterministic hourly rollup derived from retained samples.
 /// </summary>
 /// <remarks>
-/// Every aggregate is the maximum retained measurement in the bucket, which is stable for gauges and
-/// correct for the cumulative network and block-I/O counters. A <see langword="null"/> aggregate
-/// means no sample in the bucket carried the measurement.
+/// Every aggregate is the peak measurement observed in the bucket, not an hourly total or an hourly
+/// average. For the cumulative network and block-I/O counters the peak is the highest cumulative
+/// reading seen in the bucket, which is not the traffic used during that hour. A
+/// <see langword="null"/> aggregate means no sample in the bucket carried the measurement.
+/// Aggregates accumulate incrementally as samples arrive, so pruning raw samples never lowers or
+/// overwrites a completed bucket.
 /// </remarks>
 /// <param name="BucketStart">Inclusive UTC start of the one-hour bucket.</param>
 /// <param name="SampleCount">Retained samples aggregated into the bucket.</param>
@@ -159,6 +186,11 @@ public sealed record ProfileTelemetrySample(
 /// <param name="MaximumExitReports">Largest reported exit count in the bucket.</param>
 /// <param name="MaximumAdverseExitReports">Largest non-clean reported exit count in the bucket.</param>
 /// <param name="MaximumLocalCapacityDeficit">Largest manager-reported local shortfall, or <see langword="null"/>.</param>
+/// <param name="MaximumEligibilityCapacityDeficit">Largest manager-reported eligibility shortfall, or <see langword="null"/>.</param>
+/// <param name="MaximumTargetSlots">Largest accepted autoscaling activation target, or <see langword="null"/>.</param>
+/// <param name="MaximumAssignedJobs">Largest control-plane assigned job count, or <see langword="null"/>.</param>
+/// <param name="MaximumIdleRunners">Largest control-plane idle runner count, or <see langword="null"/>.</param>
+/// <param name="MaximumBusyRunners">Largest control-plane busy runner count, or <see langword="null"/>.</param>
 public sealed record ProfileTelemetryRollup(
     DateTimeOffset BucketStart,
     int SampleCount,
@@ -179,7 +211,12 @@ public sealed record ProfileTelemetryRollup(
     long? MaximumBlockWriteBytes,
     int MaximumExitReports,
     int MaximumAdverseExitReports,
-    int? MaximumLocalCapacityDeficit);
+    int? MaximumLocalCapacityDeficit,
+    int? MaximumEligibilityCapacityDeficit,
+    int? MaximumTargetSlots,
+    int? MaximumAssignedJobs,
+    int? MaximumIdleRunners,
+    int? MaximumBusyRunners);
 
 /// <summary>
 /// Describes what the dashboard durably retained from one bounded manager journal.
@@ -197,6 +234,9 @@ public sealed record ProfileTelemetryRollup(
 /// <param name="ManagerDroppedEvents">Entries the manager reported discarding from its window.</param>
 /// <param name="MissedEvents">Durable sequences the manager advanced past without delivering them.</param>
 /// <param name="UndeliveredEvents">Retained manager sequences above the highest delivered sequence.</param>
+/// <param name="Epoch">Local durable journal generation, incremented whenever a manager sequence regression proves the journal was lost.</param>
+/// <param name="EpochResets">Number of detected manager journal resets for this profile.</param>
+/// <param name="RejectedFutureEvents">Manager events rejected because their timestamp exceeded accepted clock skew.</param>
 /// <param name="UpdatedAt">Dashboard time the projection last advanced.</param>
 public sealed record ProfileEventJournalState(
     string Status,
@@ -207,7 +247,104 @@ public sealed record ProfileEventJournalState(
     int ManagerDroppedEvents,
     long MissedEvents,
     long UndeliveredEvents,
+    long Epoch,
+    long EpochResets,
+    long RejectedFutureEvents,
     DateTimeOffset? UpdatedAt);
+
+/// <summary>
+/// Describes what dashboard retention has already deleted for one profile.
+/// </summary>
+/// <remarks>
+/// A range that reaches below a retained floor is incomplete because the dashboard deleted the
+/// older rows, which is different from a manager that never reported them.
+/// </remarks>
+/// <param name="EarliestRetainedSample">Oldest retained sample observation, or <see langword="null"/> when none is retained.</param>
+/// <param name="DroppedSamples">Samples this profile lost to dashboard retention.</param>
+/// <param name="EarliestRetainedRollup">Oldest retained hourly bucket, or <see langword="null"/> when none is retained.</param>
+/// <param name="DroppedRollups">Hourly buckets this profile lost to dashboard retention.</param>
+/// <param name="EarliestRetainedEvent">Oldest retained manager event observation, or <see langword="null"/> when none is retained.</param>
+/// <param name="DroppedEvents">Manager events this profile lost to dashboard retention.</param>
+/// <param name="RejectedFutureSamples">Samples rejected because their timestamp exceeded accepted clock skew.</param>
+public sealed record ProfileRetentionFloor(
+    DateTimeOffset? EarliestRetainedSample,
+    long DroppedSamples,
+    DateTimeOffset? EarliestRetainedRollup,
+    long DroppedRollups,
+    DateTimeOffset? EarliestRetainedEvent,
+    long DroppedEvents,
+    long RejectedFutureSamples);
+
+/// <summary>
+/// Describes one retained change in manager subsystem health.
+/// </summary>
+/// <remarks>
+/// Contract-12 subsystem health is retained on change, so a steady subsystem costs one row while a
+/// failing subsystem keeps its full success, failure, and backoff evidence.
+/// </remarks>
+/// <param name="Subsystem">Manager subsystem: docker or github.</param>
+/// <param name="ObservedAt">Manager time the subsystem state was observed.</param>
+/// <param name="State">Manager-reported subsystem state.</param>
+/// <param name="ConsecutiveFailures">Consecutive failures the manager counted for the subsystem.</param>
+/// <param name="RetryAt">Manager-reported backoff expiry, or <see langword="null"/> when not backing off.</param>
+/// <param name="LastSuccessOperation">Operation of the last successful subsystem call, or <see langword="null"/>.</param>
+/// <param name="LastSuccessObservedAt">Manager time of the last successful subsystem call, or <see langword="null"/>.</param>
+/// <param name="LastSuccessReason">Manager-supplied reason for the last success, or <see langword="null"/>.</param>
+/// <param name="LastFailureOperation">Operation of the last failed subsystem call, or <see langword="null"/>.</param>
+/// <param name="LastFailureObservedAt">Manager time of the last failed subsystem call, or <see langword="null"/>.</param>
+/// <param name="LastFailureReason">Manager-supplied reason for the last failure, or <see langword="null"/>.</param>
+/// <param name="LastFailureEvidence">Bounded manager evidence for the last failure, or <see langword="null"/>.</param>
+public sealed record ProfileSubsystemHealthChange(
+    string Subsystem,
+    DateTimeOffset ObservedAt,
+    string State,
+    int ConsecutiveFailures,
+    DateTimeOffset? RetryAt,
+    string? LastSuccessOperation,
+    DateTimeOffset? LastSuccessObservedAt,
+    string? LastSuccessReason,
+    string? LastFailureOperation,
+    DateTimeOffset? LastFailureObservedAt,
+    string? LastFailureReason,
+    string? LastFailureEvidence);
+
+/// <summary>
+/// Describes one retained change in manager capacity-deficit evidence for one target.
+/// </summary>
+/// <remarks>
+/// Every autoscaling target keeps its own retained chronology; targets are never collapsed into one
+/// selected deficit. Fixed-capacity evidence is retained under the reserved
+/// <c>fixed</c> target key.
+/// </remarks>
+/// <param name="TargetKey">Autoscaling target key, or <c>fixed</c> for fixed-capacity evidence.</param>
+/// <param name="ObservedAt">Manager time the evidence was observed.</param>
+/// <param name="Repository">Repository the target scales, or <see langword="null"/> when unreported.</param>
+/// <param name="Freshness">Freshness the manager attached to the evidence.</param>
+/// <param name="TargetSlots">Slots the manager was trying to reach for the target.</param>
+/// <param name="ActiveWorkers">Workers the manager observed as active.</param>
+/// <param name="StartingWorkers">Workers the manager observed as starting.</param>
+/// <param name="DrainingWorkers">Workers the manager observed as draining.</param>
+/// <param name="CleanupPendingWorkers">Workers the manager observed as pending cleanup.</param>
+/// <param name="EligibleWorkers">Workers the control plane reported as eligible, or <see langword="null"/> when unavailable.</param>
+/// <param name="LocalDeficit">Workers the manager expected locally but did not observe.</param>
+/// <param name="EligibilityDeficit">Local workers that never became eligible, or <see langword="null"/> when unavailable.</param>
+/// <param name="Reason">Manager-supplied blocking reason.</param>
+/// <param name="Evidence">Bounded manager evidence, or <see langword="null"/> when unreported.</param>
+public sealed record ProfileCapacityDeficitObservation(
+    string TargetKey,
+    DateTimeOffset ObservedAt,
+    string? Repository,
+    string Freshness,
+    int TargetSlots,
+    int ActiveWorkers,
+    int StartingWorkers,
+    int DrainingWorkers,
+    int CleanupPendingWorkers,
+    int? EligibleWorkers,
+    int LocalDeficit,
+    int? EligibilityDeficit,
+    string Reason,
+    string? Evidence);
 
 /// <summary>
 /// Returns the bounded retained history for one profile.
@@ -218,15 +355,21 @@ public sealed record ProfileEventJournalState(
 /// <param name="Events">Retained durable manager events, newest first.</param>
 /// <param name="PointsTruncated">Whether the point limit hid older points in the requested range.</param>
 /// <param name="EventsTruncated">Whether the event limit hid older events in the requested range.</param>
+/// <param name="SubsystemHealthChanges">Retained contract-12 subsystem health changes, newest first.</param>
+/// <param name="CapacityDeficits">Retained per-target capacity-deficit evidence changes, newest first.</param>
 /// <param name="Journal">Explicit journal availability and gap state.</param>
+/// <param name="Retention">What dashboard retention already deleted for the profile.</param>
 public sealed record ProfileHistory(
     string ProfileId,
     IReadOnlyList<ProfileTelemetrySample> Samples,
     IReadOnlyList<ProfileTelemetryRollup> Rollups,
     IReadOnlyList<ManagerEvent> Events,
+    IReadOnlyList<ProfileSubsystemHealthChange> SubsystemHealthChanges,
+    IReadOnlyList<ProfileCapacityDeficitObservation> CapacityDeficits,
     bool PointsTruncated,
     bool EventsTruncated,
-    ProfileEventJournalState Journal);
+    ProfileEventJournalState Journal,
+    ProfileRetentionFloor Retention);
 
 /// <summary>
 /// Returns bounded retained history for one tenant node.
@@ -237,13 +380,21 @@ public sealed record ProfileHistory(
 /// <param name="To">Exclusive end of the served range.</param>
 /// <param name="Resolution">Stored resolution that was served: raw or hourly.</param>
 /// <param name="Profiles">Per-profile bounded history.</param>
+/// <param name="PointsTruncated">Whether the node-wide point limit hid older points across profiles.</param>
+/// <param name="EventsTruncated">Whether the node-wide event limit hid older events across profiles.</param>
+/// <param name="PointLimit">Node-wide point ceiling applied to the response.</param>
+/// <param name="EventLimit">Node-wide event ceiling applied to the response.</param>
 public sealed record NodeHistoryResponse(
     Guid NodeId,
     DateTimeOffset GeneratedAt,
     DateTimeOffset From,
     DateTimeOffset To,
     string Resolution,
-    IReadOnlyList<ProfileHistory> Profiles);
+    IReadOnlyList<ProfileHistory> Profiles,
+    bool PointsTruncated,
+    bool EventsTruncated,
+    int PointLimit,
+    int EventLimit);
 
 /// <summary>
 /// Persists and serves bounded historical runner telemetry and durable manager events.
@@ -255,20 +406,23 @@ public interface IFleetHistoryStore
   /// </summary>
   /// <remarks>
   /// A sample is appended only when the authoritative manager observation time advances, and a
-  /// manager event is appended only once for its durable profile sequence, so a duplicated
-  /// connector heartbeat creates neither a duplicate sample nor a duplicate event.
+  /// manager event is appended only once for its durable journal epoch and profile sequence, so a
+  /// duplicated connector heartbeat creates neither a duplicate sample nor a duplicate event. The
+  /// append enlists in the caller's transaction so history and latest state commit together.
   /// </remarks>
+  /// <param name="transaction">Transaction that also carries the latest-state write for the heartbeat.</param>
   /// <param name="nodeId">Authenticated node identifier.</param>
   /// <param name="profiles">Latest profile observations carried by the heartbeat.</param>
   /// <param name="receivedAt">Dashboard time when the heartbeat was accepted.</param>
-  /// <param name="retention">Retention policy applied after the append.</param>
+  /// <param name="policy">Retention and clock-skew policy applied to the append.</param>
   /// <param name="cancellationToken">Token that cancels the append.</param>
-  /// <returns>A task that completes after history is committed.</returns>
+  /// <returns>A task that completes after history is written into the transaction.</returns>
   Task AppendAsync(
+      IFleetStorageTransaction transaction,
       Guid nodeId,
       IReadOnlyList<ManagerObservedState> profiles,
       DateTimeOffset receivedAt,
-      HistoryRetentionPolicy retention,
+      HistoryAppendPolicy policy,
       CancellationToken cancellationToken);
 
   /// <summary>
