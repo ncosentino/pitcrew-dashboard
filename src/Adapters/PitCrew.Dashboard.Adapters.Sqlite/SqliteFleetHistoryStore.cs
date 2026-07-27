@@ -198,6 +198,8 @@ internal sealed partial class SqliteFleetHistoryStore(
             dropped_samples,
             dropped_rollups,
             dropped_events,
+            dropped_subsystem_health,
+            dropped_capacity_deficits,
             rejected_future_samples,
             rejected_future_events,
             updated_at)
@@ -211,6 +213,8 @@ internal sealed partial class SqliteFleetHistoryStore(
             NULL,
             0,
             NULL,
+            0,
+            0,
             0,
             0,
             0,
@@ -925,9 +929,22 @@ internal sealed partial class SqliteFleetHistoryStore(
     var epoch = cursor.Epoch;
     var epochResets = cursor.EpochResets;
     var previousHighest = cursor.StoredHighestSequence;
-    if (previousHighest is not null &&
+    var isReset = previousHighest is not null &&
         effectiveHighest is not null &&
-        effectiveHighest.Value < previousHighest.Value)
+        effectiveHighest.Value < previousHighest.Value;
+    if (!isReset && events.Count > 0)
+    {
+      isReset = await ConflictsWithStoredEpochAsync(
+          connection,
+          transaction,
+          nodeId,
+          profile.ProfileId,
+          epoch,
+          events,
+          cancellationToken);
+    }
+
+    if (isReset)
     {
       epoch++;
       epochResets++;
@@ -1086,6 +1103,113 @@ internal sealed partial class SqliteFleetHistoryStore(
     cursorCommand.Parameters.AddWithValue("$updatedAt", Utc(receivedAt));
     await cursorCommand.ExecuteNonQueryAsync(cancellationToken);
   }
+
+  /// <summary>
+  /// Detects a manager journal reset that reuses sequences the current epoch already retained.
+  /// </summary>
+  /// <remarks>
+  /// A reset manager can restart its journal and reach the same or a higher high-water mark before
+  /// the next heartbeat, so a sequence comparison alone cannot see it. An incoming sequence that
+  /// already exists in the current epoch with different manager identity or different recorded
+  /// content proves the reuse is a new journal generation rather than a replay; an identical replay
+  /// is deduplicated instead.
+  /// </remarks>
+  private static async Task<bool> ConflictsWithStoredEpochAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Guid nodeId,
+      string profileId,
+      long epoch,
+      Dictionary<long, ManagerEvent> events,
+      CancellationToken cancellationToken)
+  {
+    var sequences = events.Keys.ToList();
+    var placeholders = string.Join(
+        ", ",
+        sequences.Select((_, index) => $"$sequence{index}"));
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        SELECT
+            sequence,
+            manager_instance_id,
+            observed_at,
+            subsystem,
+            operation,
+            target,
+            outcome,
+            duration_milliseconds,
+            attempt,
+            consecutive_failures,
+            retry_at,
+            reason,
+            evidence
+        FROM profile_manager_events
+        WHERE node_id = $nodeId
+          AND profile_id = $profileId
+          AND epoch = $epoch
+          AND sequence IN ({placeholders});
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$profileId", profileId);
+    command.Parameters.AddWithValue("$epoch", epoch);
+    for (var index = 0; index < sequences.Count; index++)
+    {
+      command.Parameters.AddWithValue($"$sequence{index}", sequences[index]);
+    }
+
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    SqliteRowReader? row = null;
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      row ??= new SqliteRowReader(reader);
+      var stored = events[row.Int64("sequence")];
+      if (!IsSameEvent(row, stored))
+      {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private static bool IsSameEvent(SqliteRowReader row, ManagerEvent stored) =>
+      string.Equals(
+          row.String("manager_instance_id"),
+          stored.ManagerInstanceId,
+          StringComparison.Ordinal) &&
+      row.Time("observed_at") == stored.ObservedAt &&
+      string.Equals(
+          row.String("subsystem"),
+          stored.Subsystem,
+          StringComparison.Ordinal) &&
+      string.Equals(
+          row.String("operation"),
+          stored.Operation,
+          StringComparison.Ordinal) &&
+      string.Equals(
+          row.OptionalString("target"),
+          stored.Target,
+          StringComparison.Ordinal) &&
+      string.Equals(
+          row.String("outcome"),
+          stored.Outcome,
+          StringComparison.Ordinal) &&
+      row.OptionalInt32("duration_milliseconds") ==
+          stored.DurationMilliseconds &&
+      row.OptionalInt32("attempt") == stored.Attempt &&
+      row.OptionalInt32("consecutive_failures") == stored.ConsecutiveFailures &&
+      row.OptionalTime("retry_at") == stored.RetryAt &&
+      string.Equals(
+          row.String("reason"),
+          stored.Reason,
+          StringComparison.Ordinal) &&
+      string.Equals(
+          row.OptionalString("evidence"),
+          stored.Evidence,
+          StringComparison.Ordinal);
 
   private static async Task<CursorState> ReadCursorAsync(
       SqliteConnection connection,

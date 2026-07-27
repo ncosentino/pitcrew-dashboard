@@ -9,6 +9,16 @@ namespace PitCrew.Dashboard.Adapters.Sqlite;
 
 internal sealed partial class SqliteFleetHistoryStore
 {
+  private static readonly string[] ProfileScopedTables =
+  [
+      "profile_telemetry_samples",
+      "profile_telemetry_rollups",
+      "profile_manager_events",
+      "profile_subsystem_health",
+      "profile_capacity_deficits",
+      "profile_history_cursors",
+  ];
+
   private static async Task ApplyRetentionAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -43,13 +53,31 @@ internal sealed partial class SqliteFleetHistoryStore
         retention.MaximumEventsPerNode,
         cancellationToken);
 
-    var profileIds = new List<string>();
+    var healthNodeCutoff = await ReadNodeCutoffAsync(
+        connection,
+        transaction,
+        node,
+        "profile_subsystem_health",
+        "observed_at",
+        retention.MaximumDiagnosticsPerNode,
+        cancellationToken);
+    var deficitNodeCutoff = await ReadNodeCutoffAsync(
+        connection,
+        transaction,
+        node,
+        "profile_capacity_deficits",
+        "observed_at",
+        retention.MaximumDiagnosticsPerNode,
+        cancellationToken);
+
+    var diagnosticCutoff = Utc(receivedAt - retention.DiagnosticRetention);
+    var profiles = new List<RetainedProfile>();
     await using (var profileCommand = connection.CreateCommand())
     {
       profileCommand.Transaction = transaction;
       profileCommand.CommandText =
           """
-          SELECT profile_id
+          SELECT profile_id, updated_at
           FROM profile_history_cursors
           WHERE node_id = $nodeId;
           """;
@@ -58,11 +86,13 @@ internal sealed partial class SqliteFleetHistoryStore
           cancellationToken);
       while (await reader.ReadAsync(cancellationToken))
       {
-        profileIds.Add(reader.GetString(0));
+        profiles.Add(new RetainedProfile(
+            reader.GetString(0),
+            string.CompareOrdinal(reader.GetString(1), diagnosticCutoff) >= 0));
       }
     }
 
-    foreach (var profileId in profileIds)
+    foreach (var (profileId, isReporting) in profiles)
     {
       var droppedSamples = await DeleteAsync(
           connection,
@@ -133,50 +163,36 @@ internal sealed partial class SqliteFleetHistoryStore
           eventNodeCutoff,
           retention.MaximumEventsPerProfile,
           cancellationToken);
-      await DeleteAsync(
+      var droppedHealth = await DeleteDiagnosticsAsync(
           connection,
           transaction,
-          """
-          DELETE FROM profile_subsystem_health
-          WHERE node_id = $nodeId
-            AND profile_id = $profileId
-            AND observed_at < $cutoff
-            AND observed_at <> (
-                SELECT MAX(latest.observed_at)
-                FROM profile_subsystem_health AS latest
-                WHERE latest.node_id = $nodeId
-                  AND latest.profile_id = $profileId
-                  AND latest.subsystem = profile_subsystem_health.subsystem);
-          """,
+          "profile_subsystem_health",
+          "subsystem",
           node,
           profileId,
-          Utc(receivedAt - retention.EventRetention),
-          null,
-          0,
+          diagnosticCutoff,
+          healthNodeCutoff,
+          retention.MaximumDiagnosticsPerProfile,
+          isReporting,
           cancellationToken);
-      await DeleteAsync(
+      var droppedDeficits = await DeleteDiagnosticsAsync(
           connection,
           transaction,
-          """
-          DELETE FROM profile_capacity_deficits
-          WHERE node_id = $nodeId
-            AND profile_id = $profileId
-            AND observed_at < $cutoff
-            AND observed_at <> (
-                SELECT MAX(latest.observed_at)
-                FROM profile_capacity_deficits AS latest
-                WHERE latest.node_id = $nodeId
-                  AND latest.profile_id = $profileId
-                  AND latest.target_key = profile_capacity_deficits.target_key);
-          """,
+          "profile_capacity_deficits",
+          "target_key",
           node,
           profileId,
-          Utc(receivedAt - retention.SampleRetention),
-          null,
-          0,
+          diagnosticCutoff,
+          deficitNodeCutoff,
+          retention.MaximumDiagnosticsPerProfile,
+          isReporting,
           cancellationToken);
 
-      if (droppedSamples == 0 && droppedRollups == 0 && droppedEvents == 0)
+      if (droppedSamples == 0 &&
+          droppedRollups == 0 &&
+          droppedEvents == 0 &&
+          droppedHealth == 0 &&
+          droppedDeficits == 0)
       {
         continue;
       }
@@ -188,7 +204,11 @@ internal sealed partial class SqliteFleetHistoryStore
           UPDATE profile_history_cursors
           SET dropped_samples = dropped_samples + $droppedSamples,
               dropped_rollups = dropped_rollups + $droppedRollups,
-              dropped_events = dropped_events + $droppedEvents
+              dropped_events = dropped_events + $droppedEvents,
+              dropped_subsystem_health =
+                  dropped_subsystem_health + $droppedHealth,
+              dropped_capacity_deficits =
+                  dropped_capacity_deficits + $droppedDeficits
           WHERE node_id = $nodeId
             AND profile_id = $profileId;
           """;
@@ -197,9 +217,17 @@ internal sealed partial class SqliteFleetHistoryStore
       counters.Parameters.AddWithValue("$droppedSamples", droppedSamples);
       counters.Parameters.AddWithValue("$droppedRollups", droppedRollups);
       counters.Parameters.AddWithValue("$droppedEvents", droppedEvents);
+      counters.Parameters.AddWithValue("$droppedHealth", droppedHealth);
+      counters.Parameters.AddWithValue("$droppedDeficits", droppedDeficits);
       await counters.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    await BoundRetainedProfilesAsync(
+        connection,
+        transaction,
+        node,
+        retention.MaximumProfilesPerNode,
+        cancellationToken);
     await ExpireCursorsAsync(
         connection,
         transaction,
@@ -207,6 +235,113 @@ internal sealed partial class SqliteFleetHistoryStore
         receivedAt,
         retention,
         cancellationToken);
+  }
+
+  /// <summary>
+  /// Bounds retained diagnostic rows by age, by node-wide ceiling, and by per-profile ceiling.
+  /// </summary>
+  /// <remarks>
+  /// Diagnostic rows are written on change, so the newest row of each key survives the age bound
+  /// only while the profile still reports. A profile that stopped reporting loses every diagnostic
+  /// row, so an absent subsystem or autoscaling target key is not preserved forever and the profile
+  /// cursor can eventually expire. The per-profile and node-wide ceilings bound key churn even while
+  /// the profile keeps reporting.
+  /// </remarks>
+  private static async Task<int> DeleteDiagnosticsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string table,
+      string keyColumn,
+      string nodeId,
+      string profileId,
+      string cutoff,
+      string? nodeCutoff,
+      int maximumPerProfile,
+      bool isReporting,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        DELETE FROM {table}
+        WHERE node_id = $nodeId
+          AND profile_id = $profileId
+          AND ((observed_at < $cutoff
+                AND ($isReporting = 0
+                  OR observed_at <> (
+                      SELECT MAX(latest.observed_at)
+                      FROM {table} AS latest
+                      WHERE latest.node_id = $nodeId
+                        AND latest.profile_id = $profileId
+                        AND latest.{keyColumn} = {table}.{keyColumn})))
+            OR ($nodeCutoff IS NOT NULL AND observed_at <= $nodeCutoff)
+            OR (observed_at, {keyColumn}) NOT IN (
+                SELECT observed_at, {keyColumn}
+                FROM {table}
+                WHERE node_id = $nodeId
+                  AND profile_id = $profileId
+                ORDER BY observed_at DESC
+                LIMIT $maximum));
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId);
+    command.Parameters.AddWithValue("$profileId", profileId);
+    command.Parameters.AddWithValue("$cutoff", cutoff);
+    AddNullable(command, "$nodeCutoff", nodeCutoff);
+    command.Parameters.AddWithValue("$maximum", maximumPerProfile);
+    command.Parameters.AddWithValue("$isReporting", isReporting ? 1 : 0);
+    return await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  /// <summary>
+  /// Bounds how many profiles one node retains so profile identifier churn cannot grow forever.
+  /// </summary>
+  private static async Task BoundRetainedProfilesAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string nodeId,
+      int maximumProfiles,
+      CancellationToken cancellationToken)
+  {
+    var excess = new List<string>();
+    await using (var command = connection.CreateCommand())
+    {
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          SELECT profile_id
+          FROM profile_history_cursors
+          WHERE node_id = $nodeId
+          ORDER BY updated_at DESC, profile_id ASC
+          LIMIT -1 OFFSET $maximum;
+          """;
+      command.Parameters.AddWithValue("$nodeId", nodeId);
+      command.Parameters.AddWithValue("$maximum", maximumProfiles);
+      await using var reader = await command.ExecuteReaderAsync(
+          cancellationToken);
+      while (await reader.ReadAsync(cancellationToken))
+      {
+        excess.Add(reader.GetString(0));
+      }
+    }
+
+    foreach (var profileId in excess)
+    {
+      foreach (var table in ProfileScopedTables)
+      {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            $"""
+            DELETE FROM {table}
+            WHERE node_id = $nodeId
+              AND profile_id = $profileId;
+            """;
+        command.Parameters.AddWithValue("$nodeId", nodeId);
+        command.Parameters.AddWithValue("$profileId", profileId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+      }
+    }
   }
 
   private static async Task<string?> ReadNodeCutoffAsync(
@@ -276,6 +411,10 @@ internal sealed partial class SqliteFleetHistoryStore
     {
       longest = retention.EventRetention;
     }
+    if (retention.DiagnosticRetention > longest)
+    {
+      longest = retention.DiagnosticRetention;
+    }
 
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
@@ -298,7 +437,17 @@ internal sealed partial class SqliteFleetHistoryStore
               SELECT 1
               FROM profile_manager_events AS e
               WHERE e.node_id = profile_history_cursors.node_id
-                AND e.profile_id = profile_history_cursors.profile_id);
+                AND e.profile_id = profile_history_cursors.profile_id)
+          AND NOT EXISTS (
+              SELECT 1
+              FROM profile_subsystem_health AS h
+              WHERE h.node_id = profile_history_cursors.node_id
+                AND h.profile_id = profile_history_cursors.profile_id)
+          AND NOT EXISTS (
+              SELECT 1
+              FROM profile_capacity_deficits AS d
+              WHERE d.node_id = profile_history_cursors.node_id
+                AND d.profile_id = profile_history_cursors.profile_id);
         """;
     command.Parameters.AddWithValue("$nodeId", nodeId);
     command.Parameters.AddWithValue("$cutoff", Utc(receivedAt - longest));
@@ -397,26 +546,35 @@ internal sealed partial class SqliteFleetHistoryStore
     var histories = new List<ProfileHistory>(profileIds.Count);
     var pointsTruncated = false;
     var eventsTruncated = false;
+    var diagnosticsTruncated = false;
     foreach (var id in profileIds)
     {
       var samplePage = samples.GetValueOrDefault(id);
       var rollupPage = rollups.GetValueOrDefault(id);
       var eventPage = events.GetValueOrDefault(id);
+      var healthPage = health.GetValueOrDefault(id);
+      var deficitPage = deficits.GetValueOrDefault(id);
       var profilePointsTruncated =
           (samplePage?.Truncated ?? false) || (rollupPage?.Truncated ?? false);
       var profileEventsTruncated = eventPage?.Truncated ?? false;
+      var profileHealthTruncated = healthPage?.Truncated ?? false;
+      var profileDeficitsTruncated = deficitPage?.Truncated ?? false;
       pointsTruncated |= profilePointsTruncated;
       eventsTruncated |= profileEventsTruncated;
+      diagnosticsTruncated |=
+          profileHealthTruncated || profileDeficitsTruncated;
       var journal = journals.GetValueOrDefault(id);
       histories.Add(new ProfileHistory(
           id,
           samplePage?.Samples ?? [],
           rollupPage?.Rollups ?? [],
           eventPage?.Events ?? [],
-          health.GetValueOrDefault(id) ?? [],
-          deficits.GetValueOrDefault(id) ?? [],
+          healthPage?.Changes ?? [],
+          deficitPage?.Observations ?? [],
           profilePointsTruncated,
           profileEventsTruncated,
+          profileHealthTruncated,
+          profileDeficitsTruncated,
           journal?.Journal ?? EmptyJournal(),
           journal?.Retention ?? EmptyRetention()));
     }
@@ -430,8 +588,13 @@ internal sealed partial class SqliteFleetHistoryStore
         histories,
         pointsTruncated,
         eventsTruncated,
+        diagnosticsTruncated,
         window.PointLimit,
-        window.EventLimit);
+        window.EventLimit,
+        window.DiagnosticLimit,
+        window.NodePointLimit,
+        window.NodeEventLimit,
+        window.NodeDiagnosticLimit);
   }
 
   private static async Task<Dictionary<string, SamplePage>> LoadSamplesAsync(
@@ -733,7 +896,7 @@ internal sealed partial class SqliteFleetHistoryStore
     return pages;
   }
 
-  private static async Task<Dictionary<string, List<ProfileSubsystemHealthChange>>>
+  private static async Task<Dictionary<string, SubsystemHealthPage>>
       LoadSubsystemHealthAsync(
           SqliteConnection connection,
           SqliteTransaction transaction,
@@ -759,34 +922,30 @@ internal sealed partial class SqliteFleetHistoryStore
             last_failure_operation,
             last_failure_observed_at,
             last_failure_reason,
-            last_failure_evidence
+            last_failure_evidence,
+            total_points,
+            node_total
         FROM (
             SELECT
                 *,
                 ROW_NUMBER() OVER (
                     PARTITION BY profile_id
                     ORDER BY observed_at DESC) AS row_index,
-                ROW_NUMBER() OVER (ORDER BY observed_at DESC) AS node_index
+                COUNT(*) OVER (PARTITION BY profile_id) AS total_points,
+                ROW_NUMBER() OVER (ORDER BY observed_at DESC) AS node_index,
+                COUNT(*) OVER () AS node_total
             FROM profile_subsystem_health
             WHERE node_id = $nodeId
               AND observed_at >= $from
               AND observed_at < $to
               AND ($profileId IS NULL OR profile_id = $profileId))
-        WHERE row_index <= $eventLimit
-          AND node_index <= $nodeEventLimit
+        WHERE row_index <= $diagnosticLimit
+          AND node_index <= $nodeDiagnosticLimit
         ORDER BY profile_id, observed_at;
         """;
-    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
-    command.Parameters.AddWithValue(
-        "$profileId",
-        (object?)profileId ?? DBNull.Value);
-    command.Parameters.AddWithValue("$from", Utc(window.From));
-    command.Parameters.AddWithValue("$to", Utc(window.To));
-    command.Parameters.AddWithValue("$eventLimit", window.EventLimit);
-    command.Parameters.AddWithValue("$nodeEventLimit", window.NodeEventLimit);
+    AddDiagnosticParameters(command, nodeId, profileId, window);
     var changes =
-        new Dictionary<string, List<ProfileSubsystemHealthChange>>(
-            StringComparer.Ordinal);
+        new Dictionary<string, SubsystemHealthPage>(StringComparer.Ordinal);
     await using var reader = await command.ExecuteReaderAsync(
         cancellationToken);
     SqliteRowReader? row = null;
@@ -794,13 +953,16 @@ internal sealed partial class SqliteFleetHistoryStore
     {
       row ??= new SqliteRowReader(reader);
       var id = row.String("profile_id");
-      if (!changes.TryGetValue(id, out var list))
+      if (!changes.TryGetValue(id, out var page))
       {
-        list = [];
-        changes[id] = list;
+        page = new SubsystemHealthPage(
+            [],
+            row.Int64("total_points") > window.DiagnosticLimit ||
+                row.Int64("node_total") > window.NodeDiagnosticLimit);
+        changes[id] = page;
       }
 
-      list.Add(new ProfileSubsystemHealthChange(
+      page.Changes.Add(new ProfileSubsystemHealthChange(
           row.String("subsystem"),
           row.Time("observed_at"),
           row.String("state"),
@@ -818,7 +980,7 @@ internal sealed partial class SqliteFleetHistoryStore
     return changes;
   }
 
-  private static async Task<Dictionary<string, List<ProfileCapacityDeficitObservation>>>
+  private static async Task<Dictionary<string, CapacityDeficitPage>>
       LoadCapacityDeficitsAsync(
           SqliteConnection connection,
           SqliteTransaction transaction,
@@ -846,27 +1008,30 @@ internal sealed partial class SqliteFleetHistoryStore
             local_deficit,
             eligibility_deficit,
             reason,
-            evidence
+            evidence,
+            total_points,
+            node_total
         FROM (
             SELECT
                 *,
                 ROW_NUMBER() OVER (
                     PARTITION BY profile_id
                     ORDER BY observed_at DESC) AS row_index,
-                ROW_NUMBER() OVER (ORDER BY observed_at DESC) AS node_index
+                COUNT(*) OVER (PARTITION BY profile_id) AS total_points,
+                ROW_NUMBER() OVER (ORDER BY observed_at DESC) AS node_index,
+                COUNT(*) OVER () AS node_total
             FROM profile_capacity_deficits
             WHERE node_id = $nodeId
               AND observed_at >= $from
               AND observed_at < $to
               AND ($profileId IS NULL OR profile_id = $profileId))
-        WHERE row_index <= $pointLimit
-          AND node_index <= $nodePointLimit
+        WHERE row_index <= $diagnosticLimit
+          AND node_index <= $nodeDiagnosticLimit
         ORDER BY profile_id, observed_at, target_key;
         """;
-    AddWindowParameters(command, nodeId, profileId, window);
+    AddDiagnosticParameters(command, nodeId, profileId, window);
     var deficits =
-        new Dictionary<string, List<ProfileCapacityDeficitObservation>>(
-            StringComparer.Ordinal);
+        new Dictionary<string, CapacityDeficitPage>(StringComparer.Ordinal);
     await using var reader = await command.ExecuteReaderAsync(
         cancellationToken);
     SqliteRowReader? row = null;
@@ -874,13 +1039,16 @@ internal sealed partial class SqliteFleetHistoryStore
     {
       row ??= new SqliteRowReader(reader);
       var id = row.String("profile_id");
-      if (!deficits.TryGetValue(id, out var list))
+      if (!deficits.TryGetValue(id, out var page))
       {
-        list = [];
-        deficits[id] = list;
+        page = new CapacityDeficitPage(
+            [],
+            row.Int64("total_points") > window.DiagnosticLimit ||
+                row.Int64("node_total") > window.NodeDiagnosticLimit);
+        deficits[id] = page;
       }
 
-      list.Add(new ProfileCapacityDeficitObservation(
+      page.Observations.Add(new ProfileCapacityDeficitObservation(
           row.String("target_key"),
           row.Time("observed_at"),
           row.OptionalString("repository"),
@@ -924,6 +1092,8 @@ internal sealed partial class SqliteFleetHistoryStore
             c.dropped_samples AS dropped_samples,
             c.dropped_rollups AS dropped_rollups,
             c.dropped_events AS dropped_events,
+            c.dropped_subsystem_health AS dropped_subsystem_health,
+            c.dropped_capacity_deficits AS dropped_capacity_deficits,
             c.rejected_future_samples AS rejected_future_samples,
             c.rejected_future_events AS rejected_future_events,
             c.updated_at AS updated_at,
@@ -943,7 +1113,15 @@ internal sealed partial class SqliteFleetHistoryStore
             (SELECT MIN(v.observed_at)
              FROM profile_manager_events AS v
              WHERE v.node_id = c.node_id
-               AND v.profile_id = c.profile_id) AS earliest_event
+               AND v.profile_id = c.profile_id) AS earliest_event,
+            (SELECT MIN(h.observed_at)
+             FROM profile_subsystem_health AS h
+             WHERE h.node_id = c.node_id
+               AND h.profile_id = c.profile_id) AS earliest_subsystem_health,
+            (SELECT MIN(d.observed_at)
+             FROM profile_capacity_deficits AS d
+             WHERE d.node_id = c.node_id
+               AND d.profile_id = c.profile_id) AS earliest_capacity_deficit
         FROM profile_history_cursors AS c
         WHERE c.node_id = $nodeId
           AND ($profileId IS NULL OR c.profile_id = $profileId);
@@ -985,6 +1163,10 @@ internal sealed partial class SqliteFleetHistoryStore
               row.Int64("dropped_rollups"),
               row.OptionalTime("earliest_event"),
               row.Int64("dropped_events"),
+              row.OptionalTime("earliest_subsystem_health"),
+              row.Int64("dropped_subsystem_health"),
+              row.OptionalTime("earliest_capacity_deficit"),
+              row.Int64("dropped_capacity_deficits"),
               row.Int64("rejected_future_samples")));
     }
 
@@ -1007,7 +1189,7 @@ internal sealed partial class SqliteFleetHistoryStore
           null);
 
   private static ProfileRetentionFloor EmptyRetention() =>
-      new(null, 0, null, 0, null, 0, 0);
+      new(null, 0, null, 0, null, 0, null, 0, null, 0, 0);
 
   private static void AddWindowParameters(
       SqliteCommand command,
@@ -1023,6 +1205,26 @@ internal sealed partial class SqliteFleetHistoryStore
     command.Parameters.AddWithValue("$to", Utc(window.To));
     command.Parameters.AddWithValue("$pointLimit", window.PointLimit);
     command.Parameters.AddWithValue("$nodePointLimit", window.NodePointLimit);
+  }
+
+  private static void AddDiagnosticParameters(
+      SqliteCommand command,
+      Guid nodeId,
+      string? profileId,
+      HistoryWindow window)
+  {
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$profileId",
+        (object?)profileId ?? DBNull.Value);
+    command.Parameters.AddWithValue("$from", Utc(window.From));
+    command.Parameters.AddWithValue("$to", Utc(window.To));
+    command.Parameters.AddWithValue(
+        "$diagnosticLimit",
+        window.DiagnosticLimit);
+    command.Parameters.AddWithValue(
+        "$nodeDiagnosticLimit",
+        window.NodeDiagnosticLimit);
   }
 
   private static ProjectedSample ProjectSample(ManagerObservedState profile)
@@ -1173,7 +1375,19 @@ internal sealed partial class SqliteFleetHistoryStore
       List<ManagerEvent> Events,
       bool Truncated);
 
+  private sealed record SubsystemHealthPage(
+      List<ProfileSubsystemHealthChange> Changes,
+      bool Truncated);
+
+  private sealed record CapacityDeficitPage(
+      List<ProfileCapacityDeficitObservation> Observations,
+      bool Truncated);
+
   private sealed record JournalPage(
       ProfileEventJournalState Journal,
       ProfileRetentionFloor Retention);
+
+  private sealed record RetainedProfile(
+      string ProfileId,
+      bool IsReporting);
 }

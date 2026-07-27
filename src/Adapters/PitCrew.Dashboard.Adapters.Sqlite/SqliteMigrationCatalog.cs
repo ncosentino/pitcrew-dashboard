@@ -623,6 +623,10 @@ internal static class SqliteMigrationCatalog
                 dropped_samples INTEGER NOT NULL CHECK (dropped_samples >= 0),
                 dropped_rollups INTEGER NOT NULL CHECK (dropped_rollups >= 0),
                 dropped_events INTEGER NOT NULL CHECK (dropped_events >= 0),
+                dropped_subsystem_health INTEGER NOT NULL
+                    CHECK (dropped_subsystem_health >= 0),
+                dropped_capacity_deficits INTEGER NOT NULL
+                    CHECK (dropped_capacity_deficits >= 0),
                 rejected_future_samples INTEGER NOT NULL
                     CHECK (rejected_future_samples >= 0),
                 rejected_future_events INTEGER NOT NULL

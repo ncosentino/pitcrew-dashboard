@@ -18,7 +18,8 @@ internal sealed record HistoryQueryInput(
     string? To,
     string? Resolution,
     string? Points,
-    string? Events);
+    string? Events,
+    string? Diagnostics);
 
 internal sealed record HistoryQueryResult(
     HistoryQueryStatus Status,
@@ -202,6 +203,15 @@ internal sealed class GetFleetHistoryUnitOfWork(
           $"The 'events' limit must be between 1 and {options.MaximumHistoryEvents}.";
       return null;
     }
+    var diagnostics = ParseLimitOrNull(
+        input.Diagnostics,
+        options.MaximumHistoryDiagnostics);
+    if (diagnostics is null)
+    {
+      error =
+          $"The 'diagnostics' limit must be between 1 and {options.MaximumHistoryDiagnostics}.";
+      return null;
+    }
 
     return new HistoryWindow(
         from.Value,
@@ -209,8 +219,10 @@ internal sealed class GetFleetHistoryUnitOfWork(
         resolution,
         points.Value,
         events.Value,
+        diagnostics.Value,
         options.MaximumNodeHistoryPoints,
-        options.MaximumNodeHistoryEvents);
+        options.MaximumNodeHistoryEvents,
+        options.MaximumNodeHistoryDiagnostics);
   }
 
   private static DateTimeOffset FloorHour(DateTimeOffset value)

@@ -45,7 +45,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
     var result = await CreateUnitOfWork(store, options).GetNodeHistoryAsync(
         "tenant",
         Guid.NewGuid(),
-        new HistoryQueryInput(null, null, null, null, null),
+        new HistoryQueryInput(null, null, null, null, null, null),
         cancellationToken);
 
     await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.Succeeded);
@@ -77,6 +77,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
             Now.ToString("O"),
             null,
             null,
+            null,
             null),
         cancellationToken);
     var invertedRange = await unitOfWork.GetNodeHistoryAsync(
@@ -87,12 +88,13 @@ public sealed class GetFleetHistoryUnitOfWorkTests
             Now.AddHours(-1).ToString("O"),
             null,
             null,
+            null,
             null),
         cancellationToken);
     var unparsableRange = await unitOfWork.GetNodeHistoryAsync(
         "tenant",
         nodeId,
-        new HistoryQueryInput("yesterday", null, null, null, null),
+        new HistoryQueryInput("yesterday", null, null, null, null, null),
         cancellationToken);
     var oversizedLimit = await unitOfWork.GetNodeHistoryAsync(
         "tenant",
@@ -103,6 +105,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
             null,
             (options.MaximumHistoryPoints + 1).ToString(
                 System.Globalization.CultureInfo.InvariantCulture),
+            null,
             null),
         cancellationToken);
     var oversizedEvents = await unitOfWork.GetNodeHistoryAsync(
@@ -114,12 +117,13 @@ public sealed class GetFleetHistoryUnitOfWorkTests
             null,
             null,
             (options.MaximumHistoryEvents + 1).ToString(
-                System.Globalization.CultureInfo.InvariantCulture)),
+                System.Globalization.CultureInfo.InvariantCulture),
+            null),
         cancellationToken);
     var unknownResolution = await unitOfWork.GetNodeHistoryAsync(
         "tenant",
         nodeId,
-        new HistoryQueryInput(null, null, "minutely", null, null),
+        new HistoryQueryInput(null, null, "minutely", null, null, null),
         cancellationToken);
 
     await Assert.That(wideRange.Status).IsEqualTo(HistoryQueryStatus.Invalid);
@@ -147,7 +151,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
         "tenant",
         Guid.NewGuid(),
         "../escape",
-        new HistoryQueryInput(null, null, null, null, null),
+        new HistoryQueryInput(null, null, null, null, null, null),
         cancellationToken);
 
     await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.Invalid);
@@ -174,7 +178,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
         "tenant",
         Guid.NewGuid(),
         "default",
-        new HistoryQueryInput(null, null, null, null, null),
+        new HistoryQueryInput(null, null, null, null, null, null),
         cancellationToken);
 
     await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.NotFound);
@@ -212,6 +216,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
             Now.AddMinutes(-10).ToString("O"),
             "hourly",
             null,
+            null,
             null),
         cancellationToken);
 
@@ -240,6 +245,7 @@ public sealed class GetFleetHistoryUnitOfWorkTests
                 Now.AddMinutes(-5).ToString("O"),
                 "hourly",
                 null,
+                null,
                 null),
             cancellationToken);
 
@@ -257,8 +263,13 @@ public sealed class GetFleetHistoryUnitOfWorkTests
           [],
           false,
           false,
+          false,
           1000,
-          200);
+          200,
+          200,
+          5000,
+          1000,
+          1000);
 
   private static GetFleetHistoryUnitOfWork CreateUnitOfWork(
       Mock<IFleetHistoryStore> store,

@@ -26,16 +26,20 @@ public enum HistoryResolution
 /// <param name="Resolution">Stored resolution to return.</param>
 /// <param name="PointLimit">Maximum samples or rollups returned per profile.</param>
 /// <param name="EventLimit">Maximum manager events returned per profile.</param>
+/// <param name="DiagnosticLimit">Maximum subsystem-health changes or capacity-deficit observations returned per profile.</param>
 /// <param name="NodePointLimit">Maximum samples or rollups returned across every profile of the node.</param>
 /// <param name="NodeEventLimit">Maximum manager events returned across every profile of the node.</param>
+/// <param name="NodeDiagnosticLimit">Maximum diagnostic rows returned across every profile of the node.</param>
 public sealed record HistoryWindow(
     DateTimeOffset From,
     DateTimeOffset To,
     HistoryResolution Resolution,
     int PointLimit,
     int EventLimit,
+    int DiagnosticLimit,
     int NodePointLimit,
-    int NodeEventLimit);
+    int NodeEventLimit,
+    int NodeDiagnosticLimit);
 
 /// <summary>
 /// Bounds retained history by measured policy.
@@ -43,20 +47,28 @@ public sealed record HistoryWindow(
 /// <param name="SampleRetention">Maximum age of a retained per-observation sample.</param>
 /// <param name="RollupRetention">Maximum age of a retained hourly rollup.</param>
 /// <param name="EventRetention">Maximum age of a retained durable manager event.</param>
+/// <param name="DiagnosticRetention">Maximum age of a retained subsystem-health change or capacity-deficit observation.</param>
 /// <param name="MaximumSamplesPerProfile">Hard per-profile ceiling on retained samples.</param>
 /// <param name="MaximumEventsPerProfile">Hard per-profile ceiling on retained manager events.</param>
+/// <param name="MaximumDiagnosticsPerProfile">Hard per-profile ceiling on retained rows of each diagnostic table.</param>
 /// <param name="MaximumSamplesPerNode">Hard node-wide ceiling on retained samples across every profile.</param>
 /// <param name="MaximumEventsPerNode">Hard node-wide ceiling on retained manager events across every profile.</param>
 /// <param name="MaximumRollupsPerNode">Hard node-wide ceiling on retained hourly rollups across every profile.</param>
+/// <param name="MaximumDiagnosticsPerNode">Hard node-wide ceiling on retained rows of each diagnostic table.</param>
+/// <param name="MaximumProfilesPerNode">Hard ceiling on retained profiles, so profile identifier churn cannot accumulate cursors forever.</param>
 public sealed record HistoryRetentionPolicy(
     TimeSpan SampleRetention,
     TimeSpan RollupRetention,
     TimeSpan EventRetention,
+    TimeSpan DiagnosticRetention,
     int MaximumSamplesPerProfile,
     int MaximumEventsPerProfile,
+    int MaximumDiagnosticsPerProfile,
     int MaximumSamplesPerNode,
     int MaximumEventsPerNode,
-    int MaximumRollupsPerNode);
+    int MaximumRollupsPerNode,
+    int MaximumDiagnosticsPerNode,
+    int MaximumProfilesPerNode);
 
 /// <summary>
 /// Bounds one history append in retention and in accepted manager clock skew.
@@ -265,6 +277,10 @@ public sealed record ProfileEventJournalState(
 /// <param name="DroppedRollups">Hourly buckets this profile lost to dashboard retention.</param>
 /// <param name="EarliestRetainedEvent">Oldest retained manager event observation, or <see langword="null"/> when none is retained.</param>
 /// <param name="DroppedEvents">Manager events this profile lost to dashboard retention.</param>
+/// <param name="EarliestRetainedSubsystemHealthChange">Oldest retained subsystem-health change, or <see langword="null"/> when none is retained.</param>
+/// <param name="DroppedSubsystemHealthChanges">Subsystem-health changes this profile lost to dashboard retention.</param>
+/// <param name="EarliestRetainedCapacityDeficit">Oldest retained capacity-deficit observation, or <see langword="null"/> when none is retained.</param>
+/// <param name="DroppedCapacityDeficits">Capacity-deficit observations this profile lost to dashboard retention.</param>
 /// <param name="RejectedFutureSamples">Samples rejected because their timestamp exceeded accepted clock skew.</param>
 public sealed record ProfileRetentionFloor(
     DateTimeOffset? EarliestRetainedSample,
@@ -273,6 +289,10 @@ public sealed record ProfileRetentionFloor(
     long DroppedRollups,
     DateTimeOffset? EarliestRetainedEvent,
     long DroppedEvents,
+    DateTimeOffset? EarliestRetainedSubsystemHealthChange,
+    long DroppedSubsystemHealthChanges,
+    DateTimeOffset? EarliestRetainedCapacityDeficit,
+    long DroppedCapacityDeficits,
     long RejectedFutureSamples);
 
 /// <summary>
@@ -355,6 +375,8 @@ public sealed record ProfileCapacityDeficitObservation(
 /// <param name="Events">Retained durable manager events, newest first.</param>
 /// <param name="PointsTruncated">Whether the point limit hid older points in the requested range.</param>
 /// <param name="EventsTruncated">Whether the event limit hid older events in the requested range.</param>
+/// <param name="SubsystemHealthTruncated">Whether the diagnostic limit hid older subsystem-health changes in the requested range.</param>
+/// <param name="CapacityDeficitsTruncated">Whether the diagnostic limit hid older capacity-deficit observations in the requested range.</param>
 /// <param name="SubsystemHealthChanges">Retained contract-12 subsystem health changes, newest first.</param>
 /// <param name="CapacityDeficits">Retained per-target capacity-deficit evidence changes, newest first.</param>
 /// <param name="Journal">Explicit journal availability and gap state.</param>
@@ -368,6 +390,8 @@ public sealed record ProfileHistory(
     IReadOnlyList<ProfileCapacityDeficitObservation> CapacityDeficits,
     bool PointsTruncated,
     bool EventsTruncated,
+    bool SubsystemHealthTruncated,
+    bool CapacityDeficitsTruncated,
     ProfileEventJournalState Journal,
     ProfileRetentionFloor Retention);
 
@@ -380,10 +404,15 @@ public sealed record ProfileHistory(
 /// <param name="To">Exclusive end of the served range.</param>
 /// <param name="Resolution">Stored resolution that was served: raw or hourly.</param>
 /// <param name="Profiles">Per-profile bounded history.</param>
-/// <param name="PointsTruncated">Whether the node-wide point limit hid older points across profiles.</param>
-/// <param name="EventsTruncated">Whether the node-wide event limit hid older events across profiles.</param>
-/// <param name="PointLimit">Node-wide point ceiling applied to the response.</param>
-/// <param name="EventLimit">Node-wide event ceiling applied to the response.</param>
+/// <param name="PointsTruncated">Whether a point ceiling hid older points in the response.</param>
+/// <param name="EventsTruncated">Whether an event ceiling hid older events in the response.</param>
+/// <param name="DiagnosticsTruncated">Whether a diagnostic ceiling hid older subsystem-health or capacity-deficit rows in the response.</param>
+/// <param name="ProfilePointLimit">Per-profile point ceiling applied to the response.</param>
+/// <param name="ProfileEventLimit">Per-profile event ceiling applied to the response.</param>
+/// <param name="ProfileDiagnosticLimit">Per-profile diagnostic ceiling applied to the response.</param>
+/// <param name="NodePointLimit">Node-wide point ceiling applied to the response.</param>
+/// <param name="NodeEventLimit">Node-wide event ceiling applied to the response.</param>
+/// <param name="NodeDiagnosticLimit">Node-wide diagnostic ceiling applied to the response.</param>
 public sealed record NodeHistoryResponse(
     Guid NodeId,
     DateTimeOffset GeneratedAt,
@@ -393,8 +422,13 @@ public sealed record NodeHistoryResponse(
     IReadOnlyList<ProfileHistory> Profiles,
     bool PointsTruncated,
     bool EventsTruncated,
-    int PointLimit,
-    int EventLimit);
+    bool DiagnosticsTruncated,
+    int ProfilePointLimit,
+    int ProfileEventLimit,
+    int ProfileDiagnosticLimit,
+    int NodePointLimit,
+    int NodeEventLimit,
+    int NodeDiagnosticLimit);
 
 /// <summary>
 /// Persists and serves bounded historical runner telemetry and durable manager events.

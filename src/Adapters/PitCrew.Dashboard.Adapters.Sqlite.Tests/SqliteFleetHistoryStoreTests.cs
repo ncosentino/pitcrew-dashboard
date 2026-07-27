@@ -24,7 +24,9 @@ public sealed class SqliteFleetHistoryStoreTests
 
   private const int NodeEventLimit = 100_000;
 
-  private static readonly HistoryRetentionPolicy Retention = new(
+  private const int NodeDiagnosticLimit = 100_000;
+
+  private static readonly HistoryRetentionPolicy Retention = CreateRetention(
       TimeSpan.FromDays(14),
       TimeSpan.FromDays(90),
       TimeSpan.FromDays(30),
@@ -276,7 +278,7 @@ public sealed class SqliteFleetHistoryStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      var retention = new HistoryRetentionPolicy(
+      var retention = CreateRetention(
           TimeSpan.FromMinutes(30),
           TimeSpan.FromMinutes(90),
           TimeSpan.FromMinutes(30),
@@ -735,8 +737,10 @@ public sealed class SqliteFleetHistoryStoreTests
               HistoryResolution.Raw,
               100,
               100,
+              NodeDiagnosticLimit,
               NodePointLimit,
-              NodeEventLimit),
+              NodeEventLimit,
+              NodeDiagnosticLimit),
           Origin.AddHours(1),
           cancellationToken);
       await Assert.That(history).IsNotNull();
@@ -830,7 +834,7 @@ public sealed class SqliteFleetHistoryStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      var retention = new HistoryRetentionPolicy(
+      var retention = CreateRetention(
           TimeSpan.FromMinutes(30),
           TimeSpan.FromDays(90),
           TimeSpan.FromMinutes(30),
@@ -865,8 +869,10 @@ public sealed class SqliteFleetHistoryStoreTests
               HistoryResolution.Raw,
               100,
               100,
+              NodeDiagnosticLimit,
               NodePointLimit,
-              NodeEventLimit),
+              NodeEventLimit,
+              NodeDiagnosticLimit),
           Origin.AddHours(3),
           cancellationToken);
       await Assert.That(history).IsNotNull();
@@ -892,7 +898,7 @@ public sealed class SqliteFleetHistoryStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      var retention = new HistoryRetentionPolicy(
+      var retention = CreateRetention(
           TimeSpan.FromDays(7),
           TimeSpan.FromDays(90),
           TimeSpan.FromDays(30),
@@ -977,7 +983,8 @@ public sealed class SqliteFleetHistoryStoreTests
           history!.Profiles.Sum(profile => profile.Samples.Count))
           .IsEqualTo(4);
       await Assert.That(history.PointsTruncated).IsTrue();
-      await Assert.That(history.PointLimit).IsEqualTo(100);
+      await Assert.That(history.ProfilePointLimit).IsEqualTo(100);
+      await Assert.That(history.NodePointLimit).IsEqualTo(4);
     }
     finally
     {
@@ -996,7 +1003,7 @@ public sealed class SqliteFleetHistoryStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      var retention = new HistoryRetentionPolicy(
+      var retention = CreateRetention(
           TimeSpan.FromDays(7),
           TimeSpan.FromDays(90),
           TimeSpan.FromDays(30),
@@ -1074,8 +1081,10 @@ public sealed class SqliteFleetHistoryStoreTests
               HistoryResolution.Hourly,
               100,
               100,
+              NodeDiagnosticLimit,
               NodePointLimit,
-              NodeEventLimit),
+              NodeEventLimit,
+              NodeDiagnosticLimit),
           Origin.AddHours(4),
           cancellationToken);
       await Assert.That(history).IsNotNull();
@@ -1160,8 +1169,10 @@ public sealed class SqliteFleetHistoryStoreTests
           resolution,
           pointLimit,
           eventLimit,
+          NodeDiagnosticLimit,
           NodePointLimit,
-          NodeEventLimit);
+          NodeEventLimit,
+          NodeDiagnosticLimit);
 
   private static HistoryWindow CreateNodeWindow(
       HistoryResolution resolution,
@@ -1175,8 +1186,10 @@ public sealed class SqliteFleetHistoryStoreTests
           resolution,
           pointLimit,
           eventLimit,
+          NodeDiagnosticLimit,
           nodePointLimit,
-          nodeEventLimit);
+          nodeEventLimit,
+          NodeDiagnosticLimit);
 
   private static ManagerEvent CreateEvent(
       long sequence,
@@ -1381,6 +1394,29 @@ public sealed class SqliteFleetHistoryStoreTests
                     "github evidence"),
             ]),
       };
+
+  private static HistoryRetentionPolicy CreateRetention(
+      TimeSpan sampleRetention,
+      TimeSpan rollupRetention,
+      TimeSpan eventRetention,
+      int maximumSamplesPerProfile,
+      int maximumEventsPerProfile,
+      int maximumSamplesPerNode,
+      int maximumEventsPerNode,
+      int maximumRollupsPerNode) =>
+      new(
+          sampleRetention,
+          rollupRetention,
+          eventRetention,
+          eventRetention,
+          maximumSamplesPerProfile,
+          maximumEventsPerProfile,
+          100_000,
+          maximumSamplesPerNode,
+          maximumEventsPerNode,
+          maximumRollupsPerNode,
+          100_000,
+          1000);
 
   private static string CreateDatabasePath(string label) =>
       Path.Combine(

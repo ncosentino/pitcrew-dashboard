@@ -90,6 +90,18 @@ public sealed class FleetDashboardOptions
   public int ManagerEventRetentionDays { get; set; } = 30;
 
   /// <summary>
+  /// Gets or sets how long retained subsystem-health changes and capacity-deficit observations are kept.
+  /// </summary>
+  /// <remarks>
+  /// Diagnostic rows are written on change, so a subsystem or autoscaling target that stops being
+  /// reported would otherwise keep its newest row forever. The newest row per key survives this age
+  /// bound only while the profile still reports; once the profile stops reporting, its diagnostic
+  /// rows are deleted so an absent key is not preserved indefinitely.
+  /// </remarks>
+  [Range(1, 3650)]
+  public int DiagnosticRetentionDays { get; set; } = 30;
+
+  /// <summary>
   /// Gets or sets the hard per-profile ceiling on retained telemetry samples.
   /// </summary>
   [Range(100, 1_000_000)]
@@ -100,6 +112,17 @@ public sealed class FleetDashboardOptions
   /// </summary>
   [Range(100, 1_000_000)]
   public int MaximumManagerEventsPerProfile { get; set; } = 20_000;
+
+  /// <summary>
+  /// Gets or sets the hard per-profile ceiling on retained rows of each diagnostic table.
+  /// </summary>
+  /// <remarks>
+  /// Subsystem-health changes and per-target capacity-deficit observations are bounded separately by
+  /// this ceiling, so a manager that invents new autoscaling target keys cannot grow the database
+  /// without bound.
+  /// </remarks>
+  [Range(10, 1_000_000)]
+  public int MaximumDiagnosticsPerProfile { get; set; } = 5_000;
 
   /// <summary>
   /// Gets or sets the hard node-wide ceiling on retained telemetry samples.
@@ -122,6 +145,22 @@ public sealed class FleetDashboardOptions
   /// </summary>
   [Range(100, 5_000_000)]
   public int MaximumManagerEventsPerNode { get; set; } = 100_000;
+
+  /// <summary>
+  /// Gets or sets the hard node-wide ceiling on retained rows of each diagnostic table.
+  /// </summary>
+  [Range(100, 5_000_000)]
+  public int MaximumDiagnosticsPerNode { get; set; } = 25_000;
+
+  /// <summary>
+  /// Gets or sets the hard ceiling on retained profiles for one node.
+  /// </summary>
+  /// <remarks>
+  /// Profile identifier churn cannot accumulate cursors forever: profiles beyond this ceiling, least
+  /// recently reported first, lose their retained rows and their cursor.
+  /// </remarks>
+  [Range(1, 10_000)]
+  public int MaximumProfilesPerNode { get; set; } = 200;
 
   /// <summary>
   /// Gets or sets how far ahead of dashboard time an observation may claim to be observed.
@@ -158,6 +197,16 @@ public sealed class FleetDashboardOptions
   public int MaximumHistoryEvents { get; set; } = 200;
 
   /// <summary>
+  /// Gets or sets the maximum diagnostic rows one bounded query returns per profile.
+  /// </summary>
+  /// <remarks>
+  /// Applied separately to retained subsystem-health changes and to retained per-target
+  /// capacity-deficit observations so neither hides the other.
+  /// </remarks>
+  [Range(10, 5000)]
+  public int MaximumHistoryDiagnostics { get; set; } = 200;
+
+  /// <summary>
   /// Gets or sets the maximum samples or rollups one bounded query returns for the whole node.
   /// </summary>
   [Range(10, 20_000)]
@@ -168,6 +217,12 @@ public sealed class FleetDashboardOptions
   /// </summary>
   [Range(10, 20_000)]
   public int MaximumNodeHistoryEvents { get; set; } = 1000;
+
+  /// <summary>
+  /// Gets or sets the maximum diagnostic rows one bounded query returns for the whole node.
+  /// </summary>
+  [Range(10, 20_000)]
+  public int MaximumNodeHistoryDiagnostics { get; set; } = 1000;
 
   /// <summary>
   /// Validates relationships between connector polling and dashboard freshness settings.
@@ -214,6 +269,16 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "MaximumManagerEventsPerNode must be at least MaximumManagerEventsPerProfile.";
+    }
+    if (MaximumNodeHistoryDiagnostics < MaximumHistoryDiagnostics)
+    {
+      yield return
+          "MaximumNodeHistoryDiagnostics must be at least MaximumHistoryDiagnostics.";
+    }
+    if (MaximumDiagnosticsPerNode < MaximumDiagnosticsPerProfile)
+    {
+      yield return
+          "MaximumDiagnosticsPerNode must be at least MaximumDiagnosticsPerProfile.";
     }
   }
 }

@@ -13,11 +13,15 @@ internal static class FleetHistoryPolicy
           TimeSpan.FromDays(options.TelemetrySampleRetentionDays),
           TimeSpan.FromDays(options.TelemetryRollupRetentionDays),
           TimeSpan.FromDays(options.ManagerEventRetentionDays),
+          TimeSpan.FromDays(options.DiagnosticRetentionDays),
           options.MaximumTelemetrySamplesPerProfile,
           options.MaximumManagerEventsPerProfile,
+          options.MaximumDiagnosticsPerProfile,
           options.MaximumTelemetrySamplesPerNode,
           options.MaximumManagerEventsPerNode,
-          options.MaximumTelemetryRollupsPerNode);
+          options.MaximumTelemetryRollupsPerNode,
+          options.MaximumDiagnosticsPerNode,
+          options.MaximumProfilesPerNode);
 
   public static HistoryAppendPolicy CreateAppendPolicy(
       FleetDashboardOptions options) =>

@@ -195,7 +195,8 @@ public sealed class FleetCarterModule : ICarterModule
         query["to"].ToString(),
         query["resolution"].ToString(),
         query["points"].ToString(),
-        query["events"].ToString());
+        query["events"].ToString(),
+        query["diagnostics"].ToString());
   }
 
   private static IResult HistoryResult(HistoryQueryResult result) =>
