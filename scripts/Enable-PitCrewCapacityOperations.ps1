@@ -24,8 +24,23 @@
 .PARAMETER CapacityMaximumCeiling
     Local maximum accepted from the dashboard.
 
+.PARAMETER EnableManagerRecovery
+    Opts this host in to typed manager-recovery commands. Recovery stays
+    disabled unless this switch is supplied, so capacity-only hosts never gain
+    recovery permission by upgrading.
+
+.PARAMETER ManagerRecoveryProfiles
+    Existing built-in profile identifiers allowed to receive manager-recovery
+    commands. Required with -EnableManagerRecovery and independent of -Profiles.
+
+.PARAMETER RecoveryCommandTimeoutSeconds
+    Bounded local timeout for one manager-recovery invocation.
+
 .EXAMPLE
     ./Enable-PitCrewCapacityOperations.ps1 -Version 0.3.4 -PitCrewRoot C:\dev\pitcrew -DashboardUrl https://pitcrew.example.com -Profiles copilot-cli -CapacityMaximumCeiling 30
+
+.EXAMPLE
+    ./Enable-PitCrewCapacityOperations.ps1 -Version 0.3.4 -PitCrewRoot C:\dev\pitcrew -DashboardUrl https://pitcrew.example.com -Profiles copilot-cli -CapacityMaximumCeiling 30 -EnableManagerRecovery -ManagerRecoveryProfiles copilot-cli
 #>
 [CmdletBinding()]
 param(
@@ -46,7 +61,18 @@ param(
 
     [Parameter(Mandatory)]
     [ValidateRange(1, 1000000)]
-    [int]$CapacityMaximumCeiling
+    [int]$CapacityMaximumCeiling,
+
+    [Parameter()]
+    [switch]$EnableManagerRecovery,
+
+    [Parameter()]
+    [AllowEmptyCollection()]
+    [string[]]$ManagerRecoveryProfiles = @(),
+
+    [Parameter()]
+    [ValidateRange(30, 600)]
+    [int]$RecoveryCommandTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -253,6 +279,19 @@ function Write-WindowsConnectorSettings {
         [string]$PowerShellExecutable,
 
         [Parameter(Mandatory)]
+        [bool]$ManagerRecoveryEnabled,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$AllowedRecoveryProfiles,
+
+        [Parameter(Mandatory)]
+        [int]$RecoveryTimeoutSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$RecoveryLedgerPath,
+
+        [Parameter(Mandatory)]
         [string]$LogPath
     )
 
@@ -303,6 +342,10 @@ function Write-WindowsConnectorSettings {
                 CapacityMaximumCeiling = $MaximumCeiling
                 CapacityCommandTimeoutSeconds = 300
                 PowerShellExecutable = $PowerShellExecutable
+                ManagerRecoveryEnabled = $ManagerRecoveryEnabled
+                AllowedManagerRecoveryProfiles = @($AllowedRecoveryProfiles)
+                RecoveryCommandTimeoutSeconds = $RecoveryTimeoutSeconds
+                RecoveryLedgerPath = $RecoveryLedgerPath
             }
         }
     }
@@ -326,6 +369,9 @@ if ($IsLinux) {
         DashboardUrl = $DashboardUrl
         Profiles = [string[]]$Profiles
         CapacityMaximumCeiling = $CapacityMaximumCeiling
+        EnableManagerRecovery = [bool]$EnableManagerRecovery
+        ManagerRecoveryProfiles = [string[]]$ManagerRecoveryProfiles
+        RecoveryCommandTimeoutSeconds = $RecoveryCommandTimeoutSeconds
     }
     return
 }
@@ -382,7 +428,27 @@ $invalidProfiles = @(
 if ($normalizedProfiles.Count -eq 0 -or $invalidProfiles.Count -gt 0) {
     throw 'Profiles must contain one or more valid PitCrew profile identifiers.'
 }
-foreach ($profile in $normalizedProfiles) {
+$normalizedRecoveryProfiles = @(
+    $ManagerRecoveryProfiles |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.Trim().ToLowerInvariant() } |
+        Sort-Object -Unique
+)
+if (-not $EnableManagerRecovery) {
+    if ($normalizedRecoveryProfiles.Count -gt 0) {
+        throw 'ManagerRecoveryProfiles requires -EnableManagerRecovery.'
+    }
+} else {
+    $invalidRecoveryProfiles = @(
+        $normalizedRecoveryProfiles |
+            Where-Object { $_ -notmatch '^[a-z][a-z0-9-]{0,31}$' }
+    )
+    if ($normalizedRecoveryProfiles.Count -eq 0 -or
+        $invalidRecoveryProfiles.Count -gt 0) {
+        throw 'ManagerRecoveryProfiles must contain one or more valid PitCrew profile identifiers when -EnableManagerRecovery is supplied.'
+    }
+}
+foreach ($profile in @($normalizedProfiles + $normalizedRecoveryProfiles | Sort-Object -Unique)) {
     if (-not (Test-Path -LiteralPath (Join-Path $stateRoot $profile) -PathType Container)) {
         throw "Profile '$profile' does not exist below '$stateRoot'."
     }
@@ -440,6 +506,8 @@ if ($IsWindows) {
     $environmentPath = '/etc/pitcrew-connector.env'
     $servicePath = '/etc/systemd/system/pitcrew-connector.service'
 }
+
+$recoveryLedgerPath = Join-Path $dataRoot 'recovery-ledger'
 
 $existingArtifacts = [System.Collections.Generic.List[string]]::new()
 foreach ($path in @($installRoot, $dataRoot, $environmentPath, $servicePath)) {
@@ -547,6 +615,10 @@ try {
             -AllowedProfiles $normalizedProfiles `
             -MaximumCeiling $CapacityMaximumCeiling `
             -PowerShellExecutable $powerShellExecutable `
+            -ManagerRecoveryEnabled ([bool]$EnableManagerRecovery) `
+            -AllowedRecoveryProfiles $normalizedRecoveryProfiles `
+            -RecoveryTimeoutSeconds $RecoveryCommandTimeoutSeconds `
+            -RecoveryLedgerPath $recoveryLedgerPath `
             -LogPath (Join-Path $dataRoot 'connector-.log')
 
         $installedExecutable = Join-Path $installRoot $executableName
@@ -632,9 +704,19 @@ try {
         $environmentLines.Add('PitCrew__Connector__CapacityCommandTimeoutSeconds="300"')
         $environmentLines.Add(
             "PitCrew__Connector__PowerShellExecutable=$(ConvertTo-EnvironmentValue -Value ([string]$powerShellExecutable))")
+        $environmentLines.Add(
+            "PitCrew__Connector__ManagerRecoveryEnabled=$(ConvertTo-EnvironmentValue -Value $(if ($EnableManagerRecovery) { 'true' } else { 'false' }))")
+        $environmentLines.Add(
+            "PitCrew__Connector__RecoveryCommandTimeoutSeconds=$(ConvertTo-EnvironmentValue -Value ([string]$RecoveryCommandTimeoutSeconds))")
+        $environmentLines.Add(
+            "PitCrew__Connector__RecoveryLedgerPath=$(ConvertTo-EnvironmentValue -Value ([string]$recoveryLedgerPath))")
         for ($index = 0; $index -lt $normalizedProfiles.Count; $index++) {
             $environmentLines.Add(
                 "PitCrew__Connector__AllowedCapacityProfiles__${index}=$(ConvertTo-EnvironmentValue -Value ([string]$normalizedProfiles[$index]))")
+        }
+        for ($index = 0; $index -lt $normalizedRecoveryProfiles.Count; $index++) {
+            $environmentLines.Add(
+                "PitCrew__Connector__AllowedManagerRecoveryProfiles__${index}=$(ConvertTo-EnvironmentValue -Value ([string]$normalizedRecoveryProfiles[$index]))")
         }
         [IO.File]::WriteAllLines(
             $environmentPath,
@@ -686,7 +768,12 @@ WantedBy=multi-user.target
     } else {
         "systemd service '$linuxServiceName'"
     }
-    Write-Host "PitCrew capacity operations enabled through $serviceDescription for profiles: $($normalizedProfiles -join ', ')."
+    $recoveryDescription = if ($EnableManagerRecovery) {
+        "manager recovery enabled for profiles: $($normalizedRecoveryProfiles -join ', ')"
+    } else {
+        'manager recovery disabled'
+    }
+    Write-Host "PitCrew capacity operations enabled through $serviceDescription for profiles: $($normalizedProfiles -join ', ') ($recoveryDescription)."
 } catch {
     $installationFailure = $_
     $rollbackFailures = [System.Collections.Generic.List[string]]::new()

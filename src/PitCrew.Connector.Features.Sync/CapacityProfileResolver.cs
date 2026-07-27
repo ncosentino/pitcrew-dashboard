@@ -30,6 +30,7 @@ internal sealed record CapacityProfileResolution(
     string? Error);
 
 internal sealed partial class CapacityProfileResolver(
+    LocalProfileStateLocator _stateLocator,
     IOptions<ConnectorOptions> _options,
     ILogger<CapacityProfileResolver> _logger)
 {
@@ -80,72 +81,24 @@ internal sealed partial class CapacityProfileResolver(
           "Profile is not enabled by local operator policy.");
     }
 
-    var pitCrewRoot = Path.GetFullPath(_options.Value.PitCrewRoot);
-    var setupPath = Path.Combine(pitCrewRoot, "Setup-Runner.ps1");
-    if (!File.Exists(setupPath))
+    var location = _stateLocator.Locate(profileId);
+    if (location.Location is null)
     {
       return new CapacityProfileResolution(
           null,
-          "The configured PitCrew root does not contain Setup-Runner.ps1.");
+          location.Error);
     }
-    if (!string.Equals(
-            profileId,
-            "default",
-            StringComparison.OrdinalIgnoreCase) &&
-        !File.Exists(Path.Combine(
-            pitCrewRoot,
-            "profiles",
-            profileId,
-            "profile.json")))
-    {
-      return new CapacityProfileResolution(
-          null,
-          "Only the default and built-in PitCrew profiles are supported.");
-    }
-
-    var stateRoot = Path.GetFullPath(_options.Value.StateRoot);
-    var profileDirectory = Path.GetFullPath(Path.Combine(
-        stateRoot,
-        profileId));
-    if (!IsChildPath(stateRoot, profileDirectory) ||
-        !Directory.Exists(profileDirectory))
-    {
-      return new CapacityProfileResolution(
-          null,
-          "Profile state directory is unavailable.");
-    }
-    try
-    {
-      if ((File.GetAttributes(profileDirectory) &
-          FileAttributes.ReparsePoint) != 0)
-      {
-        return new CapacityProfileResolution(
-            null,
-            "Linked profile state directories are not supported.");
-      }
-    }
-    catch (IOException exception)
-    {
-      LogProfileReadFailure(profileId, exception.Message);
-      return new CapacityProfileResolution(
-          null,
-          "Profile state could not be read.");
-    }
-    catch (UnauthorizedAccessException exception)
-    {
-      LogProfileReadFailure(profileId, exception.Message);
-      return new CapacityProfileResolution(
-          null,
-          "Profile state could not be read.");
-    }
+    var profileDirectory = location.Location.ProfileDirectory;
 
     try
     {
-      using var desired = JsonDocument.Parse(await ReadBoundedAsync(
+      using var desired = JsonDocument.Parse(await LocalProfileStateLocator.ReadBoundedAsync(
           Path.Combine(profileDirectory, "desired-capacity.json"),
+          MaximumStateBytes,
           cancellationToken));
-      using var staticProfile = JsonDocument.Parse(await ReadBoundedAsync(
+      using var staticProfile = JsonDocument.Parse(await LocalProfileStateLocator.ReadBoundedAsync(
           Path.Combine(profileDirectory, "static-profile.json"),
+          MaximumStateBytes,
           cancellationToken));
       return ParseProfile(
           profileId,
@@ -310,37 +263,6 @@ internal sealed partial class CapacityProfileResolver(
                     "scaleDownDelaySeconds").GetInt32()
                 : 120),
         null);
-  }
-
-  private async Task<byte[]> ReadBoundedAsync(
-      string path,
-      CancellationToken cancellationToken)
-  {
-    await using var stream = new FileStream(
-        path,
-        FileMode.Open,
-        FileAccess.Read,
-        FileShare.ReadWrite | FileShare.Delete,
-        4096,
-        FileOptions.Asynchronous | FileOptions.SequentialScan);
-    if (stream.Length <= 0 || stream.Length > MaximumStateBytes)
-    {
-      throw new InvalidDataException(
-          $"State file '{Path.GetFileName(path)}' is outside the supported size range.");
-    }
-    var bytes = new byte[(int)stream.Length];
-    await stream.ReadExactlyAsync(bytes, cancellationToken);
-    return bytes;
-  }
-
-  private static bool IsChildPath(
-      string parent,
-      string candidate)
-  {
-    var relative = Path.GetRelativePath(parent, candidate);
-    return relative.Length > 0 &&
-        !relative.StartsWith("..", StringComparison.Ordinal) &&
-        !Path.IsPathRooted(relative);
   }
 
   [LoggerMessage(

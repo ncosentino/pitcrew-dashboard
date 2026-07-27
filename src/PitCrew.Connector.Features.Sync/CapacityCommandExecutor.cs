@@ -12,7 +12,8 @@ namespace PitCrew.Connector.Features.Sync;
 [DoNotAutoRegister]
 internal sealed partial class CapacityCommandExecutor(
     CapacityProfileResolver _profileResolver,
-    ICapacityProcessRunner _processRunner,
+    LocalProfileOperationGate _operationGate,
+    ISetupProcessRunner _processRunner,
     IOptions<ConnectorOptions> _options,
     TimeProvider _timeProvider,
     ILogger<CapacityCommandExecutor> _logger)
@@ -39,6 +40,15 @@ internal sealed partial class CapacityCommandExecutor(
           command,
           "Capacity command expired before execution.",
           completedAt);
+    }
+
+    using var lease = _operationGate.AcquireOrNull(command.ProfileId);
+    if (lease is null)
+    {
+      return Rejected(
+          command,
+          "Another local profile operation is already active.",
+          _timeProvider.GetUtcNow());
     }
 
     var resolution = await _profileResolver.ResolveAsync(
@@ -68,11 +78,11 @@ internal sealed partial class CapacityCommandExecutor(
           _timeProvider.GetUtcNow());
     }
 
-    CapacityProcessResult result;
+    SetupProcessResult result;
     try
     {
       result = await _processRunner.RunAsync(
-          new CapacityProcessRequest(
+          new SetupProcessRequest(
               _options.Value.PowerShellExecutable,
               Path.GetFullPath(_options.Value.PitCrewRoot),
               BuildArguments(profile, command.Maximum),

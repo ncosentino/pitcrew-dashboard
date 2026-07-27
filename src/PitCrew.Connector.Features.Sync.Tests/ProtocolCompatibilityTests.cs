@@ -226,4 +226,67 @@ public sealed class ProtocolCompatibilityTests
     await Assert.That(reserialized.Slots[0].Resources?.BlockWriteBytes)
         .IsNull();
   }
+
+  [Test]
+  public async Task Protocol_Three_Payloads_Remain_Readable_Without_Recovery_Fields()
+  {
+    var request = JsonSerializer.Deserialize(
+        """
+        {
+          "protocolVersion": 3,
+          "connectorVersion": "3.0.0",
+          "sentAt": "2026-07-26T12:00:00+00:00",
+          "profiles": []
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncRequest);
+    var response = JsonSerializer.Deserialize(
+        """
+        {
+          "acceptedAt": "2026-07-26T12:00:00+00:00",
+          "nextPollSeconds": 15,
+          "credentialRotation": null
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncResponse);
+
+    await Assert.That(request).IsNotNull();
+    await Assert.That(request!.RecoveryOperator).IsNull();
+    await Assert.That(request.RecoveryCommandProgress).IsNull();
+    await Assert.That(request.RecoveryCommandOutcome).IsNull();
+    await Assert.That(response).IsNotNull();
+    await Assert.That(response!.RecoveryCommand).IsNull();
+  }
+
+  [Test]
+  public async Task Recovery_Command_Round_Trips_On_Protocol_Four()
+  {
+    var response = JsonSerializer.Deserialize(
+        """
+        {
+          "acceptedAt": "2026-07-27T12:00:00+00:00",
+          "nextPollSeconds": 15,
+          "credentialRotation": null,
+          "recoveryCommand": {
+            "commandId": "8a1d3d4e-2f0c-4d64-9b0e-6f2b8f0f8a11",
+            "profileId": "default",
+            "expectedManagerInstanceId": "manager-1",
+            "expectedGeneration": 7,
+            "expectedDesiredStateHash": null,
+            "requestedAt": "2026-07-27T12:00:00+00:00",
+            "expiresAt": "2026-07-27T12:05:00+00:00"
+          }
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncResponse);
+
+    await Assert.That(response).IsNotNull();
+    await Assert.That(response!.RecoveryCommand).IsNotNull();
+    await Assert.That(response.RecoveryCommand!.ProfileId).IsEqualTo("default");
+    await Assert.That(response.RecoveryCommand.ExpectedManagerInstanceId)
+        .IsEqualTo("manager-1");
+    await Assert.That(response.RecoveryCommand.ExpectedGeneration).IsEqualTo(7);
+    await Assert.That(response.RecoveryCommand.ExpectedDesiredStateHash)
+        .IsNull();
+  }
 }

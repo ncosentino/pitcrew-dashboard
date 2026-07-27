@@ -17,11 +17,10 @@ public sealed class CapacityProfileResolverTests
           7,
           30,
           cancellationToken);
-      var resolver = new CapacityProfileResolver(
-          Options.Create(CapacityTestData.CreateOperatorOptions(
+      var resolver = ConnectorTestFactory.CreateCapacityResolver(
+          CapacityTestData.CreateOperatorOptions(
               root,
-              40)),
-          NullLogger<CapacityProfileResolver>.Instance);
+              40));
 
       var capability = await resolver.ReadCapabilityAsync(
           cancellationToken);
@@ -58,9 +57,8 @@ public sealed class CapacityProfileResolverTests
       await CapacityTestData.WriteSecondRepositoryAsync(
           root,
           cancellationToken);
-      var resolver = new CapacityProfileResolver(
-          Options.Create(CapacityTestData.CreateOperatorOptions(root)),
-          NullLogger<CapacityProfileResolver>.Instance);
+      var resolver = ConnectorTestFactory.CreateCapacityResolver(
+          CapacityTestData.CreateOperatorOptions(root));
 
       var capability = await resolver.ReadCapabilityAsync(
           cancellationToken);

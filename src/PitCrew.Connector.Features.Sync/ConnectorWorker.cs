@@ -16,6 +16,7 @@ internal sealed partial class ConnectorWorker(
     ConnectorApiClient _apiClient,
     ObservedStateReader _observedStateReader,
     CapacityCommandExecutor _capacityCommandExecutor,
+    RecoveryCommandExecutor _recoveryCommandExecutor,
     IOptions<ConnectorOptions> _options,
     TimeProvider _timeProvider,
     ILogger<ConnectorWorker> _logger) : BackgroundService
@@ -36,6 +37,10 @@ internal sealed partial class ConnectorWorker(
     var lastSentHash = string.Empty;
     var lastSentAt = DateTimeOffset.MinValue;
     CapacityCommandOutcome? pendingCapacityOutcome = null;
+    RecoveryCommandProgress? pendingRecoveryProgress = null;
+    var pendingRecoveryOutcomes = new Queue<RecoveryCommandOutcome>(
+        await _recoveryCommandExecutor.ResolveInterruptedAsync(stoppingToken));
+    RecoveryCommandOutcome? pendingRecoveryOutcome = null;
 
     while (!stoppingToken.IsCancellationRequested)
     {
@@ -55,6 +60,14 @@ internal sealed partial class ConnectorWorker(
           var capacityOperator =
               await _capacityCommandExecutor.ReadCapabilityAsync(
                   stoppingToken);
+          var recoveryOperator =
+              await _recoveryCommandExecutor.ReadCapabilityAsync(
+                  stoppingToken);
+          if (pendingRecoveryOutcome is null &&
+              pendingRecoveryOutcomes.Count > 0)
+          {
+            pendingRecoveryOutcome = pendingRecoveryOutcomes.Dequeue();
+          }
           var heartbeatDue =
               now - lastSentAt >=
               TimeSpan.FromSeconds(
@@ -64,7 +77,9 @@ internal sealed partial class ConnectorWorker(
               observedState.AggregateHash,
               StringComparison.Ordinal) ||
               heartbeatDue ||
-              pendingCapacityOutcome is not null)
+              pendingCapacityOutcome is not null ||
+              pendingRecoveryProgress is not null ||
+              pendingRecoveryOutcome is not null)
           {
             var response = await _apiClient.SyncAsync(
                 identity.Credential!,
@@ -74,9 +89,14 @@ internal sealed partial class ConnectorWorker(
                     now,
                     observedState.Profiles,
                     capacityOperator,
-                    pendingCapacityOutcome),
+                    pendingCapacityOutcome,
+                    recoveryOperator,
+                    pendingRecoveryProgress,
+                    pendingRecoveryOutcome),
                 stoppingToken);
             pendingCapacityOutcome = null;
+            pendingRecoveryProgress = null;
+            pendingRecoveryOutcome = null;
             if (response.CredentialRotation is not null)
             {
               identity = identity with
@@ -104,6 +124,18 @@ internal sealed partial class ConnectorWorker(
                   await _capacityCommandExecutor.ExecuteAsync(
                       response.CapacityCommand,
                       stoppingToken);
+              lastSentHash = string.Empty;
+              lastSentAt = DateTimeOffset.MinValue;
+              nextDelay = TimeSpan.Zero;
+            }
+            if (response.RecoveryCommand is not null)
+            {
+              var report =
+                  await _recoveryCommandExecutor.ExecuteAsync(
+                      response.RecoveryCommand,
+                      stoppingToken);
+              pendingRecoveryProgress = report.Progress;
+              pendingRecoveryOutcome = report.Outcome;
               lastSentHash = string.Empty;
               lastSentAt = DateTimeOffset.MinValue;
               nextDelay = TimeSpan.Zero;
