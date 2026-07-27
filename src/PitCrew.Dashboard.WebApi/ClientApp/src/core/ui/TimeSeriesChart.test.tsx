@@ -78,6 +78,32 @@ describe('TimeSeriesChart', () => {
     expect(screen.getByText(/No measurement in this range was available/)).toBeInTheDocument();
   });
 
+  it('plots a measured-zero series flat on the zero baseline', () => {
+    const { container } = render(
+      <TimeSeriesChart
+        description="Reported worker exits."
+        series={[
+          {
+            key: 'exits',
+            label: 'Reported exits',
+            description: 'Workers carrying exit evidence.',
+            points: [
+              { at: '2026-07-26T12:00:00+00:00', value: 0 },
+              { at: '2026-07-26T12:00:15+00:00', value: 0 },
+            ],
+          },
+        ]}
+        testId="exits-chart"
+        title="Exits"
+        unit="count"
+      />,
+    );
+
+    expect(container.querySelector('polyline')?.getAttribute('points')).toBe(
+      '0.00,120.00 600.00,120.00',
+    );
+  });
+
   it('hides the decorative plot from assistive technology', () => {
     const { container } = render(
       <TimeSeriesChart
