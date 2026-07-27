@@ -69,6 +69,7 @@ public sealed record HistoryWindow(
 /// <param name="MaximumProfileHistories">Hard database-wide ceiling on retained profile histories across every node.</param>
 /// <param name="MaximumHistoryNodes">Hard database-wide ceiling on how many nodes retain history at once.</param>
 /// <param name="GlobalSweepInterval">Smallest gap between two bounded global maintenance sweeps.</param>
+/// <param name="ProvenanceHorizon">Shortest time completeness provenance must survive after the rows it describes were deleted, which is at least the widest configured query range.</param>
 public sealed record HistoryRetentionPolicy(
     TimeSpan SampleRetention,
     TimeSpan RollupRetention,
@@ -88,7 +89,8 @@ public sealed record HistoryRetentionPolicy(
     int MaximumDiagnosticsPerDatabase,
     int MaximumProfileHistories,
     int MaximumHistoryNodes,
-    TimeSpan GlobalSweepInterval);
+    TimeSpan GlobalSweepInterval,
+    TimeSpan ProvenanceHorizon);
 
 /// <summary>
 /// Bounds one history append in retention and in accepted manager clock skew.
@@ -418,6 +420,34 @@ public sealed record ProfileHistory(
     ProfileRetentionFloor Retention);
 
 /// <summary>
+/// Reports history the dashboard deleted after per-profile provenance itself had to be compacted.
+/// </summary>
+/// <remarks>
+/// Tombstones are bounded, so extreme profile churn can evict per-profile provenance while a legal
+/// query range still reaches the deleted data. Evicted tombstones are folded into these coarser
+/// node and database floors instead of vanishing, so the answer stays honestly incomplete.
+/// </remarks>
+/// <param name="Scope">Whether the floor covers one node or the whole database.</param>
+/// <param name="EarliestExpiredAt">Dashboard time of the oldest expiry this floor covers.</param>
+/// <param name="LatestExpiredAt">Dashboard time of the newest expiry this floor covers.</param>
+/// <param name="ExpiredProfiles">Profile histories whose per-profile provenance was compacted into this floor.</param>
+/// <param name="DroppedSamples">Samples the compacted profile histories had lost.</param>
+/// <param name="DroppedRollups">Hourly buckets the compacted profile histories had lost.</param>
+/// <param name="DroppedEvents">Manager events the compacted profile histories had lost.</param>
+/// <param name="DroppedSubsystemHealthChanges">Subsystem-health changes the compacted profile histories had lost.</param>
+/// <param name="DroppedCapacityDeficits">Capacity-deficit observations the compacted profile histories had lost.</param>
+public sealed record HistoryIncompletenessFloor(
+    string Scope,
+    DateTimeOffset EarliestExpiredAt,
+    DateTimeOffset LatestExpiredAt,
+    long ExpiredProfiles,
+    long DroppedSamples,
+    long DroppedRollups,
+    long DroppedEvents,
+    long DroppedSubsystemHealthChanges,
+    long DroppedCapacityDeficits);
+
+/// <summary>
 /// Returns bounded retained history for one tenant node.
 /// </summary>
 /// <param name="NodeId">Dashboard-assigned node identifier.</param>
@@ -436,6 +466,7 @@ public sealed record ProfileHistory(
 /// <param name="NodePointLimit">Node-wide point ceiling applied to the response.</param>
 /// <param name="NodeEventLimit">Node-wide event ceiling applied to the response.</param>
 /// <param name="NodeDiagnosticLimit">Combined node-wide ceiling shared by both diagnostic collections.</param>
+/// <param name="IncompletenessFloors">Coarse node and database floors describing history whose per-profile provenance was compacted away.</param>
 public sealed record NodeHistoryResponse(
     Guid NodeId,
     DateTimeOffset GeneratedAt,
@@ -452,7 +483,8 @@ public sealed record NodeHistoryResponse(
     int ProfileCapacityDeficitLimit,
     int NodePointLimit,
     int NodeEventLimit,
-    int NodeDiagnosticLimit);
+    int NodeDiagnosticLimit,
+    IReadOnlyList<HistoryIncompletenessFloor> IncompletenessFloors);
 
 /// <summary>
 /// Advertises the bounded history query shapes one dashboard deployment can answer.

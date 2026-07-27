@@ -304,7 +304,8 @@ public sealed class GetFleetHistoryUnitOfWorkTests
           200,
           5000,
           1000,
-          1000);
+          1000,
+          []);
 
   private static GetFleetHistoryUnitOfWork CreateUnitOfWork(
       Mock<IFleetHistoryStore> store,

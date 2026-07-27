@@ -1261,7 +1261,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
       await FleetStorageTestTransactions.AppendAsync(
           store,
           connectionFactory,
@@ -1339,7 +1340,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
       for (var index = 0; index < 5; index++)
       {
         await FleetStorageTestTransactions.AppendAsync(
@@ -1406,7 +1408,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
       for (var index = 0; index < 5; index++)
       {
         var observedAt = Origin.AddMinutes(index);
@@ -1439,10 +1442,12 @@ public sealed class SqliteFleetHistoryStoreTests
       await Assert.That(
           retained.Any(profile => profile.ProfileId == "profile-4"))
           .IsTrue();
-      await Assert.That(history.Profiles.Any(profile =>
+      var tombstoned = history.Profiles.Any(profile =>
           profile.ProfileId == "profile-0" &&
-          profile.Retention.HistoryExpiredAt is not null))
-          .IsTrue();
+          profile.Retention.HistoryExpiredAt is not null);
+      var floored = history.IncompletenessFloors.Any(floor =>
+          floor.Scope == "node" && floor.ExpiredProfiles > 0);
+      await Assert.That(tombstoned || floored).IsTrue();
     }
     finally
     {
@@ -2270,7 +2275,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
 
   private static string CreateDatabasePath(string label) =>
       Path.Combine(

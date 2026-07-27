@@ -71,6 +71,22 @@ internal sealed partial class SqliteFleetHistoryStore(
       capacity_deficit_freshness
       """;
 
+  /// <summary>
+  /// Appends bounded history for one heartbeat, gated on the authoritative observation time.
+  /// </summary>
+  /// <remarks>
+  /// Every derived write of one profile — sample, rollup, diagnostics, and durable events — is
+  /// gated on the same authoritative <c>observedAt</c> high-water. A manager publishes one observed
+  /// state per observation time, so a heartbeat whose observation time does not advance carries no
+  /// new evidence at all: it is ignored without mutating the event cursor, the durable epoch, the
+  /// identity window, the high-water, or any dropped counter. Without that shared gate a stale
+  /// heartbeat replayed after a newer one would look like a manager sequence regression and would
+  /// reset the epoch, replaying an older journal ring as if it were a new generation.
+  ///
+  /// An implausibly future observation, diagnostic, or event timestamp rejects the whole profile
+  /// heartbeat and is counted. Rejection never erases the prior watermark or provenance, so a
+  /// mis-set manager clock cannot destroy what the dashboard already knows.
+  /// </remarks>
   public async Task AppendAsync(
       IFleetStorageTransaction transaction,
       Guid nodeId,
@@ -94,7 +110,15 @@ internal sealed partial class SqliteFleetHistoryStore(
           profile.ProfileId,
           receivedAt,
           cancellationToken);
+      var cursor = await ReadCursorAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile.ProfileId,
+          cancellationToken);
+      var futureEvents = CountImplausibleEvents(profile, horizon);
       if (profile.ObservedAt > horizon ||
+          futureEvents > 0 ||
           HasImplausibleDiagnostic(profile, horizon))
       {
         await CountRejectedObservationAsync(
@@ -102,57 +126,59 @@ internal sealed partial class SqliteFleetHistoryStore(
             sqliteTransaction,
             nodeId,
             profile.ProfileId,
+            futureEvents,
             receivedAt,
             cancellationToken);
-      }
-      else
-      {
-        var appended = await AppendSampleAsync(
-            connection,
-            sqliteTransaction,
-            nodeId,
-            profile,
-            receivedAt,
-            cancellationToken);
-        if (appended)
-        {
-          await AdvanceSampleHighWaterAsync(
-              connection,
-              sqliteTransaction,
-              nodeId,
-              profile,
-              receivedAt,
-              cancellationToken);
-          await AccumulateRollupAsync(
-              connection,
-              sqliteTransaction,
-              nodeId,
-              profile,
-              cancellationToken);
-          await AppendSubsystemHealthAsync(
-              connection,
-              sqliteTransaction,
-              nodeId,
-              profile,
-              receivedAt,
-              cancellationToken);
-          await AppendCapacityDeficitsAsync(
-              connection,
-              sqliteTransaction,
-              nodeId,
-              profile,
-              receivedAt,
-              cancellationToken);
-        }
+        continue;
       }
 
-      await AppendEventsAsync(
+      if (cursor.SampleHighWater is not null &&
+          profile.ObservedAt <= cursor.SampleHighWater.Value)
+      {
+        continue;
+      }
+
+      await AppendSampleAsync(
           connection,
           sqliteTransaction,
           nodeId,
           profile,
           receivedAt,
-          horizon,
+          cancellationToken);
+      await AdvanceSampleHighWaterAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile,
+          receivedAt,
+          cancellationToken);
+      await AccumulateRollupAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile,
+          cancellationToken);
+      await AppendSubsystemHealthAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile,
+          receivedAt,
+          cancellationToken);
+      await AppendCapacityDeficitsAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile,
+          receivedAt,
+          cancellationToken);
+      await AppendEventsAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile,
+          cursor,
+          receivedAt,
           cancellationToken);
     }
 
@@ -199,8 +225,9 @@ internal sealed partial class SqliteFleetHistoryStore(
   /// </summary>
   /// <remarks>
   /// A profile that returns after its history was deliberately expired must not look pristine: the
-  /// tombstone restores the durable epoch, the durable sample high-water, and every dropped or
-  /// rejected counter, so an old heartbeat cannot reinsert a sample or reset the event epoch.
+  /// tombstone restores the durable epoch, the durable sample high-water, every dropped or rejected
+  /// counter, and the expiry time itself, so an old heartbeat cannot reinsert a sample or reset the
+  /// event epoch and the returning profile keeps reporting the range it can no longer serve.
   /// </remarks>
   private static async Task EnsureCursorAsync(
       SqliteConnection connection,
@@ -234,7 +261,8 @@ internal sealed partial class SqliteFleetHistoryStore(
               rejected_future_samples,
               rejected_future_events,
               updated_at,
-              sample_high_water)
+              sample_high_water,
+              history_expired_at)
           SELECT
               $nodeId,
               $profileId,
@@ -254,7 +282,8 @@ internal sealed partial class SqliteFleetHistoryStore(
               COALESCE(t.rejected_future_samples, 0),
               COALESCE(t.rejected_future_events, 0),
               $updatedAt,
-              t.sample_high_water
+              t.sample_high_water,
+              t.expired_at
           FROM (SELECT 1) AS present
           LEFT JOIN profile_history_tombstones AS t
             ON t.node_id = $nodeId
@@ -278,6 +307,36 @@ internal sealed partial class SqliteFleetHistoryStore(
     adopted.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
     adopted.Parameters.AddWithValue("$profileId", profileId);
     await adopted.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  /// <summary>
+  /// Counts manager events whose timestamp claims an implausibly future observation time.
+  /// </summary>
+  /// <remarks>
+  /// A future event timestamp rejects the whole profile heartbeat under the same documented
+  /// clock-skew rule as the observation itself, because a journal that is partly in the future
+  /// cannot be reconciled against a durable sequence without corrupting the epoch.
+  /// </remarks>
+  private static long CountImplausibleEvents(
+      ManagerObservedState profile,
+      DateTimeOffset horizon)
+  {
+    var journal = profile.OperationJournal;
+    if (journal is null)
+    {
+      return 0;
+    }
+
+    long implausible = 0;
+    foreach (var managerEvent in journal.Events)
+    {
+      if (managerEvent.ObservedAt > horizon)
+      {
+        implausible++;
+      }
+    }
+
+    return implausible;
   }
 
   /// <summary>
@@ -354,11 +413,15 @@ internal sealed partial class SqliteFleetHistoryStore(
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
+  /// <summary>
+  /// Counts one rejected profile heartbeat without erasing prior watermark or provenance.
+  /// </summary>
   private static async Task CountRejectedObservationAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
       Guid nodeId,
       string profileId,
+      long rejectedFutureEvents,
       DateTimeOffset receivedAt,
       CancellationToken cancellationToken)
   {
@@ -368,17 +431,22 @@ internal sealed partial class SqliteFleetHistoryStore(
         """
         UPDATE profile_history_cursors
         SET rejected_future_samples = rejected_future_samples + 1,
+            rejected_future_events =
+                rejected_future_events + $rejectedFutureEvents,
             updated_at = $updatedAt
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
         """;
     command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
     command.Parameters.AddWithValue("$profileId", profileId);
+    command.Parameters.AddWithValue(
+        "$rejectedFutureEvents",
+        rejectedFutureEvents);
     command.Parameters.AddWithValue("$updatedAt", Utc(receivedAt));
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
-  private static async Task<bool> AppendSampleAsync(
+  private static async Task AppendSampleAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
       Guid nodeId,
@@ -522,7 +590,7 @@ internal sealed partial class SqliteFleetHistoryStore(
         command,
         "$capacityDeficitFreshness",
         sample.CapacityDeficitFreshness);
-    return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   private static async Task AccumulateRollupAsync(
@@ -1037,33 +1105,20 @@ internal sealed partial class SqliteFleetHistoryStore(
       SqliteTransaction transaction,
       Guid nodeId,
       ManagerObservedState profile,
+      CursorState cursor,
       DateTimeOffset receivedAt,
-      DateTimeOffset horizon,
       CancellationToken cancellationToken)
   {
     var journal = profile.OperationJournal;
     var events = new Dictionary<long, ManagerEvent>();
-    long rejectedFutureEvents = 0;
     if (journal is not null)
     {
       foreach (var managerEvent in journal.Events)
       {
-        if (managerEvent.ObservedAt > horizon)
-        {
-          rejectedFutureEvents++;
-          continue;
-        }
-
         events.TryAdd(managerEvent.Sequence, managerEvent);
       }
     }
 
-    var cursor = await ReadCursorAsync(
-        connection,
-        transaction,
-        nodeId,
-        profile.ProfileId,
-        cancellationToken);
     long? deliveredHighest = events.Count == 0
         ? null
         : events.Keys.Max();
@@ -1089,14 +1144,46 @@ internal sealed partial class SqliteFleetHistoryStore(
         effectiveHighest.Value < previousHighest.Value;
     if (!isReset)
     {
+      var unknown = new List<long>();
       foreach (var pair in fingerprints)
       {
-        if (identities.TryGetValue(pair.Key, out var known) &&
-            known.Length > 0 &&
-            !string.Equals(known, pair.Value, StringComparison.Ordinal))
+        if (!identities.TryGetValue(pair.Key, out var known))
+        {
+          continue;
+        }
+        if (known.Length == 0)
+        {
+          unknown.Add(pair.Key);
+          continue;
+        }
+        if (!string.Equals(known, pair.Value, StringComparison.Ordinal))
         {
           isReset = true;
           break;
+        }
+      }
+
+      if (!isReset && unknown.Count > 0)
+      {
+        var retained = await ReadRetainedEventFingerprintsAsync(
+            connection,
+            transaction,
+            nodeId,
+            profile.ProfileId,
+            epoch,
+            unknown,
+            cancellationToken);
+        foreach (var sequence in unknown)
+        {
+          if (retained.TryGetValue(sequence, out var stored) &&
+              !string.Equals(
+                  stored,
+                  fingerprints[sequence],
+                  StringComparison.Ordinal))
+          {
+            isReset = true;
+            break;
+          }
         }
       }
     }
@@ -1248,8 +1335,6 @@ internal sealed partial class SqliteFleetHistoryStore(
             manager_dropped_events = $managerDroppedEvents,
             stored_highest_sequence = $storedHighestSequence,
             missed_events = missed_events + $missedEvents,
-            rejected_future_events =
-                rejected_future_events + $rejectedFutureEvents,
             updated_at = $updatedAt
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
@@ -1273,9 +1358,6 @@ internal sealed partial class SqliteFleetHistoryStore(
         journal?.DroppedEvents ?? 0);
     AddNullable(cursorCommand, "$storedHighestSequence", highest);
     cursorCommand.Parameters.AddWithValue("$missedEvents", missed);
-    cursorCommand.Parameters.AddWithValue(
-        "$rejectedFutureEvents",
-        rejectedFutureEvents);
     cursorCommand.Parameters.AddWithValue("$updatedAt", Utc(receivedAt));
     await cursorCommand.ExecuteNonQueryAsync(cancellationToken);
   }
@@ -1414,6 +1496,93 @@ internal sealed partial class SqliteFleetHistoryStore(
   }
 
   /// <summary>
+  /// Fingerprints the retained event rows behind identities whose fingerprint is unknown.
+  /// </summary>
+  /// <remarks>
+  /// Migration backfilled identities carry an empty fingerprint meaning unknown. Silently accepting
+  /// an unknown fingerprint would skip a reset that the retained content actually conflicts with,
+  /// so the retained row is fingerprinted and compared whenever it still exists. Only a sequence
+  /// with neither a known fingerprint nor a retained row is treated as a replay.
+  /// </remarks>
+  private static async Task<Dictionary<long, string>>
+      ReadRetainedEventFingerprintsAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          string profileId,
+          long epoch,
+          IReadOnlyList<long> sequences,
+          CancellationToken cancellationToken)
+  {
+    var fingerprints = new Dictionary<long, string>();
+    if (sequences.Count == 0)
+    {
+      return fingerprints;
+    }
+
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    var placeholders = new string[sequences.Count];
+    for (var index = 0; index < sequences.Count; index++)
+    {
+      placeholders[index] = $"$sequence{index}";
+      command.Parameters.AddWithValue(
+          placeholders[index],
+          sequences[index]);
+    }
+
+    command.CommandText =
+        $"""
+        SELECT
+            sequence,
+            manager_instance_id,
+            observed_at,
+            subsystem,
+            operation,
+            target,
+            outcome,
+            duration_milliseconds,
+            attempt,
+            consecutive_failures,
+            retry_at,
+            reason,
+            evidence
+        FROM profile_manager_events
+        WHERE node_id = $nodeId
+          AND profile_id = $profileId
+          AND epoch = $epoch
+          AND sequence IN ({string.Join(", ", placeholders)});
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$profileId", profileId);
+    command.Parameters.AddWithValue("$epoch", epoch);
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    SqliteRowReader? row = null;
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      row ??= new SqliteRowReader(reader);
+      var sequence = row.Int64("sequence");
+      fingerprints[sequence] = Fingerprint(new ManagerEvent(
+          sequence,
+          row.String("manager_instance_id"),
+          row.Time("observed_at"),
+          row.String("subsystem"),
+          row.String("operation"),
+          row.OptionalString("target"),
+          row.String("outcome"),
+          row.OptionalInt32("duration_milliseconds"),
+          row.OptionalInt32("attempt"),
+          row.OptionalInt32("consecutive_failures"),
+          row.OptionalTime("retry_at"),
+          row.String("reason"),
+          row.OptionalString("evidence")));
+    }
+
+    return fingerprints;
+  }
+
+  /// <summary>
   /// Produces the content fingerprint that distinguishes an exact replay from a sequence reuse.
   /// </summary>
   private static string Fingerprint(ManagerEvent managerEvent)
@@ -1451,7 +1620,8 @@ internal sealed partial class SqliteFleetHistoryStore(
         SELECT
             epoch,
             epoch_resets,
-            stored_highest_sequence
+            stored_highest_sequence,
+            sample_high_water
         FROM profile_history_cursors
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
@@ -1462,14 +1632,15 @@ internal sealed partial class SqliteFleetHistoryStore(
         cancellationToken);
     if (!await reader.ReadAsync(cancellationToken))
     {
-      return new CursorState(0, 0, null);
+      return new CursorState(0, 0, null, null);
     }
 
     var row = new SqliteRowReader(reader);
     return new CursorState(
         row.Int64("epoch"),
         row.Int64("epoch_resets"),
-        row.OptionalInt64("stored_highest_sequence"));
+        row.OptionalInt64("stored_highest_sequence"),
+        row.OptionalTime("sample_high_water"));
   }
 
   private static DateTimeOffset BucketStart(DateTimeOffset observedAt)
@@ -1499,5 +1670,6 @@ internal sealed partial class SqliteFleetHistoryStore(
   private sealed record CursorState(
       long Epoch,
       long EpochResets,
-      long? StoredHighestSequence);
+      long? StoredHighestSequence,
+      DateTimeOffset? SampleHighWater);
 }

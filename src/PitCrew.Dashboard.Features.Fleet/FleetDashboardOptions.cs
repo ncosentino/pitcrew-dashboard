@@ -361,5 +361,10 @@ public sealed class FleetDashboardOptions
       yield return
           "MaximumProfileHistories must be at least MaximumProfilesPerNode.";
     }
+    if (TelemetryRollupRetentionDays * 24 < MaximumHistoryRangeHours)
+    {
+      yield return
+          "TelemetryRollupRetentionDays must cover MaximumHistoryRangeHours, because completeness provenance has to survive every range a caller may legally query.";
+    }
   }
 }
