@@ -69,11 +69,27 @@ export default function ProfileDetailPage() {
 
   return (
     <section className="grid gap-4">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Profile {profileId}</h2>
-        <p className="text-sm text-muted-foreground">
-          {node ? `${node.displayName} · ${node.nodeId}` : `Node ${nodeId}`}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">
+            {node ? `${node.displayName} · ${node.nodeId}` : `Node ${nodeId}`}
+          </p>
+          {profile ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {profile.scope} scope · generation {profile.generation} · manager contract{' '}
+              {profile.managerContractVersion} · observed {formatTime(profile.observedAt)}
+            </p>
+          ) : null}
+        </div>
+        {node && profile ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
+            />
+            <StatusBadge status={profile.managerStatus} />
+            <StatusBadge status={profile.desiredStateStatus} />
+          </div>
+        ) : null}
       </div>
 
       {(mutationError ?? error) ? (
@@ -112,28 +128,10 @@ export default function ProfileDetailPage() {
 
       {node && profile ? (
         <Card className="overflow-hidden">
-          <CardHeader>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <CardTitle>{profile.profileId}</CardTitle>
-                <CardDescription>
-                  {profile.scope} scope · generation {profile.generation} · manager contract{' '}
-                  {profile.managerContractVersion} · observed {formatTime(profile.observedAt)}
-                </CardDescription>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge
-                  status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
-                />
-                <StatusBadge status={profile.managerStatus} />
-                <StatusBadge status={profile.desiredStateStatus} />
-              </div>
-            </div>
-          </CardHeader>
           <CardContent className="grid gap-0 p-0">
             {!node.isOnline || node.isRevoked ? (
               <div
-                className="border-t border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
                 data-testid="profile-node-unavailable"
               >
                 Capacity changes are unavailable while this node is{' '}
@@ -142,7 +140,7 @@ export default function ProfileDetailPage() {
             ) : null}
             {profile.managerStatus === 'stale' || profile.managerStatus === 'stopped' ? (
               <div
-                className="border-t border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
                 data-testid="profile-manager-unavailable"
               >
                 The profile manager is {profile.managerStatus}; observations and slot state may not

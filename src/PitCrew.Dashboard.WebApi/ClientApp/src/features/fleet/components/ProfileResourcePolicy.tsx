@@ -1,6 +1,8 @@
 import { describeResourcePolicy, type ManagerObservedState } from '@/core/fleet';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
+import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+
 /** Renders the configured per-worker resource policy and profile admission ceiling. */
 export function ProfileResourcePolicy({ profile }: { readonly profile: ManagerObservedState }) {
   const policy = profile.resourcePolicy ?? null;
@@ -8,20 +10,23 @@ export function ProfileResourcePolicy({ profile }: { readonly profile: ManagerOb
   const limits = describeResourcePolicy(policy);
 
   return (
-    <section
-      className="grid gap-3 border-b bg-muted/10 px-4 py-4"
-      data-testid={`profile-resource-policy-${profile.profileId}`}
+    <ProfileEvidenceDisclosure
+      title="Worker resource policy"
+      description={
+        policy === null
+          ? 'No worker limits were reported. Unreported limits remain unknown.'
+          : 'Configured limits apply to newly launched workers and converge through normal turnover.'
+      }
+      summary={
+        <>
+          <StatusBadge status={policy === null ? 'unavailable' : 'configured'} />
+          <span>
+            {admissionCeiling == null ? 'Admission unavailable' : `${admissionCeiling} max workers`}
+          </span>
+        </>
+      }
+      testId={`profile-resource-policy-${profile.profileId}`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="font-semibold">Worker resource policy</h2>
-          <p className="text-xs text-muted-foreground">
-            Limits applied to every worker this manager launches. A policy change converges as busy
-            workers finish and are replaced.
-          </p>
-        </div>
-        <StatusBadge status={policy === null ? 'unavailable' : 'configured'} />
-      </div>
       <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-5">
         {limits.map(([label, value]) => (
           <div key={label} className="bg-background px-3 py-3">
@@ -44,12 +49,6 @@ export function ProfileResourcePolicy({ profile }: { readonly profile: ManagerOb
           </dd>
         </div>
       </dl>
-      {policy === null ? (
-        <p className="text-xs text-muted-foreground">
-          This manager did not report a resource policy. Unreported limits are unknown rather than
-          unlimited.
-        </p>
-      ) : null}
-    </section>
+    </ProfileEvidenceDisclosure>
   );
 }

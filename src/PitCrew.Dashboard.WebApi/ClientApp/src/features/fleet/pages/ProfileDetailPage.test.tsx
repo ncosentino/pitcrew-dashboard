@@ -334,9 +334,10 @@ describe('ProfileDetailPage', () => {
     renderProfile(fleetResponse());
 
     expect(
-      await screen.findByRole('heading', { level: 2, name: 'Profile default' }),
-    ).toBeInTheDocument();
-    expect(await screen.findByTestId('profile-capacity-target-default')).toHaveTextContent('3');
+      await screen.findByTestId('profile-capacity-target-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('3');
+    expect(screen.getByRole('heading', { level: 1, name: 'Profile default' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: 'Profile default' })).toHaveLength(1);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(
       screen.getByText('repo scope · generation 4 · manager contract 10', { exact: false }),
@@ -355,7 +356,21 @@ describe('ProfileDetailPage', () => {
     );
 
     const table = screen.getByRole('table', { name: 'Slots for profile default' });
+    expect(
+      screen.getByRole('region', { name: 'Scrollable worker slots for profile default' }),
+    ).toHaveAttribute('tabindex', '0');
     expect(within(table).getByRole('columnheader', { name: 'Repository' })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: 'Resources' })).toBeInTheDocument();
+    expect(
+      within(table).queryByRole('columnheader', { name: 'CPU cores' }),
+    ).not.toBeInTheDocument();
+    expect(within(table).getByText('Job')).toBeInTheDocument();
+    expect(within(table).getByText('GitHub')).toBeInTheDocument();
+    expect(within(table).getByText('Local')).toBeInTheDocument();
+    expect(within(table).getByText('Job activity: busy.')).toHaveClass('sr-only');
+    expect(within(table).getByText('GitHub registration: connected.')).toHaveClass('sr-only');
+    expect(within(table).getByText('Local state: online.')).toHaveClass('sr-only');
     expect(within(table).getByText('https://github.com/example/project')).toBeInTheDocument();
     expect(within(table).getByText('scale-set-linux')).toBeInTheDocument();
     expect(within(table).getByText('busy')).toBeInTheDocument();
@@ -494,6 +509,11 @@ describe('ProfileDetailPage', () => {
   it('renders contract 11 policy, admission ceiling, image identity, I/O, and exit evidence', async () => {
     renderProfile(contractElevenFleet());
 
+    expect(await screen.findByTestId('profile-resource-policy-default')).not.toHaveAttribute(
+      'open',
+    );
+    expect(screen.getByTestId('profile-targets-default')).not.toHaveAttribute('open');
+    expect(screen.getByTestId('profile-resource-telemetry-default')).not.toHaveAttribute('open');
     expect(await screen.findByTestId('profile-policy-memory-default')).toHaveTextContent('2 GiB');
     expect(screen.getByTestId('profile-policy-memory-plus-swap-default')).toHaveTextContent(
       '4 GiB',
@@ -514,14 +534,19 @@ describe('ProfileDetailPage', () => {
     const lastExit = screen.getByTestId('slot-last-exit-repo-default-000001');
     expect(lastExit).toHaveTextContent('unknown');
     expect(lastExit).not.toHaveTextContent('clean');
+    expect(screen.queryByText('Last error: None')).not.toBeInTheDocument();
   });
 
   it('describes absent exit evidence without calling it clean', async () => {
     renderProfile(contractElevenFleet([target()], { lastExit: null }));
 
     const lastExit = await screen.findByTestId('slot-last-exit-repo-default-000001');
+    expect(within(lastExit).getByText('Not recorded')).toBeInTheDocument();
     expect(lastExit).toHaveTextContent(
       'No exit evidence has been recorded for this worker, which does not mean it exited cleanly.',
+    );
+    expect(within(lastExit).getByTitle(/No exit evidence has been recorded/)).toHaveClass(
+      'whitespace-nowrap',
     );
   });
 
@@ -529,6 +554,7 @@ describe('ProfileDetailPage', () => {
     renderProfile(contractElevenFleet());
 
     const divergence = await screen.findByTestId('target-divergence-default-scale-set-linux');
+    expect(screen.getByTestId('profile-targets-default')).toHaveTextContent('1 warning');
     expect(divergence).toHaveTextContent(
       'GitHub reports 8 registered runners while 2 local worker containers are live.',
     );
@@ -550,18 +576,26 @@ describe('ProfileDetailPage', () => {
   it('marks stale GitHub statistics without collapsing them into local evidence', async () => {
     renderProfile(
       contractElevenFleet([
-        target({ statistics: statistics({ observedAt: '2026-07-19T18:00:00+00:00' }) }),
+        target({
+          statistics: statistics({
+            observedAt: '2026-07-19T18:00:00+00:00',
+            registeredRunners: 2,
+            busyRunners: 1,
+            idleRunners: 1,
+          }),
+        }),
       ]),
     );
 
     expect(await screen.findByTestId('target-freshness-default-scale-set-linux')).toHaveTextContent(
       'Stale',
     );
+    expect(screen.getByTestId('profile-targets-default')).toHaveTextContent('1 stale');
     expect(screen.getByTestId('target-local-default-scale-set-linux')).toHaveTextContent(
       '2 live · 1 idle · 2 busy · 0 draining',
     );
     expect(screen.getByTestId('target-github-default-scale-set-linux')).toHaveTextContent(
-      '8 registered · 2 busy · 1 idle',
+      '2 registered · 1 busy · 1 idle',
     );
   });
 

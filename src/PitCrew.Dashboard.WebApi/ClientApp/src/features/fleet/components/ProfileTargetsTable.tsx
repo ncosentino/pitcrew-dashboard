@@ -8,6 +8,8 @@ import {
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
+import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+
 const freshnessStatus: Record<StatisticsFreshness, string> = {
   current: 'available',
   stale: 'partial',
@@ -92,21 +94,60 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
   const targets = profile.autoscaling?.targets ?? null;
   if (targets === null) {
     return (
-      <section className="border-b px-4 py-4" data-testid={`profile-targets-${profile.profileId}`}>
-        <h2 className="font-semibold">Scale-set targets</h2>
+      <ProfileEvidenceDisclosure
+        title="Scale-set targets"
+        description="Per-target local and GitHub evidence is unavailable."
+        summary={<StatusBadge status="unavailable" />}
+        testId={`profile-targets-${profile.profileId}`}
+      >
         <p className="mt-1 text-sm text-muted-foreground">
           This manager does not report per-target scale-set evidence. Per-target local and GitHub
           counts are unavailable rather than zero.
         </p>
-      </section>
+      </ProfileEvidenceDisclosure>
     );
   }
 
+  const divergenceCount = targets.filter((target) => {
+    const freshness = statisticsFreshness(target, profile.observedAt);
+    return describeTargetDivergence(target, freshness) !== null;
+  }).length;
+  const staleCount = targets.filter(
+    (target) => statisticsFreshness(target, profile.observedAt) === 'stale',
+  ).length;
+  const unavailableCount = targets.filter(
+    (target) => statisticsFreshness(target, profile.observedAt) === 'unavailable',
+  ).length;
+
   return (
-    <section className="border-b" data-testid={`profile-targets-${profile.profileId}`}>
+    <ProfileEvidenceDisclosure
+      title="Scale-set targets"
+      description="Local Docker workers and GitHub statistics remain separate evidence."
+      summary={
+        <>
+          <span>
+            {targets.length} {targets.length === 1 ? 'target' : 'targets'}
+          </span>
+          {divergenceCount > 0 ? (
+            <span className="text-amber-700 dark:text-amber-300">
+              {divergenceCount} {divergenceCount === 1 ? 'warning' : 'warnings'}
+            </span>
+          ) : null}
+          {staleCount > 0 ? (
+            <span className="text-amber-700 dark:text-amber-300">{staleCount} stale</span>
+          ) : null}
+          {unavailableCount > 0 ? (
+            <span className="text-amber-700 dark:text-amber-300">
+              {unavailableCount} unavailable
+            </span>
+          ) : null}
+        </>
+      }
+      testId={`profile-targets-${profile.profileId}`}
+    >
       <div className="overflow-x-auto">
         <table className="w-full min-w-4xl text-left text-sm">
-          <caption className="px-3 py-2 text-left font-semibold">
+          <caption className="sr-only">
             Scale-set targets for profile {profile.profileId}. Local Docker worker counts and GitHub
             statistics are separate evidence and are never combined.
           </caption>
@@ -145,10 +186,10 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
         </table>
       </div>
       {targets.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted-foreground">
+        <p className="pt-3 text-sm text-muted-foreground">
           The manager reported no scale-set targets for this profile.
         </p>
       ) : null}
-    </section>
+    </ProfileEvidenceDisclosure>
   );
 }
