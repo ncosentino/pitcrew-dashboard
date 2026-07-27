@@ -84,6 +84,24 @@ evidence source. Unmeasured values read as unavailable rather than zero, and
 absent exit evidence is never described as a clean exit. Contract 10 and older
 observations remain accepted and display the new evidence as unavailable.
 
+PitCrew manager contract 12 adds subsystem operation health, a bounded durable
+operation journal, and explicit capacity-deficit evidence without changing
+connector protocol version 3. Profile detail shows the Docker and GitHub
+operations the manager itself performed, with the last success, last failure,
+consecutive failures, and scheduled retry; this describes manager operations
+rather than the health of Docker or GitHub. Capacity shortfalls are measured
+against the desired slots of a fixed profile or the accepted activation target
+of each scale-set target, never against the configured autoscaling maximum, and
+the blocking reason is labelled as manager-supplied evidence rather than a
+dashboard diagnosis. Manager operations are listed newest first and are
+deduplicated by durable sequence, so a manager restart or a repeated connector
+heartbeat does not duplicate entries. The journal is labelled current,
+truncated, or unavailable, and a truncated journal reports how many entries the
+manager discarded. Unmeasured durations and unavailable eligibility read as
+unavailable rather than zero. Malformed, oversized, or inconsistent evidence is
+rejected without losing the last valid projection, and contract 11 and older
+observations remain accepted and display the new evidence as unavailable.
+
 Connector protocol 3 adds one typed write capability for host-installed,
 explicitly allowlisted connectors: setting the absolute capacity maximum of an
 existing single-target profile. Container connectors remain read-only. See

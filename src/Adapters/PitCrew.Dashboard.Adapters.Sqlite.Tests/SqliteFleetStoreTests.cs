@@ -699,6 +699,229 @@ public sealed class SqliteFleetStoreTests
     }
   }
 
+  [Test]
+  public async Task Contract_Twelve_Diagnostics_Round_Trip_Without_Duplicating_Events(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-fleet-{Guid.NewGuid():N}.db");
+    try
+    {
+      var observedAt = new DateTimeOffset(
+          2026,
+          7,
+          26,
+          12,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (_, store, nodeId) = await CreateEnrolledStoreAsync(
+          databasePath,
+          observedAt,
+          cancellationToken);
+      var shutdownEvent = new ManagerEvent(
+          40,
+          "manager-instance-0",
+          observedAt.AddMinutes(-2),
+          "recovery",
+          "manager-shutdown",
+          null,
+          "succeeded",
+          0,
+          null,
+          null,
+          null,
+          "none",
+          null);
+      var failureEvent = new ManagerEvent(
+          41,
+          "manager-instance-1",
+          observedAt.AddMinutes(-1),
+          "docker",
+          "docker-run",
+          "repo-example-000001",
+          "retry-scheduled",
+          1200,
+          3,
+          2,
+          observedAt.AddSeconds(30),
+          "docker-failed",
+          "Docker refused to start the worker container.");
+      var expectedHealth = new ManagerSubsystemHealth(
+          new SubsystemHealthSummary(
+              "degraded",
+              observedAt,
+              2,
+              observedAt.AddSeconds(30),
+              new SubsystemOperationEvidence(
+                  "docker-ping",
+                  observedAt.AddMinutes(-5),
+                  4,
+                  "none",
+                  null),
+              new SubsystemOperationEvidence(
+                  "docker-run",
+                  observedAt.AddMinutes(-1),
+                  1200,
+                  "docker-failed",
+                  "Docker refused to start the worker container.")),
+          new SubsystemHealthSummary(
+              "unknown",
+              observedAt,
+              0,
+              null,
+              null,
+              null));
+      var expectedFixedDeficit = new CapacityDeficitEvidence(
+          observedAt,
+          "current",
+          1,
+          0,
+          0,
+          0,
+          0,
+          null,
+          1,
+          null,
+          "docker-failed",
+          "Docker refused to start the worker container.");
+      var profile = new ManagerObservedState(
+          1,
+          12,
+          "default",
+          "manager-instance-1",
+          "running",
+          observedAt,
+          "repo",
+          1,
+          null,
+          "accepted",
+          1,
+          0,
+          0,
+          [],
+          null,
+          1,
+          null,
+          0,
+          null,
+          new ManagerOperationJournal(
+              "truncated",
+              32,
+              41,
+              9,
+              [shutdownEvent, failureEvent]),
+          expectedHealth,
+          new ManagerCapacityEvidence(
+              expectedFixedDeficit,
+              []));
+      var credentialUpdate = new ConnectorCredentialUpdate(
+          ConnectorCredentialUpdateKind.None,
+          string.Empty);
+
+      await store.ApplySyncAsync(
+          nodeId,
+          "2.0.0",
+          observedAt,
+          [profile],
+          credentialUpdate,
+          cancellationToken);
+      await store.ApplySyncAsync(
+          nodeId,
+          "2.0.0",
+          observedAt.AddSeconds(5),
+          [profile],
+          credentialUpdate,
+          cancellationToken);
+
+      var afterHeartbeat = await store.GetFleetAsync(
+          "tenant",
+          observedAt.AddSeconds(5),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+      var heartbeatJournal = RequireJournal(afterHeartbeat);
+
+      await store.ApplySyncAsync(
+          nodeId,
+          "2.0.0",
+          observedAt.AddMinutes(1),
+          [
+              profile with
+              {
+                ManagerInstanceId = "manager-instance-2",
+                ObservedAt = observedAt.AddMinutes(1),
+                OperationJournal = new ManagerOperationJournal(
+                    "truncated",
+                    32,
+                    42,
+                    9,
+                    [
+                        shutdownEvent,
+                        failureEvent,
+                        failureEvent with
+                        {
+                          Sequence = 42,
+                          ManagerInstanceId = "manager-instance-2",
+                          Operation = "journal-restore",
+                          Subsystem = "recovery",
+                          Outcome = "recovered",
+                          RetryAt = null,
+                          Reason = "recovered",
+                          Evidence = null,
+                        },
+                    ]),
+              },
+          ],
+          credentialUpdate,
+          cancellationToken);
+
+      var afterRestart = await store.GetFleetAsync(
+          "tenant",
+          observedAt.AddMinutes(1),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+      var restartJournal = RequireJournal(afterRestart);
+      var isolated = await store.GetFleetAsync(
+          "other",
+          observedAt.AddMinutes(1),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(heartbeatJournal.Status).IsEqualTo("truncated");
+      await Assert.That(heartbeatJournal.DroppedEvents).IsEqualTo(9);
+      await Assert.That(heartbeatJournal.Capacity).IsEqualTo(32);
+      await Assert.That(heartbeatJournal.HighestSequence).IsEqualTo(41);
+      await Assert.That(heartbeatJournal.Events.Count).IsEqualTo(2);
+      await Assert.That(heartbeatJournal.Events[0]).IsEqualTo(shutdownEvent);
+      await Assert.That(heartbeatJournal.Events[1]).IsEqualTo(failureEvent);
+      await Assert.That(restartJournal.Events.Count).IsEqualTo(3);
+      await Assert.That(restartJournal.Events
+              .Select(managerEvent => managerEvent.Sequence)
+              .Distinct()
+              .Count())
+          .IsEqualTo(3)
+          .Because("a manager restart continues durable sequences without duplicating events");
+      await Assert.That(afterRestart.Nodes[0].Profiles[0].SubsystemHealth)
+          .IsEqualTo(expectedHealth);
+      await Assert.That(afterRestart.Nodes[0].Profiles[0].CapacityEvidence?.Fixed)
+          .IsEqualTo(expectedFixedDeficit);
+      await Assert.That(afterRestart.Nodes[0].Profiles[0].CapacityEvidence?.Targets)
+          .IsEmpty();
+      await Assert.That(isolated.Nodes).IsEmpty();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  private static ManagerOperationJournal RequireJournal(FleetResponse fleet) =>
+      fleet.Nodes[0].Profiles[0].OperationJournal ??
+      throw new InvalidOperationException(
+          "The stored contract-12 projection must include the operation journal.");
+
   private static async Task CreateEnrollmentCodeAsync(
       SqliteFleetStore store,
       string tenantId,

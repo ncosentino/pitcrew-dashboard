@@ -7,11 +7,14 @@ import { useFleet } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
+import { ProfileCapacityEvidence } from '../components/ProfileCapacityEvidence';
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
 import { ProfileManagerRecovery } from '../components/ProfileManagerRecovery';
+import { ProfileOperationJournal } from '../components/ProfileOperationJournal';
 import { ProfileResourcePolicy } from '../components/ProfileResourcePolicy';
 import { ProfileResourceTelemetry } from '../components/ProfileResourceTelemetry';
 import { ProfileSlotsTable } from '../components/ProfileSlotsTable';
+import { ProfileSubsystemHealth } from '../components/ProfileSubsystemHealth';
 import { ProfileTargetsTable } from '../components/ProfileTargetsTable';
 import { recoverManager, setCapacityMaximum } from '../fleetApi';
 import { isRecoveryCommandActive, type RecoveryFences } from '../managerRecovery';
@@ -154,6 +157,8 @@ export default function ProfileDetailPage() {
               disabled={isMutating || recoveryActive || !node.isOnline || node.isRevoked}
               onSetMaximum={queueCapacityMaximum}
             />
+            <ProfileCapacityEvidence profile={profile} />
+            <ProfileSubsystemHealth profile={profile} />
             <ProfileManagerRecovery
               tenantId={tenantId}
               node={node}
@@ -169,6 +174,7 @@ export default function ProfileDetailPage() {
             <ProfileTargetsTable profile={profile} />
             <ProfileResourceTelemetry profile={profile} />
             <ProfileSlotsTable profile={profile} />
+            <ProfileOperationJournal profile={profile} />
           </CardContent>
         </Card>
       ) : null}

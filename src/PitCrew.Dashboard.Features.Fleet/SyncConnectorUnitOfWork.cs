@@ -456,7 +456,8 @@ internal sealed partial class SyncConnectorUnitOfWork(
       return false;
     }
 
-    return IsConsistentResourceTelemetry(profile);
+    return IsConsistentResourceTelemetry(profile) &&
+        ManagerDiagnosticsValidator.IsValid(profile);
   }
 
   private static bool IsValidAutoscaling(ManagerObservedState profile)
