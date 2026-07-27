@@ -650,7 +650,9 @@ internal sealed partial class SqliteFleetHistoryStore
   }
 
   /// <summary>
-  /// Ranks both diagnostic collections inside one shared budget with a total ordering.
+  /// Ranks both diagnostic collections inside one shared budget with a total ordering. The
+  /// full primary key trails the timestamp so rows sharing a timestamp still evict
+  /// deterministically instead of depending on the query plan.
   /// </summary>
   private static string BuildRankedDiagnosticsSql(string partitionClause) =>
       $"""

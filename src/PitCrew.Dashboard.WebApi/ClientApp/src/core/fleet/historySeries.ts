@@ -519,7 +519,7 @@ function describeExpiry(history: ProfileHistory): string {
   const expiredAt = history.retention.historyExpiredAt;
   return expiredAt == null
     ? ''
-    : ` Dashboard retention expired this profile's history at ${expiredAt} because the connector stopped reporting it; anything retained afterwards was reported later.`;
+    : ` Dashboard retention expired this profile's history at ${expiredAt} because the connector stopped reporting it; anything shown here was reported after that timestamp.`;
 }
 
 export function describeHistoryAvailability(
