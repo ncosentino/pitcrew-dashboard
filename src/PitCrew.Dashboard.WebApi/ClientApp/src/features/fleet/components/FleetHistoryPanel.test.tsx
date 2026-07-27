@@ -267,6 +267,41 @@ describe('FleetHistoryPanel', () => {
     });
   });
 
+  it('states that an expired profile history expired rather than showing it as complete', async () => {
+    const expired = profile('vanished', '2026-07-26T11:59:45+00:00');
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            profiles: [
+              {
+                ...expired,
+                samples: [],
+                rollups: [],
+                events: [],
+                journal: { ...expired.journal, status: 'expired' },
+                retention: {
+                  ...expired.retention,
+                  historyExpiredAt: '2026-07-26T11:30:00+00:00',
+                },
+              },
+            ],
+          }),
+        ),
+    ]);
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+    await openPanel('history-disclosure-vanished');
+
+    const section = await screen.findByTestId('history-profile-vanished');
+    expect(section).toHaveTextContent('expired this profile');
+    expect(section).toHaveTextContent('2026-07-26T11:30:00+00:00');
+    expect(section).toHaveTextContent('expired rather than absent');
+  });
+
   it('states the per-profile and node-wide limits it reached rather than implying completeness', async () => {
     mockFetch([
       () => jsonResponse(historyResponse({ pointsTruncated: true, diagnosticsTruncated: true })),

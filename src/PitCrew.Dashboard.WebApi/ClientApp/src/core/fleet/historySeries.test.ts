@@ -312,6 +312,24 @@ describe('describeHistoryAvailability', () => {
 
     expect(availability.description).toContain('40 older samples');
   });
+
+  it('reports expired history explicitly instead of as never reported', () => {
+    const availability = describeHistoryAvailability(
+      history({
+        samples: [],
+        retention: {
+          ...history().retention,
+          historyExpiredAt: '2026-07-26T11:30:00+00:00',
+        },
+      }),
+      'raw',
+    );
+
+    expect(availability.status).toBe('unavailable');
+    expect(availability.label).toBe('Expired');
+    expect(availability.description).toContain("expired this profile's history");
+    expect(availability.description).toContain('2026-07-26T11:30:00+00:00');
+  });
 });
 
 describe('describeHistoryJournal', () => {
@@ -360,6 +378,37 @@ describe('describeHistoryJournal', () => {
       describeHistoryJournal(history({ journal: { ...history().journal, status: 'unreported' } }))
         .status,
     ).toBe('unavailable');
+  });
+
+  it('reports an expired journal explicitly instead of as complete', () => {
+    const journal = describeHistoryJournal(
+      history({
+        journal: { ...history().journal, status: 'expired' },
+        retention: {
+          ...history().retention,
+          historyExpiredAt: '2026-07-26T11:30:00+00:00',
+        },
+      }),
+    );
+
+    expect(journal.status).toBe('unavailable');
+    expect(journal.label).toBe('Expired');
+    expect(journal.description).toContain('expired rather than absent');
+    expect(journal.description).toContain('2026-07-26T11:30:00+00:00');
+  });
+
+  it('discloses an earlier expiry even when later sequences are complete', () => {
+    const journal = describeHistoryJournal(
+      history({
+        retention: {
+          ...history().retention,
+          historyExpiredAt: '2026-07-26T11:30:00+00:00',
+        },
+      }),
+    );
+
+    expect(journal.status).toBe('available');
+    expect(journal.description).toContain('2026-07-26T11:30:00+00:00');
   });
   it('never calls capped capacity-deficit evidence complete', () => {
     const evidence = describeDeficitEvidence(history({ capacityDeficitsTruncated: true }));

@@ -510,6 +510,18 @@ export function resolveCadenceMilliseconds(
   return median > 0 ? median : null;
 }
 
+/**
+ * Expired history is deliberately distinguished from history that never existed. The server keeps a
+ * tombstone once dashboard retention deletes a profile that stopped being reported, so the profile
+ * is reported as explicitly expired instead of silently disappearing or reading as complete.
+ */
+function describeExpiry(history: ProfileHistory): string {
+  const expiredAt = history.retention.historyExpiredAt;
+  return expiredAt == null
+    ? ''
+    : ` Dashboard retention expired this profile's history at ${expiredAt} because the connector stopped reporting it; anything retained afterwards was reported later.`;
+}
+
 export function describeHistoryAvailability(
   history: ProfileHistory,
   resolution: 'raw' | 'hourly',
@@ -521,9 +533,16 @@ export function describeHistoryAvailability(
     : history.retention.earliestRetainedSample;
   const dropped = isHourly ? history.retention.droppedRollups : history.retention.droppedSamples;
   const retentionNote =
-    dropped > 0
+    (dropped > 0
       ? ` Dashboard retention has already deleted ${dropped} older ${isHourly ? 'hourly buckets' : 'samples'}${floor == null ? '' : `, so nothing before ${floor} is retained`}.`
-      : '';
+      : '') + describeExpiry(history);
+  if (points === 0 && history.retention.historyExpiredAt != null) {
+    return {
+      status: 'unavailable',
+      label: 'Expired',
+      description: `No ${isHourly ? 'hourly bucket' : 'observation'} remains inside this range.${retentionNote}`,
+    };
+  }
   if (points === 0) {
     return {
       status: 'unavailable',
@@ -551,6 +570,13 @@ export function describeHistoryAvailability(
  */
 export function describeHistoryJournal(history: ProfileHistory): HistoryAvailability {
   const journal = history.journal;
+  if (journal.status === 'expired') {
+    return {
+      status: 'unavailable',
+      label: 'Expired',
+      description: `This chronology expired: the connector stopped reporting this profile and dashboard retention deleted its retained manager operations, so they are expired rather than absent.${describeExpiry(history)}`,
+    };
+  }
   if (journal.status === 'unreported' || journal.status === 'unavailable') {
     return {
       status: 'unavailable',
@@ -599,13 +625,12 @@ export function describeHistoryJournal(history: ProfileHistory): HistoryAvailabi
     return {
       status: 'available',
       label: 'Complete',
-      description:
-        'Every durable manager sequence the manager reported has been retained inside this range.',
+      description: `Every durable manager sequence the manager reported has been retained inside this range.${describeExpiry(history)}`,
     };
   }
   return {
     status: 'partial',
     label: 'Gaps',
-    description: `This chronology has gaps: ${gaps.join('; ')}.`,
+    description: `This chronology has gaps: ${gaps.join('; ')}.${describeExpiry(history)}`,
   };
 }

@@ -644,12 +644,29 @@ internal static class SqliteMigrationCatalog
             ALTER TABLE profile_history_cursors
                 ADD COLUMN sample_high_water TEXT NULL;
 
+            -- Raw samples are the shortest-lived evidence of what was already observed, so a
+            -- backfill that only reads them would hand a profile whose samples were already pruned
+            -- an empty high-water and let a stale heartbeat reinsert an old observation. The latest
+            -- projection is the exact newest observation, and an hourly bucket start is the newest
+            -- lower bound that survives raw pruning, so both bound the backfill as well.
             UPDATE profile_history_cursors
             SET sample_high_water = (
-                SELECT MAX(s.observed_at)
-                FROM profile_telemetry_samples AS s
-                WHERE s.node_id = profile_history_cursors.node_id
-                  AND s.profile_id = profile_history_cursors.profile_id);
+                SELECT MAX(observed_at)
+                FROM (
+                    SELECT MAX(s.observed_at) AS observed_at
+                    FROM profile_telemetry_samples AS s
+                    WHERE s.node_id = profile_history_cursors.node_id
+                      AND s.profile_id = profile_history_cursors.profile_id
+                    UNION ALL
+                    SELECT p.observed_at AS observed_at
+                    FROM profiles AS p
+                    WHERE p.node_id = profile_history_cursors.node_id
+                      AND p.profile_id = profile_history_cursors.profile_id
+                    UNION ALL
+                    SELECT MAX(r.bucket_start) AS observed_at
+                    FROM profile_telemetry_rollups AS r
+                    WHERE r.node_id = profile_history_cursors.node_id
+                      AND r.profile_id = profile_history_cursors.profile_id));
 
             ALTER TABLE profile_subsystem_health
                 ADD COLUMN revisions INTEGER NOT NULL DEFAULT 0;

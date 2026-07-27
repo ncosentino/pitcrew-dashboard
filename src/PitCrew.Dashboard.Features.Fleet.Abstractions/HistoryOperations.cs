@@ -69,6 +69,7 @@ public sealed record HistoryWindow(
 /// <param name="MaximumProfileHistories">Hard database-wide ceiling on retained profile histories across every node.</param>
 /// <param name="MaximumHistoryNodes">Hard database-wide ceiling on how many nodes retain history at once.</param>
 /// <param name="GlobalSweepInterval">Smallest gap between two bounded global maintenance sweeps.</param>
+/// <param name="MaximumQueryRange">Widest range one bounded query may request, which is how far back completeness provenance must survive.</param>
 public sealed record HistoryRetentionPolicy(
     TimeSpan SampleRetention,
     TimeSpan RollupRetention,
@@ -88,7 +89,8 @@ public sealed record HistoryRetentionPolicy(
     int MaximumDiagnosticsPerDatabase,
     int MaximumProfileHistories,
     int MaximumHistoryNodes,
-    TimeSpan GlobalSweepInterval);
+    TimeSpan GlobalSweepInterval,
+    TimeSpan MaximumQueryRange);
 
 /// <summary>
 /// Bounds one history append in retention and in accepted manager clock skew.

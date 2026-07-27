@@ -21,12 +21,21 @@ internal sealed partial class SqliteFleetHistoryStore
   private const string SubsystemHealthTable = "profile_subsystem_health";
   private const string CapacityDeficitTable = "profile_capacity_deficits";
 
+  /// <summary>
+  /// Collections deleted outright when one profile history is evicted.
+  /// </summary>
+  /// <remarks>
+  /// Retained event fingerprints are deliberately absent: they are the only durable record that a
+  /// replayed sequence is the same event rather than a reused one, and a profile that returns after
+  /// its history was expired adopts the tombstone's epoch. Dropping the fingerprints with the rows
+  /// would let a reused sequence be accepted as a replay, so they survive with the tombstone and are
+  /// deleted only once no tombstone or cursor refers to the profile.
+  /// </remarks>
   private static readonly string[] ProfileScopedTables =
   [
       "profile_telemetry_samples",
       "profile_telemetry_rollups",
       "profile_manager_events",
-      "profile_event_identities",
       SubsystemHealthTable,
       CapacityDeficitTable,
   ];
@@ -56,6 +65,12 @@ internal sealed partial class SqliteFleetHistoryStore
         receivedAt,
         retention,
         cancellationToken);
+    await EnforceDatabaseCeilingsAsync(
+        connection,
+        transaction,
+        receivedAt,
+        retention,
+        cancellationToken);
     if (await ShouldSweepGloballyAsync(
         connection,
         transaction,
@@ -70,19 +85,6 @@ internal sealed partial class SqliteFleetHistoryStore
           receivedAt,
           retention,
           cancellationToken);
-      await BoundHistoryNodesAsync(
-          connection,
-          transaction,
-          receivedAt,
-          retention.MaximumHistoryNodes,
-          cancellationToken);
-      await BoundProfileHistoriesAsync(
-          connection,
-          transaction,
-          null,
-          receivedAt,
-          retention.MaximumProfileHistories,
-          cancellationToken);
       await ExpireTombstonesAsync(
           connection,
           transaction,
@@ -93,8 +95,72 @@ internal sealed partial class SqliteFleetHistoryStore
   }
 
   /// <summary>
-  /// Ages and bounds retained rows for one node, or for the whole database when no node is scoped.
+  /// Enforces every database-wide ceiling on each append instead of only on the throttled sweep.
   /// </summary>
+  /// <remarks>
+  /// A ceiling that is only applied when the throttled global sweep happens to claim its turn is not
+  /// a hard cap: between two sweeps an arbitrary number of heartbeats can push the database past it.
+  /// Each ceiling is therefore enforced on every append, guarded by a bounded existence probe that
+  /// walks at most the configured ceiling so an under-budget database never pays for the ranking.
+  /// </remarks>
+  private static async Task EnforceDatabaseCeilingsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      DateTimeOffset receivedAt,
+      HistoryRetentionPolicy retention,
+      CancellationToken cancellationToken)
+  {
+    await BoundDatabaseRowsAsync(
+        connection,
+        transaction,
+        CountedTables[0],
+        "dropped_samples",
+        retention.MaximumSamplesPerDatabase,
+        cancellationToken);
+    await BoundDatabaseRowsAsync(
+        connection,
+        transaction,
+        CountedTables[1],
+        "dropped_rollups",
+        retention.MaximumRollupsPerDatabase,
+        cancellationToken);
+    await BoundDatabaseRowsAsync(
+        connection,
+        transaction,
+        CountedTables[2],
+        "dropped_events",
+        retention.MaximumEventsPerDatabase,
+        cancellationToken);
+    await BoundDatabaseDiagnosticsAsync(
+        connection,
+        transaction,
+        retention.MaximumDiagnosticsPerDatabase,
+        cancellationToken);
+    await BoundHistoryNodesAsync(
+        connection,
+        transaction,
+        receivedAt,
+        retention.MaximumHistoryNodes,
+        cancellationToken);
+    await BoundProfileHistoriesAsync(
+        connection,
+        transaction,
+        null,
+        HistoryPartition.Database,
+        receivedAt,
+        retention.MaximumProfileHistories,
+        cancellationToken);
+  }
+
+  /// <summary>
+  /// Ages and bounds retained rows for one node, or for every node when no node is scoped.
+  /// </summary>
+  /// <remarks>
+  /// Every ceiling this sweep applies is partitioned by profile or by node, so the unscoped sweep
+  /// enforces the same per-node ceilings on abandoned nodes that a syncing node enforces on itself.
+  /// Database-wide ceilings are not applied here because they are hard caps enforced on every
+  /// append.
+  /// </remarks>
   private static async Task SweepAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -103,7 +169,6 @@ internal sealed partial class SqliteFleetHistoryStore
       HistoryRetentionPolicy retention,
       CancellationToken cancellationToken)
   {
-    var isGlobal = nodeId is null;
     var before = await CountRowsAsync(
         connection,
         transaction,
@@ -179,18 +244,14 @@ internal sealed partial class SqliteFleetHistoryStore
         retention.MaximumDiagnosticsPerProfile,
         cancellationToken);
 
-    var rowPartition = isGlobal
-        ? HistoryPartition.Database
-        : HistoryPartition.Node;
+    var rowPartition = HistoryPartition.Node;
     await BoundRowsAsync(
         connection,
         transaction,
         nodeId,
         CountedTables[0],
         rowPartition,
-        isGlobal
-            ? retention.MaximumSamplesPerDatabase
-            : retention.MaximumSamplesPerNode,
+        retention.MaximumSamplesPerNode,
         cancellationToken);
     await BoundRowsAsync(
         connection,
@@ -198,9 +259,7 @@ internal sealed partial class SqliteFleetHistoryStore
         nodeId,
         CountedTables[1],
         rowPartition,
-        isGlobal
-            ? retention.MaximumRollupsPerDatabase
-            : retention.MaximumRollupsPerNode,
+        retention.MaximumRollupsPerNode,
         cancellationToken);
     await BoundRowsAsync(
         connection,
@@ -208,18 +267,14 @@ internal sealed partial class SqliteFleetHistoryStore
         nodeId,
         CountedTables[2],
         rowPartition,
-        isGlobal
-            ? retention.MaximumEventsPerDatabase
-            : retention.MaximumEventsPerNode,
+        retention.MaximumEventsPerNode,
         cancellationToken);
     await BoundDiagnosticsAsync(
         connection,
         transaction,
         nodeId,
         rowPartition,
-        isGlobal
-            ? retention.MaximumDiagnosticsPerDatabase
-            : retention.MaximumDiagnosticsPerNode,
+        retention.MaximumDiagnosticsPerNode,
         cancellationToken);
 
     var after = await CountRowsAsync(
@@ -234,17 +289,14 @@ internal sealed partial class SqliteFleetHistoryStore
         after,
         cancellationToken);
 
-    if (!isGlobal)
-    {
-      await BoundProfileHistoriesAsync(
-          connection,
-          transaction,
-          nodeId,
-          receivedAt,
-          retention.MaximumProfilesPerNode,
-          cancellationToken);
-    }
-
+    await BoundProfileHistoriesAsync(
+        connection,
+        transaction,
+        nodeId,
+        HistoryPartition.Node,
+        receivedAt,
+        retention.MaximumProfilesPerNode,
+        cancellationToken);
     await ExpireCursorsAsync(
         connection,
         transaction,
@@ -347,6 +399,208 @@ internal sealed partial class SqliteFleetHistoryStore
   }
 
   /// <summary>
+  /// Applies one database-wide row ceiling and accounts every deletion to its own profile cursor.
+  /// </summary>
+  /// <remarks>
+  /// Deleting with <c>RETURNING</c> attributes each evicted row to the profile that owns it without
+  /// counting every retained row of the database twice per append, which is what a before-and-after
+  /// count would cost when this ceiling is enforced on every append.
+  /// </remarks>
+  private static async Task BoundDatabaseRowsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      HistoryTable table,
+      string droppedColumn,
+      int maximum,
+      CancellationToken cancellationToken)
+  {
+    if (!await ExceedsCeilingAsync(
+        connection,
+        transaction,
+        $"SELECT 1 FROM {table.Name}",
+        maximum,
+        cancellationToken))
+    {
+      return;
+    }
+
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        DELETE FROM {table.Name}
+        WHERE (node_id, profile_id, {table.KeyColumns}) IN (
+            SELECT node_id, profile_id, {table.KeyColumns}
+            FROM (
+                SELECT
+                    node_id,
+                    profile_id,
+                    {table.KeyColumns},
+                    ROW_NUMBER() OVER (
+                        ORDER BY {table.OrderBy}) AS rank_index
+                FROM {table.Name})
+            WHERE rank_index > $maximum)
+        RETURNING node_id, profile_id;
+        """;
+    command.Parameters.AddWithValue("$maximum", maximum);
+    var deleted = await ReadDeletedKeysAsync(command, cancellationToken);
+    await RecordDroppedColumnAsync(
+        connection,
+        transaction,
+        deleted,
+        droppedColumn,
+        cancellationToken);
+  }
+
+  /// <summary>
+  /// Applies the combined database-wide diagnostic budget shared by both diagnostic collections.
+  /// </summary>
+  private static async Task BoundDatabaseDiagnosticsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      int maximum,
+      CancellationToken cancellationToken)
+  {
+    if (!await ExceedsCeilingAsync(
+        connection,
+        transaction,
+        $"""
+        SELECT 1 FROM {SubsystemHealthTable}
+        UNION ALL
+        SELECT 1 FROM {CapacityDeficitTable}
+        """,
+        maximum,
+        cancellationToken))
+    {
+      return;
+    }
+
+    var ranked = BuildRankedDiagnosticsSql(string.Empty);
+    await BoundDatabaseDiagnosticTableAsync(
+        connection,
+        transaction,
+        $"""
+        {ranked}
+        DELETE FROM {SubsystemHealthTable}
+        WHERE (node_id, profile_id, subsystem, observed_at) IN (
+            SELECT node_id, profile_id, key_value, observed_at
+            FROM ranked
+            WHERE kind = 'a' AND rank_index > $maximum)
+        RETURNING node_id, profile_id;
+        """,
+        "dropped_subsystem_health",
+        maximum,
+        cancellationToken);
+    await BoundDatabaseDiagnosticTableAsync(
+        connection,
+        transaction,
+        $"""
+        {ranked}
+        DELETE FROM {CapacityDeficitTable}
+        WHERE (node_id, profile_id, target_key, observed_at) IN (
+            SELECT node_id, profile_id, key_value, observed_at
+            FROM ranked
+            WHERE kind = 'b' AND rank_index > $maximum)
+        RETURNING node_id, profile_id;
+        """,
+        "dropped_capacity_deficits",
+        maximum,
+        cancellationToken);
+  }
+
+  private static async Task BoundDatabaseDiagnosticTableAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string commandText,
+      string droppedColumn,
+      int maximum,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText = commandText;
+    AddNullable(command, "$nodeId", null);
+    command.Parameters.AddWithValue("$maximum", maximum);
+    var deleted = await ReadDeletedKeysAsync(command, cancellationToken);
+    await RecordDroppedColumnAsync(
+        connection,
+        transaction,
+        deleted,
+        droppedColumn,
+        cancellationToken);
+  }
+
+  /// <summary>
+  /// Reports whether a collection holds more rows than the ceiling allows.
+  /// </summary>
+  /// <remarks>
+  /// The probe stops as soon as one row past the ceiling exists, so a database inside its budget
+  /// never pays for the ranking that enforcing the ceiling would otherwise cost on every append.
+  /// </remarks>
+  private static async Task<bool> ExceedsCeilingAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string selection,
+      int maximum,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        SELECT 1
+        FROM ({selection})
+        LIMIT 1 OFFSET $maximum;
+        """;
+    command.Parameters.AddWithValue("$maximum", maximum);
+    return await command.ExecuteScalarAsync(cancellationToken) is not null;
+  }
+
+  private static async Task<Dictionary<HistoryProfileKey, long>>
+      ReadDeletedKeysAsync(
+          SqliteCommand command,
+          CancellationToken cancellationToken)
+  {
+    var deleted = new Dictionary<HistoryProfileKey, long>();
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      var key = new HistoryProfileKey(
+          reader.GetString(0),
+          reader.GetString(1));
+      deleted[key] = deleted.GetValueOrDefault(key) + 1;
+    }
+
+    return deleted;
+  }
+
+  private static async Task RecordDroppedColumnAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Dictionary<HistoryProfileKey, long> deleted,
+      string droppedColumn,
+      CancellationToken cancellationToken)
+  {
+    foreach (var (key, count) in deleted)
+    {
+      await using var command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText =
+          $"""
+          UPDATE profile_history_cursors
+          SET {droppedColumn} = {droppedColumn} + $dropped
+          WHERE node_id = $nodeId
+            AND profile_id = $profileId;
+          """;
+      command.Parameters.AddWithValue("$nodeId", key.NodeId);
+      command.Parameters.AddWithValue("$profileId", key.ProfileId);
+      command.Parameters.AddWithValue("$dropped", count);
+      await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+  }
+
+  /// <summary>
   /// Applies one combined diagnostic budget shared by subsystem health and capacity deficits.
   /// </summary>
   /// <remarks>
@@ -361,44 +615,10 @@ internal sealed partial class SqliteFleetHistoryStore
       int maximum,
       CancellationToken cancellationToken)
   {
-    var partitionClause = partition == HistoryPartition.Node
-        ? "PARTITION BY node_id "
-        : string.Empty;
-    var ranked =
-        $"""
-        WITH combined AS (
-            SELECT
-                'a' AS kind,
-                node_id,
-                profile_id,
-                subsystem AS key_value,
-                observed_at
-            FROM {SubsystemHealthTable}
-            WHERE ($nodeId IS NULL OR node_id = $nodeId)
-            UNION ALL
-            SELECT
-                'b' AS kind,
-                node_id,
-                profile_id,
-                target_key AS key_value,
-                observed_at
-            FROM {CapacityDeficitTable}
-            WHERE ($nodeId IS NULL OR node_id = $nodeId)),
-        ranked AS (
-            SELECT
-                kind,
-                node_id,
-                profile_id,
-                key_value,
-                observed_at,
-                ROW_NUMBER() OVER (
-                    {partitionClause}ORDER BY
-                        observed_at DESC,
-                        kind ASC,
-                        profile_id ASC,
-                        key_value ASC) AS rank_index
-            FROM combined)
-        """;
+    var ranked = BuildRankedDiagnosticsSql(
+        partition == HistoryPartition.Node
+            ? "PARTITION BY node_id "
+            : string.Empty);
     await ExecuteDiagnosticEvictionAsync(
         connection,
         transaction,
@@ -428,6 +648,46 @@ internal sealed partial class SqliteFleetHistoryStore
         maximum,
         cancellationToken);
   }
+
+  /// <summary>
+  /// Ranks both diagnostic collections inside one shared budget with a total ordering.
+  /// </summary>
+  private static string BuildRankedDiagnosticsSql(string partitionClause) =>
+      $"""
+      WITH combined AS (
+          SELECT
+              'a' AS kind,
+              node_id,
+              profile_id,
+              subsystem AS key_value,
+              observed_at
+          FROM {SubsystemHealthTable}
+          WHERE ($nodeId IS NULL OR node_id = $nodeId)
+          UNION ALL
+          SELECT
+              'b' AS kind,
+              node_id,
+              profile_id,
+              target_key AS key_value,
+              observed_at
+          FROM {CapacityDeficitTable}
+          WHERE ($nodeId IS NULL OR node_id = $nodeId)),
+      ranked AS (
+          SELECT
+              kind,
+              node_id,
+              profile_id,
+              key_value,
+              observed_at,
+              ROW_NUMBER() OVER (
+                  {partitionClause}ORDER BY
+                      observed_at DESC,
+                      kind ASC,
+                      node_id ASC,
+                      profile_id ASC,
+                      key_value ASC) AS rank_index
+          FROM combined)
+      """;
 
   private static async Task ExecuteDiagnosticEvictionAsync(
       SqliteConnection connection,
@@ -543,13 +803,14 @@ internal sealed partial class SqliteFleetHistoryStore
       SqliteConnection connection,
       SqliteTransaction transaction,
       string? nodeId,
+      HistoryPartition partition,
       DateTimeOffset receivedAt,
       int maximum,
       CancellationToken cancellationToken)
   {
-    var partitionClause = nodeId is null
-        ? string.Empty
-        : "PARTITION BY node_id ";
+    var partitionClause = partition == HistoryPartition.Node
+        ? "PARTITION BY node_id "
+        : string.Empty;
     var excess = new List<HistoryProfileKey>();
     await using (var command = connection.CreateCommand())
     {
@@ -850,7 +1111,7 @@ internal sealed partial class SqliteFleetHistoryStore
       HistoryRetentionPolicy retention,
       CancellationToken cancellationToken)
   {
-    var cutoff = Utc(receivedAt - LongestRetention(retention));
+    var cutoff = Utc(receivedAt - ProvenanceHorizon(retention));
     var expired = new List<HistoryProfileKey>();
     await using (var command = connection.CreateCommand())
     {
@@ -908,6 +1169,12 @@ internal sealed partial class SqliteFleetHistoryStore
   /// <summary>
   /// Deletes tombstones only once no query window can still reach the data they describe.
   /// </summary>
+  /// <remarks>
+  /// A bounded query may reach back as far as the configured maximum history range, which can be
+  /// configured beyond the longest retention. Provenance is therefore kept for whichever of the two
+  /// is longer, so a reachable window can never report an expired history as pristine. Both bounds
+  /// are configured maxima, so the retained provenance stays bounded.
+  /// </remarks>
   private static async Task ExpireTombstonesAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -924,7 +1191,7 @@ internal sealed partial class SqliteFleetHistoryStore
         """;
     command.Parameters.AddWithValue(
         "$cutoff",
-        Utc(receivedAt - LongestRetention(retention)));
+        Utc(receivedAt - ProvenanceHorizon(retention)));
     await command.ExecuteNonQueryAsync(cancellationToken);
 
     await BoundTombstonesAsync(
@@ -939,6 +1206,42 @@ internal sealed partial class SqliteFleetHistoryStore
         string.Empty,
         retention.MaximumProfileHistories,
         cancellationToken);
+    await DeleteOrphanedEventIdentitiesAsync(
+        connection,
+        transaction,
+        cancellationToken);
+  }
+
+  /// <summary>
+  /// Deletes retained event fingerprints once neither a cursor nor a tombstone refers to them.
+  /// </summary>
+  /// <remarks>
+  /// Fingerprints outlive the events they identify so a returning profile can still tell a replayed
+  /// sequence from a reused one. Once the profile has no cursor and no tombstone, nothing can adopt
+  /// them again, so keeping them would be unbounded storage rather than provenance.
+  /// </remarks>
+  private static async Task DeleteOrphanedEventIdentitiesAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        DELETE FROM profile_event_identities AS i
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM profile_history_cursors AS c
+            WHERE c.node_id = i.node_id
+              AND c.profile_id = i.profile_id)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM profile_history_tombstones AS t
+            WHERE t.node_id = i.node_id
+              AND t.profile_id = i.profile_id);
+        """;
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   /// <summary>
@@ -979,6 +1282,17 @@ internal sealed partial class SqliteFleetHistoryStore
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
+  /// <summary>
+  /// Reports how far back completeness provenance must survive.
+  /// </summary>
+  private static TimeSpan ProvenanceHorizon(HistoryRetentionPolicy retention)
+  {
+    var longest = LongestRetention(retention);
+    return retention.MaximumQueryRange > longest
+        ? retention.MaximumQueryRange
+        : longest;
+  }
+
   private static TimeSpan LongestRetention(HistoryRetentionPolicy retention)
   {
     var longest = retention.SampleRetention;
@@ -1007,6 +1321,14 @@ internal sealed partial class SqliteFleetHistoryStore
 
   private sealed record HistoryProfileKey(string NodeId, string ProfileId);
 
+  /// <summary>
+  /// Describes one retained collection and how its rows are ordered totally for eviction.
+  /// </summary>
+  /// <remarks>
+  /// The ordering ends with the owning node and profile, so a ranking that spans more than one
+  /// profile — a node-wide or database-wide ceiling — still orders every tied timestamp totally and
+  /// evicts a deterministic set instead of an arbitrary one.
+  /// </remarks>
   private sealed record HistoryTable(
       string Name,
       string TimeColumn,
@@ -1022,6 +1344,7 @@ internal sealed partial class SqliteFleetHistoryStore
                     column,
                     TimeColumn,
                     StringComparison.Ordinal)))
-            .Select(column => $"{column} DESC"));
+            .Select(column => $"{column} DESC")
+            .Concat(["node_id ASC", "profile_id ASC"]));
   }
 }

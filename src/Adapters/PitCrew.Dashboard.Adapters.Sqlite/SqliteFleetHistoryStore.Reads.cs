@@ -268,7 +268,8 @@ internal sealed partial class SqliteFleetHistoryStore
                 ROW_NUMBER() OVER (
                     PARTITION BY profile_id
                     ORDER BY observed_at DESC) AS row_index,
-                ROW_NUMBER() OVER (ORDER BY observed_at DESC) AS node_index
+                ROW_NUMBER() OVER (
+                    ORDER BY observed_at DESC, profile_id ASC) AS node_index
             FROM profile_telemetry_samples
             WHERE node_id = $nodeId
               AND observed_at >= $from
@@ -384,7 +385,8 @@ internal sealed partial class SqliteFleetHistoryStore
                 ROW_NUMBER() OVER (
                     PARTITION BY profile_id
                     ORDER BY bucket_start DESC) AS row_index,
-                ROW_NUMBER() OVER (ORDER BY bucket_start DESC) AS node_index
+                ROW_NUMBER() OVER (
+                    ORDER BY bucket_start DESC, profile_id ASC) AS node_index
             FROM profile_telemetry_rollups
             WHERE node_id = $nodeId
               AND bucket_start >= $from
@@ -478,8 +480,11 @@ internal sealed partial class SqliteFleetHistoryStore
                     ORDER BY observed_at DESC, epoch DESC, sequence DESC)
                     AS row_index,
                 ROW_NUMBER() OVER (
-                    ORDER BY observed_at DESC, epoch DESC, sequence DESC)
-                    AS node_index
+                    ORDER BY
+                        observed_at DESC,
+                        epoch DESC,
+                        sequence DESC,
+                        profile_id ASC) AS node_index
             FROM profile_manager_events
             WHERE node_id = $nodeId
               AND observed_at >= $from

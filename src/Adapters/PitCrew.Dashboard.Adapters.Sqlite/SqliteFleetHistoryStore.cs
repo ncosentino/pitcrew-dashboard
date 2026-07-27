@@ -94,6 +94,12 @@ internal sealed partial class SqliteFleetHistoryStore(
           profile.ProfileId,
           receivedAt,
           cancellationToken);
+      var cursor = await ReadCursorAsync(
+          connection,
+          sqliteTransaction,
+          nodeId,
+          profile.ProfileId,
+          cancellationToken);
       if (profile.ObservedAt > horizon ||
           HasImplausibleDiagnostic(profile, horizon))
       {
@@ -146,14 +152,18 @@ internal sealed partial class SqliteFleetHistoryStore(
         }
       }
 
-      await AppendEventsAsync(
-          connection,
-          sqliteTransaction,
-          nodeId,
-          profile,
-          receivedAt,
-          horizon,
-          cancellationToken);
+      if (!IsStaleHeartbeat(cursor, profile))
+      {
+        await AppendEventsAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            cursor,
+            receivedAt,
+            horizon,
+            cancellationToken);
+      }
     }
 
     await ApplyRetentionAsync(
@@ -279,6 +289,23 @@ internal sealed partial class SqliteFleetHistoryStore(
     adopted.Parameters.AddWithValue("$profileId", profileId);
     await adopted.ExecuteNonQueryAsync(cancellationToken);
   }
+
+  /// <summary>
+  /// Reports whether one delivered heartbeat is older than the durable sample high-water.
+  /// </summary>
+  /// <remarks>
+  /// A connector that redelivers an older manager snapshot carries an older operation journal with
+  /// it. Ingesting that journal would regress the durable cursor and, when the stale snapshot's
+  /// highest sequence sits below the stored one, look exactly like a manager sequence regression and
+  /// start a spurious epoch, which republishes already-retained events under a new generation. A
+  /// stale snapshot can only repeat sequences at or below what a later observation already
+  /// delivered, so ignoring its journal loses nothing and keeps the epoch honest.
+  /// </remarks>
+  private static bool IsStaleHeartbeat(
+      CursorState cursor,
+      ManagerObservedState profile) =>
+      cursor.SampleHighWater is not null &&
+      profile.ObservedAt < cursor.SampleHighWater.Value;
 
   /// <summary>
   /// Reports whether any manager diagnostic claims an implausibly future observation time.
@@ -1037,6 +1064,7 @@ internal sealed partial class SqliteFleetHistoryStore(
       SqliteTransaction transaction,
       Guid nodeId,
       ManagerObservedState profile,
+      CursorState cursor,
       DateTimeOffset receivedAt,
       DateTimeOffset horizon,
       CancellationToken cancellationToken)
@@ -1058,12 +1086,6 @@ internal sealed partial class SqliteFleetHistoryStore(
       }
     }
 
-    var cursor = await ReadCursorAsync(
-        connection,
-        transaction,
-        nodeId,
-        profile.ProfileId,
-        cancellationToken);
     long? deliveredHighest = events.Count == 0
         ? null
         : events.Keys.Max();
@@ -1451,7 +1473,8 @@ internal sealed partial class SqliteFleetHistoryStore(
         SELECT
             epoch,
             epoch_resets,
-            stored_highest_sequence
+            stored_highest_sequence,
+            sample_high_water
         FROM profile_history_cursors
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
@@ -1462,14 +1485,15 @@ internal sealed partial class SqliteFleetHistoryStore(
         cancellationToken);
     if (!await reader.ReadAsync(cancellationToken))
     {
-      return new CursorState(0, 0, null);
+      return new CursorState(0, 0, null, null);
     }
 
     var row = new SqliteRowReader(reader);
     return new CursorState(
         row.Int64("epoch"),
         row.Int64("epoch_resets"),
-        row.OptionalInt64("stored_highest_sequence"));
+        row.OptionalInt64("stored_highest_sequence"),
+        row.OptionalTime("sample_high_water"));
   }
 
   private static DateTimeOffset BucketStart(DateTimeOffset observedAt)
@@ -1499,5 +1523,6 @@ internal sealed partial class SqliteFleetHistoryStore(
   private sealed record CursorState(
       long Epoch,
       long EpochResets,
-      long? StoredHighestSequence);
+      long? StoredHighestSequence,
+      DateTimeOffset? SampleHighWater);
 }

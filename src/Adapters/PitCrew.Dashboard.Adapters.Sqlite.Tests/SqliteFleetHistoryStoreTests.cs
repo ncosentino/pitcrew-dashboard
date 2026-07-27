@@ -1261,7 +1261,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
       await FleetStorageTestTransactions.AppendAsync(
           store,
           connectionFactory,
@@ -1339,7 +1340,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
       for (var index = 0; index < 5; index++)
       {
         await FleetStorageTestTransactions.AppendAsync(
@@ -1406,7 +1408,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
       for (var index = 0; index < 5; index++)
       {
         var observedAt = Origin.AddMinutes(index);
@@ -1946,6 +1949,619 @@ public sealed class SqliteFleetHistoryStoreTests
     }
   }
 
+
+  [Test]
+  public async Task Stale_Heartbeat_Journal_Does_Not_Start_A_New_Epoch(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("staleevents");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin,
+                  journal: CreateJournal(
+                      "current",
+                      [CreateEvent(1, Origin), CreateEvent(2, Origin)])),
+          ],
+          Origin,
+          Retention,
+          cancellationToken);
+
+      var stale = Origin.AddMinutes(-1);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  stale,
+                  journal: CreateJournal(
+                      "current",
+                      [CreateEvent(1, stale)])),
+          ],
+          Origin.AddSeconds(15),
+          Retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Journal.Epoch).IsEqualTo(0L);
+      await Assert.That(history.Journal.EpochResets).IsEqualTo(0L);
+      await Assert.That(history.Journal.StoredHighestSequence).IsEqualTo(2L);
+      await Assert.That(history.Journal.ManagerHighestSequence).IsEqualTo(2L);
+      await Assert.That(history.Events.Count).IsEqualTo(2);
+      await Assert.That(history.Samples).HasSingleItem();
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Database_Sample_Ceiling_Is_Enforced_On_Every_Append(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("databasecap");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var retention = Retention with
+      {
+        MaximumSamplesPerDatabase = 3,
+        GlobalSweepInterval = TimeSpan.FromDays(30),
+      };
+      for (var index = 0; index < 6; index++)
+      {
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            nodeId,
+            [CreateProfile(Origin.AddMinutes(index))],
+            Origin.AddMinutes(index),
+            retention,
+            cancellationToken);
+      }
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken,
+          HistoryResolution.Raw,
+          Origin.AddHours(1));
+      await Assert.That(history.Samples.Count).IsEqualTo(3);
+      await Assert.That(history.Samples[0].ObservedAt)
+          .IsEqualTo(Origin.AddMinutes(3));
+      await Assert.That(history.Retention.DroppedSamples).IsEqualTo(3L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Abandoned_Node_Is_Bounded_By_Its_Own_Node_Ceiling(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("abandoned");
+    try
+    {
+      var (connectionFactory, abandonedNodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var activeNodeId = await EnrollNodeAsync(
+          connectionFactory,
+          "second",
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      for (var index = 0; index < 4; index++)
+      {
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            abandonedNodeId,
+            [CreateProfile(Origin.AddMinutes(index))],
+            Origin.AddMinutes(index),
+            Retention,
+            cancellationToken);
+      }
+
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          activeNodeId,
+          [CreateProfile(Origin.AddMinutes(10))],
+          Origin.AddMinutes(10),
+          Retention with
+          {
+            MaximumSamplesPerNode = 2,
+            GlobalSweepInterval = TimeSpan.Zero,
+          },
+          cancellationToken);
+
+      var abandoned = await ReadProfileHistoryAsync(
+          store,
+          abandonedNodeId,
+          cancellationToken,
+          HistoryResolution.Raw,
+          Origin.AddHours(1));
+      await Assert.That(abandoned.Samples.Count).IsEqualTo(2);
+      await Assert.That(abandoned.Samples[0].ObservedAt)
+          .IsEqualTo(Origin.AddMinutes(2));
+      await Assert.That(abandoned.Retention.DroppedSamples).IsEqualTo(2L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Reused_Sequence_After_History_Expiry_Starts_A_New_Epoch(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("expiredidentity");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin,
+                  journal: CreateJournal(
+                      "current",
+                      [CreateEvent(1, Origin)])),
+          ],
+          Origin,
+          Retention,
+          cancellationToken);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(Origin.AddMinutes(1)) with { ProfileId = "other" }],
+          Origin.AddMinutes(1),
+          Retention with { MaximumProfilesPerNode = 1 },
+          cancellationToken);
+
+      var reused = Origin.AddMinutes(2);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  reused,
+                  journal: CreateJournal(
+                      "current",
+                      [
+                          CreateEvent(1, reused) with
+                          {
+                            Reason = "scale-set-throttled",
+                          },
+                      ])),
+          ],
+          reused,
+          Retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken,
+          HistoryResolution.Raw,
+          Origin.AddHours(1));
+      await Assert.That(history.Journal.EpochResets).IsEqualTo(1L);
+      await Assert.That(history.Events).HasSingleItem();
+      await Assert.That(history.Events[0].Reason)
+          .IsEqualTo("scale-set-throttled");
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Expired_History_Provenance_Survives_The_Longest_Retention(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("provenance");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var retention = Retention with
+      {
+        SampleRetention = TimeSpan.FromHours(1),
+        RollupRetention = TimeSpan.FromHours(1),
+        EventRetention = TimeSpan.FromHours(1),
+        DiagnosticRetention = TimeSpan.FromHours(1),
+        MaximumProfilesPerNode = 1,
+        GlobalSweepInterval = TimeSpan.Zero,
+        MaximumQueryRange = TimeSpan.FromDays(30),
+      };
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(Origin) with { ProfileId = "vanished" }],
+          Origin,
+          retention,
+          cancellationToken);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(Origin.AddHours(6))],
+          Origin.AddHours(6),
+          retention,
+          cancellationToken);
+
+      var history = await store.GetNodeHistoryAsync(
+          "tenant",
+          nodeId,
+          new HistoryWindow(
+              Origin.AddDays(-1),
+              Origin.AddDays(1),
+              HistoryResolution.Raw,
+              100,
+              100,
+              NodeDiagnosticLimit,
+              NodePointLimit,
+              NodeEventLimit,
+              NodeDiagnosticLimit),
+          Origin.AddHours(7),
+          cancellationToken);
+      await Assert.That(history).IsNotNull();
+      var vanished = history!.Profiles.Single(
+          profile => profile.ProfileId == "vanished");
+      await Assert.That(vanished.Journal.Status).IsEqualTo("expired");
+      await Assert.That(vanished.Retention.HistoryExpiredAt).IsNotNull();
+      await Assert.That(vanished.Retention.DroppedSamples).IsEqualTo(1L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Tied_Timestamps_Across_Profiles_Evict_Deterministically(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("tiedprofiles");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      for (var index = 0; index < 2; index++)
+      {
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            nodeId,
+            [
+                CreateProfile(Origin.AddMinutes(index)) with
+                {
+                  ProfileId = "alpha",
+                },
+                CreateProfile(Origin.AddMinutes(index)) with
+                {
+                  ProfileId = "beta",
+                },
+            ],
+            Origin.AddMinutes(index),
+            index == 0
+                ? Retention
+                : Retention with { MaximumSamplesPerNode = 3 },
+            cancellationToken);
+      }
+
+      var history = await store.GetNodeHistoryAsync(
+          "tenant",
+          nodeId,
+          new HistoryWindow(
+              Origin.AddDays(-1),
+              Origin.AddDays(1),
+              HistoryResolution.Raw,
+              100,
+              100,
+              NodeDiagnosticLimit,
+              NodePointLimit,
+              NodeEventLimit,
+              NodeDiagnosticLimit),
+          Origin.AddHours(1),
+          cancellationToken);
+      await Assert.That(history).IsNotNull();
+      var alpha = history!.Profiles.Single(
+          profile => profile.ProfileId == "alpha");
+      var beta = history.Profiles.Single(
+          profile => profile.ProfileId == "beta");
+      await Assert.That(alpha.Samples.Count).IsEqualTo(2);
+      await Assert.That(beta.Samples).HasSingleItem();
+      await Assert.That(beta.Samples[0].ObservedAt)
+          .IsEqualTo(Origin.AddMinutes(1));
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Migration_Eight_Backfills_High_Water_Without_Raw_Samples(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("migrationeight");
+    try
+    {
+      var connectionFactory = new SqliteConnectionFactory(
+          Options.Create(new SqliteFleetStoreOptions
+          {
+            DatabasePath = databasePath,
+          }));
+      await ApplyMigrationsThroughAsync(
+          connectionFactory,
+          7,
+          cancellationToken);
+      await ExecuteAsync(
+          connectionFactory,
+          """
+          INSERT INTO tenants (tenant_id, display_name, created_at)
+          VALUES ('tenant', 'Tenant', '2026-07-24T12:00:00.0000000+00:00');
+
+          INSERT INTO nodes (
+              node_id,
+              tenant_id,
+              connector_instance_id,
+              display_name,
+              credential_hash,
+              connector_version,
+              enrolled_at,
+              last_seen_at)
+          VALUES (
+              'node',
+              'tenant',
+              'connector-instance',
+              'Connector name',
+              'credential-hash',
+              '1.0.0',
+              '2026-07-24T12:00:00.0000000+00:00',
+              '2026-07-24T12:00:00.0000000+00:00');
+
+          INSERT INTO profiles (
+              node_id,
+              profile_id,
+              payload_hash,
+              payload_json,
+              observed_at)
+          VALUES (
+              'node',
+              'projected',
+              'hash',
+              '{}',
+              '2026-07-24T12:02:00.0000000+00:00');
+
+          INSERT INTO profile_telemetry_rollups (
+              node_id,
+              profile_id,
+              bucket_start,
+              sample_count,
+              max_desired_slots,
+              max_active_slots,
+              max_draining_slots,
+              max_local_running_workers,
+              max_exit_reports,
+              max_adverse_exit_reports)
+          VALUES (
+              'node',
+              'rolled',
+              '2026-07-24T12:00:00.0000000+00:00',
+              1,
+              4,
+              2,
+              0,
+              1,
+              0,
+              0);
+
+          INSERT INTO profile_history_cursors (
+              node_id,
+              profile_id,
+              journal_status,
+              journal_capacity,
+              epoch,
+              epoch_resets,
+              manager_highest_sequence,
+              manager_dropped_events,
+              stored_highest_sequence,
+              missed_events,
+              dropped_samples,
+              dropped_rollups,
+              dropped_events,
+              dropped_subsystem_health,
+              dropped_capacity_deficits,
+              rejected_future_samples,
+              rejected_future_events,
+              updated_at)
+          SELECT
+              'node',
+              profile_id,
+              'current',
+              64,
+              0,
+              0,
+              NULL,
+              0,
+              NULL,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              '2026-07-24T12:02:00.0000000+00:00'
+          FROM (SELECT 'projected' AS profile_id
+                UNION ALL
+                SELECT 'rolled' AS profile_id);
+          """,
+          cancellationToken);
+
+      await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+          cancellationToken);
+
+      var projected = await ReadHighWaterAsync(
+          connectionFactory,
+          "projected",
+          cancellationToken);
+      var rolled = await ReadHighWaterAsync(
+          connectionFactory,
+          "rolled",
+          cancellationToken);
+      await Assert.That(projected)
+          .IsEqualTo("2026-07-24T12:02:00.0000000+00:00");
+      await Assert.That(rolled)
+          .IsEqualTo("2026-07-24T12:00:00.0000000+00:00");
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  private static async Task ApplyMigrationsThroughAsync(
+      SqliteConnectionFactory connectionFactory,
+      int version,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await connectionFactory.OpenAsync(
+        cancellationToken);
+    await using (var setup = connection.CreateCommand())
+    {
+      setup.CommandText =
+          """
+          CREATE TABLE IF NOT EXISTS schema_migrations (
+              version INTEGER PRIMARY KEY,
+              name TEXT NOT NULL,
+              checksum TEXT NOT NULL,
+              applied_at TEXT NOT NULL
+          );
+          """;
+      await setup.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    foreach (var migration in SqliteMigrationCatalog.All
+        .Where(candidate => candidate.Version <= version))
+    {
+      await using var command = connection.CreateCommand();
+      command.CommandText = migration.Sql;
+      await command.ExecuteNonQueryAsync(cancellationToken);
+      await using var record = connection.CreateCommand();
+      record.CommandText =
+          """
+          INSERT INTO schema_migrations (
+              version,
+              name,
+              checksum,
+              applied_at)
+          VALUES ($version, $name, $checksum, $appliedAt);
+          """;
+      record.Parameters.AddWithValue("$version", migration.Version);
+      record.Parameters.AddWithValue("$name", migration.Name);
+      record.Parameters.AddWithValue("$checksum", migration.Checksum);
+      record.Parameters.AddWithValue(
+          "$appliedAt",
+          Origin.ToString("O", CultureInfo.InvariantCulture));
+      await record.ExecuteNonQueryAsync(cancellationToken);
+    }
+  }
+
+  private static async Task ExecuteAsync(
+      SqliteConnectionFactory connectionFactory,
+      string sql,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText = sql;
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static async Task<string?> ReadHighWaterAsync(
+      SqliteConnectionFactory connectionFactory,
+      string profileId,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        SELECT sample_high_water
+        FROM profile_history_cursors
+        WHERE node_id = 'node'
+          AND profile_id = $profileId;
+        """;
+    command.Parameters.AddWithValue("$profileId", profileId);
+    return await command.ExecuteScalarAsync(cancellationToken) as string;
+  }
+
+  private static async Task<Guid> EnrollNodeAsync(
+      SqliteConnectionFactory connectionFactory,
+      string label,
+      CancellationToken cancellationToken)
+  {
+    var store = new SqliteFleetStore(connectionFactory);
+    await store.CreateEnrollmentCodeAsync(
+        Guid.NewGuid(),
+        "tenant",
+        $"code-hash-{label}",
+        "Enrollment",
+        "1",
+        Origin,
+        Origin.AddMinutes(10),
+        cancellationToken);
+    var enrollment = await store.RedeemEnrollmentCodeAsync(
+        $"code-hash-{label}",
+        $"connector-instance-{label}",
+        $"Connector {label}",
+        $"credential-hash-{label}",
+        Origin,
+        cancellationToken);
+    return enrollment.NodeId ??
+        throw new InvalidOperationException(
+            "Enrollment did not return a node ID.");
+  }
+
   private static async Task<ProfileHistory> ReadProfileHistoryAsync(
       SqliteFleetHistoryStore store,
       Guid nodeId,
@@ -2270,7 +2886,8 @@ public sealed class SqliteFleetHistoryStoreTests
           1_000_000,
           10_000,
           1_000,
-          TimeSpan.FromMinutes(5));
+          TimeSpan.FromMinutes(5),
+          TimeSpan.FromDays(90));
 
   private static string CreateDatabasePath(string label) =>
       Path.Combine(
