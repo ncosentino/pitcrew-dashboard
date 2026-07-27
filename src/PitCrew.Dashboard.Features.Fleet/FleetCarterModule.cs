@@ -35,6 +35,10 @@ public sealed class FleetCarterModule : ICarterModule
             "/api/tenants/{tenantId}/fleet/v1")
         .RequireAuthorization(AccessPolicies.TenantViewer);
     fleet.MapGet("/nodes", GetFleetAsync);
+    fleet.MapGet("/nodes/{nodeId:guid}/history", GetNodeHistoryAsync);
+    fleet.MapGet(
+        "/nodes/{nodeId:guid}/profiles/{profileId}/history",
+        GetProfileHistoryAsync);
     fleet.MapPost("/enrollment-codes", CreateEnrollmentCodeAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
@@ -156,6 +160,61 @@ public sealed class FleetCarterModule : ICarterModule
       Results.Ok(await unitOfWork.GetAsync(
           tenantId,
           cancellationToken));
+
+  private static async Task<IResult> GetNodeHistoryAsync(
+      HttpContext context,
+      string tenantId,
+      Guid nodeId,
+      IGetFleetHistoryUnitOfWork unitOfWork,
+      CancellationToken cancellationToken) =>
+      HistoryResult(await unitOfWork.GetNodeHistoryAsync(
+          tenantId,
+          nodeId,
+          ReadHistoryQuery(context),
+          cancellationToken));
+
+  private static async Task<IResult> GetProfileHistoryAsync(
+      HttpContext context,
+      string tenantId,
+      Guid nodeId,
+      string profileId,
+      IGetFleetHistoryUnitOfWork unitOfWork,
+      CancellationToken cancellationToken) =>
+      HistoryResult(await unitOfWork.GetProfileHistoryAsync(
+          tenantId,
+          nodeId,
+          profileId,
+          ReadHistoryQuery(context),
+          cancellationToken));
+
+  private static HistoryQueryInput ReadHistoryQuery(HttpContext context)
+  {
+    var query = context.Request.Query;
+    return new HistoryQueryInput(
+        query["from"].ToString(),
+        query["to"].ToString(),
+        query["resolution"].ToString(),
+        query["points"].ToString(),
+        query["events"].ToString());
+  }
+
+  private static IResult HistoryResult(HistoryQueryResult result) =>
+      result.Status switch
+      {
+        HistoryQueryStatus.Succeeded => Results.Ok(result.Response),
+        HistoryQueryStatus.NotFound => Results.NotFound(),
+        HistoryQueryStatus.Invalid => Results.BadRequest(new
+        {
+          error = new
+          {
+            code = "invalid_history_query",
+            message = result.Error,
+          },
+        }),
+        _ => Results.Problem(
+            statusCode: StatusCodes.Status500InternalServerError,
+            title: "Unsupported history query result."),
+      };
 
   private static async Task<IResult> CreateEnrollmentCodeAsync(
       HttpContext context,

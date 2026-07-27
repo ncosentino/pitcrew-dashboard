@@ -419,5 +419,143 @@ internal static class SqliteMigrationCatalog
                     'recovery command terminal state requires bounded evidence');
             END;
             """),
+      new(
+            7,
+            "bounded-historical-telemetry",
+            """
+            CREATE TABLE profile_telemetry_samples (
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                sampled_at TEXT NULL,
+                recorded_at TEXT NOT NULL,
+                telemetry_status TEXT NOT NULL
+                    CHECK (telemetry_status IN (
+                        'available',
+                        'partial',
+                        'unavailable',
+                        'unreported')),
+                manager_instance_id TEXT NOT NULL,
+                manager_status TEXT NOT NULL,
+                generation INTEGER NOT NULL,
+                desired_slots INTEGER NOT NULL CHECK (desired_slots >= 0),
+                active_slots INTEGER NOT NULL CHECK (active_slots >= 0),
+                draining_slots INTEGER NOT NULL CHECK (draining_slots >= 0),
+                configured_slots INTEGER NULL,
+                eligible_slots INTEGER NULL,
+                target_slots INTEGER NULL,
+                maximum_slots INTEGER NULL,
+                assigned_jobs INTEGER NULL,
+                running_jobs INTEGER NULL,
+                available_jobs INTEGER NULL,
+                idle_runners INTEGER NULL,
+                busy_runners INTEGER NULL,
+                local_running_workers INTEGER NOT NULL
+                    CHECK (local_running_workers >= 0),
+                manager_cpu_cores REAL NULL,
+                manager_memory_bytes INTEGER NULL,
+                manager_pids INTEGER NULL,
+                host_logical_processors INTEGER NULL,
+                host_memory_bytes INTEGER NULL,
+                worker_cpu_cores REAL NULL,
+                worker_memory_bytes INTEGER NULL,
+                worker_pids INTEGER NULL,
+                network_rx_bytes INTEGER NULL,
+                network_tx_bytes INTEGER NULL,
+                block_read_bytes INTEGER NULL,
+                block_write_bytes INTEGER NULL,
+                exit_reports INTEGER NOT NULL CHECK (exit_reports >= 0),
+                adverse_exit_reports INTEGER NOT NULL
+                    CHECK (adverse_exit_reports >= 0),
+                local_capacity_deficit INTEGER NULL,
+                eligibility_capacity_deficit INTEGER NULL,
+                capacity_deficit_reason TEXT NULL,
+                capacity_deficit_freshness TEXT NULL
+                    CHECK (capacity_deficit_freshness IS NULL
+                        OR capacity_deficit_freshness IN (
+                            'current',
+                            'stale',
+                            'unavailable')),
+                PRIMARY KEY (node_id, profile_id, observed_at),
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+
+            CREATE TABLE profile_telemetry_rollups (
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                bucket_start TEXT NOT NULL,
+                sample_count INTEGER NOT NULL CHECK (sample_count >= 1),
+                max_desired_slots INTEGER NOT NULL,
+                max_active_slots INTEGER NOT NULL,
+                max_draining_slots INTEGER NOT NULL,
+                max_eligible_slots INTEGER NULL,
+                max_local_running_workers INTEGER NOT NULL,
+                max_manager_cpu_cores REAL NULL,
+                max_manager_memory_bytes INTEGER NULL,
+                max_manager_pids INTEGER NULL,
+                max_worker_cpu_cores REAL NULL,
+                max_worker_memory_bytes INTEGER NULL,
+                max_worker_pids INTEGER NULL,
+                max_network_rx_bytes INTEGER NULL,
+                max_network_tx_bytes INTEGER NULL,
+                max_block_read_bytes INTEGER NULL,
+                max_block_write_bytes INTEGER NULL,
+                max_exit_reports INTEGER NOT NULL,
+                max_adverse_exit_reports INTEGER NOT NULL,
+                max_local_capacity_deficit INTEGER NULL,
+                PRIMARY KEY (node_id, profile_id, bucket_start),
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+
+            CREATE TABLE profile_manager_events (
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL CHECK (sequence >= 0),
+                manager_instance_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                subsystem TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                target TEXT NULL,
+                outcome TEXT NOT NULL,
+                duration_milliseconds INTEGER NULL,
+                attempt INTEGER NULL,
+                consecutive_failures INTEGER NULL,
+                retry_at TEXT NULL,
+                reason TEXT NOT NULL,
+                evidence TEXT NULL,
+                PRIMARY KEY (node_id, profile_id, sequence),
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+
+            CREATE INDEX ix_profile_manager_events_observed
+                ON profile_manager_events (node_id, profile_id, observed_at);
+
+            CREATE TABLE profile_event_cursors (
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                journal_status TEXT NOT NULL
+                    CHECK (journal_status IN (
+                        'current',
+                        'truncated',
+                        'unavailable',
+                        'unreported')),
+                journal_capacity INTEGER NOT NULL
+                    CHECK (journal_capacity >= 0),
+                manager_highest_sequence INTEGER NULL,
+                manager_dropped_events INTEGER NOT NULL
+                    CHECK (manager_dropped_events >= 0),
+                stored_highest_sequence INTEGER NULL,
+                missed_events INTEGER NOT NULL
+                    CHECK (missed_events >= 0),
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (node_id, profile_id),
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+            """),
     ];
 }

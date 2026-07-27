@@ -281,8 +281,20 @@ public sealed class RecoverManagerSyncTests
             It.Is<DateTimeOffset>(redeliverBefore => redeliverBefore < Now),
             It.IsAny<CancellationToken>()))
         .ReturnsAsync((SetCapacityCommand?)null);
+    var historyStore = _mocks.Create<IFleetHistoryStore>();
+    historyStore
+        .Setup(store => store.AppendAsync(
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            It.Is<IReadOnlyList<ManagerObservedState>>(
+                profiles => profiles.Count == 0),
+            It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
+            It.Is<HistoryRetentionPolicy>(
+                retention => retention.MaximumSamplesPerProfile > 0),
+            It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
     return new SyncConnectorUnitOfWork(
         fleetStore.Object,
+        historyStore.Object,
         capacityStore.Object,
         recoveryStore.Object,
         new ConnectorCredentialService(),

@@ -40,6 +40,7 @@ internal interface ISyncConnectorUnitOfWork
 
 internal sealed partial class SyncConnectorUnitOfWork(
     IFleetStore _fleetStore,
+    IFleetHistoryStore _fleetHistoryStore,
     ICapacityCommandStore _capacityCommandStore,
     IRecoveryCommandStore _recoveryCommandStore,
     ConnectorCredentialService _credentialService,
@@ -172,6 +173,12 @@ internal sealed partial class SyncConnectorUnitOfWork(
         acceptedAt,
         input.Profiles,
         credentialUpdate,
+        cancellationToken);
+    await _fleetHistoryStore.AppendAsync(
+        identity.NodeId,
+        input.Profiles,
+        acceptedAt,
+        FleetHistoryPolicy.CreateRetention(_options.Value),
         cancellationToken);
     SetCapacityCommand? capacityCommand = null;
     if (input.ProtocolVersion >= 3)

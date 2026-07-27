@@ -1,0 +1,18 @@
+using PitCrew.Dashboard.Features.Fleet.Abstractions;
+
+namespace PitCrew.Dashboard.Features.Fleet;
+
+/// <summary>
+/// Translates dashboard options into bounded history retention and query policy.
+/// </summary>
+internal static class FleetHistoryPolicy
+{
+  public static HistoryRetentionPolicy CreateRetention(
+      FleetDashboardOptions options) =>
+      new(
+          TimeSpan.FromDays(options.TelemetrySampleRetentionDays),
+          TimeSpan.FromDays(options.TelemetryRollupRetentionDays),
+          TimeSpan.FromDays(options.ManagerEventRetentionDays),
+          options.MaximumTelemetrySamplesPerProfile,
+          options.MaximumManagerEventsPerProfile);
+}
