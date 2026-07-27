@@ -8,8 +8,10 @@ import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
+import { ProfileResourcePolicy } from '../components/ProfileResourcePolicy';
 import { ProfileResourceTelemetry } from '../components/ProfileResourceTelemetry';
 import { ProfileSlotsTable } from '../components/ProfileSlotsTable';
+import { ProfileTargetsTable } from '../components/ProfileTargetsTable';
 import { setCapacityMaximum } from '../fleetApi';
 
 /** Renders one profile from the shared tenant fleet projection. */
@@ -132,6 +134,8 @@ export default function ProfileDetailPage() {
               disabled={isMutating || !node.isOnline || node.isRevoked}
               onSetMaximum={queueCapacityMaximum}
             />
+            <ProfileResourcePolicy profile={profile} />
+            <ProfileTargetsTable profile={profile} />
             <ProfileResourceTelemetry profile={profile} />
             <ProfileSlotsTable profile={profile} />
           </CardContent>
