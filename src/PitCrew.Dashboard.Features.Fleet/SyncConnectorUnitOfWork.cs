@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
@@ -36,7 +38,7 @@ internal interface ISyncConnectorUnitOfWork
       CancellationToken cancellationToken);
 }
 
-internal sealed class SyncConnectorUnitOfWork(
+internal sealed partial class SyncConnectorUnitOfWork(
     IFleetStore _fleetStore,
     ICapacityCommandStore _capacityCommandStore,
     IRecoveryCommandStore _recoveryCommandStore,
@@ -44,6 +46,8 @@ internal sealed class SyncConnectorUnitOfWork(
     IOptions<FleetDashboardOptions> _options,
     TimeProvider _timeProvider) : ISyncConnectorUnitOfWork
 {
+  private const long MinimumWorkerMemoryBytes = 6_291_456;
+
   public async Task<ConnectorSyncResult> SynchronizeAsync(
       string credential,
       ConnectorSynchronizationInput input,
@@ -371,6 +375,7 @@ internal sealed class SyncConnectorUnitOfWork(
         profile.Slots is null ||
         profile.Slots.Count > 10000 ||
         profile.ConfiguredSlots is < 0 ||
+        !IsValidResourcePolicy(profile.ResourcePolicy) ||
         !IsValidAutoscaling(profile) ||
         !IsValidResourceTelemetry(profile.ResourceTelemetry) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
@@ -421,6 +426,8 @@ internal sealed class SyncConnectorUnitOfWork(
               "registration-missing" or
               "unknown") ||
           !IsValidResourceUsage(slot.Resources) ||
+          !IsValidImageId(slot.ImageId) ||
+          !IsValidLastExit(slot.LastExit) ||
           slot.State is not (
               "starting" or
               "online" or
@@ -489,8 +496,81 @@ internal sealed class SyncConnectorUnitOfWork(
         autoscaling.RunningJobs <= autoscaling.AssignedJobs &&
         autoscaling.BusyRunners <= profile.ActiveSlots &&
         autoscaling.IdleRunners <=
-            profile.ActiveSlots - autoscaling.BusyRunners;
+            profile.ActiveSlots - autoscaling.BusyRunners &&
+        IsValidAutoscalingTargets(profile, autoscaling);
   }
+
+  private static bool IsValidAutoscalingTargets(
+      ManagerObservedState profile,
+      ManagerAutoscalingState autoscaling)
+  {
+    if (profile.ManagerContractVersion >= 11 &&
+        (autoscaling.MaximumActiveWorkers is null ||
+         autoscaling.Targets is null))
+    {
+      return false;
+    }
+    if (autoscaling.MaximumActiveWorkers is < 0)
+    {
+      return false;
+    }
+
+    var targets = autoscaling.Targets;
+    if (targets is null)
+    {
+      return true;
+    }
+    if (targets.Count > 10000)
+    {
+      return false;
+    }
+
+    var targetKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var localActiveWorkers = 0;
+    var localIdleWorkers = 0;
+    var localBusyWorkers = 0;
+    var targetSlots = 0;
+    foreach (var target in targets)
+    {
+      if (string.IsNullOrWhiteSpace(target.Key) ||
+          target.Key.Length > 512 ||
+          !targetKeys.Add(target.Key) ||
+          target.Repository?.Length > 2048 ||
+          target.MaximumSlots < 0 ||
+          target.TargetSlots < 0 ||
+          target.LocalActiveWorkers < 0 ||
+          target.LocalIdleWorkers < 0 ||
+          target.LocalBusyWorkers < 0 ||
+          target.LocalDrainingWorkers < 0 ||
+          !IsValidScaleSetStatistics(target.Statistics))
+      {
+        return false;
+      }
+
+      localActiveWorkers += target.LocalActiveWorkers;
+      localIdleWorkers += target.LocalIdleWorkers;
+      localBusyWorkers += target.LocalBusyWorkers;
+      targetSlots += target.TargetSlots;
+    }
+
+    return localActiveWorkers <= profile.ActiveSlots &&
+        localIdleWorkers == autoscaling.IdleRunners &&
+        localBusyWorkers == autoscaling.BusyRunners &&
+        targetSlots == autoscaling.TargetSlots;
+  }
+
+  private static bool IsValidScaleSetStatistics(
+      ScaleSetStatistics? statistics) =>
+      statistics is null ||
+      statistics.ObservedAt != default &&
+      statistics.AvailableJobs >= 0 &&
+      statistics.AcquiredJobs >= 0 &&
+      statistics.AssignedJobs >= 0 &&
+      statistics.RunningJobs >= 0 &&
+      statistics.RegisteredRunners >= 0 &&
+      statistics.BusyRunners >= 0 &&
+      statistics.IdleRunners >= 0 &&
+      statistics.RunningJobs <= statistics.AssignedJobs;
 
   private static bool IsValidResourceTelemetry(
       ManagerResourceTelemetry? telemetry) =>
@@ -514,7 +594,103 @@ internal sealed class SyncConnectorUnitOfWork(
       double.IsFinite(resources.CpuCores) &&
       resources.CpuCores >= 0 &&
       resources.MemoryWorkingSetBytes >= 0 &&
-      resources.Pids >= 0;
+      resources.Pids >= 0 &&
+      resources.NetworkRxBytes is not < 0 &&
+      resources.NetworkTxBytes is not < 0 &&
+      resources.BlockReadBytes is not < 0 &&
+      resources.BlockWriteBytes is not < 0;
+
+  private static bool IsValidResourcePolicy(WorkerResourcePolicy? policy)
+  {
+    if (policy is null)
+    {
+      return true;
+    }
+    if (policy.MemoryBytes is not null &&
+        policy.MemoryBytes < MinimumWorkerMemoryBytes)
+    {
+      return false;
+    }
+    if (policy.MemorySwapBytes is not null &&
+        (policy.MemorySwapBytes < MinimumWorkerMemoryBytes ||
+         policy.MemoryBytes is null ||
+         policy.MemorySwapBytes < policy.MemoryBytes))
+    {
+      return false;
+    }
+    if (policy.CpuCores is not null &&
+        (policy.CpuCores.Length > 32 ||
+         !WorkerCpuCoresPattern().IsMatch(policy.CpuCores)))
+    {
+      return false;
+    }
+    if (policy.Pids is not null &&
+        policy.Pids < 1)
+    {
+      return false;
+    }
+
+    return policy.MemoryBytes is not null ||
+        policy.MemorySwapBytes is not null ||
+        policy.CpuCores is not null ||
+        policy.Pids is not null;
+  }
+
+  private static bool IsValidImageId(string? imageId) =>
+      imageId is null ||
+      imageId.Length == 71 &&
+      WorkerImageIdPattern().IsMatch(imageId);
+
+  private static bool IsValidLastExit(WorkerLastExitDiagnostic? lastExit)
+  {
+    if (lastExit is null)
+    {
+      return true;
+    }
+    if (lastExit.ObservedAt == default ||
+        lastExit.Classification is not (
+            "clean" or
+            "oom-killed" or
+            "sigkill" or
+            "signal" or
+            "error" or
+            "launch-failure" or
+            "unknown") ||
+        lastExit.Evidence is not (
+            "docker-inspect" or
+            "docker-wait" or
+            "launch" or
+            "unavailable") ||
+        lastExit.ExitCode is < 0 or > 255 ||
+        lastExit.Signal is < 1 or > 64)
+    {
+      return false;
+    }
+    if (lastExit.Signal is { } signal &&
+        lastExit.ExitCode != 128 + signal)
+    {
+      return false;
+    }
+    if (lastExit.DockerOomKilled is true &&
+        lastExit.Classification is not "oom-killed")
+    {
+      return false;
+    }
+
+    return lastExit.Classification switch
+    {
+      "oom-killed" => lastExit.DockerOomKilled is true,
+      "sigkill" => lastExit.Signal is 9,
+      "signal" => lastExit.Signal is not null and not 9,
+      "clean" => lastExit.ExitCode is 0 && lastExit.Signal is null,
+      "error" => lastExit.ExitCode is not null and not 0 &&
+          lastExit.Signal is null,
+      "launch-failure" => lastExit.Evidence is "launch" &&
+          lastExit.ExitCode is null &&
+          lastExit.Signal is null,
+      _ => lastExit.ExitCode is null && lastExit.Signal is null,
+    };
+  }
 
   private static bool IsConsistentResourceTelemetry(
       ManagerObservedState profile)
@@ -557,4 +733,16 @@ internal sealed class SyncConnectorUnitOfWork(
             >= '0' and <= '9' or
             '-');
   }
+
+  [GeneratedRegex(
+      @"^sha256:[0-9a-f]{64}$",
+      RegexOptions.CultureInvariant,
+      matchTimeoutMilliseconds: 100)]
+  private static partial Regex WorkerImageIdPattern();
+
+  [GeneratedRegex(
+      @"^(?:[1-9][0-9]*(?:\.[0-9]{1,9})?|0\.[0-9]{0,8}[1-9])$",
+      RegexOptions.CultureInvariant,
+      matchTimeoutMilliseconds: 100)]
+  private static partial Regex WorkerCpuCoresPattern();
 }

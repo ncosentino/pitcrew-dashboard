@@ -168,6 +168,102 @@ function command(status: 'pending' | 'delivered' | 'succeeded' | 'rejected' | 'f
   };
 }
 
+const imageDigest = `sha256:${'ab'.repeat(32)}`;
+
+function statistics(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    observedAt: '2026-07-19T18:29:30+00:00',
+    availableJobs: 1,
+    acquiredJobs: 1,
+    assignedJobs: 3,
+    runningJobs: 2,
+    registeredRunners: 8,
+    busyRunners: 2,
+    idleRunners: 1,
+    ...overrides,
+  };
+}
+
+function target(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    key: 'scale-set-linux',
+    repository: 'https://github.com/example/project',
+    maximumSlots: 30,
+    targetSlots: 3,
+    localActiveWorkers: 2,
+    localIdleWorkers: 1,
+    localBusyWorkers: 2,
+    localDrainingWorkers: 0,
+    statistics: statistics(),
+    ...overrides,
+  };
+}
+
+function contractElevenProfile(
+  targets: ReadonlyArray<unknown> = [target()],
+  slotOverrides: Readonly<Record<string, unknown>> = {},
+) {
+  return profileResponse({
+    managerContractVersion: 11,
+    resourcePolicy: {
+      memoryBytes: 2_147_483_648,
+      memorySwapBytes: 4_294_967_296,
+      cpuCores: '2.5',
+      pids: 512,
+    },
+    slots: [
+      slotResponse({
+        imageId: imageDigest,
+        resources: {
+          cpuCores: 1.25,
+          memoryWorkingSetBytes: 268_435_456,
+          pids: 12,
+          networkRxBytes: 0,
+          networkTxBytes: 1_048_576,
+          blockReadBytes: null,
+          blockWriteBytes: null,
+        },
+        lastExit: {
+          observedAt: '2026-07-19T18:20:00+00:00',
+          classification: 'unknown',
+          exitCode: null,
+          signal: null,
+          dockerOomKilled: null,
+          evidence: 'unavailable',
+        },
+        ...slotOverrides,
+      }),
+    ],
+    autoscaling: {
+      mode: 'scale-set',
+      status: 'running',
+      minimumIdleSlots: 1,
+      maximumSlots: 30,
+      targetSlots: 3,
+      assignedJobs: 3,
+      runningJobs: 2,
+      availableJobs: 1,
+      idleRunners: 1,
+      busyRunners: 2,
+      scaleDownDelaySeconds: 300,
+      scaleSetCount: 1,
+      scaleDownAt: null,
+      lastError: null,
+      maximumActiveWorkers: 24,
+      targets,
+    },
+  });
+}
+
+function contractElevenFleet(
+  targets: ReadonlyArray<unknown> = [target()],
+  slotOverrides: Readonly<Record<string, unknown>> = {},
+) {
+  return fleetResponse([
+    nodeResponse({ profiles: [contractElevenProfile(targets, slotOverrides)] }),
+  ]);
+}
+
 describe('ProfileDetailPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -332,6 +428,108 @@ describe('ProfileDetailPage', () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
+  it('renders contract 11 policy, admission ceiling, image identity, I/O, and exit evidence', async () => {
+    renderProfile(contractElevenFleet());
+
+    expect(await screen.findByTestId('profile-policy-memory-default')).toHaveTextContent('2 GiB');
+    expect(screen.getByTestId('profile-policy-memory-plus-swap-default')).toHaveTextContent(
+      '4 GiB',
+    );
+    expect(screen.getByTestId('profile-policy-cpu-default')).toHaveTextContent('2.5 cores');
+    expect(screen.getByTestId('profile-policy-pids-default')).toHaveTextContent('512 PIDs');
+    expect(screen.getByTestId('profile-admission-ceiling-default')).toHaveTextContent(
+      '24 active workers',
+    );
+
+    const network = screen.getByTestId('slot-network-repo-default-000001');
+    expect(network).toHaveTextContent('0 B in · 1 MiB out');
+    expect(screen.getByTestId('slot-block-io-repo-default-000001')).toHaveTextContent(
+      'Unavailable read · Unavailable written',
+    );
+    expect(screen.getByTestId('slot-image-repo-default-000001')).toHaveTextContent('ababababab');
+
+    const lastExit = screen.getByTestId('slot-last-exit-repo-default-000001');
+    expect(lastExit).toHaveTextContent('unknown');
+    expect(lastExit).not.toHaveTextContent('clean');
+  });
+
+  it('describes absent exit evidence without calling it clean', async () => {
+    renderProfile(contractElevenFleet([target()], { lastExit: null }));
+
+    const lastExit = await screen.findByTestId('slot-last-exit-repo-default-000001');
+    expect(lastExit).toHaveTextContent(
+      'No exit evidence has been recorded for this worker, which does not mean it exited cleanly.',
+    );
+  });
+
+  it('surfaces registration divergence when GitHub reports more registrations than local workers', async () => {
+    renderProfile(contractElevenFleet());
+
+    const divergence = await screen.findByTestId('target-divergence-default-scale-set-linux');
+    expect(divergence).toHaveTextContent(
+      'GitHub reports 8 registered runners while 2 local worker containers are live.',
+    );
+    expect(divergence).toHaveTextContent('is not proof that it can be removed');
+  });
+
+  it('surfaces divergence when GitHub reports no registrations for live workers', async () => {
+    renderProfile(
+      contractElevenFleet([target({ statistics: statistics({ registeredRunners: 0 }) })]),
+    );
+
+    const divergence = await screen.findByTestId('target-divergence-default-scale-set-linux');
+    expect(divergence).toHaveTextContent(
+      '2 local worker containers are live while GitHub reports 0 registered runners.',
+    );
+    expect(divergence).toHaveTextContent('is not proof that it is eligible for work');
+  });
+
+  it('marks stale GitHub statistics without collapsing them into local evidence', async () => {
+    renderProfile(
+      contractElevenFleet([
+        target({ statistics: statistics({ observedAt: '2026-07-19T18:00:00+00:00' }) }),
+      ]),
+    );
+
+    expect(await screen.findByTestId('target-freshness-default-scale-set-linux')).toHaveTextContent(
+      'Stale',
+    );
+    expect(screen.getByTestId('target-local-default-scale-set-linux')).toHaveTextContent(
+      '2 live · 1 idle · 2 busy · 0 draining',
+    );
+    expect(screen.getByTestId('target-github-default-scale-set-linux')).toHaveTextContent(
+      '8 registered · 2 busy · 1 idle',
+    );
+  });
+
+  it('keeps unavailable GitHub statistics distinct from measured zero', async () => {
+    renderProfile(contractElevenFleet([target({ statistics: null })]));
+
+    expect(await screen.findByTestId('target-github-default-scale-set-linux')).toHaveTextContent(
+      'Unavailable',
+    );
+    expect(screen.getByTestId('target-jobs-default-scale-set-linux')).toHaveTextContent(
+      'Unavailable',
+    );
+    expect(screen.getByTestId('target-divergence-default-scale-set-linux')).toHaveTextContent(
+      'GitHub statistics are unavailable, so registration divergence cannot be assessed.',
+    );
+  });
+
+  it('marks contract 10 profiles as lacking contract 11 evidence', async () => {
+    renderProfile(fleetResponse());
+
+    expect(await screen.findByTestId('profile-policy-memory-default')).toHaveTextContent(
+      'Unavailable',
+    );
+    expect(screen.getByTestId('profile-admission-ceiling-default')).toHaveTextContent(
+      'Unavailable',
+    );
+    expect(screen.getByTestId('profile-targets-default')).toHaveTextContent(
+      'does not report per-target scale-set evidence',
+    );
   });
 
   it.each([

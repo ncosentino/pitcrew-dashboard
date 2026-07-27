@@ -1,6 +1,12 @@
 import { type ManagerObservedState, type ObservedSlot } from '@/core/fleet';
-import { formatBytes, formatCpuCores, formatPids } from '@/core/formatting/formatters';
+import {
+  formatBytes,
+  formatCpuCores,
+  formatOptionalBytes,
+  formatPids,
+} from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
 function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
   return (
@@ -29,6 +35,22 @@ function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
       <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-pids-${slot.key}`}>
         {slot.resources ? formatPids(slot.resources.pids) : 'Unavailable'}
       </td>
+      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-network-${slot.key}`}>
+        {slot.resources
+          ? `${formatOptionalBytes(slot.resources.networkRxBytes)} in · ${formatOptionalBytes(slot.resources.networkTxBytes)} out`
+          : 'Unavailable'}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-block-io-${slot.key}`}>
+        {slot.resources
+          ? `${formatOptionalBytes(slot.resources.blockReadBytes)} read · ${formatOptionalBytes(slot.resources.blockWriteBytes)} written`
+          : 'Unavailable'}
+      </td>
+      <td className="px-3 py-2" data-testid={`slot-image-${slot.key}`}>
+        <WorkerImageIdentity imageId={slot.imageId} />
+      </td>
+      <td className="px-3 py-2" data-testid={`slot-last-exit-${slot.key}`}>
+        <WorkerExitEvidence lastExit={slot.lastExit} />
+      </td>
     </tr>
   );
 }
@@ -48,6 +70,10 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
 
   return (
     <div className="overflow-x-auto">
+      <p className="px-3 pt-3 text-xs text-muted-foreground">
+        Cumulative I/O counters read Unavailable when the manager did not measure them and 0 B when
+        a measured value is zero.
+      </p>
       <table className="w-full min-w-4xl text-left text-sm">
         <caption className="px-3 py-2 text-left font-semibold">
           Slots for profile {profile.profileId}
@@ -83,6 +109,18 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
             </th>
             <th scope="col" className="px-3 py-2 text-right font-medium">
               PIDs
+            </th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">
+              Network I/O
+            </th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">
+              Block I/O
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              Worker image
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              Last exit
             </th>
           </tr>
         </thead>
