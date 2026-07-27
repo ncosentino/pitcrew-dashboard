@@ -111,6 +111,7 @@ public sealed class SqliteRecoveryCommandStoreTests
 
       var controls = await store.GetControlsAsync(
           "tenant",
+          120,
           cancellationToken);
       await Assert.That(controls).HasSingleItem();
       var command = controls[0].Profiles[0].LatestCommand;
@@ -121,6 +122,72 @@ public sealed class SqliteRecoveryCommandStoreTests
           .IsEqualTo("manager-instance-2");
       await Assert.That(command.StartedAt).IsNotNull();
       await Assert.That(command.FailureCategory).IsNull();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Controls_Project_Newest_First_History_And_Freshness_Budget(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteRecoveryCommandStore(connectionFactory);
+      await SynchronizeAsync(store, nodeId, Now, cancellationToken);
+      var first = await QueueAsync(store, nodeId, Now, cancellationToken);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          CreateCapability(),
+          null,
+          new RecoveryCommandOutcome(
+              first.CommandId!.Value,
+              "rejected",
+              "not-allowed",
+              "Local policy rejected the command.",
+              "manager-instance",
+              "manager-instance",
+              Now.AddSeconds(30)),
+          Now.AddSeconds(31),
+          Now.AddSeconds(-60),
+          cancellationToken);
+
+      await SynchronizeAsync(
+          store,
+          nodeId,
+          Now.AddSeconds(300),
+          cancellationToken);
+      var second = await QueueAsync(
+          store,
+          nodeId,
+          Now.AddSeconds(300),
+          cancellationToken);
+      await Assert.That(second.Status)
+          .IsEqualTo(RecoveryCommandQueueStatus.Queued);
+
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          120,
+          cancellationToken);
+      var profile = controls[0].Profiles[0];
+      await Assert.That(profile.ObservedStateMaximumAgeSeconds).IsEqualTo(120);
+      await Assert.That(profile.RecentCommands.Count).IsEqualTo(2);
+      await Assert.That(profile.RecentCommands[0].CommandId)
+          .IsEqualTo(second.CommandId!.Value);
+      await Assert.That(profile.RecentCommands[1].CommandId)
+          .IsEqualTo(first.CommandId!.Value);
+      await Assert.That(profile.RecentCommands[1].Status)
+          .IsEqualTo("rejected")
+          .Because("terminal outcomes stay visible in the audit history");
+      await Assert.That(profile.LatestCommand!.CommandId)
+          .IsEqualTo(profile.RecentCommands[0].CommandId);
     }
     finally
     {
@@ -182,6 +249,7 @@ public sealed class SqliteRecoveryCommandStoreTests
 
       var controls = await store.GetControlsAsync(
           "tenant",
+          120,
           cancellationToken);
       await Assert.That(controls[0].Profiles[0].LatestCommand!.Status)
           .IsEqualTo("failed");
@@ -446,6 +514,7 @@ public sealed class SqliteRecoveryCommandStoreTests
           cancellationToken);
       var expiredControls = await store.GetControlsAsync(
           "tenant",
+          120,
           cancellationToken);
       await Assert.That(
               expiredControls[0].Profiles[0].LatestCommand!.Status)
@@ -487,6 +556,7 @@ public sealed class SqliteRecoveryCommandStoreTests
           cancellationToken);
       var indeterminateControls = await store.GetControlsAsync(
           "tenant",
+          120,
           cancellationToken);
       await Assert.That(
               indeterminateControls[0].Profiles[0].LatestCommand!.Status)

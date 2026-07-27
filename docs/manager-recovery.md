@@ -116,6 +116,56 @@ The connector advertises recovery for a profile only when every condition holds:
 A missing, stopped, or ambiguously matched manager is never remotely
 recoverable. Starting a stopped manager or profile is out of scope.
 
+## Dashboard workflow
+
+Recovery appears only on profile detail, below the capacity summary. The control
+is enabled only while the current connector capability proves every condition
+the dashboard also enforces when queueing:
+
+- the profile advertises host-operator recovery;
+- local policy allows recovery for the profile;
+- the manager contract is 9 or newer;
+- exactly one running manager is locally resolved and currently running;
+- the connector's observation and its last report are within the dashboard's
+  accepted freshness window;
+- no capacity or recovery operation is active for the profile;
+- the viewer is a tenant administrator.
+
+Every other state renders a specific explanation instead of the action:
+read-only container connector, locally disallowed profile, stale observation,
+stopped or missing manager, unresolved or duplicated managers, legacy manager
+contract, active operation, revoked or offline connector, and insufficient
+authorization. Non-administrators never see an enabled control, and the API
+rejects their direct requests regardless of the browser.
+
+Confirmation shows the tenant, node, and profile; the observed manager instance
+and generation; the expected fences the request will carry; the configured,
+target, local, and GitHub-eligible counts; the manager and autoscaling degraded
+evidence currently available; the single manager-only restart that will happen;
+the worker, Docker, host, capacity, image, release, routing, and configuration
+changes that will not happen; and the possibility of a failed or indeterminate
+outcome requiring local investigation. Confirmation requires an explicit
+acknowledgement of the displayed fences. A refresh or capability change that
+alters those fences closes the confirmation, discards the acknowledgement, and
+reports that nothing was queued.
+
+Progress and outcome are polled through the shared tenant fleet projection, so
+recovery adds no separate polling loop. The profile shows queued, claimed,
+started, succeeded, rejected, failed, expired, and indeterminate states with
+their timestamps, the requesting administrator, and the bounded result detail.
+Terminal rejected, failed, and indeterminate outcomes stay visible and never
+become success-shaped, and the profile keeps a bounded immutable history of
+earlier commands.
+
+Evidence is reported as observation, never as proof of worker preservation: the
+manager instance transition, generation and desired-state hash, observed-state
+freshness against the accepted window, local and GitHub-eligible and target
+counts, and the failure or rejection category are shown separately, alongside an
+explicit statement that recovery issued no worker-directed mutation.
+
+Incident alerts may link to this action only while the capability is currently
+valid. No alert ever queues recovery automatically.
+
 ## Command lifecycle
 
 1. A tenant administrator queues recovery with the fences the dashboard last

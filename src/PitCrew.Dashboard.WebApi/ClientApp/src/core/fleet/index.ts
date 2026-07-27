@@ -10,11 +10,15 @@ export {
 export type { ExitEvidenceSummary, StatisticsFreshness } from './workerEvidence';
 export type {
   AutoscalingTarget,
+  CapacityCommandState,
   CapacityControlState,
   FleetNode,
   FleetResponse,
   ManagerObservedState,
   ObservedSlot,
+  RecoveryCommandState,
+  RecoveryCommandStatus,
+  RecoveryControlState,
   ScaleSetStatistics,
   WorkerLastExit,
   WorkerResourcePolicy,

@@ -111,6 +111,67 @@ function capacityControl(latestCommand: unknown | null = null) {
   };
 }
 
+function recoveryCommand(
+  status:
+    | 'queued'
+    | 'claimed'
+    | 'started'
+    | 'succeeded'
+    | 'rejected'
+    | 'failed'
+    | 'expired'
+    | 'indeterminate',
+  overrides: Readonly<Record<string, unknown>> = {},
+) {
+  return {
+    commandId: '2b7f1e3c-7b0f-4a55-9a3f-9e2a4c1d5b60',
+    status,
+    failureCategory: null,
+    requestedByGitHubUserId: '123',
+    requestedAt: '2026-07-19T18:20:00+00:00',
+    expiresAt: '2026-07-19T18:30:00+00:00',
+    deliveredAt: null,
+    claimedAt: null,
+    startedAt: null,
+    completedAt: null,
+    beforeManagerInstanceId: 'manager-default',
+    afterManagerInstanceId: null,
+    resultMessage: null,
+    ...overrides,
+  };
+}
+
+function recoveryControl(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    profileId: 'default',
+    managerContractVersion: 10,
+    managerContractSupported: true,
+    expectedManagerInstanceId: 'manager-default',
+    desiredGeneration: 4,
+    desiredStateHash: 'a'.repeat(64),
+    observedStateAgeSeconds: 5,
+    observedStateMaximumAgeSeconds: 120,
+    recoveryAllowed: true,
+    singleManagerResolved: true,
+    operationActive: false,
+    latestCommand: null,
+    recentCommands: [],
+    ...overrides,
+  };
+}
+
+function recoveryFleet(
+  controlOverrides: Readonly<Record<string, unknown>> = {},
+  nodeOverrides: Readonly<Record<string, unknown>> = {},
+) {
+  return fleetResponse([
+    nodeResponse({
+      recoveryControls: [recoveryControl(controlOverrides)],
+      ...nodeOverrides,
+    }),
+  ]);
+}
+
 function nodeResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     nodeId,
@@ -530,6 +591,241 @@ describe('ProfileDetailPage', () => {
     expect(screen.getByTestId('profile-targets-default')).toHaveTextContent(
       'does not report per-target scale-set evidence',
     );
+  });
+
+  it.each([
+    ['insufficient authorization', 'viewer', recoveryFleet(), 'not-authorized'],
+    ['read-only connector', 'owner', fleetResponse([nodeResponse()]), 'connector-read-only'],
+    ['revoked node', 'owner', recoveryFleet({}, { isRevoked: true }), 'node-revoked'],
+    ['offline connector', 'owner', recoveryFleet({}, { isOnline: false }), 'connector-offline'],
+    [
+      'locally disallowed profile',
+      'owner',
+      recoveryFleet({ recoveryAllowed: false }),
+      'locally-disallowed',
+    ],
+    [
+      'legacy manager contract',
+      'owner',
+      recoveryFleet({ managerContractVersion: 8, managerContractSupported: false }),
+      'legacy-contract',
+    ],
+    [
+      'stopped manager',
+      'owner',
+      fleetResponse([
+        nodeResponse({
+          profiles: [profileResponse({ managerStatus: 'stopped' })],
+          recoveryControls: [recoveryControl()],
+        }),
+      ]),
+      'manager-not-running',
+    ],
+    [
+      'multiple managers',
+      'owner',
+      recoveryFleet({ singleManagerResolved: false }),
+      'manager-unresolved',
+    ],
+    [
+      'stale observation',
+      'owner',
+      recoveryFleet({ observedStateAgeSeconds: 600 }),
+      'observation-stale',
+    ],
+    [
+      'stale connector capability',
+      'owner',
+      recoveryFleet({}, { lastSeenAt: '2026-07-19T18:20:00+00:00' }),
+      'observation-stale',
+    ],
+    [
+      'active local operation',
+      'owner',
+      recoveryFleet({ operationActive: true }),
+      'operation-active',
+    ],
+    [
+      'active recovery command',
+      'owner',
+      recoveryFleet({ latestCommand: recoveryCommand('queued') }),
+      'recovery-active',
+    ],
+    [
+      'active capacity command',
+      'owner',
+      fleetResponse([
+        nodeResponse({
+          capacityControls: [capacityControl(command('pending'))],
+          recoveryControls: [recoveryControl()],
+        }),
+      ]),
+      'capacity-active',
+    ],
+  ])('explains why recovery is unavailable for %s', async (_name, role, fleet, reason) => {
+    renderProfile(fleet, role as 'viewer' | 'owner');
+
+    const action = await screen.findByTestId('profile-recovery-action-default');
+    expect(action).toBeDisabled();
+    const explanation = screen.getByTestId('profile-recovery-unavailable-default');
+    expect(explanation).toHaveAttribute('data-reason', reason);
+    expect(action).toHaveAttribute('aria-describedby', explanation.id);
+  });
+
+  it('confirms fenced recovery, queues it once, and blocks duplicate requests', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(session());
+      if (init?.method === 'POST') {
+        return jsonResponse(
+          { commandId: '2b7f1e3c-7b0f-4a55-9a3f-9e2a4c1d5b60', status: 'queued' },
+          202,
+        );
+      }
+      return jsonResponse(recoveryFleet());
+    });
+    renderProfile(recoveryFleet(), 'owner', fetchMock);
+    const user = userEvent.setup();
+
+    const action = await screen.findByTestId('profile-recovery-action-default');
+    expect(action).toBeEnabled();
+    await user.click(action);
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByTestId('profile-recovery-fences-default')).toHaveTextContent(
+      'manager-default · generation 4 · hash aaaaaaaaaaaa',
+    );
+    expect(within(dialog).getByTestId('profile-recovery-counts-default')).toHaveTextContent(
+      'configured 30 · target 3 · local 1 · GitHub eligible 1',
+    );
+    expect(
+      within(dialog).getByText(/restarts this one profile manager exactly once/),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText(/No worker, Docker daemon or Desktop, host, capacity/),
+    ).toBeVisible();
+    expect(within(dialog).getByText(/can still fail or end indeterminate/)).toBeVisible();
+
+    const confirm = within(dialog).getByRole('button', { name: 'Queue manager recovery' });
+    expect(confirm).toBeDisabled();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+
+    await user.click(within(dialog).getByRole('checkbox'));
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1),
+    );
+    const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    const [url, init] = request ?? [];
+    expect(String(url)).toMatch(new RegExp(`/nodes/${nodeId}/profiles/default/manager-recovery$`));
+    expect(new Headers(init?.headers).get('X-PitCrew-Antiforgery')).toBe('test-antiforgery-token');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      expectedManagerInstanceId: 'manager-default',
+      expectedGeneration: 4,
+      expectedDesiredStateHash: 'a'.repeat(64),
+    });
+
+    await user.click(screen.getByTestId('profile-recovery-action-default'));
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+  });
+
+  it.each([
+    ['rejected', 'not-allowed'],
+    ['failed', 'process-failure'],
+    ['indeterminate', 'interrupted'],
+    ['expired', 'expired'],
+  ] as const)('keeps the terminal %s outcome visible', async (status, failureCategory) => {
+    renderProfile(
+      recoveryFleet({
+        latestCommand: recoveryCommand(status, {
+          failureCategory,
+          completedAt: '2026-07-19T18:25:00+00:00',
+          resultMessage: 'Local investigation is required.',
+        }),
+        recentCommands: [
+          recoveryCommand(status, {
+            failureCategory,
+            completedAt: '2026-07-19T18:25:00+00:00',
+            resultMessage: 'Local investigation is required.',
+          }),
+        ],
+      }),
+    );
+
+    const progress = await screen.findByTestId('profile-recovery-progress-default');
+    expect(progress).toHaveTextContent(status);
+    expect(screen.getByTestId('profile-recovery-failure-default')).toHaveTextContent(
+      failureCategory,
+    );
+    expect(progress).not.toHaveTextContent('succeeded');
+    expect(screen.getByTestId('profile-recovery-history-default')).toHaveTextContent(status);
+    expect(screen.getByTestId('profile-recovery-worker-note-default')).toHaveTextContent(
+      'no worker-directed mutation',
+    );
+  });
+
+  it('reports the manager instance transition and immutable history newest first', async () => {
+    renderProfile(
+      recoveryFleet({
+        latestCommand: recoveryCommand('succeeded', {
+          commandId: '5f5a4a0e-6c1e-4d1a-9a05-1f4ec1f0f0aa',
+          requestedAt: '2026-07-19T18:24:00+00:00',
+          afterManagerInstanceId: 'manager-default-2',
+          completedAt: '2026-07-19T18:25:00+00:00',
+          resultMessage: 'Manager was restarted.',
+        }),
+        recentCommands: [
+          recoveryCommand('succeeded', {
+            commandId: '5f5a4a0e-6c1e-4d1a-9a05-1f4ec1f0f0aa',
+            requestedAt: '2026-07-19T18:24:00+00:00',
+            afterManagerInstanceId: 'manager-default-2',
+            completedAt: '2026-07-19T18:25:00+00:00',
+            resultMessage: 'Manager was restarted.',
+          }),
+          recoveryCommand('rejected', {
+            commandId: '9b1c5c6d-2f4b-4bb0-9c86-2a3d4f5e6a7b',
+            failureCategory: 'stale-fence',
+            requestedAt: '2026-07-19T18:10:00+00:00',
+            completedAt: '2026-07-19T18:11:00+00:00',
+          }),
+        ],
+      }),
+    );
+
+    expect(await screen.findByTestId('profile-recovery-transition-default')).toHaveTextContent(
+      'manager-default → manager-default-2',
+    );
+    const history = screen.getByRole('table', {
+      name: 'Immutable recovery history for profile default',
+    });
+    const rows = within(history).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('succeeded');
+    expect(rows[1]).toHaveTextContent('rejected');
+    expect(rows[1]).toHaveTextContent('stale-fence');
+    expect(rows[0]).toHaveTextContent('123');
+  });
+
+  it('keeps capacity and recovery mutually exclusive', async () => {
+    renderProfile(recoveryFleet({ latestCommand: recoveryCommand('started') }));
+
+    expect(await screen.findByLabelText('Absolute maximum')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Queue change' })).toBeDisabled();
+    expect(screen.getByTestId('profile-recovery-unavailable-default')).toHaveAttribute(
+      'data-reason',
+      'recovery-active',
+    );
+  });
+
+  it('tells viewers that recovery has never run without offering the action', async () => {
+    renderProfile(recoveryFleet(), 'viewer');
+
+    expect(await screen.findByTestId('profile-recovery-empty-default')).toHaveTextContent(
+      'No manager recovery has been requested',
+    );
+    expect(screen.getByRole('heading', { name: 'Manager recovery' })).toBeInTheDocument();
   });
 
   it.each([

@@ -11,6 +11,8 @@ namespace PitCrew.Dashboard.Adapters.Sqlite;
 internal sealed class SqliteRecoveryCommandStore(
     SqliteConnectionFactory _connectionFactory) : IRecoveryCommandStore
 {
+  private const int MaximumHistoryLength = 10;
+
   public async Task<RecoveryCommandQueueResult> QueueAsync(
       string tenantId,
       Guid nodeId,
@@ -318,6 +320,7 @@ internal sealed class SqliteRecoveryCommandStore(
 
   public async Task<IReadOnlyList<NodeRecoveryControls>> GetControlsAsync(
       string tenantId,
+      int observedStateMaximumAgeSeconds,
       CancellationToken cancellationToken)
   {
     await using var connection = await _connectionFactory.OpenAsync(
@@ -350,7 +353,7 @@ internal sealed class SqliteRecoveryCommandStore(
     }
 
     var commands =
-        new Dictionary<(Guid NodeId, string ProfileId), RecoveryCommandState>();
+        new Dictionary<(Guid NodeId, string ProfileId), List<RecoveryCommandState>>();
     await using (var commandQuery = connection.CreateCommand())
     {
       commandQuery.CommandText =
@@ -385,11 +388,16 @@ internal sealed class SqliteRecoveryCommandStore(
             reader.GetString(0),
             CultureInfo.InvariantCulture);
         var key = (nodeId, reader.GetString(1));
-        if (commands.ContainsKey(key))
+        if (!commands.TryGetValue(key, out var history))
+        {
+          history = [];
+          commands[key] = history;
+        }
+        if (history.Count >= MaximumHistoryLength)
         {
           continue;
         }
-        commands[key] = new RecoveryCommandState(
+        history.Add(new RecoveryCommandState(
             Guid.Parse(
                 reader.GetString(2),
                 CultureInfo.InvariantCulture),
@@ -404,7 +412,7 @@ internal sealed class SqliteRecoveryCommandStore(
             await ReadTimestampOrNullAsync(reader, 11, cancellationToken),
             await ReadStringOrNullAsync(reader, 12, cancellationToken),
             await ReadStringOrNullAsync(reader, 13, cancellationToken),
-            await ReadStringOrNullAsync(reader, 14, cancellationToken));
+            await ReadStringOrNullAsync(reader, 14, cancellationToken)));
       }
     }
 
@@ -422,14 +430,20 @@ internal sealed class SqliteRecoveryCommandStore(
                     profile.DesiredGeneration,
                     profile.DesiredStateHash,
                     profile.ObservedStateAgeSeconds,
+                    observedStateMaximumAgeSeconds,
                     profile.RecoveryAllowed,
                     profile.SingleManagerResolved,
                     profile.OperationActive,
                     commands.TryGetValue(
                         (pair.Key, profile.ProfileId),
-                        out var command)
-                        ? command
-                        : null))
+                        out var history)
+                        ? history[0]
+                        : null,
+                    commands.TryGetValue(
+                        (pair.Key, profile.ProfileId),
+                        out var recent)
+                        ? recent
+                        : []))
                 .ToArray()))
         .ToArray();
   }

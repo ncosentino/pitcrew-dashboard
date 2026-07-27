@@ -51,7 +51,10 @@ pages share its latest projection. Settings and administration routes do not
 poll fleet state.
 
 Feature-local mutations call the existing typed APIs and then request an
-immediate shared refresh. The provider aborts obsolete requests on tenant or
+immediate shared refresh. Profile-detail capacity and manager-recovery controls
+are mutually exclusive: an active command of either kind disables the other, and
+recovery progress, evidence, and audit history are read from the same shared
+projection rather than a second polling loop. The provider aborts obsolete requests on tenant or
 route changes and rejects stale responses.
 
 The current fleet endpoint still returns the complete nested tenant projection.

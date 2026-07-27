@@ -288,6 +288,49 @@ const capacityControlStateSchema = z.object({
   latestCommand: capacityCommandStateSchema.nullable(),
 });
 
+const recoveryCommandStatusSchema = z.enum([
+  'queued',
+  'claimed',
+  'started',
+  'succeeded',
+  'rejected',
+  'failed',
+  'expired',
+  'indeterminate',
+]);
+
+const recoveryCommandStateSchema = z.object({
+  commandId: z.string().uuid(),
+  status: recoveryCommandStatusSchema,
+  failureCategory: z.string().nullable(),
+  requestedByGitHubUserId: z.string(),
+  requestedAt: offsetDateTimeSchema,
+  expiresAt: offsetDateTimeSchema,
+  deliveredAt: offsetDateTimeSchema.nullable(),
+  claimedAt: offsetDateTimeSchema.nullable(),
+  startedAt: offsetDateTimeSchema.nullable(),
+  completedAt: offsetDateTimeSchema.nullable(),
+  beforeManagerInstanceId: z.string().nullable(),
+  afterManagerInstanceId: z.string().nullable(),
+  resultMessage: z.string().nullable(),
+});
+
+const recoveryControlStateSchema = z.object({
+  profileId: z.string(),
+  managerContractVersion: z.number().int().nonnegative(),
+  managerContractSupported: z.boolean(),
+  expectedManagerInstanceId: z.string().nullable(),
+  desiredGeneration: z.number().int().nonnegative(),
+  desiredStateHash: z.string().nullable(),
+  observedStateAgeSeconds: z.number().int().nonnegative(),
+  observedStateMaximumAgeSeconds: z.number().int().positive(),
+  recoveryAllowed: z.boolean(),
+  singleManagerResolved: z.boolean(),
+  operationActive: z.boolean(),
+  latestCommand: recoveryCommandStateSchema.nullable(),
+  recentCommands: z.array(recoveryCommandStateSchema).default([]),
+});
+
 const fleetNodeSchema = z.object({
   nodeId: z.string().uuid(),
   displayName: z.string(),
@@ -299,6 +342,7 @@ const fleetNodeSchema = z.object({
   credentialRotationRequested: z.boolean(),
   profiles: z.array(managerObservedStateSchema),
   capacityControls: z.array(capacityControlStateSchema).default([]),
+  recoveryControls: z.array(recoveryControlStateSchema).default([]),
 });
 
 const fleetResponseSchema = z.object({
@@ -318,8 +362,16 @@ export type ScaleSetStatistics = z.infer<typeof scaleSetStatisticsSchema>;
 export type AutoscalingTarget = z.infer<typeof autoscalingTargetSchema>;
 /** Credential-free projection published by one PitCrew manager. */
 export type ManagerObservedState = z.infer<typeof managerObservedStateSchema>;
+/** Lifecycle state of one connector capacity command. */
+export type CapacityCommandState = z.infer<typeof capacityCommandStateSchema>;
 /** Connector-advertised capacity control for one profile. */
 export type CapacityControlState = z.infer<typeof capacityControlStateSchema>;
+/** Immutable lifecycle and audit record of one manager-recovery command. */
+export type RecoveryCommandState = z.infer<typeof recoveryCommandStateSchema>;
+/** Lifecycle status of one manager-recovery command. */
+export type RecoveryCommandStatus = z.infer<typeof recoveryCommandStatusSchema>;
+/** Connector-advertised manager-recovery control for one profile. */
+export type RecoveryControlState = z.infer<typeof recoveryControlStateSchema>;
 /** One enrolled server and its latest profile projections. */
 export type FleetNode = z.infer<typeof fleetNodeSchema>;
 /** Current tenant fleet response. */
