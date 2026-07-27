@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
 
-const offsetDateTimeSchema = z.string().datetime({ offset: true });
+export const offsetDateTimeSchema = z.string().datetime({ offset: true });
 
 const resourceUsageSchema = z.object({
   cpuCores: z.number().nonnegative(),
@@ -220,7 +220,7 @@ const managerEventReasonSchema = z.enum([
 
 const sanitizedEvidenceSchema = z.string().max(160).nullable();
 
-const managerEventSchema = z.object({
+export const managerEventSchema = z.object({
   sequence: z.number().int().positive(),
   managerInstanceId: z.string().min(1).max(128),
   observedAt: offsetDateTimeSchema,

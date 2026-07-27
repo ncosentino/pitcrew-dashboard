@@ -138,6 +138,11 @@ navigation:
 - **Tenant administration** remains visible only to configured system
   administrators.
 
+Node and profile detail pages carry a collapsed **History** panel with
+selectable time ranges. Charts are decorative for assistive technology and are
+always paired with an equivalent data table, and unavailable measurements break
+the plotted line instead of being drawn as zero.
+
 Capacity changes and node lifecycle actions remain on their relevant detail
 pages rather than the fleet overview. Direct links survive authentication and
 browser refresh through the ASP.NET SPA fallback.
@@ -226,6 +231,52 @@ dashboard replicas or materially higher write concurrency are required.
 
 See [Database operations](docs/database-operations.md) for backup, verification,
 restore, and rollback commands.
+
+### Historical telemetry
+
+SQLite also stores bounded historical telemetry alongside the latest projection.
+Latest-state reads are unchanged; history is written on the same connector
+heartbeat transaction path.
+
+- A telemetry sample is appended only when the authoritative manager
+  `observedAt` advances, so a duplicated connector heartbeat creates no
+  duplicate sample.
+- A manager event is stored once per durable `(node, profile, sequence)`
+  contract identity rather than per connector heartbeat, so the same bounded
+  manager ring is never copied on every sync.
+- Hourly rollups are recomputed deterministically from retained samples.
+- Journal gaps stay explicit: the dashboard records durable sequences the
+  manager advanced past between deliveries and sequences the manager still
+  retains above the highest one delivered.
+- `null` continues to mean unavailable and `0` continues to mean measured zero.
+  Local worker counts and GitHub control-plane counts remain separate evidence.
+
+Retention is bounded by measured growth. A retained sample measures at about
+**333 bytes** of SQLite growth (319,488 bytes for 960 samples plus their rollups
+and manager events, measured by `PRAGMA page_count`/`page_size` in
+`SqliteFleetHistoryStoreTests`). A profile polled every fifteen seconds
+therefore costs roughly 1.9 MB per day, so the defaults are:
+
+| Tier | Default | Approximate cost per profile |
+| ---- | ------- | ---------------------------- |
+| Per-observation samples | 7 days, at most 60,000 rows | about 13 MB |
+| Hourly rollups | 90 days | under 1 MB |
+| Durable manager events | 30 days, at most 20,000 rows | a few MB |
+
+Every tier is configurable through `FleetDashboard` options, and each is also
+capped by a hard per-profile row ceiling so a misbehaving connector cannot grow
+the database without bound.
+
+History is read through bounded, tenant-scoped, time-range endpoints:
+
+- `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/history`
+- `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/profiles/{profileId}/history`
+
+Both accept `from`, `to`, `resolution` (`raw` or `hourly`), `points`, and
+`events`. The range defaults to 24 hours, is rejected beyond the configured
+maximum, and every response is capped by explicit point and event limits that
+report truncation rather than silently dropping data. A node owned by another
+tenant is indistinguishable from a missing node.
 
 ## Images
 
