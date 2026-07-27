@@ -68,8 +68,11 @@ public sealed class FleetDashboardOptions
   /// Gets or sets how long per-observation historical telemetry samples are retained.
   /// </summary>
   /// <remarks>
-  /// A retained sample measures at roughly 333 bytes of SQLite growth, so a profile polled every
-  /// fifteen seconds costs about 1.9 MB per day and about 13 MB across this default window.
+  /// A retained sample measures at roughly 444 bytes of checkpointed SQLite growth, measured after
+  /// <c>PRAGMA wal_checkpoint(TRUNCATE)</c> and including its hourly rollup, manager events,
+  /// subsystem health changes, capacity-deficit evidence, and cursor overhead. A profile polled
+  /// every fifteen seconds therefore costs about 2.4 MiB per day and about 17 MiB across this
+  /// default window.
   /// </remarks>
   [Range(1, 3650)]
   public int TelemetrySampleRetentionDays { get; set; } = 7;
