@@ -12,6 +12,7 @@ import {
   describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
+  describeIncompletenessFloor,
   describeSubsystemHealthEvidence,
   resolveCadenceMilliseconds,
 } from './historySeries';
@@ -304,6 +305,22 @@ describe('describeHistoryAvailability', () => {
     expect(availability.description).toContain('older points inside the same range are hidden');
   });
 
+  it('never calls an expired profile range complete', () => {
+    const availability = describeHistoryAvailability(
+      history({
+        retention: {
+          ...history().retention,
+          historyExpiredAt: '2026-07-27T22:00:00.0000000+00:00',
+        },
+      }),
+      'raw',
+    );
+
+    expect(availability.status).not.toBe('available');
+    expect(availability.label).toBe('Expired');
+    expect(availability.description).toContain('incomplete');
+  });
+
   it('discloses dashboard retention deletions instead of calling an old range complete', () => {
     const availability = describeHistoryAvailability(
       history({ retention: { ...history().retention, droppedSamples: 40 } }),
@@ -353,6 +370,30 @@ describe('describeHistoryJournal', () => {
 
     expect(journal.status).toBe('partial');
     expect(journal.description).toContain('deleted 7 older retained events');
+  });
+
+  it('never calls an expired journal complete', () => {
+    const journal = describeHistoryJournal(
+      history({ journal: { ...history().journal, status: 'expired' } }),
+    );
+
+    expect(journal.status).toBe('unavailable');
+    expect(journal.label).toBe('Expired');
+    expect(journal.description).toContain('incomplete');
+  });
+
+  it('reports an expired profile history as an explicit journal gap', () => {
+    const journal = describeHistoryJournal(
+      history({
+        retention: {
+          ...history().retention,
+          historyExpiredAt: '2026-07-27T22:00:00.0000000+00:00',
+        },
+      }),
+    );
+
+    expect(journal.status).toBe('partial');
+    expect(journal.description).toContain('expired this profile');
   });
 
   it('reports an unreported journal as unavailable rather than empty', () => {
@@ -468,5 +509,25 @@ describe('describeHistoryJournal', () => {
     );
 
     expect(cadence).toBe(15_000);
+  });
+});
+
+describe('describeIncompletenessFloor', () => {
+  it('reports compacted provenance as an explicit incompleteness floor', () => {
+    const message = describeIncompletenessFloor({
+      scope: 'node',
+      earliestExpiredAt: '2026-07-20T00:00:00.0000000+00:00',
+      latestExpiredAt: '2026-07-27T00:00:00.0000000+00:00',
+      expiredProfiles: 3,
+      droppedSamples: 40,
+      droppedRollups: 5,
+      droppedEvents: 9,
+      droppedSubsystemHealthChanges: 2,
+      droppedCapacityDeficits: 1,
+    });
+
+    expect(message).toContain('3 profile histories');
+    expect(message).toContain('this node');
+    expect(message).toContain('incomplete');
   });
 });

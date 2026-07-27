@@ -67,6 +67,7 @@ export type {
   ProfileHistory,
   ProfileRetentionFloor,
   ProfileSubsystemHealthChange,
+  HistoryIncompletenessFloor,
   ProfileTelemetryRollup,
   ProfileTelemetrySample,
 } from './historyApi';
@@ -76,6 +77,7 @@ export {
   describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
+  describeIncompletenessFloor,
   describeSubsystemHealthEvidence,
   resolveCadenceMilliseconds,
 } from './historySeries';

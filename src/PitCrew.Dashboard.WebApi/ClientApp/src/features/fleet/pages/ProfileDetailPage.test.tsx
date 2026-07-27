@@ -604,7 +604,9 @@ describe('ProfileDetailPage', () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
     await user.click(within(dialog).getByRole('button', { name: 'Confirm capacity change' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Queuing capacity change');
+    expect(
+      await screen.findByText('Queuing capacity change…', { selector: '[role="status"]' }),
+    ).toBeInTheDocument();
     expect(input).toBeDisabled();
     const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
     expect(request).toBeDefined();
@@ -619,7 +621,9 @@ describe('ProfileDetailPage', () => {
         status: 'pending',
       }),
     );
-    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText('Queuing capacity change…')).not.toBeInTheDocument(),
+    );
   });
 
   it('renders contract 11 policy, admission ceiling, image identity, I/O, and exit evidence', async () => {

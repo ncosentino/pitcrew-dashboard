@@ -142,6 +142,7 @@ function historyResponse(overrides: Record<string, unknown>) {
     nodePointLimit: 5000,
     nodeEventLimit: 1000,
     nodeDiagnosticLimit: 1000,
+    incompletenessFloors: [],
     ...overrides,
   };
 }
@@ -312,6 +313,83 @@ describe('FleetHistoryPanel', () => {
     await act(async () => {
       releaseSecond(jsonResponse(historyResponse({ resolution: 'hourly' })));
     });
+  });
+
+  it('keeps the status region mounted before the first response arrives', async () => {
+    mockFetch([
+      () =>
+        new Promise<Response>(() => {
+          // Never resolves: the first announcement must not depend on a settled response.
+        }),
+    ]);
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  it('reports compacted incompleteness floors instead of an apparently complete range', async () => {
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            incompletenessFloors: [
+              {
+                scope: 'node',
+                earliestExpiredAt: '2026-07-20T00:00:00+00:00',
+                latestExpiredAt: '2026-07-25T00:00:00+00:00',
+                expiredProfiles: 3,
+                droppedSamples: 40,
+                droppedRollups: 5,
+                droppedEvents: 9,
+                droppedSubsystemHealthChanges: 2,
+                droppedCapacityDeficits: 1,
+              },
+            ],
+          }),
+        ),
+    ]);
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+    await screen.findByTestId('history-disclosure-default');
+
+    expect(screen.getByText(/expired 3 profile histories for this node/i)).toBeInTheDocument();
+  });
+
+  it('renders an expired profile history as expired rather than complete', async () => {
+    const retained = profile('default', '2026-07-26T11:59:45+00:00');
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            profiles: [
+              {
+                ...retained,
+                journal: { ...retained.journal, status: 'expired' },
+                retention: {
+                  ...retained.retention,
+                  historyExpiredAt: '2026-07-26T10:00:00+00:00',
+                },
+              },
+            ],
+          }),
+        ),
+    ]);
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+    const disclosure = await screen.findByTestId('history-disclosure-default');
+
+    expect(within(disclosure).getAllByText('Expired').length).toBeGreaterThan(0);
+    expect(within(disclosure).queryByText('Complete')).not.toBeInTheDocument();
   });
 
   it('accepts a target repository at the full contract length', async () => {

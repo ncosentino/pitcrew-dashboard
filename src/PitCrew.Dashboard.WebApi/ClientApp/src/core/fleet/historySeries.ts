@@ -1,4 +1,9 @@
-import type { ProfileHistory, ProfileTelemetryRollup, ProfileTelemetrySample } from './historyApi';
+import type {
+  HistoryIncompletenessFloor,
+  ProfileHistory,
+  ProfileTelemetryRollup,
+  ProfileTelemetrySample,
+} from './historyApi';
 
 /** Measurement unit used to format one history series. */
 export type HistorySeriesUnit = 'count' | 'bytes' | 'cores' | 'pids';
@@ -524,6 +529,14 @@ export function describeHistoryAvailability(
     dropped > 0
       ? ` Dashboard retention has already deleted ${dropped} older ${isHourly ? 'hourly buckets' : 'samples'}${floor == null ? '' : `, so nothing before ${floor} is retained`}.`
       : '';
+  const expiredAt = history.retention.historyExpiredAt;
+  if (expiredAt != null) {
+    return {
+      status: points === 0 ? 'unavailable' : 'partial',
+      label: 'Expired',
+      description: `Dashboard retention expired this profile's history on ${expiredAt}, so this range is incomplete no matter how many points are shown.${retentionNote}`,
+    };
+  }
   if (points === 0) {
     return {
       status: 'unavailable',
@@ -551,6 +564,14 @@ export function describeHistoryAvailability(
  */
 export function describeHistoryJournal(history: ProfileHistory): HistoryAvailability {
   const journal = history.journal;
+  if (journal.status === 'expired') {
+    return {
+      status: 'unavailable',
+      label: 'Expired',
+      description:
+        'Dashboard retention expired this profile\u2019s manager journal, so retained manager operations are incomplete rather than complete.',
+    };
+  }
   if (journal.status === 'unreported' || journal.status === 'unavailable') {
     return {
       status: 'unavailable',
@@ -595,6 +616,11 @@ export function describeHistoryJournal(history: ProfileHistory): HistoryAvailabi
       `${journal.rejectedFutureEvents} events were rejected because they claimed an implausibly future timestamp`,
     );
   }
+  if (history.retention.historyExpiredAt != null) {
+    gaps.push(
+      `dashboard retention expired this profile's history on ${history.retention.historyExpiredAt}`,
+    );
+  }
   if (gaps.length === 0) {
     return {
       status: 'available',
@@ -608,4 +634,16 @@ export function describeHistoryJournal(history: ProfileHistory): HistoryAvailabi
     label: 'Gaps',
     description: `This chronology has gaps: ${gaps.join('; ')}.`,
   };
+}
+
+/**
+ * Describes a coarse incompleteness floor the dashboard can no longer attribute to single profiles.
+ *
+ * Bounded tombstone caps can evict per-profile provenance while a legal query range still reaches
+ * the deleted data. The floor keeps the answer honest at a coarser grain instead of letting the
+ * range look complete again.
+ */
+export function describeIncompletenessFloor(floor: HistoryIncompletenessFloor): string {
+  const scope = floor.scope === 'node' ? 'this node' : 'this dashboard';
+  return `Dashboard retention expired ${floor.expiredProfiles} profile histories for ${scope} between ${floor.earliestExpiredAt} and ${floor.latestExpiredAt}, and their per-profile provenance has been compacted. This range is incomplete: ${floor.droppedSamples} samples, ${floor.droppedRollups} hourly buckets, ${floor.droppedEvents} manager events, ${floor.droppedSubsystemHealthChanges} subsystem-health changes, and ${floor.droppedCapacityDeficits} capacity-deficit observations were deleted.`;
 }
