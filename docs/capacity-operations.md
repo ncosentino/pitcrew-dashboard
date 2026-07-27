@@ -121,3 +121,10 @@ and PitCrew setup converges idempotently.
 
 The protocol does not support arbitrary commands, paths, profile creation or
 deletion, routing changes, autoscaling policy changes, or release updates.
+
+## Manager recovery
+
+Protocol v4 adds a separately permissioned typed recovery operation that uses
+the same host service and installer. It is disabled by default and never
+enabled by upgrading a capacity-only host. See
+[Manager recovery](manager-recovery.md).

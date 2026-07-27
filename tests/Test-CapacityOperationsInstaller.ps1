@@ -180,15 +180,41 @@ function New-TestReleaseAsset {
 function Invoke-InstallerScenario {
     param(
         [Parameter(Mandatory)]
-        [string]$PitCrewRoot
+        [string]$PitCrewRoot,
+
+        [switch]$EnableManagerRecovery
     )
 
+    if ($EnableManagerRecovery) {
+        & $installerPath `
+            -Version $version `
+            -PitCrewRoot $PitCrewRoot `
+            -DashboardUrl 'https://127.0.0.1:9' `
+            -Profiles 'copilot-cli' `
+            -CapacityMaximumCeiling 30 `
+            -EnableManagerRecovery `
+            -ManagerRecoveryProfiles 'copilot-cli'
+        return
+    }
     & $installerPath `
         -Version $version `
         -PitCrewRoot $PitCrewRoot `
         -DashboardUrl 'https://127.0.0.1:9' `
         -Profiles 'copilot-cli' `
         -CapacityMaximumCeiling 30
+}
+
+function Get-InstalledConnectorSettings {
+    param(
+        [Parameter(Mandatory)]
+        [string]$InstallRoot
+    )
+
+    return Get-Content `
+        -LiteralPath (Join-Path $InstallRoot 'appsettings.json') `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json -Depth 20
 }
 
 $testRoot = Join-Path (
@@ -303,11 +329,7 @@ try {
                 $paths.InstallRoot,
                 [StringComparison]::OrdinalIgnoreCase)
         ) 'The Windows connector service does not pin the application content root.'
-        $settings = Get-Content `
-            -LiteralPath (Join-Path $paths.InstallRoot 'appsettings.json') `
-            -Raw `
-            -Encoding UTF8 |
-            ConvertFrom-Json -Depth 20
+        $settings = Get-InstalledConnectorSettings -InstallRoot $paths.InstallRoot
         Add-Check (
             $settings.PitCrew.Connector.OperatorModeEnabled -eq $true
         ) 'The Windows connector configuration did not enable operator mode.'
@@ -318,6 +340,12 @@ try {
         Add-Check (
             $settings.PitCrew.Connector.CapacityMaximumCeiling -eq 30
         ) 'The Windows connector configuration did not preserve the capacity ceiling.'
+        Add-Check (
+            $settings.PitCrew.Connector.ManagerRecoveryEnabled -eq $false
+        ) 'A capacity-only installation enabled manager recovery.'
+        Add-Check (
+            @($settings.PitCrew.Connector.AllowedManagerRecoveryProfiles).Count -eq 0
+        ) 'A capacity-only installation advertised a manager-recovery allowlist.'
         $fileSink = @($settings.Serilog.WriteTo) |
             Where-Object Name -eq 'File' |
             Select-Object -First 1
@@ -360,6 +388,78 @@ try {
             $environment -match
             'PitCrew__Connector__AllowedCapacityProfiles__0="copilot-cli"'
         ) 'The systemd environment did not preserve the profile allowlist.'
+        Add-Check (
+            $environment -match 'PitCrew__Connector__ManagerRecoveryEnabled="false"'
+        ) 'A capacity-only installation enabled manager recovery.'
+        Add-Check (
+            $environment -notmatch 'PitCrew__Connector__AllowedManagerRecoveryProfiles__0'
+        ) 'A capacity-only installation advertised a manager-recovery allowlist.'
+    }
+
+    Remove-TestHostInstallation
+    $global:PitCrewInstallerDockerStops = 0
+    $global:PitCrewInstallerDockerCopies = 0
+    $global:PitCrewInstallerDockerStarts = 0
+
+    $recoveryProfilesRejected = $false
+    try {
+        & $installerPath `
+            -Version $version `
+            -PitCrewRoot $pitCrewRoot `
+            -DashboardUrl 'https://127.0.0.1:9' `
+            -Profiles 'copilot-cli' `
+            -CapacityMaximumCeiling 30 `
+            -ManagerRecoveryProfiles 'copilot-cli'
+    } catch {
+        $recoveryProfilesRejected = $_.Exception.Message.Contains(
+            'requires -EnableManagerRecovery',
+            [StringComparison]::Ordinal)
+    }
+    Add-Check $recoveryProfilesRejected 'The installer accepted a recovery allowlist without the explicit recovery opt-in.'
+    Add-Check (
+        $global:PitCrewInstallerDockerStops -eq 0
+    ) 'The installer modified the existing deployment before rejecting an invalid recovery request.'
+
+    Remove-TestHostInstallation
+    Invoke-InstallerScenario -PitCrewRoot $pitCrewRoot -EnableManagerRecovery
+    if ($IsWindows) {
+        $recoverySettings = Get-InstalledConnectorSettings `
+            -InstallRoot $paths.InstallRoot
+        Add-Check (
+            $recoverySettings.PitCrew.Connector.ManagerRecoveryEnabled -eq $true
+        ) 'The opt-in installation did not enable manager recovery.'
+        Add-Check (
+            (@($recoverySettings.PitCrew.Connector.AllowedManagerRecoveryProfiles) -join ',') -eq
+            'copilot-cli'
+        ) 'The opt-in installation did not write the manager-recovery allowlist.'
+        Add-Check (
+            ([string]$recoverySettings.PitCrew.Connector.RecoveryLedgerPath).StartsWith(
+                $paths.DataRoot,
+                [StringComparison]::OrdinalIgnoreCase)
+        ) 'The recovery ledger is not stored below the protected data root.'
+        Add-Check (
+            $recoverySettings.PitCrew.Connector.RecoveryCommandTimeoutSeconds -eq 120
+        ) 'The opt-in installation did not write a bounded recovery timeout.'
+    } else {
+        $recoveryEnvironment = Get-Content `
+            -LiteralPath $paths.EnvironmentPath `
+            -Raw `
+            -Encoding UTF8
+        Add-Check (
+            $recoveryEnvironment -match 'PitCrew__Connector__ManagerRecoveryEnabled="true"'
+        ) 'The opt-in installation did not enable manager recovery.'
+        Add-Check (
+            $recoveryEnvironment -match
+            'PitCrew__Connector__AllowedManagerRecoveryProfiles__0="copilot-cli"'
+        ) 'The opt-in installation did not write the manager-recovery allowlist.'
+        Add-Check (
+            $recoveryEnvironment.Contains(
+                "PitCrew__Connector__RecoveryLedgerPath=`"$($paths.DataRoot)",
+                [StringComparison]::Ordinal)
+        ) 'The recovery ledger is not stored below the protected data root.'
+        Add-Check (
+            $recoveryEnvironment -match 'PitCrew__Connector__RecoveryCommandTimeoutSeconds="120"'
+        ) 'The opt-in installation did not write a bounded recovery timeout.'
     }
 
     Remove-TestHostInstallation
