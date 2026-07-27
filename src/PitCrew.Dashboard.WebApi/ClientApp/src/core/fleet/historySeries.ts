@@ -478,15 +478,22 @@ export function describeSubsystemHealthEvidence(history: ProfileHistory): Histor
 /**
  * Resolves the expected spacing between plotted points for one rendered resolution.
  *
- * Hourly buckets are exactly one hour apart, while per-observation ranges follow the connector
- * heartbeat, so the observed median spacing is used. The result lets a chart tell an ordinary
- * cadence apart from a materially missing stretch of history.
+ * Hourly buckets are exactly one hour apart. A per-observation range follows the connector
+ * heartbeat, so the server-advertised expected cadence is preferred whenever it is known. When it
+ * is not, the spacing is estimated from the observed gaps with the lower median rather than the
+ * upper median: with an even number of gaps the upper median is itself one of the long gaps, so a
+ * three-point series straddling a long outage would treat the outage as the normal cadence and hide
+ * the very gap the chart exists to reveal.
  */
 export function resolveCadenceMilliseconds(
   history: ProfileHistory,
   resolution: 'raw' | 'hourly',
+  expectedRawCadenceSeconds: number | null,
 ): number | null {
   if (resolution === 'hourly') return 3_600_000;
+  if (expectedRawCadenceSeconds != null && expectedRawCadenceSeconds > 0) {
+    return expectedRawCadenceSeconds * 1000;
+  }
   const times = history.samples
     .map((sample) => Date.parse(sample.observedAt))
     .filter((value) => !Number.isNaN(value))
@@ -497,7 +504,9 @@ export function resolveCadenceMilliseconds(
     deltas.push(times[index] - times[index - 1]);
   }
   deltas.sort((left, right) => left - right);
-  const median = deltas[Math.floor(deltas.length / 2)];
+  // Lower median: for an even gap count this picks the smaller of the two middle gaps, whereas the
+  // usual Math.floor(length / 2) would pick the larger one and swallow a single long outage.
+  const median = deltas[Math.floor((deltas.length - 1) / 2)];
   return median > 0 ? median : null;
 }
 

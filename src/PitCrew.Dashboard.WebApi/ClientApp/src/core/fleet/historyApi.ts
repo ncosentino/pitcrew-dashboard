@@ -101,6 +101,7 @@ const retentionFloorSchema = z.object({
   earliestRetainedCapacityDeficit: offsetDateTimeSchema.nullable(),
   droppedCapacityDeficits: z.number().int().nonnegative(),
   rejectedFutureSamples: z.number().int().nonnegative(),
+  historyExpiredAt: offsetDateTimeSchema.nullable(),
 });
 
 const subsystemHealthChangeSchema = z.object({
@@ -162,11 +163,30 @@ const nodeHistorySchema = z.object({
   diagnosticsTruncated: z.boolean(),
   profilePointLimit: z.number().int().positive(),
   profileEventLimit: z.number().int().positive(),
-  profileDiagnosticLimit: z.number().int().positive(),
+  profileSubsystemHealthLimit: z.number().int().positive(),
+  profileCapacityDeficitLimit: z.number().int().positive(),
   nodePointLimit: z.number().int().positive(),
   nodeEventLimit: z.number().int().positive(),
   nodeDiagnosticLimit: z.number().int().positive(),
 });
+
+const historyCapabilitiesSchema = z.object({
+  defaultRangeHours: z.number().int().positive(),
+  maximumRangeHours: z.number().int().positive(),
+  resolutions: z.array(historyResolutionSchema).min(1),
+  maximumPoints: z.number().int().positive(),
+  maximumEvents: z.number().int().positive(),
+  maximumDiagnostics: z.number().int().positive(),
+  nodePointLimit: z.number().int().positive(),
+  nodeEventLimit: z.number().int().positive(),
+  nodeDiagnosticLimit: z.number().int().positive(),
+  expectedRawCadenceSeconds: z.number().int().positive(),
+  sampleRetentionHours: z.number().int().positive(),
+  rollupRetentionHours: z.number().int().positive(),
+});
+
+/** Server-advertised history query limits used to build only requests the server accepts. */
+export type HistoryCapabilities = z.infer<typeof historyCapabilitiesSchema>;
 
 /** Stored resolution served by one bounded history query. */
 export type HistoryResolution = z.infer<typeof historyResolutionSchema>;
@@ -223,6 +243,17 @@ function buildQueryString(query: HistoryQuery): string {
 
 function createClient(): HttpClient {
   return new HttpClient({ baseUrl: globalThis.location.origin });
+}
+
+/** Loads the server-advertised history capabilities for one authorized tenant. */
+export async function getHistoryCapabilities(
+  tenantId: string,
+  signal: AbortSignal,
+): Promise<HistoryCapabilities> {
+  return await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/history/capabilities`,
+    { method: 'GET', schema: historyCapabilitiesSchema, signal },
+  );
 }
 
 /** Loads bounded retained history for every profile of one authorized tenant node. */

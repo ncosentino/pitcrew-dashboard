@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 
-import { getNodeHistory, getProfileHistory, type NodeHistoryResponse } from './historyApi';
+import {
+  getHistoryCapabilities,
+  getNodeHistory,
+  getProfileHistory,
+  type HistoryCapabilities,
+  type NodeHistoryResponse,
+} from './historyApi';
 
 /** Bounded history request issued by one node or profile history view. */
 export interface FleetHistoryRequest {
@@ -9,10 +15,17 @@ export interface FleetHistoryRequest {
   readonly profileId: string | null;
   readonly rangeHours: number;
   readonly resolution: 'raw' | 'hourly';
-  readonly pointLimit: number;
-  readonly eventLimit: number;
-  readonly diagnosticLimit: number;
+  readonly pointLimit: number | null;
+  readonly eventLimit: number | null;
+  readonly diagnosticLimit: number | null;
   readonly enabled: boolean;
+}
+
+/** Load state of the server-advertised history capabilities. */
+export interface HistoryCapabilitiesState {
+  readonly capabilities: HistoryCapabilities | null;
+  readonly error: string | null;
+  readonly isLoading: boolean;
 }
 
 /** Load state of one bounded history request. */
@@ -83,9 +96,9 @@ export function useFleetHistory(request: FleetHistoryRequest): FleetHistoryState
       from: new Date(from).toISOString(),
       to: new Date(to).toISOString(),
       resolution,
-      points: pointLimit,
-      events: eventLimit,
-      diagnostics: diagnosticLimit,
+      ...(pointLimit == null ? {} : { points: pointLimit }),
+      ...(eventLimit == null ? {} : { events: eventLimit }),
+      ...(diagnosticLimit == null ? {} : { diagnostics: diagnosticLimit }),
     };
     const load = async () => {
       try {
@@ -130,5 +143,53 @@ export function useFleetHistory(request: FleetHistoryRequest): FleetHistoryState
     error: isSettled ? result.error : null,
     isLoading: isActive && !isSettled,
     isStale: isActive && !isSettled && isSameScope,
+  };
+}
+
+/**
+ * Loads the history limits the server advertises for one tenant.
+ *
+ * The client designs its ranges from these limits instead of assuming fixed presets, so a server
+ * configured with a shorter maximum range or lower caps never receives a request it must reject.
+ */
+export function useHistoryCapabilities(
+  tenantId: string,
+  enabled: boolean,
+): HistoryCapabilitiesState {
+  const isActive = enabled && tenantId !== '';
+  const [state, setState] = useState<{
+    readonly key: string;
+    readonly capabilities: HistoryCapabilities | null;
+    readonly error: string | null;
+  }>({ key: '', capabilities: null, error: null });
+
+  useEffect(() => {
+    if (!isActive) return undefined;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const capabilities = await getHistoryCapabilities(tenantId, controller.signal);
+        if (!controller.signal.aborted) {
+          setState({ key: tenantId, capabilities, error: null });
+        }
+      } catch (caught) {
+        if (controller.signal.aborted) return;
+        setState({
+          key: tenantId,
+          capabilities: null,
+          error:
+            caught instanceof Error ? caught.message : 'History capabilities could not be loaded.',
+        });
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [isActive, tenantId]);
+
+  const isSettled = state.key === tenantId && tenantId !== '';
+  return {
+    capabilities: isSettled ? state.capabilities : null,
+    error: isSettled ? state.error : null,
+    isLoading: isActive && !isSettled,
   };
 }

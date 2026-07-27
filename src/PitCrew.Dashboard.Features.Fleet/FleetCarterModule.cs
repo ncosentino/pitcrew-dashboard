@@ -35,6 +35,7 @@ public sealed class FleetCarterModule : ICarterModule
             "/api/tenants/{tenantId}/fleet/v1")
         .RequireAuthorization(AccessPolicies.TenantViewer);
     fleet.MapGet("/nodes", GetFleetAsync);
+    fleet.MapGet("/history/capabilities", GetHistoryCapabilities);
     fleet.MapGet("/nodes/{nodeId:guid}/history", GetNodeHistoryAsync);
     fleet.MapGet(
         "/nodes/{nodeId:guid}/profiles/{profileId}/history",
@@ -160,6 +161,10 @@ public sealed class FleetCarterModule : ICarterModule
       Results.Ok(await unitOfWork.GetAsync(
           tenantId,
           cancellationToken));
+
+  private static IResult GetHistoryCapabilities(
+      IGetFleetHistoryUnitOfWork unitOfWork) =>
+      Results.Ok(unitOfWork.GetCapabilities());
 
   private static async Task<IResult> GetNodeHistoryAsync(
       HttpContext context,

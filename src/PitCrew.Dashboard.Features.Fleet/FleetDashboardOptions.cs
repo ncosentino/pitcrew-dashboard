@@ -147,9 +147,9 @@ public sealed class FleetDashboardOptions
   public int MaximumManagerEventsPerNode { get; set; } = 100_000;
 
   /// <summary>
-  /// Gets or sets the hard node-wide ceiling on retained rows of each diagnostic table.
+  /// Gets or sets the combined node-wide ceiling shared by both retained diagnostic collections.
   /// </summary>
-  [Range(100, 5_000_000)]
+  [Range(200, 5_000_000)]
   public int MaximumDiagnosticsPerNode { get; set; } = 25_000;
 
   /// <summary>
@@ -161,6 +161,58 @@ public sealed class FleetDashboardOptions
   /// </remarks>
   [Range(1, 10_000)]
   public int MaximumProfilesPerNode { get; set; } = 200;
+
+  /// <summary>
+  /// Gets or sets the hard database-wide ceiling on retained telemetry samples across every node.
+  /// </summary>
+  [Range(100, 50_000_000)]
+  public int MaximumTelemetrySamplesPerDatabase { get; set; } = 5_000_000;
+
+  /// <summary>
+  /// Gets or sets the hard database-wide ceiling on retained hourly rollups across every node.
+  /// </summary>
+  [Range(100, 50_000_000)]
+  public int MaximumTelemetryRollupsPerDatabase { get; set; } = 2_000_000;
+
+  /// <summary>
+  /// Gets or sets the hard database-wide ceiling on retained manager events across every node.
+  /// </summary>
+  [Range(100, 50_000_000)]
+  public int MaximumManagerEventsPerDatabase { get; set; } = 2_000_000;
+
+  /// <summary>
+  /// Gets or sets the combined database-wide ceiling shared by both retained diagnostic collections.
+  /// </summary>
+  [Range(100, 50_000_000)]
+  public int MaximumDiagnosticsPerDatabase { get; set; } = 500_000;
+
+  /// <summary>
+  /// Gets or sets the hard database-wide ceiling on retained profile histories across every node.
+  /// </summary>
+  /// <remarks>
+  /// Enroll, sync, and abandon churn cannot grow the database without bound inside the retention
+  /// window, because history for the least recently updated profiles beyond this ceiling is deleted
+  /// deterministically and replaced by a tombstone that keeps its completeness provenance.
+  /// </remarks>
+  [Range(1, 1_000_000)]
+  public int MaximumProfileHistories { get; set; } = 20_000;
+
+  /// <summary>
+  /// Gets or sets the hard database-wide ceiling on how many nodes retain history at once.
+  /// </summary>
+  [Range(1, 100_000)]
+  public int MaximumHistoryNodes { get; set; } = 2_000;
+
+  /// <summary>
+  /// Gets or sets the smallest gap between two bounded global history maintenance sweeps.
+  /// </summary>
+  /// <remarks>
+  /// Retention cannot depend only on the node that happens to be syncing, so a bounded global sweep
+  /// ages history across abandoned nodes as well. The sweep runs inside the heartbeat transaction at
+  /// most once per interval, so an ordinary heartbeat does not pay for it.
+  /// </remarks>
+  [Range(1, 86_400)]
+  public int HistoryGlobalSweepSeconds { get; set; } = 300;
 
   /// <summary>
   /// Gets or sets how far ahead of dashboard time an observation may claim to be observed.
@@ -221,7 +273,11 @@ public sealed class FleetDashboardOptions
   /// <summary>
   /// Gets or sets the maximum diagnostic rows one bounded query returns for the whole node.
   /// </summary>
-  [Range(10, 20_000)]
+  /// <remarks>
+  /// This is one combined budget shared by retained subsystem-health changes and retained
+  /// capacity-deficit observations, so the advertised node-wide cap is never doubled.
+  /// </remarks>
+  [Range(20, 20_000)]
   public int MaximumNodeHistoryDiagnostics { get; set; } = 1000;
 
   /// <summary>
@@ -270,15 +326,40 @@ public sealed class FleetDashboardOptions
       yield return
           "MaximumManagerEventsPerNode must be at least MaximumManagerEventsPerProfile.";
     }
-    if (MaximumNodeHistoryDiagnostics < MaximumHistoryDiagnostics)
+    if (MaximumNodeHistoryDiagnostics < MaximumHistoryDiagnostics * 2)
     {
       yield return
-          "MaximumNodeHistoryDiagnostics must be at least MaximumHistoryDiagnostics.";
+          "MaximumNodeHistoryDiagnostics must be at least twice MaximumHistoryDiagnostics because it is one combined budget shared by subsystem health and capacity deficits.";
     }
-    if (MaximumDiagnosticsPerNode < MaximumDiagnosticsPerProfile)
+    if (MaximumDiagnosticsPerNode < MaximumDiagnosticsPerProfile * 2)
     {
       yield return
-          "MaximumDiagnosticsPerNode must be at least MaximumDiagnosticsPerProfile.";
+          "MaximumDiagnosticsPerNode must be at least twice MaximumDiagnosticsPerProfile because it is one combined budget shared by subsystem health and capacity deficits.";
+    }
+    if (MaximumTelemetrySamplesPerDatabase < MaximumTelemetrySamplesPerNode)
+    {
+      yield return
+          "MaximumTelemetrySamplesPerDatabase must be at least MaximumTelemetrySamplesPerNode.";
+    }
+    if (MaximumTelemetryRollupsPerDatabase < MaximumTelemetryRollupsPerNode)
+    {
+      yield return
+          "MaximumTelemetryRollupsPerDatabase must be at least MaximumTelemetryRollupsPerNode.";
+    }
+    if (MaximumManagerEventsPerDatabase < MaximumManagerEventsPerNode)
+    {
+      yield return
+          "MaximumManagerEventsPerDatabase must be at least MaximumManagerEventsPerNode.";
+    }
+    if (MaximumDiagnosticsPerDatabase < MaximumDiagnosticsPerNode)
+    {
+      yield return
+          "MaximumDiagnosticsPerDatabase must be at least MaximumDiagnosticsPerNode.";
+    }
+    if (MaximumProfileHistories < MaximumProfilesPerNode)
+    {
+      yield return
+          "MaximumProfileHistories must be at least MaximumProfilesPerNode.";
     }
   }
 }
