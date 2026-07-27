@@ -75,7 +75,7 @@ internal sealed partial class LocalProfileOperationGate(
       using var stream = new FileStream(
           lockPath,
           FileMode.Open,
-          FileAccess.ReadWrite,
+          FileAccess.Read,
           FileShare.None);
       return false;
     }
