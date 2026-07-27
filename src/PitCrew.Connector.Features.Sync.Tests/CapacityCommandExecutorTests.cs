@@ -20,10 +20,8 @@ public sealed class CapacityCommandExecutorTests
           30,
           cancellationToken);
       var options = CapacityTestData.CreateOperatorOptions(root, 50);
-      var resolver = new CapacityProfileResolver(
-          Options.Create(options),
-          NullLogger<CapacityProfileResolver>.Instance);
-      var process = new FakeCapacityProcessRunner
+      var resolver = ConnectorTestFactory.CreateCapacityResolver(options);
+      var process = new FakeSetupProcessRunner
       {
         Handler = async (_, token) =>
         {
@@ -32,7 +30,7 @@ public sealed class CapacityCommandExecutorTests
               8,
               40,
               token);
-          return new CapacityProcessResult(0, false);
+          return new SetupProcessResult(0, false);
         },
       };
       var now = new DateTimeOffset(
@@ -43,12 +41,11 @@ public sealed class CapacityCommandExecutorTests
           0,
           0,
           TimeSpan.Zero);
-      var executor = new CapacityCommandExecutor(
+      var executor = ConnectorTestFactory.CreateCapacityExecutor(
+          options,
           resolver,
           process,
-          Options.Create(options),
-          new FixedTimeProvider(now),
-          NullLogger<CapacityCommandExecutor>.Instance);
+          new FixedTimeProvider(now));
 
       var outcome = await executor.ExecuteAsync(
           new SetCapacityCommand(
@@ -88,16 +85,13 @@ public sealed class CapacityCommandExecutorTests
           30,
           cancellationToken);
       var options = CapacityTestData.CreateOperatorOptions(root, 50);
-      var process = new FakeCapacityProcessRunner();
+      var process = new FakeSetupProcessRunner();
       var now = DateTimeOffset.UtcNow;
-      var executor = new CapacityCommandExecutor(
-          new CapacityProfileResolver(
-              Options.Create(options),
-              NullLogger<CapacityProfileResolver>.Instance),
+      var executor = ConnectorTestFactory.CreateCapacityExecutor(
+          options,
+          ConnectorTestFactory.CreateCapacityResolver(options),
           process,
-          Options.Create(options),
-          new FixedTimeProvider(now),
-          NullLogger<CapacityCommandExecutor>.Instance);
+          new FixedTimeProvider(now));
 
       var outcome = await executor.ExecuteAsync(
           new SetCapacityCommand(

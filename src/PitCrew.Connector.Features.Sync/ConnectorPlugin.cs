@@ -21,8 +21,14 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
         .AddOptions<ConnectorOptions>()
         .BindConfiguration("PitCrew:Connector");
     options.Services.AddSingleton(TimeProvider.System);
-    options.Services.AddSingleton<ICapacityProcessRunner, CapacityProcessRunner>();
+    options.Services.AddSingleton<IHostExecutionEnvironment, HostExecutionEnvironment>();
+    options.Services.AddSingleton<ISetupProcessRunner, SetupProcessRunner>();
+    options.Services.AddSingleton<LocalProfileStateLocator>();
+    options.Services.AddSingleton<LocalProfileOperationGate>();
     options.Services.AddSingleton<CapacityCommandExecutor>();
+    options.Services.AddSingleton<RecoveryProfileResolver>();
+    options.Services.AddSingleton<RecoveryCommandLedger>();
+    options.Services.AddSingleton<RecoveryCommandExecutor>();
     options.Services.AddHttpClient<ConnectorApiClient>(
         static (services, client) =>
         {

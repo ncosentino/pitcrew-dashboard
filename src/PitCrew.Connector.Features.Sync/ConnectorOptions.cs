@@ -102,7 +102,41 @@ public sealed class ConnectorOptions
   public string PowerShellExecutable { get; set; } = "pwsh";
 
   /// <summary>
-  /// Validates relationships between connector polling and heartbeat settings.
+  /// Gets or sets whether typed manager-recovery operations may execute on this host.
+  /// </summary>
+  public bool ManagerRecoveryEnabled { get; set; }
+
+  /// <summary>
+  /// Gets or sets the profile allowlist for manager-recovery operations.
+  /// </summary>
+  public string[] AllowedManagerRecoveryProfiles { get; set; } = [];
+
+  /// <summary>
+  /// Gets or sets the maximum duration of one local recovery invocation.
+  /// </summary>
+  [Range(30, 600)]
+  public int RecoveryCommandTimeoutSeconds { get; set; } = 120;
+
+  /// <summary>
+  /// Gets or sets the longest command lifetime this connector accepts.
+  /// </summary>
+  [Range(60, 86400)]
+  public int RecoveryCommandMaximumExpirySeconds { get; set; } = 900;
+
+  /// <summary>
+  /// Gets or sets the oldest observed state accepted for recovery.
+  /// </summary>
+  [Range(30, 3600)]
+  public int RecoveryObservedStateMaximumAgeSeconds { get; set; } = 300;
+
+  /// <summary>
+  /// Gets or sets the protected directory holding the recovery execution ledger.
+  /// </summary>
+  public string RecoveryLedgerPath { get; set; } = string.Empty;
+
+  /// <summary>
+  /// Validates relationships between connector polling, heartbeat, and local
+  /// operator policy settings.
   /// </summary>
   /// <returns>Cross-property validation failures.</returns>
   public IEnumerable<ValidationError> Validate()
@@ -112,33 +146,61 @@ public sealed class ConnectorOptions
       yield return
           "HeartbeatSeconds must be greater than or equal to PollSeconds.";
     }
-    if (!OperatorModeEnabled)
+    if (OperatorModeEnabled)
+    {
+      foreach (var error in ValidateLocalOperationPolicy(
+          "OperatorModeEnabled",
+          "AllowedCapacityProfiles",
+          AllowedCapacityProfiles))
+      {
+        yield return error;
+      }
+    }
+    if (!ManagerRecoveryEnabled)
     {
       yield break;
     }
+    foreach (var error in ValidateLocalOperationPolicy(
+        "ManagerRecoveryEnabled",
+        "AllowedManagerRecoveryProfiles",
+        AllowedManagerRecoveryProfiles))
+    {
+      yield return error;
+    }
+    if (string.IsNullOrWhiteSpace(RecoveryLedgerPath))
+    {
+      yield return
+          "RecoveryLedgerPath is required when ManagerRecoveryEnabled is true.";
+    }
+  }
+
+  private IEnumerable<ValidationError> ValidateLocalOperationPolicy(
+      string modeName,
+      string allowlistName,
+      string[] allowlist)
+  {
     if (string.IsNullOrWhiteSpace(PitCrewRoot))
     {
-      yield return "PitCrewRoot is required when OperatorModeEnabled is true.";
+      yield return $"PitCrewRoot is required when {modeName} is true.";
     }
     if (string.IsNullOrWhiteSpace(PowerShellExecutable))
     {
-      yield return
-          "PowerShellExecutable is required when OperatorModeEnabled is true.";
+      yield return $"PowerShellExecutable is required when {modeName} is true.";
     }
-    if (AllowedCapacityProfiles.Length == 0)
+    if (allowlist.Length == 0)
     {
       yield return
-          "AllowedCapacityProfiles requires at least one profile when OperatorModeEnabled is true.";
+          $"{allowlistName} requires at least one profile when {modeName} is true.";
     }
     var seenProfiles = new HashSet<string>(
         StringComparer.OrdinalIgnoreCase);
-    foreach (var profile in AllowedCapacityProfiles)
+    foreach (var profile in allowlist)
     {
       if (!IsValidProfileId(profile) ||
           !seenProfiles.Add(profile))
       {
         yield return
-            "AllowedCapacityProfiles must contain unique PitCrew profile identifiers.";
+            $"{allowlistName} must contain unique PitCrew profile identifiers.";
         yield break;
       }
     }

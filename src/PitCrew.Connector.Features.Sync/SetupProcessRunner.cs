@@ -4,28 +4,11 @@ using NexusLabs.Needlr;
 
 namespace PitCrew.Connector.Features.Sync;
 
-internal sealed record CapacityProcessRequest(
-    string Executable,
-    string WorkingDirectory,
-    IReadOnlyList<string> Arguments,
-    TimeSpan Timeout);
-
-internal sealed record CapacityProcessResult(
-    int? ExitCode,
-    bool TimedOut);
-
-internal interface ICapacityProcessRunner
-{
-  Task<CapacityProcessResult> RunAsync(
-      CapacityProcessRequest request,
-      CancellationToken cancellationToken);
-}
-
 [DoNotAutoRegister]
-internal sealed class CapacityProcessRunner : ICapacityProcessRunner
+internal sealed class SetupProcessRunner : ISetupProcessRunner
 {
-  public async Task<CapacityProcessResult> RunAsync(
-      CapacityProcessRequest request,
+  public async Task<SetupProcessResult> RunAsync(
+      SetupProcessRequest request,
       CancellationToken cancellationToken)
   {
     var startInfo = new ProcessStartInfo
@@ -51,7 +34,7 @@ internal sealed class CapacityProcessRunner : ICapacityProcessRunner
     process.ErrorDataReceived += static (_, _) => { };
     if (!process.Start())
     {
-      return new CapacityProcessResult(null, false);
+      return new SetupProcessResult(null, false);
     }
     process.BeginOutputReadLine();
     process.BeginErrorReadLine();
@@ -62,7 +45,7 @@ internal sealed class CapacityProcessRunner : ICapacityProcessRunner
     try
     {
       await process.WaitForExitAsync(timeoutSource.Token);
-      return new CapacityProcessResult(process.ExitCode, false);
+      return new SetupProcessResult(process.ExitCode, false);
     }
     catch (OperationCanceledException)
     {
@@ -72,7 +55,7 @@ internal sealed class CapacityProcessRunner : ICapacityProcessRunner
         await process.WaitForExitAsync(CancellationToken.None);
       }
       cancellationToken.ThrowIfCancellationRequested();
-      return new CapacityProcessResult(null, true);
+      return new SetupProcessResult(null, true);
     }
   }
 }
