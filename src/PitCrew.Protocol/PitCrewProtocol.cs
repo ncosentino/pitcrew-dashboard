@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 3;
+  public const int Version = 4;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -209,13 +209,19 @@ public sealed record CapacityCommandOutcome(
 /// <param name="Profiles">Latest readable profile projections from configured state roots.</param>
 /// <param name="CapacityOperator">Locally enabled capacity-operation capability, or <see langword="null"/>.</param>
 /// <param name="CapacityCommandOutcome">Most recent unacknowledged command outcome, or <see langword="null"/>.</param>
+/// <param name="RecoveryOperator">Locally enabled manager-recovery capability, or <see langword="null"/>.</param>
+/// <param name="RecoveryCommandProgress">Most recent unacknowledged recovery progress report, or <see langword="null"/>.</param>
+/// <param name="RecoveryCommandOutcome">Most recent unacknowledged recovery outcome, or <see langword="null"/>.</param>
 public sealed record ConnectorSyncRequest(
     int ProtocolVersion,
     string ConnectorVersion,
     DateTimeOffset SentAt,
     IReadOnlyList<ManagerObservedState> Profiles,
     CapacityOperatorCapability? CapacityOperator,
-    CapacityCommandOutcome? CapacityCommandOutcome);
+    CapacityCommandOutcome? CapacityCommandOutcome,
+    RecoveryOperatorCapability? RecoveryOperator = null,
+    RecoveryCommandProgress? RecoveryCommandProgress = null,
+    RecoveryCommandOutcome? RecoveryCommandOutcome = null);
 
 /// <summary>
 /// Delivers a staged replacement node credential to the connector.
@@ -230,11 +236,13 @@ public sealed record ConnectorCredentialRotation(string Credential);
 /// <param name="NextPollSeconds">Recommended minimum delay before the next synchronization.</param>
 /// <param name="CredentialRotation">Replacement credential when rotation was staged; otherwise <see langword="null"/>.</param>
 /// <param name="CapacityCommand">Capacity command claimed for this connector, or <see langword="null"/>.</param>
+/// <param name="RecoveryCommand">Manager-recovery command claimed for this connector, or <see langword="null"/>.</param>
 public sealed record ConnectorSyncResponse(
     DateTimeOffset AcceptedAt,
     int NextPollSeconds,
     ConnectorCredentialRotation? CredentialRotation,
-    SetCapacityCommand? CapacityCommand);
+    SetCapacityCommand? CapacityCommand,
+    RecoverManagerCommand? RecoveryCommand = null);
 
 /// <summary>
 /// Provides source-generated JSON metadata for connector and dashboard protocol messages.
@@ -258,6 +266,11 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(CapacityOperatorCapability))]
 [JsonSerializable(typeof(SetCapacityCommand))]
 [JsonSerializable(typeof(CapacityCommandOutcome))]
+[JsonSerializable(typeof(RecoveryOperatorProfile))]
+[JsonSerializable(typeof(RecoveryOperatorCapability))]
+[JsonSerializable(typeof(RecoverManagerCommand))]
+[JsonSerializable(typeof(RecoveryCommandProgress))]
+[JsonSerializable(typeof(RecoveryCommandOutcome))]
 [JsonSerializable(typeof(ConnectorSyncRequest))]
 [JsonSerializable(typeof(ConnectorCredentialRotation))]
 [JsonSerializable(typeof(ConnectorSyncResponse))]

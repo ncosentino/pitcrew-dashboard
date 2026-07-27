@@ -18,6 +18,10 @@ internal sealed class SqliteFleetStorePlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<ICapacityCommandStore>(
         static services =>
             services.GetRequiredService<SqliteCapacityCommandStore>());
+    options.Services.AddSingleton<SqliteRecoveryCommandStore>();
+    options.Services.AddSingleton<IRecoveryCommandStore>(
+        static services =>
+            services.GetRequiredService<SqliteRecoveryCommandStore>());
     options.Services.AddSingleton<SqliteAccessStore>();
     options.Services.AddSingleton<IAccessStore>(
         static services => services.GetRequiredService<SqliteAccessStore>());

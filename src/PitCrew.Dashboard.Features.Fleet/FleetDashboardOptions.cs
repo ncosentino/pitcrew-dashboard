@@ -41,6 +41,30 @@ public sealed class FleetDashboardOptions
   public int CapacityCommandRedeliverySeconds { get; set; } = 120;
 
   /// <summary>
+  /// Gets or sets how long a queued manager-recovery command remains deliverable.
+  /// </summary>
+  [Range(1, 1440)]
+  public int RecoveryCommandLifetimeMinutes { get; set; } = 10;
+
+  /// <summary>
+  /// Gets or sets when an unclaimed recovery command may be offered again.
+  /// </summary>
+  [Range(30, 3600)]
+  public int RecoveryCommandRedeliverySeconds { get; set; } = 120;
+
+  /// <summary>
+  /// Gets or sets the minimum delay between manager-recovery requests for one profile.
+  /// </summary>
+  [Range(1, 3600)]
+  public int RecoveryCommandCooldownSeconds { get; set; } = 60;
+
+  /// <summary>
+  /// Gets or sets the oldest connector recovery capability accepted when queueing.
+  /// </summary>
+  [Range(10, 3600)]
+  public int RecoveryCapabilityFreshnessSeconds { get; set; } = 120;
+
+  /// <summary>
   /// Validates relationships between connector polling and dashboard freshness settings.
   /// </summary>
   /// <returns>Cross-property validation failures.</returns>
@@ -50,6 +74,11 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "NodeOfflineAfterSeconds must be at least twice ConnectorPollSeconds.";
+    }
+    if (RecoveryCapabilityFreshnessSeconds < ConnectorPollSeconds * 2)
+    {
+      yield return
+          "RecoveryCapabilityFreshnessSeconds must be at least twice ConnectorPollSeconds.";
     }
   }
 }

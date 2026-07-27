@@ -14,6 +14,7 @@ internal interface IGetFleetUnitOfWork
 internal sealed class GetFleetUnitOfWork(
     IFleetStore _fleetStore,
     ICapacityCommandStore _capacityCommandStore,
+    IRecoveryCommandStore _recoveryCommandStore,
     IOptions<FleetDashboardOptions> _options,
     TimeProvider _timeProvider) : IGetFleetUnitOfWork
 {
@@ -30,10 +31,15 @@ internal sealed class GetFleetUnitOfWork(
     var controlsTask = _capacityCommandStore.GetControlsAsync(
         tenantId,
         cancellationToken);
-    await Task.WhenAll(fleetTask, controlsTask);
+    var recoveryControlsTask = _recoveryCommandStore.GetControlsAsync(
+        tenantId,
+        cancellationToken);
+    await Task.WhenAll(fleetTask, controlsTask, recoveryControlsTask);
 
     var fleet = await fleetTask;
     var controls = (await controlsTask).ToDictionary(
+        item => item.NodeId);
+    var recoveryControls = (await recoveryControlsTask).ToDictionary(
         item => item.NodeId);
     return fleet with
     {
@@ -44,6 +50,11 @@ internal sealed class GetFleetUnitOfWork(
                 node.NodeId,
                 out var nodeControls)
                 ? nodeControls.Profiles
+                : [],
+            RecoveryControls = recoveryControls.TryGetValue(
+                node.NodeId,
+                out var nodeRecoveryControls)
+                ? nodeRecoveryControls.Profiles
                 : [],
           })
           .ToArray(),

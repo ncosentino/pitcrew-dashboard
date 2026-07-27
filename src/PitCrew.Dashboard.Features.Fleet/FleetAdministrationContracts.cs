@@ -38,6 +38,26 @@ public sealed record SetCapacityMaximumResponse(
     Guid CommandId,
     string Status);
 
+/// <summary>
+/// Requests recovery of one connector-advertised stalled profile manager.
+/// </summary>
+/// <param name="ExpectedManagerInstanceId">Manager instance the administrator observed.</param>
+/// <param name="ExpectedGeneration">Desired-capacity generation the administrator observed.</param>
+/// <param name="ExpectedDesiredStateHash">Desired-state hash the administrator observed, when present.</param>
+public sealed record RecoverManagerRequest(
+    string ExpectedManagerInstanceId,
+    int ExpectedGeneration,
+    string? ExpectedDesiredStateHash);
+
+/// <summary>
+/// Returns the queued manager-recovery command.
+/// </summary>
+/// <param name="CommandId">Dashboard-assigned command identifier.</param>
+/// <param name="Status">Initial command status.</param>
+public sealed record RecoverManagerResponse(
+    Guid CommandId,
+    string Status);
+
 internal sealed record CreatedEnrollmentCode(
     Guid EnrollmentCodeId,
     string Code,

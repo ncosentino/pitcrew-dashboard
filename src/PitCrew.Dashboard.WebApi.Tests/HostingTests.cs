@@ -297,6 +297,181 @@ public sealed class HostingTests
   }
 
   [Test]
+  public async Task Administrator_Queues_And_Completes_Manager_Recovery(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+            databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Recovery server",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-recovery",
+          "Recovery Server",
+          code.Code,
+          cancellationToken);
+      var observed = DashboardTestHelpers.CreateObservedState(
+          "default",
+          "https://github.com/example/project");
+      var capability = new RecoveryOperatorCapability(
+          [
+              new RecoveryOperatorProfile(
+                    "default",
+                    11,
+                    true,
+                    observed.ManagerInstanceId,
+                    observed.Generation,
+                    observed.DesiredStateHash,
+                    5,
+                    true,
+                    true,
+                    false,
+                    600,
+                    1800),
+            ]);
+      await DashboardTestHelpers.SynchronizeRecoveryAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          observed,
+          capability,
+          null,
+          null,
+          cancellationToken);
+
+      var recoveryPath =
+          $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/manager-recovery";
+      using var staleFence =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              recoveryPath,
+              session.AntiforgeryToken,
+              new RecoverManagerRequest(
+                  "a-different-manager-instance",
+                  observed.Generation,
+                  observed.DesiredStateHash),
+              cancellationToken);
+      await Assert.That(staleFence.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+
+      using var queued = await DashboardTestHelpers.PostAuthenticatedAsync(
+          client,
+          recoveryPath,
+          session.AntiforgeryToken,
+          new RecoverManagerRequest(
+              observed.ManagerInstanceId,
+              observed.Generation,
+              observed.DesiredStateHash),
+          cancellationToken);
+      await Assert.That(queued.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+
+      using var overlapping =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              recoveryPath,
+              session.AntiforgeryToken,
+              new RecoverManagerRequest(
+                  observed.ManagerInstanceId,
+                  observed.Generation,
+                  observed.DesiredStateHash),
+              cancellationToken);
+      await Assert.That(overlapping.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+
+      using var overlappingCapacity =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/capacity-maximum",
+              session.AntiforgeryToken,
+              new SetCapacityMaximumRequest(10),
+              cancellationToken);
+      await Assert.That(overlappingCapacity.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+
+      var delivery = await DashboardTestHelpers.SynchronizeRecoveryAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          observed,
+          capability,
+          null,
+          null,
+          cancellationToken);
+      await Assert.That(delivery.RecoveryCommand).IsNotNull();
+      await Assert.That(delivery.RecoveryCommand!.ExpectedManagerInstanceId)
+          .IsEqualTo(observed.ManagerInstanceId);
+
+      var afterClaim = await DashboardTestHelpers.SynchronizeRecoveryAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          observed,
+          capability,
+          new RecoveryCommandProgress(
+              delivery.RecoveryCommand.CommandId,
+              "started",
+              DateTimeOffset.UtcNow),
+          null,
+          cancellationToken);
+      await Assert.That(afterClaim.RecoveryCommand)
+          .IsNull()
+          .Because("a started command is never offered again");
+
+      var recovered = observed with
+      {
+        ManagerInstanceId = Guid.NewGuid().ToString("D"),
+      };
+      await DashboardTestHelpers.SynchronizeRecoveryAsync(
+          client,
+          identity.Credential,
+          "3.0.0",
+          recovered,
+          capability,
+          null,
+          new RecoveryCommandOutcome(
+              delivery.RecoveryCommand.CommandId,
+              "succeeded",
+              null,
+              "Manager was restarted.",
+              observed.ManagerInstanceId,
+              recovered.ManagerInstanceId,
+              DateTimeOffset.UtcNow),
+          cancellationToken);
+
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          "/api/tenants/local/fleet/v1/nodes",
+          cancellationToken);
+      await Assert.That(fleet).IsNotNull();
+      await Assert.That(fleet!.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].RecoveryControls).HasSingleItem();
+      await Assert.That(
+              fleet.Nodes[0].RecoveryControls[0].LatestCommand?.Status)
+          .IsEqualTo("succeeded");
+      await Assert.That(
+              fleet.Nodes[0].RecoveryControls[0].LatestCommand?
+                  .AfterManagerInstanceId)
+          .IsEqualTo(recovered.ManagerInstanceId);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Administrator_Renames_Revoked_Node_Without_Changing_Identity(
       CancellationToken cancellationToken)
   {
@@ -708,10 +883,19 @@ public sealed class HostingTests
       using var fleetResponse = await client.GetAsync(
           "/api/tenants/local/fleet/v1/nodes",
           cancellationToken);
+      using var recoveryResponse = await client.PostAsJsonAsync(
+          $"/api/tenants/local/fleet/v1/nodes/{Guid.NewGuid():D}/profiles/default/manager-recovery",
+          new RecoverManagerRequest(
+              "manager-instance",
+              1,
+              null),
+          cancellationToken);
 
       await Assert.That(sessionResponse.StatusCode)
           .IsEqualTo(HttpStatusCode.Unauthorized);
       await Assert.That(fleetResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(recoveryResponse.StatusCode)
           .IsEqualTo(HttpStatusCode.Unauthorized);
     }
     finally
