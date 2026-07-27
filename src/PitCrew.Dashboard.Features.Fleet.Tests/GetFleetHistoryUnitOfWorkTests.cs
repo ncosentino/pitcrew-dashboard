@@ -180,6 +180,73 @@ public sealed class GetFleetHistoryUnitOfWorkTests
     await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.NotFound);
   }
 
+  [Test]
+  public async Task Hourly_Query_Aligns_Bounds_To_Whole_Utc_Hours(
+      CancellationToken cancellationToken)
+  {
+    var options = new FleetDashboardOptions();
+    HistoryWindow? captured = null;
+    var store = _mocks.Create<IFleetHistoryStore>();
+    store
+        .Setup(candidate => candidate.GetNodeHistoryAsync(
+            "tenant",
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            It.Is<HistoryWindow>(
+                window => window.Resolution == HistoryResolution.Hourly),
+            It.Is<DateTimeOffset>(generatedAt => generatedAt == Now),
+            It.IsAny<CancellationToken>()))
+        .Callback(
+            (
+                string _,
+                Guid _,
+                HistoryWindow window,
+                DateTimeOffset _,
+                CancellationToken _) => captured = window)
+        .ReturnsAsync(CreateResponse());
+
+    var result = await CreateUnitOfWork(store, options).GetNodeHistoryAsync(
+        "tenant",
+        Guid.NewGuid(),
+        new HistoryQueryInput(
+            Now.AddHours(-6).AddMinutes(20).ToString("O"),
+            Now.AddMinutes(-10).ToString("O"),
+            "hourly",
+            null,
+            null),
+        cancellationToken);
+
+    await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.Succeeded);
+    await Assert.That(captured).IsNotNull();
+    await Assert.That(captured!.From).IsEqualTo(Now.AddHours(-5));
+    await Assert.That(captured.To).IsEqualTo(Now.AddHours(-1));
+    await Assert.That(captured.NodePointLimit)
+        .IsEqualTo(options.MaximumNodeHistoryPoints);
+    await Assert.That(captured.NodeEventLimit)
+        .IsEqualTo(options.MaximumNodeHistoryEvents);
+  }
+
+  [Test]
+  public async Task Hourly_Query_Rejects_Ranges_Without_A_Whole_Hour(
+      CancellationToken cancellationToken)
+  {
+    var store = _mocks.Create<IFleetHistoryStore>();
+
+    var result = await CreateUnitOfWork(store, new FleetDashboardOptions())
+        .GetNodeHistoryAsync(
+            "tenant",
+            Guid.NewGuid(),
+            new HistoryQueryInput(
+                Now.AddMinutes(-20).ToString("O"),
+                Now.AddMinutes(-5).ToString("O"),
+                "hourly",
+                null,
+                null),
+            cancellationToken);
+
+    await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.Invalid);
+    await Assert.That(result.Error).IsNotNull();
+  }
+
   private static NodeHistoryResponse CreateResponse() =>
       new(
           Guid.NewGuid(),
