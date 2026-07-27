@@ -71,13 +71,13 @@ internal sealed partial class SqliteFleetHistoryStore
         cancellationToken);
 
     var diagnosticCutoff = Utc(receivedAt - retention.DiagnosticRetention);
-    var profiles = new List<RetainedProfile>();
+    var profiles = new List<string>();
     await using (var profileCommand = connection.CreateCommand())
     {
       profileCommand.Transaction = transaction;
       profileCommand.CommandText =
           """
-          SELECT profile_id, updated_at
+          SELECT profile_id
           FROM profile_history_cursors
           WHERE node_id = $nodeId;
           """;
@@ -86,13 +86,11 @@ internal sealed partial class SqliteFleetHistoryStore
           cancellationToken);
       while (await reader.ReadAsync(cancellationToken))
       {
-        profiles.Add(new RetainedProfile(
-            reader.GetString(0),
-            string.CompareOrdinal(reader.GetString(1), diagnosticCutoff) >= 0));
+        profiles.Add(reader.GetString(0));
       }
     }
 
-    foreach (var (profileId, isReporting) in profiles)
+    foreach (var profileId in profiles)
     {
       var droppedSamples = await DeleteAsync(
           connection,
@@ -173,7 +171,6 @@ internal sealed partial class SqliteFleetHistoryStore
           diagnosticCutoff,
           healthNodeCutoff,
           retention.MaximumDiagnosticsPerProfile,
-          isReporting,
           cancellationToken);
       var droppedDeficits = await DeleteDiagnosticsAsync(
           connection,
@@ -185,7 +182,6 @@ internal sealed partial class SqliteFleetHistoryStore
           diagnosticCutoff,
           deficitNodeCutoff,
           retention.MaximumDiagnosticsPerProfile,
-          isReporting,
           cancellationToken);
 
       if (droppedSamples == 0 &&
@@ -241,11 +237,10 @@ internal sealed partial class SqliteFleetHistoryStore
   /// Bounds retained diagnostic rows by age, by node-wide ceiling, and by per-profile ceiling.
   /// </summary>
   /// <remarks>
-  /// Diagnostic rows are written on change, so the newest row of each key survives the age bound
-  /// only while the profile still reports. A profile that stopped reporting loses every diagnostic
-  /// row, so an absent subsystem or autoscaling target key is not preserved forever and the profile
-  /// cursor can eventually expire. The per-profile and node-wide ceilings bound key churn even while
-  /// the profile keeps reporting.
+  /// Diagnostic rows are written on change, so no row is exempt from the age bound: a subsystem or
+  /// autoscaling target key that stops being reported ages out like any other row instead of being
+  /// preserved forever, which lets the profile cursor expire once every diagnostic row is gone. The
+  /// per-profile and node-wide ceilings bound key churn while the profile keeps reporting.
   /// </remarks>
   private static async Task<int> DeleteDiagnosticsAsync(
       SqliteConnection connection,
@@ -257,7 +252,6 @@ internal sealed partial class SqliteFleetHistoryStore
       string cutoff,
       string? nodeCutoff,
       int maximumPerProfile,
-      bool isReporting,
       CancellationToken cancellationToken)
   {
     await using var command = connection.CreateCommand();
@@ -267,14 +261,7 @@ internal sealed partial class SqliteFleetHistoryStore
         DELETE FROM {table}
         WHERE node_id = $nodeId
           AND profile_id = $profileId
-          AND ((observed_at < $cutoff
-                AND ($isReporting = 0
-                  OR observed_at <> (
-                      SELECT MAX(latest.observed_at)
-                      FROM {table} AS latest
-                      WHERE latest.node_id = $nodeId
-                        AND latest.profile_id = $profileId
-                        AND latest.{keyColumn} = {table}.{keyColumn})))
+          AND (observed_at < $cutoff
             OR ($nodeCutoff IS NOT NULL AND observed_at <= $nodeCutoff)
             OR (observed_at, {keyColumn}) NOT IN (
                 SELECT observed_at, {keyColumn}
@@ -289,7 +276,6 @@ internal sealed partial class SqliteFleetHistoryStore
     command.Parameters.AddWithValue("$cutoff", cutoff);
     AddNullable(command, "$nodeCutoff", nodeCutoff);
     command.Parameters.AddWithValue("$maximum", maximumPerProfile);
-    command.Parameters.AddWithValue("$isReporting", isReporting ? 1 : 0);
     return await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
@@ -1386,8 +1372,4 @@ internal sealed partial class SqliteFleetHistoryStore
   private sealed record JournalPage(
       ProfileEventJournalState Journal,
       ProfileRetentionFloor Retention);
-
-  private sealed record RetainedProfile(
-      string ProfileId,
-      bool IsReporting);
 }

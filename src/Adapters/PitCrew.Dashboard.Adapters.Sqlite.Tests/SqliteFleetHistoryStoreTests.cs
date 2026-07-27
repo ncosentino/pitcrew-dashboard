@@ -1099,6 +1099,390 @@ public sealed class SqliteFleetHistoryStoreTests
     }
   }
 
+  [Test]
+  public async Task Overtaking_Journal_Reset_Reusing_Sequences_Starts_New_Epoch(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("overtaking");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin,
+                  journal: CreateJournal(
+                      "current",
+                      [
+                          CreateEvent(1, Origin),
+                          CreateEvent(2, Origin),
+                          CreateEvent(3, Origin),
+                      ])),
+          ],
+          Origin,
+          Retention,
+          cancellationToken);
+      var restarted = Origin.AddMinutes(1);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  restarted,
+                  journal: CreateJournal(
+                      "current",
+                      [
+                          CreateEvent(1, restarted),
+                          CreateEvent(2, restarted),
+                          CreateEvent(3, restarted),
+                          CreateEvent(4, restarted),
+                      ])),
+          ],
+          restarted,
+          Retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Journal.Epoch).IsEqualTo(1L);
+      await Assert.That(history.Journal.EpochResets).IsEqualTo(1L);
+      await Assert.That(history.Journal.StoredHighestSequence).IsEqualTo(4L);
+      await Assert.That(history.Events.Count).IsEqualTo(7);
+      await Assert.That(history.Journal.MissedEvents).IsEqualTo(0L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Journal_Epoch_Survives_A_Store_Restart(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("epochrestart");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin,
+                  journal: CreateJournal(
+                      "current",
+                      [CreateEvent(1, Origin), CreateEvent(2, Origin)])),
+          ],
+          Origin,
+          Retention,
+          cancellationToken);
+      var restarted = Origin.AddMinutes(1);
+      var replacementJournal = CreateJournal(
+          "current",
+          [CreateEvent(1, restarted), CreateEvent(2, restarted)]);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(restarted, journal: replacementJournal)],
+          restarted,
+          Retention,
+          cancellationToken);
+
+      var restartedStore = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          restartedStore,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin.AddMinutes(2),
+                  journal: replacementJournal),
+          ],
+          Origin.AddMinutes(2),
+          Retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          restartedStore,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Journal.Epoch).IsEqualTo(1L);
+      await Assert.That(history.Journal.EpochResets).IsEqualTo(1L);
+      await Assert.That(history.Events.Count).IsEqualTo(4);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Absent_Diagnostic_Keys_Are_Not_Preserved_Forever(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("diagnosticage");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var retention = new HistoryRetentionPolicy(
+          TimeSpan.FromDays(14),
+          TimeSpan.FromDays(90),
+          TimeSpan.FromDays(30),
+          TimeSpan.FromMinutes(30),
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          1000);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateAutoscalingProfile(Origin, "degraded", 3)],
+          Origin,
+          retention,
+          cancellationToken);
+      var later = Origin.AddHours(2);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateAutoscalingProfile(later, "healthy", 0)],
+          later,
+          retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken,
+          HistoryResolution.Raw,
+          Origin.AddHours(3));
+      await Assert.That(
+          history.SubsystemHealthChanges.Any(
+              change => change.ObservedAt == Origin))
+          .IsFalse();
+      await Assert.That(
+          history.CapacityDeficits.Any(
+              deficit => deficit.ObservedAt == Origin))
+          .IsFalse();
+      await Assert.That(history.Retention.DroppedSubsystemHealthChanges)
+          .IsGreaterThan(0L);
+      await Assert.That(history.Retention.DroppedCapacityDeficits)
+          .IsGreaterThan(0L);
+      await Assert.That(history.Retention.EarliestRetainedSubsystemHealthChange)
+          .IsEqualTo(later);
+      await Assert.That(history.Retention.EarliestRetainedCapacityDeficit)
+          .IsEqualTo(later);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Diagnostic_Key_Churn_Is_Bounded_By_The_Profile_Ceiling(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("diagnosticcap");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var retention = new HistoryRetentionPolicy(
+          TimeSpan.FromDays(14),
+          TimeSpan.FromDays(90),
+          TimeSpan.FromDays(30),
+          TimeSpan.FromDays(30),
+          100_000,
+          100_000,
+          2,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          1000);
+      for (var index = 0; index < 5; index++)
+      {
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            nodeId,
+            [
+                CreateAutoscalingProfile(
+                    Origin.AddMinutes(index),
+                    index % 2 == 0 ? "degraded" : "healthy",
+                    index),
+            ],
+            Origin.AddMinutes(index),
+            retention,
+            cancellationToken);
+      }
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.SubsystemHealthChanges.Count)
+          .IsLessThanOrEqualTo(2);
+      await Assert.That(history.CapacityDeficits.Count)
+          .IsLessThanOrEqualTo(2);
+      await Assert.That(history.Retention.DroppedSubsystemHealthChanges)
+          .IsGreaterThan(0L);
+      await Assert.That(history.Retention.DroppedCapacityDeficits)
+          .IsGreaterThan(0L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Profile_Identifier_Churn_Is_Bounded_By_The_Node_Ceiling(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("profilecap");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var retention = new HistoryRetentionPolicy(
+          TimeSpan.FromDays(14),
+          TimeSpan.FromDays(90),
+          TimeSpan.FromDays(30),
+          TimeSpan.FromDays(30),
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          100_000,
+          2);
+      for (var index = 0; index < 5; index++)
+      {
+        var observedAt = Origin.AddMinutes(index);
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            nodeId,
+            [
+                CreateProfile(observedAt) with
+                {
+                  ProfileId = $"profile-{index}",
+                },
+            ],
+            observedAt,
+            retention,
+            cancellationToken);
+      }
+
+      var history = await store.GetNodeHistoryAsync(
+          "tenant",
+          nodeId,
+          CreateWindow(HistoryResolution.Raw, 100, 100),
+          Origin.AddHours(1),
+          cancellationToken);
+      await Assert.That(history).IsNotNull();
+      await Assert.That(history!.Profiles.Count).IsLessThanOrEqualTo(2);
+      await Assert.That(
+          history.Profiles.Any(profile => profile.ProfileId == "profile-4"))
+          .IsTrue();
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Diagnostic_Limits_Are_Reported_With_Truncation(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("diagnosticlimits");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateAutoscalingProfile(Origin, "degraded", 3)],
+          Origin,
+          Retention,
+          cancellationToken);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateAutoscalingProfile(Origin.AddMinutes(1), "healthy", 0)],
+          Origin.AddMinutes(1),
+          Retention,
+          cancellationToken);
+
+      var history = await store.GetNodeHistoryAsync(
+          "tenant",
+          nodeId,
+          new HistoryWindow(
+              Origin.AddDays(-1),
+              Origin.AddDays(1),
+              HistoryResolution.Raw,
+              100,
+              100,
+              1,
+              NodePointLimit,
+              NodeEventLimit,
+              2),
+          Origin.AddHours(1),
+          cancellationToken);
+      await Assert.That(history).IsNotNull();
+      await Assert.That(history!.DiagnosticsTruncated).IsTrue();
+      await Assert.That(history.ProfileDiagnosticLimit).IsEqualTo(1);
+      await Assert.That(history.NodeDiagnosticLimit).IsEqualTo(2);
+      await Assert.That(history.ProfilePointLimit).IsEqualTo(100);
+      await Assert.That(history.ProfileEventLimit).IsEqualTo(100);
+      await Assert.That(history.NodePointLimit).IsEqualTo(NodePointLimit);
+      await Assert.That(history.NodeEventLimit).IsEqualTo(NodeEventLimit);
+      var profile = history.Profiles[0];
+      await Assert.That(profile.SubsystemHealthTruncated).IsTrue();
+      await Assert.That(profile.CapacityDeficitsTruncated).IsTrue();
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
   private static async Task<ProfileHistory> ReadProfileHistoryAsync(
       SqliteFleetHistoryStore store,
       Guid nodeId,
