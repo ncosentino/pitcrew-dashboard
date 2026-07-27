@@ -504,6 +504,8 @@ export function resolveCadenceMilliseconds(
     deltas.push(times[index] - times[index - 1]);
   }
   deltas.sort((left, right) => left - right);
+  // Lower median: for an even gap count this picks the smaller of the two middle gaps, whereas the
+  // usual Math.floor(length / 2) would pick the larger one and swallow a single long outage.
   const median = deltas[Math.floor((deltas.length - 1) / 2)];
   return median > 0 ? median : null;
 }

@@ -12,6 +12,7 @@ export interface HistoryPreset {
   readonly description: string;
 }
 
+const secondsPerHour = 3600;
 const rawCandidateHours = [4, 12, 24] as const;
 const hourlyCandidateHours = [24, 168, 720] as const;
 const preferredEventLimit = 200;
@@ -31,7 +32,10 @@ function describeHours(hours: number): string {
 
 function buildRawPreset(capabilities: HistoryCapabilities): HistoryPreset {
   const cadenceSeconds = Math.max(1, capabilities.expectedRawCadenceSeconds);
-  const budgetHours = Math.max(1, Math.floor((capabilities.maximumPoints * cadenceSeconds) / 3600));
+  const budgetHours = Math.max(
+    1,
+    Math.floor((capabilities.maximumPoints * cadenceSeconds) / secondsPerHour),
+  );
   const hours = Math.max(
     1,
     Math.min(
@@ -44,7 +48,7 @@ function buildRawPreset(capabilities: HistoryCapabilities): HistoryPreset {
   );
   const points = Math.max(
     1,
-    Math.min(capabilities.maximumPoints, Math.ceil((hours * 3600) / cadenceSeconds)),
+    Math.min(capabilities.maximumPoints, Math.ceil((hours * secondsPerHour) / cadenceSeconds)),
   );
   return {
     key: `raw-${hours}`,

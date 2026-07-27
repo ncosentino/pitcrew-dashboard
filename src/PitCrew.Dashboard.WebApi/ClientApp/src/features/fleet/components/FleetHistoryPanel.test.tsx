@@ -162,7 +162,7 @@ async function openPanel(testId: string) {
 }
 
 function isCapabilitiesRequest(url: string): boolean {
-  return url.includes('/history/capabilities');
+  return new URL(url, 'https://dashboard.invalid').pathname.endsWith('/history/capabilities');
 }
 
 function historyUrls(mock: ReturnType<typeof vi.spyOn>): readonly string[] {

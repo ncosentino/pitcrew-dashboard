@@ -253,6 +253,40 @@ public sealed class GetFleetHistoryUnitOfWorkTests
     await Assert.That(result.Error).IsNotNull();
   }
 
+  [Test]
+  public async Task Capabilities_Advertise_Every_Limit_A_Client_Must_Respect()
+  {
+    var options = new FleetDashboardOptions();
+    var store = _mocks.Create<IFleetHistoryStore>();
+
+    var capabilities = CreateUnitOfWork(store, options).GetCapabilities();
+
+    await Assert.That(capabilities.DefaultRangeHours)
+        .IsEqualTo(options.DefaultHistoryRangeHours);
+    await Assert.That(capabilities.MaximumRangeHours)
+        .IsEqualTo(options.MaximumHistoryRangeHours);
+    await Assert.That(capabilities.Resolutions).Contains("raw");
+    await Assert.That(capabilities.Resolutions).Contains("hourly");
+    await Assert.That(capabilities.MaximumPoints)
+        .IsEqualTo(options.MaximumHistoryPoints);
+    await Assert.That(capabilities.MaximumEvents)
+        .IsEqualTo(options.MaximumHistoryEvents);
+    await Assert.That(capabilities.MaximumDiagnostics)
+        .IsEqualTo(options.MaximumHistoryDiagnostics);
+    await Assert.That(capabilities.NodePointLimit)
+        .IsEqualTo(options.MaximumNodeHistoryPoints);
+    await Assert.That(capabilities.NodeEventLimit)
+        .IsEqualTo(options.MaximumNodeHistoryEvents);
+    await Assert.That(capabilities.NodeDiagnosticLimit)
+        .IsEqualTo(options.MaximumNodeHistoryDiagnostics);
+    await Assert.That(capabilities.ExpectedRawCadenceSeconds)
+        .IsEqualTo(options.ConnectorPollSeconds);
+    await Assert.That(capabilities.SampleRetentionHours)
+        .IsEqualTo(options.TelemetrySampleRetentionDays * 24);
+    await Assert.That(capabilities.RollupRetentionHours)
+        .IsEqualTo(options.TelemetryRollupRetentionDays * 24);
+  }
+
   private static NodeHistoryResponse CreateResponse() =>
       new(
           Guid.NewGuid(),

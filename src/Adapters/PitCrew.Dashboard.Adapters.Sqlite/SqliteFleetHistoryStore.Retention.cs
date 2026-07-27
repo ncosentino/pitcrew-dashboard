@@ -801,6 +801,9 @@ internal sealed partial class SqliteFleetHistoryStore
             expired_at = excluded.expired_at,
             epoch = MAX(profile_history_tombstones.epoch, excluded.epoch),
             epoch_resets = excluded.epoch_resets,
+            -- SQLite scalar MAX yields NULL when any argument is NULL, so each side falls back to
+            -- the other before the comparison. A tombstone therefore never loses a known high-water
+            -- or a known highest sequence to an unknown one.
             sample_high_water = MAX(
                 COALESCE(
                     profile_history_tombstones.sample_high_water,
@@ -922,6 +925,57 @@ internal sealed partial class SqliteFleetHistoryStore
     command.Parameters.AddWithValue(
         "$cutoff",
         Utc(receivedAt - LongestRetention(retention)));
+    await command.ExecuteNonQueryAsync(cancellationToken);
+
+    await BoundTombstonesAsync(
+        connection,
+        transaction,
+        "PARTITION BY node_id ",
+        retention.MaximumProfilesPerNode,
+        cancellationToken);
+    await BoundTombstonesAsync(
+        connection,
+        transaction,
+        string.Empty,
+        retention.MaximumProfileHistories,
+        cancellationToken);
+  }
+
+  /// <summary>
+  /// Bounds how many retention-loss tombstones are kept so profile churn cannot grow them forever.
+  /// </summary>
+  /// <remarks>
+  /// A tombstone reports honest retention loss, but it is still stored data. Ranking by expiry time
+  /// and then by the full key keeps exactly the configured newest count even when many profiles were
+  /// expired by the same sweep and therefore share one expiry timestamp.
+  /// </remarks>
+  private static async Task BoundTombstonesAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string partitionClause,
+      int maximum,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        DELETE FROM profile_history_tombstones
+        WHERE (node_id, profile_id) IN (
+            SELECT node_id, profile_id
+            FROM (
+                SELECT
+                    node_id,
+                    profile_id,
+                    ROW_NUMBER() OVER (
+                        {partitionClause}ORDER BY
+                            expired_at DESC,
+                            node_id ASC,
+                            profile_id ASC) AS rank_index
+                FROM profile_history_tombstones)
+            WHERE rank_index > $maximum);
+        """;
+    command.Parameters.AddWithValue("$maximum", maximum);
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 

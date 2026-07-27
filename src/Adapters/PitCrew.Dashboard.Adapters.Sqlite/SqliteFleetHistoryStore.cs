@@ -21,6 +21,15 @@ internal sealed partial class SqliteFleetHistoryStore(
   /// </summary>
   private const int EventIdentityWindow = 64;
 
+  /// <summary>
+  /// Separates fingerprint fields with a character no manager event field can contain.
+  /// </summary>
+  /// <remarks>
+  /// A printable separator such as a pipe or a colon can occur inside a reason, a target, or an
+  /// evidence string, which would let two different events collapse onto one fingerprint.
+  /// </remarks>
+  private const char FingerprintDelimiter = '\u001f';
+
   private const string SampleColumns =
       """
       observed_at,
@@ -1410,19 +1419,19 @@ internal sealed partial class SqliteFleetHistoryStore(
   private static string Fingerprint(ManagerEvent managerEvent)
   {
     var builder = new StringBuilder();
-    builder.Append(managerEvent.ManagerInstanceId).Append('\u001f');
-    builder.Append(Utc(managerEvent.ObservedAt)).Append('\u001f');
-    builder.Append(managerEvent.Subsystem).Append('\u001f');
-    builder.Append(managerEvent.Operation).Append('\u001f');
-    builder.Append(managerEvent.Target).Append('\u001f');
-    builder.Append(managerEvent.Outcome).Append('\u001f');
-    builder.Append(managerEvent.DurationMilliseconds).Append('\u001f');
-    builder.Append(managerEvent.Attempt).Append('\u001f');
-    builder.Append(managerEvent.ConsecutiveFailures).Append('\u001f');
+    builder.Append(managerEvent.ManagerInstanceId).Append(FingerprintDelimiter);
+    builder.Append(Utc(managerEvent.ObservedAt)).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.Subsystem).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.Operation).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.Target).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.Outcome).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.DurationMilliseconds).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.Attempt).Append(FingerprintDelimiter);
+    builder.Append(managerEvent.ConsecutiveFailures).Append(FingerprintDelimiter);
     builder.Append(
         managerEvent.RetryAt is null ? string.Empty : Utc(managerEvent.RetryAt.Value))
-        .Append('\u001f');
-    builder.Append(managerEvent.Reason).Append('\u001f');
+        .Append(FingerprintDelimiter);
+    builder.Append(managerEvent.Reason).Append(FingerprintDelimiter);
     builder.Append(managerEvent.Evidence);
     var hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
     return Convert.ToHexStringLower(hash);
