@@ -4,6 +4,8 @@ internal sealed class FakeSetupProcessRunner : ISetupProcessRunner
 {
   public SetupProcessRequest? LastRequest { get; private set; }
 
+  public int InvocationCount { get; private set; }
+
   public Func<SetupProcessRequest, CancellationToken, Task<SetupProcessResult>>
       Handler { get; set; } =
       static (_, _) => Task.FromResult(
@@ -14,6 +16,7 @@ internal sealed class FakeSetupProcessRunner : ISetupProcessRunner
       CancellationToken cancellationToken)
   {
     LastRequest = request;
+    InvocationCount++;
     return await Handler(request, cancellationToken);
   }
 }
