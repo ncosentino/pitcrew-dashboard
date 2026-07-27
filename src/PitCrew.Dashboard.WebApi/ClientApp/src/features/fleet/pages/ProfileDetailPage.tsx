@@ -8,18 +8,20 @@ import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
+import { ProfileManagerRecovery } from '../components/ProfileManagerRecovery';
 import { ProfileResourcePolicy } from '../components/ProfileResourcePolicy';
 import { ProfileResourceTelemetry } from '../components/ProfileResourceTelemetry';
 import { ProfileSlotsTable } from '../components/ProfileSlotsTable';
 import { ProfileTargetsTable } from '../components/ProfileTargetsTable';
-import { setCapacityMaximum } from '../fleetApi';
+import { recoverManager, setCapacityMaximum } from '../fleetApi';
+import { isRecoveryCommandActive, type RecoveryFences } from '../managerRecovery';
 
 /** Renders one profile from the shared tenant fleet projection. */
 export default function ProfileDetailPage() {
   const { tenantId = '', nodeId = '', profileId = '' } = useParams();
   const { session } = useSession();
   const { fleet, error, isLoading, refreshNow } = useFleet();
-  const [isMutating, setIsMutating] = useState(false);
+  const [mutation, setMutation] = useState<'capacity' | 'recovery' | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
 
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
@@ -28,10 +30,14 @@ export default function ProfileDetailPage() {
   const profile = node?.profiles.find((candidate) => candidate.profileId === profileId);
   const capacityControl =
     node?.capacityControls.find((candidate) => candidate.profileId === profileId) ?? null;
+  const recoveryControl =
+    node?.recoveryControls.find((candidate) => candidate.profileId === profileId) ?? null;
+  const isMutating = mutation !== null;
+  const recoveryActive = isRecoveryCommandActive(recoveryControl?.latestCommand ?? null);
 
   const queueCapacityMaximum = async (maximum: number) => {
     if (!session) return;
-    setIsMutating(true);
+    setMutation('capacity');
     setMutationError(null);
     try {
       await setCapacityMaximum(tenantId, nodeId, profileId, maximum, session.antiforgeryToken);
@@ -41,7 +47,23 @@ export default function ProfileDetailPage() {
         caught instanceof Error ? caught.message : 'Capacity maximum could not be queued.',
       );
     } finally {
-      setIsMutating(false);
+      setMutation(null);
+    }
+  };
+
+  const queueManagerRecovery = async (fences: RecoveryFences) => {
+    if (!session) return;
+    setMutation('recovery');
+    setMutationError(null);
+    try {
+      await recoverManager(tenantId, nodeId, profileId, fences, session.antiforgeryToken);
+      await refreshNow();
+    } catch (caught) {
+      setMutationError(
+        caught instanceof Error ? caught.message : 'Manager recovery could not be queued.',
+      );
+    } finally {
+      setMutation(null);
     }
   };
 
@@ -61,7 +83,7 @@ export default function ProfileDetailPage() {
       ) : null}
       {isMutating ? (
         <p role="status" className="text-sm text-muted-foreground">
-          Queuing capacity change…
+          {mutation === 'recovery' ? 'Queuing manager recovery…' : 'Queuing capacity change…'}
         </p>
       ) : null}
       {isLoading ? <p className="text-muted-foreground">Loading profile status…</p> : null}
@@ -131,8 +153,19 @@ export default function ProfileDetailPage() {
               profile={profile}
               control={capacityControl}
               canAdminister={canAdminister}
-              disabled={isMutating || !node.isOnline || node.isRevoked}
+              disabled={isMutating || recoveryActive || !node.isOnline || node.isRevoked}
               onSetMaximum={queueCapacityMaximum}
+            />
+            <ProfileManagerRecovery
+              tenantId={tenantId}
+              node={node}
+              profile={profile}
+              control={recoveryControl}
+              capacityCommand={capacityControl?.latestCommand ?? null}
+              canAdminister={canAdminister}
+              generatedAt={fleet?.generatedAt ?? ''}
+              isMutating={isMutating}
+              onRecover={queueManagerRecovery}
             />
             <ProfileResourcePolicy profile={profile} />
             <ProfileTargetsTable profile={profile} />

@@ -104,10 +104,12 @@ public sealed record RecoveryCommandState(
 /// <param name="DesiredGeneration">Desired-capacity generation advertised by the connector.</param>
 /// <param name="DesiredStateHash">Desired-state hash advertised by the connector.</param>
 /// <param name="ObservedStateAgeSeconds">Age of the locally readable observed state.</param>
+/// <param name="ObservedStateMaximumAgeSeconds">Oldest observation and capability the dashboard accepts when queueing.</param>
 /// <param name="RecoveryAllowed">Whether local policy allows recovery for the profile.</param>
 /// <param name="SingleManagerResolved">Whether exactly one running manager is locally resolvable.</param>
 /// <param name="OperationActive">Whether another profile operation is active.</param>
 /// <param name="LatestCommand">Latest recovery command for this profile, when present.</param>
+/// <param name="RecentCommands">Bounded immutable command history, newest first, starting with <paramref name="LatestCommand"/>.</param>
 public sealed record RecoveryControlState(
     string ProfileId,
     int ManagerContractVersion,
@@ -116,10 +118,12 @@ public sealed record RecoveryControlState(
     int DesiredGeneration,
     string? DesiredStateHash,
     int ObservedStateAgeSeconds,
+    int ObservedStateMaximumAgeSeconds,
     bool RecoveryAllowed,
     bool SingleManagerResolved,
     bool OperationActive,
-    RecoveryCommandState? LatestCommand);
+    RecoveryCommandState? LatestCommand,
+    IReadOnlyList<RecoveryCommandState> RecentCommands);
 
 /// <summary>
 /// Groups recovery controls by enrolled node.
@@ -185,9 +189,11 @@ public interface IRecoveryCommandStore
   /// Loads connector-advertised recovery controls and command state for one tenant.
   /// </summary>
   /// <param name="tenantId">Tenant whose controls should be returned.</param>
+  /// <param name="observedStateMaximumAgeSeconds">Oldest observation and capability accepted when queueing.</param>
   /// <param name="cancellationToken">Token that cancels the query.</param>
   /// <returns>Recovery controls grouped by node.</returns>
   Task<IReadOnlyList<NodeRecoveryControls>> GetControlsAsync(
       string tenantId,
+      int observedStateMaximumAgeSeconds,
       CancellationToken cancellationToken);
 }

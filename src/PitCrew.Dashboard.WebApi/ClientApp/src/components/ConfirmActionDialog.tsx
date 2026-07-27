@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactElement } from 'react';
+import type { ComponentProps, ReactElement, ReactNode } from 'react';
 
 import {
   AlertDialog,
@@ -19,6 +19,13 @@ interface ConfirmActionDialogProps {
   readonly description: string;
   readonly confirmLabel: string;
   readonly confirmVariant?: ComponentProps<typeof Button>['variant'];
+  /** Additional structured evidence rendered between the description and the actions. */
+  readonly details?: ReactNode;
+  /** Blocks confirmation until the caller's own preconditions hold. */
+  readonly confirmDisabled?: boolean;
+  /** Opt-in controlled open state for callers that must invalidate a confirmation. */
+  readonly open?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
   readonly onConfirm: () => void | Promise<void>;
 }
 
@@ -29,19 +36,28 @@ export function ConfirmActionDialog({
   description,
   confirmLabel,
   confirmVariant = 'default',
+  details,
+  confirmDisabled = false,
+  open,
+  onOpenChange,
   onConfirm,
 }: ConfirmActionDialogProps) {
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {details}
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant={confirmVariant} onClick={() => void onConfirm()}>
+          <AlertDialogAction
+            variant={confirmVariant}
+            disabled={confirmDisabled}
+            onClick={() => void onConfirm()}
+          >
             {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>

@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
 
+import { type RecoveryFences } from './managerRecovery';
+
 const setCapacityMaximumResponseSchema = z.object({
   commandId: z.string().uuid(),
   status: z.literal('pending'),
@@ -9,6 +11,14 @@ const setCapacityMaximumResponseSchema = z.object({
 
 /** Queued capacity command returned by the dashboard. */
 export type SetCapacityMaximumResponse = z.infer<typeof setCapacityMaximumResponseSchema>;
+
+const recoverManagerResponseSchema = z.object({
+  commandId: z.string().uuid(),
+  status: z.literal('queued'),
+});
+
+/** Queued manager-recovery command returned by the dashboard. */
+export type RecoverManagerResponse = z.infer<typeof recoverManagerResponseSchema>;
 
 function createClient(): HttpClient {
   return new HttpClient({ baseUrl: globalThis.location.origin });
@@ -76,6 +86,29 @@ export async function setCapacityMaximum(
       body: { maximum },
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
       schema: setCapacityMaximumResponseSchema,
+    },
+  );
+}
+
+/** Queues one fenced manager recovery for a connector-advertised profile. */
+export async function recoverManager(
+  tenantId: string,
+  nodeId: string,
+  profileId: string,
+  fences: RecoveryFences,
+  antiforgeryToken: string,
+): Promise<RecoverManagerResponse> {
+  return await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profileId)}/manager-recovery`,
+    {
+      method: 'POST',
+      body: {
+        expectedManagerInstanceId: fences.expectedManagerInstanceId,
+        expectedGeneration: fences.expectedGeneration,
+        expectedDesiredStateHash: fences.expectedDesiredStateHash,
+      },
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+      schema: recoverManagerResponseSchema,
     },
   );
 }

@@ -33,6 +33,7 @@ internal sealed class GetFleetUnitOfWork(
         cancellationToken);
     var recoveryControlsTask = _recoveryCommandStore.GetControlsAsync(
         tenantId,
+        _options.Value.RecoveryCapabilityFreshnessSeconds,
         cancellationToken);
     await Task.WhenAll(fleetTask, controlsTask, recoveryControlsTask);
 
