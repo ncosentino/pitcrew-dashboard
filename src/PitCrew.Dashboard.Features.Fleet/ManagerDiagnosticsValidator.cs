@@ -267,15 +267,12 @@ internal static partial class ManagerDiagnosticsValidator
 
     if (profile.Autoscaling is null)
     {
-      if (capacityEvidence.Fixed is null ||
-          capacityEvidence.Targets.Count > 0 ||
-          !IsValidDeficit(capacityEvidence.Fixed) ||
-          capacityEvidence.Fixed.TargetSlots != profile.DesiredSlots)
-      {
-        return false;
-      }
-
-      return true;
+      // Fixed evidence measures the manager's own accepted slot count, but a manager that
+      // cannot measure capacity publishes an unavailable projection with zero target slots
+      // while the accepted desired slots stay nonzero, so the two are never compared.
+      return capacityEvidence.Fixed is not null &&
+          capacityEvidence.Targets.Count == 0 &&
+          IsValidDeficit(capacityEvidence.Fixed);
     }
     if (capacityEvidence.Fixed is not null)
     {
@@ -285,22 +282,14 @@ internal static partial class ManagerDiagnosticsValidator
     var targetKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     foreach (var deficit in capacityEvidence.Targets)
     {
+      // A deficit key is bounded and trimmed by the manager, and per-target evidence and the
+      // autoscaling projection are measured independently, so neither the key nor the target
+      // slots are required to match a reported activation target exactly.
       if (string.IsNullOrWhiteSpace(deficit.Key) ||
           deficit.Key.Length > MaximumTargetKeyLength ||
           deficit.Repository?.Length > 2048 ||
           !targetKeys.Add(deficit.Key) ||
           !IsValidDeficit(deficit))
-      {
-        return false;
-      }
-
-      var target = profile.Autoscaling.Targets?.FirstOrDefault(candidate =>
-          string.Equals(
-              candidate.Key,
-              deficit.Key,
-              StringComparison.OrdinalIgnoreCase));
-      if (target is null ||
-          deficit.TargetSlots != target.TargetSlots)
       {
         return false;
       }

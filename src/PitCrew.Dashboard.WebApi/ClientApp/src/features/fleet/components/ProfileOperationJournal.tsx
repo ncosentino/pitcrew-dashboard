@@ -1,7 +1,7 @@
 import {
-  describeJournalAvailability,
   describeManagerEvent,
   orderedManagerEvents,
+  summarizeManagerOperations,
   type ManagerObservedState,
 } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
@@ -15,7 +15,7 @@ import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
  */
 export function ProfileOperationJournal({ profile }: { readonly profile: ManagerObservedState }) {
   const journal = profile.operationJournal;
-  const availability = describeJournalAvailability(journal);
+  const operations = summarizeManagerOperations(journal);
   const events = orderedManagerEvents(journal);
 
   return (
@@ -27,7 +27,12 @@ export function ProfileOperationJournal({ profile }: { readonly profile: Manager
           <span>
             {events.length} {events.length === 1 ? 'event' : 'events'}
           </span>
-          <StatusBadge status={availability.status} />
+          {operations.adverseCount === 0 ? null : (
+            <span data-testid={`profile-operations-adverse-${profile.profileId}`}>
+              {operations.label}
+            </span>
+          )}
+          <StatusBadge status={operations.status} />
         </>
       }
       testId={`profile-operations-${profile.profileId}`}
@@ -36,7 +41,7 @@ export function ProfileOperationJournal({ profile }: { readonly profile: Manager
         className="text-sm text-muted-foreground"
         data-testid={`profile-operations-availability-${profile.profileId}`}
       >
-        {availability.description}
+        {operations.description}
       </p>
       {events.length === 0 ? null : (
         <ol
@@ -55,7 +60,11 @@ export function ProfileOperationJournal({ profile }: { readonly profile: Manager
                   <span className="text-xs text-muted-foreground"> · {event.subsystem}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={event.outcome} />
+                  <span
+                    data-testid={`profile-operation-outcome-${profile.profileId}-${event.sequence}`}
+                  >
+                    <StatusBadge status={event.outcome} />
+                  </span>
                   <time className="text-xs text-muted-foreground" dateTime={event.observedAt}>
                     {formatTime(event.observedAt)}
                   </time>

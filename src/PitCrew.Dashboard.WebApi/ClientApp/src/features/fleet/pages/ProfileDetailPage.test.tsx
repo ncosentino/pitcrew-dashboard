@@ -1113,7 +1113,102 @@ describe('ProfileDetailPage', () => {
     ).toHaveTextContent('0');
     expect(
       screen.getByTestId('profile-capacity-deficit-label-default-scale-set-windows'),
+    ).toHaveTextContent('3 short of eligibility');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-windows'),
+    ).toHaveTextContent('local capacity meets the target');
+  });
+
+  it('reports an eligibility-only shortfall and keeps a met target current', async () => {
+    renderProfile(
+      contractTwelveFleet({
+        capacityEvidence: {
+          fixed: null,
+          targets: [
+            targetDeficit({
+              activeWorkers: 3,
+              eligibleWorkers: 1,
+              eligibilityDeficit: 2,
+              localDeficit: 0,
+              reason: 'none',
+              evidence: null,
+            }),
+            targetDeficit({
+              key: 'scale-set-windows',
+              activeWorkers: 3,
+              eligibleWorkers: null,
+              eligibilityDeficit: null,
+              localDeficit: 0,
+              reason: 'none',
+              evidence: null,
+            }),
+          ],
+        },
+      }),
+    );
+
+    expect(
+      await screen.findByTestId(
+        'profile-capacity-deficit-label-default-scale-set-linux',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toHaveTextContent('2 short of eligibility');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-label-default-scale-set-windows'),
     ).toHaveTextContent('No reported shortfall');
+    expect(
+      screen.getByTestId('profile-capacity-deficit-description-default-scale-set-windows'),
+    ).toHaveTextContent('unavailable rather than zero');
+  });
+
+  it('surfaces adverse manager outcomes and degraded subsystems in the collapsed summaries', async () => {
+    renderProfile(
+      contractTwelveFleet({
+        operationJournal: operationJournal({
+          events: [
+            managerEvent({ sequence: 41, outcome: 'timed-out', reason: 'timeout' }),
+            managerEvent({
+              sequence: 40,
+              outcome: 'blocked',
+              reason: 'capacity-ceiling',
+              retryAt: null,
+            }),
+            managerEvent({
+              sequence: 39,
+              outcome: 'recovered',
+              reason: 'recovered',
+              retryAt: null,
+            }),
+          ],
+        }),
+      }),
+    );
+
+    expect(
+      await screen.findByTestId('profile-operations-adverse-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('2 adverse events');
+    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
+      '2 adverse events it did not complete',
+    );
+    expect(
+      screen.getByTestId('profile-operation-outcome-default-41').firstElementChild,
+    ).toHaveClass('bg-red-100');
+    expect(
+      screen.getByTestId('profile-operation-outcome-default-40').firstElementChild,
+    ).toHaveClass('bg-red-100');
+    expect(
+      screen.getByTestId('profile-operation-outcome-default-39').firstElementChild,
+    ).toHaveClass('bg-emerald-100');
+    expect(
+      screen.getByTestId('profile-subsystem-summary-docker-default').lastElementChild,
+    ).toHaveClass('bg-red-100');
+    expect(screen.getByTestId('profile-subsystem-summary-docker-default')).toHaveTextContent(
+      'degraded',
+    );
+    expect(screen.getByTestId('profile-subsystem-summary-github-default')).toHaveTextContent(
+      'unknown',
+    );
   });
 
   it('renders fixed capacity evidence against desired slots', async () => {

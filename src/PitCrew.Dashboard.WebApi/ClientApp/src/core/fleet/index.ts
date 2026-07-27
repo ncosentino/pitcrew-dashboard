@@ -15,12 +15,15 @@ export {
   describeManagerEvent,
   describeSubsystemHealth,
   describeSubsystemOperation,
+  isAdverseManagerOutcome,
   orderedManagerEvents,
+  summarizeManagerOperations,
 } from './managerEvidence';
 export type {
   CapacityDeficitScope,
   JournalAvailability,
   ManagerEvidenceSummary,
+  ManagerOperationSummary,
 } from './managerEvidence';
 export type {
   AutoscalingTarget,

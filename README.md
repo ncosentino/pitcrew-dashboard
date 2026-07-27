@@ -98,9 +98,13 @@ deduplicated by durable sequence, so a manager restart or a repeated connector
 heartbeat does not duplicate entries. The journal is labelled current,
 truncated, or unavailable, and a truncated journal reports how many entries the
 manager discarded. Unmeasured durations and unavailable eligibility read as
-unavailable rather than zero. Malformed, oversized, or inconsistent evidence is
-rejected without losing the last valid projection, and contract 11 and older
-observations remain accepted and display the new evidence as unavailable.
+unavailable rather than zero, while a measured eligibility shortfall is reported
+as a shortfall even when local capacity meets the target. Collapsed summaries
+report the manager outcomes that did not complete and distinguish a degraded or
+unavailable subsystem from a healthy one. Malformed, oversized, or inconsistent
+evidence is rejected without losing the last valid projection, and contract 11
+and older observations remain accepted and display the new evidence as
+unavailable.
 
 Connector protocol 3 adds one typed write capability for host-installed,
 explicitly allowlisted connectors: setting the absolute capacity maximum of an

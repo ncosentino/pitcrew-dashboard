@@ -74,8 +74,20 @@ export function ProfileSubsystemHealth({ profile }: { readonly profile: ManagerO
       description="Manager-reported outcomes for the Docker and GitHub operations this manager performed."
       summary={
         <>
-          <span>Docker {docker.label.toLowerCase()}</span>
-          <span>GitHub {github.label.toLowerCase()}</span>
+          <span
+            className="flex items-center gap-1"
+            data-testid={`profile-subsystem-summary-docker-${profile.profileId}`}
+          >
+            Docker
+            <StatusBadge status={docker.status} />
+          </span>
+          <span
+            className="flex items-center gap-1"
+            data-testid={`profile-subsystem-summary-github-${profile.profileId}`}
+          >
+            GitHub
+            <StatusBadge status={github.status} />
+          </span>
         </>
       }
       testId={`profile-subsystem-health-${profile.profileId}`}

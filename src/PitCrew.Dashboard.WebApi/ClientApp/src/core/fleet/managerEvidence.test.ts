@@ -6,7 +6,9 @@ import {
   describeJournalAvailability,
   describeManagerEvent,
   describeSubsystemHealth,
+  isAdverseManagerOutcome,
   orderedManagerEvents,
+  summarizeManagerOperations,
 } from './managerEvidence';
 
 function event(overrides: Partial<ManagerEvent> = {}): ManagerEvent {
@@ -119,10 +121,12 @@ describe('describeSubsystemHealth', () => {
     );
 
     expect(summary.label).toBe('Healthy');
+    expect(summary.status).toBe('healthy');
     expect(summary.description).toContain('not the health of Docker itself');
   });
 
   it('keeps unknown and unreported states distinct from healthy', () => {
+    expect(describeSubsystemHealth(null, 'GitHub').status).toBe('unavailable');
     expect(describeSubsystemHealth(null, 'GitHub').description).toContain(
       'unavailable rather than healthy',
     );
@@ -139,6 +143,29 @@ describe('describeSubsystemHealth', () => {
         'GitHub',
       ).description,
     ).toContain('unknown rather than healthy');
+  });
+
+  it('reports a degraded badge state that is distinct from healthy', () => {
+    const summary = describeSubsystemHealth(
+      {
+        state: 'degraded',
+        observedAt: '2026-07-19T18:30:00+00:00',
+        consecutiveFailures: 2,
+        retryAt: '2026-07-19T18:30:30+00:00',
+        lastSuccess: null,
+        lastFailure: {
+          operation: 'docker-run',
+          observedAt: '2026-07-19T18:29:00+00:00',
+          durationMilliseconds: 1_200,
+          reason: 'docker-failed',
+          evidence: null,
+        },
+      },
+      'Docker',
+    );
+
+    expect(summary.status).toBe('degraded');
+    expect(summary.label).toBe('Degraded');
   });
 });
 
@@ -182,14 +209,14 @@ describe('describeCapacityDeficit', () => {
     const measuredZero = describeCapacityDeficit({
       observedAt: '2026-07-19T18:30:00+00:00',
       freshness: 'current',
-      targetSlots: 3,
-      activeWorkers: 3,
+      targetSlots: 0,
+      activeWorkers: 0,
       startingWorkers: 0,
       drainingWorkers: 0,
       cleanupPendingWorkers: 0,
       eligibleWorkers: 0,
       localDeficit: 0,
-      eligibilityDeficit: 3,
+      eligibilityDeficit: 0,
       reason: 'none',
       evidence: null,
     });
@@ -198,5 +225,109 @@ describe('describeCapacityDeficit', () => {
     expect(unavailable.description).toContain('unavailable rather than zero');
     expect(measuredZero.label).toBe('No reported shortfall');
     expect(measuredZero.description).toContain('0 workers are eligible');
+  });
+
+  it('reports an eligibility-only shortfall while local capacity meets the target', () => {
+    const summary = describeCapacityDeficit({
+      observedAt: '2026-07-19T18:30:00+00:00',
+      freshness: 'current',
+      targetSlots: 3,
+      activeWorkers: 3,
+      startingWorkers: 0,
+      drainingWorkers: 0,
+      cleanupPendingWorkers: 0,
+      eligibleWorkers: 1,
+      localDeficit: 0,
+      eligibilityDeficit: 2,
+      reason: 'none',
+      evidence: null,
+    });
+
+    expect(summary.status).toBe('degraded');
+    expect(summary.label).toBe('2 short of eligibility');
+    expect(summary.description).toContain('local capacity meets the target');
+    expect(summary.description).toContain('1 workers are eligible');
+    expect(summary.description).not.toContain('blocking reason');
+  });
+
+  it('keeps unavailable eligibility out of the shortfall rather than treating it as zero', () => {
+    const summary = describeCapacityDeficit({
+      observedAt: '2026-07-19T18:30:00+00:00',
+      freshness: 'current',
+      targetSlots: 3,
+      activeWorkers: 3,
+      startingWorkers: 0,
+      drainingWorkers: 0,
+      cleanupPendingWorkers: 0,
+      eligibleWorkers: null,
+      localDeficit: 0,
+      eligibilityDeficit: null,
+      reason: 'none',
+      evidence: null,
+    });
+
+    expect(summary.status).toBe('available');
+    expect(summary.label).toBe('No reported shortfall');
+    expect(summary.description).toContain('unavailable rather than zero');
+  });
+});
+
+describe('summarizeManagerOperations', () => {
+  it('surfaces adverse manager outcomes rather than a readable journal', () => {
+    const summary = summarizeManagerOperations(
+      journal({
+        events: [
+          event({ sequence: 41, outcome: 'timed-out', reason: 'timeout' }),
+          event({ sequence: 40, outcome: 'blocked', reason: 'capacity-ceiling' }),
+          event({ sequence: 39, outcome: 'succeeded', reason: 'none' }),
+        ],
+      }),
+    );
+
+    expect(summary.eventCount).toBe(3);
+    expect(summary.adverseCount).toBe(2);
+    expect(summary.status).toBe('degraded');
+    expect(summary.label).toBe('2 adverse events');
+    expect(summary.description).toContain('2 adverse events it did not complete');
+  });
+
+  it('counts a scheduled retry as adverse and a recovery as complete', () => {
+    const retry = summarizeManagerOperations(
+      journal({
+        events: [event({ sequence: 41, outcome: 'retry-scheduled', reason: 'retry-backoff' })],
+      }),
+    );
+    const recovered = summarizeManagerOperations(
+      journal({ events: [event({ sequence: 41, outcome: 'recovered', reason: 'recovered' })] }),
+    );
+
+    expect(retry.adverseCount).toBe(1);
+    expect(retry.label).toBe('1 adverse event');
+    expect(recovered.adverseCount).toBe(0);
+    expect(recovered.status).toBe('available');
+    expect(recovered.label).toBe('Current');
+  });
+
+  it('keeps an unavailable journal unavailable rather than adverse', () => {
+    const summary = summarizeManagerOperations(
+      journal({ status: 'unavailable', events: [], highestSequence: null }),
+    );
+
+    expect(summary.status).toBe('unavailable');
+    expect(summary.adverseCount).toBe(0);
+  });
+});
+
+describe('isAdverseManagerOutcome', () => {
+  it.each([
+    ['failed', true],
+    ['timed-out', true],
+    ['blocked', true],
+    ['retry-scheduled', true],
+    ['succeeded', false],
+    ['recovered', false],
+    ['unknown', false],
+  ])('classifies %s', (outcome, adverse) => {
+    expect(isAdverseManagerOutcome(outcome)).toBe(adverse);
   });
 });

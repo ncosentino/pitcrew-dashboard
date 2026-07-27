@@ -294,6 +294,40 @@ public sealed class SyncConnectorContractTwelveTests
   }
 
   [Test]
+  public async Task IsValidProfile_Accepts_Capacity_Evidence_The_Manager_Could_Not_Measure()
+  {
+    var fixedProfile = CreateFixedProfile();
+    var autoscaled = CreateAutoscaledProfile();
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(fixedProfile with
+    {
+      CapacityEvidence = new ManagerCapacityEvidence(
+          UnavailableDeficit(),
+          []),
+    }))
+        .IsTrue()
+        .Because(
+            "a manager that cannot measure capacity publishes zero target slots while its " +
+            "accepted desired slots stay nonzero");
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(autoscaled with
+    {
+      CapacityEvidence = new ManagerCapacityEvidence(
+          null,
+          [
+              TargetDeficit() with
+              {
+                Key = "repo:example/retired",
+                TargetSlots = 8,
+              },
+          ]),
+    }))
+        .IsTrue()
+        .Because(
+            "per-target evidence and the autoscaling projection are measured independently, so " +
+            "a bounded key or a newer activation target is not a malformed observation");
+  }
+
+  [Test]
   public async Task IsValidProfile_Rejects_Inconsistent_Capacity_Deficits()
   {
     var autoscaled = CreateAutoscaledProfile();
@@ -310,27 +344,11 @@ public sealed class SyncConnectorContractTwelveTests
     await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(fixedProfile with
     {
       CapacityEvidence = new ManagerCapacityEvidence(
-          FixedDeficit() with { TargetSlots = 7 },
-          []),
-    }))
-        .IsFalse()
-        .Because("fixed evidence measures the desired slots, never a configured maximum");
-    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(autoscaled with
-    {
-      CapacityEvidence = new ManagerCapacityEvidence(
           null,
-          [TargetDeficit() with { TargetSlots = 8 }]),
+          [TargetDeficit()]),
     }))
         .IsFalse()
-        .Because("per-target evidence measures the activation target, never the maximum");
-    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(autoscaled with
-    {
-      CapacityEvidence = new ManagerCapacityEvidence(
-          null,
-          [TargetDeficit() with { Key = "repo:example/other" }]),
-    }))
-        .IsFalse()
-        .Because("deficit evidence identifies a target that already appears in observed state");
+        .Because("a fixed profile reports fixed evidence instead of per-target evidence");
     await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(autoscaled with
     {
       CapacityEvidence = new ManagerCapacityEvidence(
@@ -487,6 +505,21 @@ public sealed class SyncConnectorContractTwelveTests
           1,
           "launch-pending",
           "Worker launch is pending.");
+
+  private static CapacityDeficitEvidence UnavailableDeficit() =>
+      new(
+          ObservedAt,
+          "unavailable",
+          0,
+          0,
+          0,
+          0,
+          0,
+          null,
+          0,
+          null,
+          "unknown",
+          null);
 
   private static TargetCapacityDeficitEvidence TargetDeficit() =>
       new(
