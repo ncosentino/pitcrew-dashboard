@@ -247,8 +247,13 @@ history failure can never advance the latest projection while losing its sample
 and events.
 
 - A telemetry sample is appended only when the authoritative manager
-  `observedAt` advances, so a duplicated connector heartbeat creates no
-  duplicate sample.
+  `observedAt` advances past a durable per-profile sample high-water mark, so a
+  duplicated connector heartbeat creates no duplicate sample. The high-water is
+  persisted on the profile cursor rather than derived from retained rows, so a
+  stale heartbeat arriving after raw retention already deleted the sample it
+  duplicates can neither reinsert that sample nor inflate the hourly rollup it
+  already contributed to. The high-water survives until the profile and all of
+  its derived history are deliberately expired.
 - A manager event is stored once per durable `(node, profile, epoch, sequence)`
   identity. The epoch is a local, durable generation counter that advances when a
   manager sequence regression proves the manager journal was lost, and also when
@@ -256,8 +261,14 @@ and events.
   manager identity or different content. A reset journal that reuses old
   sequences and reaches the same or a higher high-water mark is therefore still
   detected, while an ordinary heartbeat or manager restart replay of identical
-  events still deduplicates. The epoch advance and the batch insert happen in the
-  same transaction, so a reset batch is never split across epochs.
+  events still deduplicates. Identity comparison uses a durable, bounded
+  current-epoch fingerprint window sized to the manager operation-journal ring
+  (64 entries), persisted independently of retained event rows, so replay
+  detection keeps working after event retention pruned the rows themselves: an
+  exact replay is dropped without reinserting an event or inflating a dashboard
+  drop counter, while a conflicting sequence reuse still advances the epoch. The
+  epoch advance and the batch insert happen in the same transaction, so a reset
+  batch is never split across epochs.
 - Hourly rollups accumulate incrementally as samples arrive and are never
   recomputed from raw rows, so pruning raw samples can never lower or overwrite a
   completed hourly peak or sample count.
@@ -267,17 +278,38 @@ and events.
   Diagnostic rows are bounded exactly like samples and events: no row of any
   subsystem or target key is exempt from the age bound, so a key that stops being
   reported is not preserved forever, and per-profile and node-wide ceilings bound
-  subsystem and autoscaling-target key churn.
-- Observations and events stamped further ahead of dashboard time than the
-  configured clock-skew tolerance (five minutes by default) are rejected and
-  counted, so a mis-set manager clock cannot create future buckets that ordinary
-  age-based retention would never reach.
+  subsystem and autoscaling-target key churn. A changed diagnostic payload that
+  carries an unchanged `observedAt` deterministically updates the stored row and
+  records a revision instead of aborting the heartbeat.
+- Observations, diagnostics, and events stamped further ahead of dashboard time
+  than the configured clock-skew tolerance (five minutes by default) are rejected
+  and counted, so a mis-set manager clock cannot create future buckets that
+  ordinary age-based retention would never reach. An implausibly future subsystem
+  health or capacity-deficit timestamp rejects and counts the whole profile
+  heartbeat rather than silently disappearing from retained history.
 - Retention sweeps every historical profile recorded for the node, including
   profiles that are offline, removed, or absent from the newest heartbeat, and
   expires the cursors themselves once every sample, rollup, event, and diagnostic
   row of that profile is gone. Profile-identifier churn is additionally capped by
   `MaximumProfilesPerNode`, which deletes the least recently updated profiles
   outright, so churn cannot bypass the node-wide bounds.
+- Retention does not depend on the syncing node alone. A bounded global
+  maintenance sweep runs inside the same heartbeat transaction no more often than
+  `HistoryGlobalSweepSeconds` and ages history across abandoned nodes too, then
+  enforces database-wide ceilings
+  (`MaximumTelemetrySamplesPerDatabase`, `MaximumTelemetryRollupsPerDatabase`,
+  `MaximumManagerEventsPerDatabase`, `MaximumDiagnosticsPerDatabase`,
+  `MaximumProfileHistories`, `MaximumHistoryNodes`), so enroll, sync, and abandon
+  churn inside the retention window cannot grow the database indefinitely.
+- Every ceiling is enforced by deterministic `ROW_NUMBER` ranking over the full
+  primary key rather than by a timestamp cutoff, so tied timestamps and tied
+  buckets retain exactly the configured newest count — never zero rows and never
+  more than configured.
+- Expiring a profile writes a tombstone instead of erasing provenance. The
+  tombstone keeps the durable epoch, the durable sample high-water, and every
+  dropped and rejected counter, so a returning profile never looks pristine and a
+  query that can still reach the deleted window reports explicit retention-loss
+  metadata (`historyExpiredAt`) rather than an empty, complete-looking record.
 - Journal and retention gaps stay explicit: the dashboard records durable
   sequences the manager advanced past between deliveries, sequences the manager
   still retains above the highest delivered one, detected journal resets,
@@ -287,18 +319,18 @@ and events.
   Local worker counts and GitHub control-plane counts remain separate evidence.
 
 Retention is bounded by measured growth. A retained sample measures at about
-**444 bytes** of checkpointed SQLite growth (425,984 bytes of database file for
+**457 bytes** of checkpointed SQLite growth (438,272 bytes of database file for
 960 samples, measured after `PRAGMA wal_checkpoint(TRUNCATE)` in
 `SqliteFleetHistoryStoreTests`). That figure is the total cost of the append
 divided by the samples appended, not the sample row alone: it also covers the
 hourly rollups those samples aggregate into, manager events, subsystem health
-changes, target-keyed capacity-deficit evidence, cursor rows, and every
-supporting index. The write-ahead log is measured separately and
+changes, target-keyed capacity-deficit evidence, cursor rows, the bounded event
+identity window, and every supporting index. The write-ahead log is measured separately and
 peaked at about **4.0 MB** (4,157,112 bytes) across those 960 single-heartbeat
 transactions before checkpointing, which is transient working space rather than
 retained growth.
 
-A profile polled every fifteen seconds therefore costs about **2.4 MiB per day**
+A profile polled every fifteen seconds therefore costs about **2.5 MiB per day**
 of checkpointed growth, so the conservative defaults are:
 
 | Tier | Default | Approximate cost per profile |
@@ -321,10 +353,31 @@ History is read through bounded, tenant-scoped, time-range endpoints:
 - `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/history`
 - `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/profiles/{profileId}/history`
 
-Both accept `from`, `to`, `resolution` (`raw` or `hourly`), `points`, `events`,
-and `diagnostics`. The range defaults to 24 hours, is rejected beyond the
+A third endpoint advertises the limits before a client builds a request:
+
+- `GET /api/tenants/{tenantId}/fleet/v1/history/capabilities`
+
+It reports the default and maximum range, supported resolutions, the point,
+event, and diagnostic maximums, the node-wide ceilings, the expected raw
+connector cadence, and the sample and rollup retention horizons. The dashboard
+designs its range presets from those values instead of assuming fixed presets, so
+a server configured with a shorter maximum range or lower caps still offers at
+least one valid preset and never issues a request the server must reject. An
+optional cap is omitted from the request whenever the server default already
+matches it.
+
+The history endpoints accept `from`, `to`, `resolution` (`raw` or `hourly`),
+`points`, `events`, and `diagnostics`. The range defaults to 24 hours, is rejected beyond the
 configured maximum, and every response is capped by explicit per-profile and
-node-wide point, event, and diagnostic limits. Every response reports the actual
+node-wide point, event, and diagnostic limits. The node-wide diagnostic budget is
+one combined budget shared by subsystem health and capacity deficits, and the two
+per-profile diagnostic ceilings are reported separately
+(`profileSubsystemHealthLimit`, `profileCapacityDeficitLimit`) so the advertised
+sum is truthful rather than implying twice the cap. Per-profile truncation is
+computed from the total matching rows against the rows actually returned after
+node-wide capping, including profiles for which no row was returned at all, so an
+omitted profile is reported as truncated rather than defaulting to complete.
+Every response reports the actual
 per-profile and node-wide limits it applied along with per-kind truncation flags,
 so capped or retention-deleted evidence is never presented as a complete record. Truncation always keeps the most recent data inside the requested range
 and hides older data inside the same range. Each response is served from one
