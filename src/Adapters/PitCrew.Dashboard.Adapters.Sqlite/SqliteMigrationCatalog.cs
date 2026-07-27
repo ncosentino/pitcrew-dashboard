@@ -637,5 +637,103 @@ internal static class SqliteMigrationCatalog
                     REFERENCES nodes(node_id) ON DELETE CASCADE
             ) WITHOUT ROWID;
             """),
+      new(
+            8,
+            "durable-history-identity-and-global-bounds",
+            """
+            ALTER TABLE profile_history_cursors
+                ADD COLUMN sample_high_water TEXT NULL;
+
+            UPDATE profile_history_cursors
+            SET sample_high_water = (
+                SELECT MAX(s.observed_at)
+                FROM profile_telemetry_samples AS s
+                WHERE s.node_id = profile_history_cursors.node_id
+                  AND s.profile_id = profile_history_cursors.profile_id);
+
+            ALTER TABLE profile_subsystem_health
+                ADD COLUMN revisions INTEGER NOT NULL DEFAULT 0;
+
+            ALTER TABLE profile_capacity_deficits
+                ADD COLUMN revisions INTEGER NOT NULL DEFAULT 0;
+
+            CREATE TABLE profile_event_identities (
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                epoch INTEGER NOT NULL CHECK (epoch >= 0),
+                sequence INTEGER NOT NULL CHECK (sequence >= 0),
+                fingerprint TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                PRIMARY KEY (node_id, profile_id, epoch, sequence),
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+
+            INSERT INTO profile_event_identities (
+                node_id,
+                profile_id,
+                epoch,
+                sequence,
+                fingerprint,
+                observed_at,
+                recorded_at)
+            SELECT
+                node_id,
+                profile_id,
+                epoch,
+                sequence,
+                '',
+                observed_at,
+                recorded_at
+            FROM (
+                SELECT
+                    node_id,
+                    profile_id,
+                    epoch,
+                    sequence,
+                    observed_at,
+                    recorded_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY node_id, profile_id
+                        ORDER BY epoch DESC, sequence DESC) AS rank_index
+                FROM profile_manager_events)
+            WHERE rank_index <= 64;
+
+            CREATE TABLE profile_history_tombstones (
+                node_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                expired_at TEXT NOT NULL,
+                epoch INTEGER NOT NULL CHECK (epoch >= 0),
+                epoch_resets INTEGER NOT NULL CHECK (epoch_resets >= 0),
+                sample_high_water TEXT NULL,
+                stored_highest_sequence INTEGER NULL,
+                manager_dropped_events INTEGER NOT NULL
+                    CHECK (manager_dropped_events >= 0),
+                missed_events INTEGER NOT NULL CHECK (missed_events >= 0),
+                dropped_samples INTEGER NOT NULL CHECK (dropped_samples >= 0),
+                dropped_rollups INTEGER NOT NULL CHECK (dropped_rollups >= 0),
+                dropped_events INTEGER NOT NULL CHECK (dropped_events >= 0),
+                dropped_subsystem_health INTEGER NOT NULL
+                    CHECK (dropped_subsystem_health >= 0),
+                dropped_capacity_deficits INTEGER NOT NULL
+                    CHECK (dropped_capacity_deficits >= 0),
+                rejected_future_samples INTEGER NOT NULL
+                    CHECK (rejected_future_samples >= 0),
+                rejected_future_events INTEGER NOT NULL
+                    CHECK (rejected_future_events >= 0),
+                PRIMARY KEY (node_id, profile_id),
+                FOREIGN KEY (node_id)
+                    REFERENCES nodes(node_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+
+            CREATE TABLE history_maintenance (
+                singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 0),
+                last_swept_at TEXT NULL
+            );
+
+            INSERT INTO history_maintenance (singleton, last_swept_at)
+            VALUES (0, NULL);
+            """),
     ];
 }

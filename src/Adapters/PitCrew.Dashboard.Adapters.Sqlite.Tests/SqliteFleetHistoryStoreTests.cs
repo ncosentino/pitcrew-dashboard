@@ -1254,7 +1254,14 @@ public sealed class SqliteFleetHistoryStoreTests
           100_000,
           100_000,
           100_000,
-          1000);
+          1000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          10_000,
+          1_000,
+          TimeSpan.FromMinutes(5));
       await FleetStorageTestTransactions.AppendAsync(
           store,
           connectionFactory,
@@ -1325,7 +1332,14 @@ public sealed class SqliteFleetHistoryStoreTests
           100_000,
           100_000,
           100_000,
-          1000);
+          1000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          10_000,
+          1_000,
+          TimeSpan.FromMinutes(5));
       for (var index = 0; index < 5; index++)
       {
         await FleetStorageTestTransactions.AppendAsync(
@@ -1385,7 +1399,14 @@ public sealed class SqliteFleetHistoryStoreTests
           100_000,
           100_000,
           100_000,
-          2);
+          2,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          10_000,
+          1_000,
+          TimeSpan.FromMinutes(5));
       for (var index = 0; index < 5; index++)
       {
         var observedAt = Origin.AddMinutes(index);
@@ -1411,9 +1432,16 @@ public sealed class SqliteFleetHistoryStoreTests
           Origin.AddHours(1),
           cancellationToken);
       await Assert.That(history).IsNotNull();
-      await Assert.That(history!.Profiles.Count).IsLessThanOrEqualTo(2);
+      var retained = history!.Profiles
+          .Where(profile => profile.Retention.HistoryExpiredAt is null)
+          .ToList();
+      await Assert.That(retained.Count).IsLessThanOrEqualTo(2);
       await Assert.That(
-          history.Profiles.Any(profile => profile.ProfileId == "profile-4"))
+          retained.Any(profile => profile.ProfileId == "profile-4"))
+          .IsTrue();
+      await Assert.That(history.Profiles.Any(profile =>
+          profile.ProfileId == "profile-0" &&
+          profile.Retention.HistoryExpiredAt is not null))
           .IsTrue();
     }
     finally
@@ -1467,7 +1495,8 @@ public sealed class SqliteFleetHistoryStoreTests
           cancellationToken);
       await Assert.That(history).IsNotNull();
       await Assert.That(history!.DiagnosticsTruncated).IsTrue();
-      await Assert.That(history.ProfileDiagnosticLimit).IsEqualTo(1);
+      await Assert.That(history.ProfileSubsystemHealthLimit).IsEqualTo(1);
+      await Assert.That(history.ProfileCapacityDeficitLimit).IsEqualTo(1);
       await Assert.That(history.NodeDiagnosticLimit).IsEqualTo(2);
       await Assert.That(history.ProfilePointLimit).IsEqualTo(100);
       await Assert.That(history.ProfileEventLimit).IsEqualTo(100);
@@ -1800,7 +1829,14 @@ public sealed class SqliteFleetHistoryStoreTests
           maximumEventsPerNode,
           maximumRollupsPerNode,
           100_000,
-          1000);
+          1000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          1_000_000,
+          10_000,
+          1_000,
+          TimeSpan.FromMinutes(5));
 
   private static string CreateDatabasePath(string label) =>
       Path.Combine(
