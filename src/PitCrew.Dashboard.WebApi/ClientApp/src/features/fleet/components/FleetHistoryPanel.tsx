@@ -7,7 +7,10 @@ import {
   describeHistoryAvailability,
   describeHistoryJournal,
   describeManagerEvent,
+  describeSubsystemHealthEvidence,
+  resolveCadenceMilliseconds,
   useFleetHistory,
+  type NodeHistoryResponse,
   type ProfileHistory,
 } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
@@ -27,6 +30,7 @@ interface HistoryRange {
   readonly resolution: 'raw' | 'hourly';
   readonly pointLimit: number;
   readonly eventLimit: number;
+  readonly diagnosticLimit: number;
   readonly description: string;
 }
 
@@ -40,6 +44,7 @@ const ranges: readonly HistoryRange[] = [
     resolution: 'raw',
     pointLimit: 1000,
     eventLimit: 200,
+    diagnosticLimit: 200,
     description:
       'Showing up to 1000 retained per-observation samples per profile. At the usual heartbeat rate that covers roughly the last four hours; longer per-observation ranges cannot be shown truthfully because the response is capped.',
   },
@@ -49,6 +54,7 @@ const ranges: readonly HistoryRange[] = [
     resolution: 'hourly',
     pointLimit: 48,
     eventLimit: 200,
+    diagnosticLimit: 200,
     description:
       'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
   },
@@ -58,6 +64,7 @@ const ranges: readonly HistoryRange[] = [
     resolution: 'hourly',
     pointLimit: 200,
     eventLimit: 200,
+    diagnosticLimit: 200,
     description:
       'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
   },
@@ -67,6 +74,7 @@ const ranges: readonly HistoryRange[] = [
     resolution: 'hourly',
     pointLimit: 800,
     eventLimit: 200,
+    diagnosticLimit: 200,
     description:
       'Showing deterministic hourly peaks aligned to whole UTC hours. Partial hours at either edge of the range are excluded.',
   },
@@ -82,7 +90,9 @@ function ProfileHistorySections({
   const availability = describeHistoryAvailability(history, resolution);
   const journal = describeHistoryJournal(history);
   const deficitEvidence = describeDeficitEvidence(history);
+  const subsystemEvidence = describeSubsystemHealthEvidence(history);
   const groups = buildHistorySeries(history, resolution);
+  const cadenceMilliseconds = resolveCadenceMilliseconds(history, resolution);
   const deficits = buildDeficitReasonChanges(history);
 
   return (
@@ -95,6 +105,7 @@ function ProfileHistorySections({
         <div className="grid gap-6">
           {groups.map((group) => (
             <TimeSeriesChart
+              cadenceMilliseconds={cadenceMilliseconds}
               description={group.description}
               headingLevel="h4"
               key={group.key}
@@ -160,13 +171,12 @@ function ProfileHistorySections({
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h4 className="text-sm font-semibold">Subsystem health changes</h4>
-          <p className="text-xs text-muted-foreground">
-            Only observations where manager-reported subsystem health changed are listed.
-          </p>
+          <StatusBadge status={subsystemEvidence.status} />
+          <p className="text-xs text-muted-foreground">{subsystemEvidence.description}</p>
         </div>
         {history.subsystemHealthChanges.length === 0 ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
-            No retained observation inside this range carried a manager subsystem health change.
+            {subsystemEvidence.description}
           </p>
         ) : (
           <div
@@ -282,6 +292,28 @@ function ProfileHistoryDisclosure({
   );
 }
 
+function describeResponseTruncation(history: NodeHistoryResponse | null): string | null {
+  if (history == null) return null;
+  const capped: string[] = [];
+  if (history.pointsTruncated) {
+    capped.push(
+      `points (${history.profilePointLimit} per profile, ${history.nodePointLimit} across all profiles)`,
+    );
+  }
+  if (history.eventsTruncated) {
+    capped.push(
+      `manager operations (${history.profileEventLimit} per profile, ${history.nodeEventLimit} across all profiles)`,
+    );
+  }
+  if (history.diagnosticsTruncated) {
+    capped.push(
+      `diagnostics (${history.profileDiagnosticLimit} per profile, ${history.nodeDiagnosticLimit} across all profiles)`,
+    );
+  }
+  if (capped.length === 0) return null;
+  return `This response reached its limits for ${capped.join(', ')}. The most recent data inside the range is shown and older retained data inside the same range is hidden. Open a single profile or narrow the range to see the hidden observations.`;
+}
+
 /**
  * Renders bounded retained history for one node or one profile.
  *
@@ -301,8 +333,14 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
     resolution: range.resolution,
     pointLimit: range.pointLimit,
     eventLimit: range.eventLimit,
+    diagnosticLimit: range.diagnosticLimit,
     enabled: isOpen,
   });
+  const liveMessage = isLoading
+    ? isStale
+      ? 'Loading the selected range; showing the previous range…'
+      : 'Loading history…'
+    : describeResponseTruncation(history);
 
   return (
     <details
@@ -342,30 +380,24 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
           </select>
           <span className="text-xs text-muted-foreground">{range.description}</span>
         </div>
-        {isLoading ? (
-          <p className="text-xs text-muted-foreground" role="status">
-            {isStale
-              ? 'Loading the selected range; showing the previous range…'
-              : 'Loading history…'}
+        {liveMessage == null ? null : (
+          <p
+            className={
+              isLoading
+                ? 'text-xs text-muted-foreground'
+                : 'rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
+            }
+            role="status"
+          >
+            {liveMessage}
           </p>
-        ) : null}
+        )}
         {error != null ? (
           <p
             className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
             role="alert"
           >
             {error}
-          </p>
-        ) : null}
-        {history != null && (history.pointsTruncated || history.eventsTruncated) ? (
-          <p
-            className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-            role="status"
-          >
-            This node response reached its overall limits of {history.pointLimit} points and{' '}
-            {history.eventLimit} events across all profiles. The most recent data inside the range
-            is shown and older data inside the same range is hidden. Open a single profile or narrow
-            the range to see the hidden observations.
           </p>
         ) : null}
         {history != null && history.profiles.length === 0 ? (

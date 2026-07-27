@@ -12,6 +12,8 @@ import {
   describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
+  describeSubsystemHealthEvidence,
+  resolveCadenceMilliseconds,
 } from './historySeries';
 
 function sample(overrides: Partial<ProfileTelemetrySample> = {}): ProfileTelemetrySample {
@@ -120,6 +122,8 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
     capacityDeficits: [deficit()],
     pointsTruncated: false,
     eventsTruncated: false,
+    subsystemHealthTruncated: false,
+    capacityDeficitsTruncated: false,
     retention: {
       earliestRetainedSample: '2026-07-26T11:00:00+00:00',
       droppedSamples: 0,
@@ -127,6 +131,10 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
       droppedRollups: 0,
       earliestRetainedEvent: '2026-07-26T11:00:00+00:00',
       droppedEvents: 0,
+      earliestRetainedSubsystemHealthChange: '2026-07-26T11:00:00+00:00',
+      droppedSubsystemHealthChanges: 0,
+      earliestRetainedCapacityDeficit: '2026-07-26T11:00:00+00:00',
+      droppedCapacityDeficits: 0,
       rejectedFutureSamples: 0,
     },
     journal: {
@@ -351,5 +359,80 @@ describe('describeHistoryJournal', () => {
       describeHistoryJournal(history({ journal: { ...history().journal, status: 'unreported' } }))
         .status,
     ).toBe('unavailable');
+  });
+  it('never calls capped capacity-deficit evidence complete', () => {
+    const evidence = describeDeficitEvidence(history({ capacityDeficitsTruncated: true }));
+
+    expect(evidence.status).toBe('partial');
+    expect(evidence.description).toContain('most recent');
+  });
+
+  it('never calls swept capacity-deficit evidence complete', () => {
+    const evidence = describeDeficitEvidence(
+      history({ retention: { ...history().retention, droppedCapacityDeficits: 3 } }),
+    );
+
+    expect(evidence.status).toBe('partial');
+    expect(evidence.description).toContain('deleted 3 older capacity-deficit observations');
+  });
+
+  it('never calls capped subsystem health evidence complete', () => {
+    const evidence = describeSubsystemHealthEvidence(
+      history({
+        subsystemHealthChanges: [
+          {
+            subsystem: 'docker',
+            observedAt: '2026-07-26T12:00:00+00:00',
+            state: 'degraded',
+            consecutiveFailures: 2,
+            retryAt: null,
+            lastSuccessOperation: null,
+            lastSuccessObservedAt: null,
+            lastSuccessReason: null,
+            lastFailureOperation: 'worker-start',
+            lastFailureObservedAt: '2026-07-26T12:00:00+00:00',
+            lastFailureReason: 'image-pull-backoff',
+            lastFailureEvidence: null,
+          },
+        ],
+        subsystemHealthTruncated: true,
+      }),
+    );
+
+    expect(evidence.status).toBe('partial');
+    expect(evidence.description).toContain('most recent');
+  });
+
+  it('reports deleted subsystem health changes instead of claiming none occurred', () => {
+    const evidence = describeSubsystemHealthEvidence(
+      history({ retention: { ...history().retention, droppedSubsystemHealthChanges: 5 } }),
+    );
+
+    expect(evidence.status).toBe('partial');
+    expect(evidence.description).toContain('deleted 5 older subsystem health changes');
+  });
+
+  it('resolves the hourly cadence as one whole hour', () => {
+    expect(resolveCadenceMilliseconds(history(), 'hourly')).toBe(3_600_000);
+  });
+
+  it('resolves the per-observation cadence from the observed median spacing', () => {
+    const cadence = resolveCadenceMilliseconds(
+      history({
+        samples: [
+          sample({ observedAt: '2026-07-26T12:00:00+00:00' }),
+          sample({ observedAt: '2026-07-26T12:00:15+00:00' }),
+          sample({ observedAt: '2026-07-26T12:00:30+00:00' }),
+          sample({ observedAt: '2026-07-26T13:00:00+00:00' }),
+        ],
+      }),
+      'raw',
+    );
+
+    expect(cadence).toBe(15_000);
+  });
+
+  it('reports no per-observation cadence when too few samples are retained', () => {
+    expect(resolveCadenceMilliseconds(history({ samples: [sample()] }), 'raw')).toBeNull();
   });
 });

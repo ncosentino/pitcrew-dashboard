@@ -391,20 +391,34 @@ export function buildDeficitReasonChanges(history: ProfileHistory): readonly Def
  * evidence that dashboard retention already deleted.
  */
 export function describeDeficitEvidence(history: ProfileHistory): HistoryAvailability {
-  if (history.capacityDeficits.length > 0) {
+  const dropped = history.retention.droppedCapacityDeficits;
+  const floor = history.retention.earliestRetainedCapacityDeficit;
+  const retentionNote =
+    dropped > 0
+      ? ` Dashboard retention has already deleted ${dropped} older capacity-deficit observations${floor == null ? '' : `, so nothing before ${floor} is retained`}.`
+      : '';
+  if (history.capacityDeficits.length > 0 && history.capacityDeficitsTruncated) {
     return {
-      status: 'available',
-      label: 'Retained',
-      description:
-        'Every change in manager-reported capacity-deficit evidence retained inside this range is listed, for every autoscaling target.',
+      status: 'partial',
+      label: 'Truncated',
+      description: `Only the ${history.capacityDeficits.length} most recent capacity-deficit observations inside this range are shown; older retained observations inside the same range are hidden. Narrow the range or raise the requested diagnostic limit to see them.${retentionNote}`,
     };
   }
-  if (history.retention.droppedSamples > 0) {
+  if (history.capacityDeficits.length > 0) {
+    return {
+      status: dropped > 0 ? 'partial' : 'available',
+      label: dropped > 0 ? 'Retention floor' : 'Retained',
+      description:
+        dropped > 0
+          ? `Every retained change in manager-reported capacity-deficit evidence inside this range is listed, for every autoscaling target still retained.${retentionNote}`
+          : 'Every change in manager-reported capacity-deficit evidence retained inside this range is listed, for every autoscaling target.',
+    };
+  }
+  if (dropped > 0 || history.retention.droppedSamples > 0) {
     return {
       status: 'partial',
       label: 'Retention floor',
-      description:
-        'No capacity-deficit evidence is retained inside this range. Dashboard retention has already deleted older evidence, so this is not proof that no deficit occurred.',
+      description: `No capacity-deficit evidence is retained inside this range. Dashboard retention has already deleted older evidence, so this is not proof that no deficit occurred.${retentionNote}`,
     };
   }
   return {
@@ -415,7 +429,78 @@ export function describeDeficitEvidence(history: ProfileHistory): HistoryAvailab
   };
 }
 
-/** Describes whether the rendered range carries retained points, and whether it was truncated. */
+/**
+ * Describes how completely retained subsystem-health changes are shown.
+ *
+ * Diagnostic rows are bounded by age and by per-profile and node-wide ceilings, and one response is
+ * additionally capped by the requested diagnostic limit, so a capped or swept range is never
+ * described as a complete record.
+ */
+export function describeSubsystemHealthEvidence(history: ProfileHistory): HistoryAvailability {
+  const dropped = history.retention.droppedSubsystemHealthChanges;
+  const floor = history.retention.earliestRetainedSubsystemHealthChange;
+  const retentionNote =
+    dropped > 0
+      ? ` Dashboard retention has already deleted ${dropped} older subsystem health changes${floor == null ? '' : `, so nothing before ${floor} is retained`}.`
+      : '';
+  if (history.subsystemHealthChanges.length > 0 && history.subsystemHealthTruncated) {
+    return {
+      status: 'partial',
+      label: 'Truncated',
+      description: `Only the ${history.subsystemHealthChanges.length} most recent subsystem health changes inside this range are shown; older retained changes inside the same range are hidden. Narrow the range or raise the requested diagnostic limit to see them.${retentionNote}`,
+    };
+  }
+  if (history.subsystemHealthChanges.length > 0) {
+    return {
+      status: dropped > 0 ? 'partial' : 'available',
+      label: dropped > 0 ? 'Retention floor' : 'Retained',
+      description:
+        dropped > 0
+          ? `Every retained observation where manager-reported subsystem health changed is listed.${retentionNote}`
+          : 'Only observations where manager-reported subsystem health changed are listed, and every retained change inside this range is shown.',
+    };
+  }
+  if (dropped > 0) {
+    return {
+      status: 'partial',
+      label: 'Retention floor',
+      description: `No subsystem health change is retained inside this range. Dashboard retention has already deleted older changes, so this is not proof that subsystem health never changed.${retentionNote}`,
+    };
+  }
+  return {
+    status: 'unavailable',
+    label: 'None retained',
+    description:
+      'No retained observation inside this range carried a manager subsystem health change.',
+  };
+}
+
+/**
+ * Resolves the expected spacing between plotted points for one rendered resolution.
+ *
+ * Hourly buckets are exactly one hour apart, while per-observation ranges follow the connector
+ * heartbeat, so the observed median spacing is used. The result lets a chart tell an ordinary
+ * cadence apart from a materially missing stretch of history.
+ */
+export function resolveCadenceMilliseconds(
+  history: ProfileHistory,
+  resolution: 'raw' | 'hourly',
+): number | null {
+  if (resolution === 'hourly') return 3_600_000;
+  const times = history.samples
+    .map((sample) => Date.parse(sample.observedAt))
+    .filter((value) => !Number.isNaN(value))
+    .sort((left, right) => left - right);
+  if (times.length < 3) return null;
+  const deltas: number[] = [];
+  for (let index = 1; index < times.length; index += 1) {
+    deltas.push(times[index] - times[index - 1]);
+  }
+  deltas.sort((left, right) => left - right);
+  const median = deltas[Math.floor(deltas.length / 2)];
+  return median > 0 ? median : null;
+}
+
 export function describeHistoryAvailability(
   history: ProfileHistory,
   resolution: 'raw' | 'hourly',

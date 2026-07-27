@@ -250,24 +250,34 @@ and events.
   `observedAt` advances, so a duplicated connector heartbeat creates no
   duplicate sample.
 - A manager event is stored once per durable `(node, profile, epoch, sequence)`
-  identity. The epoch is a local, durable generation counter that advances only
-  when a manager sequence regression proves the manager journal was lost, so an
-  ordinary heartbeat or manager restart replay still deduplicates while a reset
-  journal becomes new history rather than being silently discarded.
+  identity. The epoch is a local, durable generation counter that advances when a
+  manager sequence regression proves the manager journal was lost, and also when
+  a delivered sequence that already exists in the current epoch carries different
+  manager identity or different content. A reset journal that reuses old
+  sequences and reaches the same or a higher high-water mark is therefore still
+  detected, while an ordinary heartbeat or manager restart replay of identical
+  events still deduplicates. The epoch advance and the batch insert happen in the
+  same transaction, so a reset batch is never split across epochs.
 - Hourly rollups accumulate incrementally as samples arrive and are never
   recomputed from raw rows, so pruning raw samples can never lower or overwrite a
   completed hourly peak or sample count.
 - Contract-12 subsystem health and every target-keyed capacity-deficit evidence
   change is retained on change. Autoscaling targets are never collapsed into one
   selected deficit, and success, failure, and backoff summaries are preserved.
+  Diagnostic rows are bounded exactly like samples and events: no row of any
+  subsystem or target key is exempt from the age bound, so a key that stops being
+  reported is not preserved forever, and per-profile and node-wide ceilings bound
+  subsystem and autoscaling-target key churn.
 - Observations and events stamped further ahead of dashboard time than the
   configured clock-skew tolerance (five minutes by default) are rejected and
   counted, so a mis-set manager clock cannot create future buckets that ordinary
   age-based retention would never reach.
 - Retention sweeps every historical profile recorded for the node, including
   profiles that are offline, removed, or absent from the newest heartbeat, and
-  expires the cursors themselves. Profile-identifier churn therefore cannot
-  bypass the node-wide bounds.
+  expires the cursors themselves once every sample, rollup, event, and diagnostic
+  row of that profile is gone. Profile-identifier churn is additionally capped by
+  `MaximumProfilesPerNode`, which deletes the least recently updated profiles
+  outright, so churn cannot bypass the node-wide bounds.
 - Journal and retention gaps stay explicit: the dashboard records durable
   sequences the manager advanced past between deliveries, sequences the manager
   still retains above the highest delivered one, detected journal resets,
@@ -296,23 +306,27 @@ of checkpointed growth, so the conservative defaults are:
 | Per-observation samples | 7 days, at most 60,000 rows | about 17 MB |
 | Hourly rollups | 90 days | under 1 MB |
 | Durable manager events | 30 days, at most 20,000 rows | a few MB |
+| Subsystem health and target deficits | 30 days, at most 5,000 rows each | under 1 MB |
 
 Every tier is configurable through `FleetDashboard` options. Each is capped by a
 hard per-profile row ceiling and by hard node-wide ceilings
 (`MaximumTelemetrySamplesPerNode`, `MaximumTelemetryRollupsPerNode`,
-`MaximumManagerEventsPerNode`), so a misbehaving connector cannot grow the
-database without bound even by rotating profile identifiers.
+`MaximumManagerEventsPerNode`, `MaximumDiagnosticsPerNode`), and the number of
+retained profiles is capped by `MaximumProfilesPerNode`, so a misbehaving
+connector cannot grow the database without bound even by rotating profile
+identifiers, subsystem names, or autoscaling target keys.
 
 History is read through bounded, tenant-scoped, time-range endpoints:
 
 - `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/history`
 - `GET /api/tenants/{tenantId}/fleet/v1/nodes/{nodeId}/profiles/{profileId}/history`
 
-Both accept `from`, `to`, `resolution` (`raw` or `hourly`), `points`, and
-`events`. The range defaults to 24 hours, is rejected beyond the configured
-maximum, and every response is capped by explicit per-profile and node-wide
-point and event limits that report truncation rather than silently dropping
-data. Truncation always keeps the most recent data inside the requested range
+Both accept `from`, `to`, `resolution` (`raw` or `hourly`), `points`, `events`,
+and `diagnostics`. The range defaults to 24 hours, is rejected beyond the
+configured maximum, and every response is capped by explicit per-profile and
+node-wide point, event, and diagnostic limits. Every response reports the actual
+per-profile and node-wide limits it applied along with per-kind truncation flags,
+so capped or retention-deleted evidence is never presented as a complete record. Truncation always keeps the most recent data inside the requested range
 and hides older data inside the same range. Each response is served from one
 consistent SQLite read transaction, so ownership, points, events, cursors, and
 gaps always describe the same instant.

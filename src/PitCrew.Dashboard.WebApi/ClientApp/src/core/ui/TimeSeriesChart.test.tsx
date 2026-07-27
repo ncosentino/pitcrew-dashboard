@@ -7,6 +7,7 @@ describe('TimeSeriesChart', () => {
   it('exposes every plotted measurement through an equivalent data table', () => {
     render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Manager and worker memory."
         series={[
           {
@@ -35,6 +36,7 @@ describe('TimeSeriesChart', () => {
   it('renders an unavailable measurement as unavailable rather than as zero', () => {
     render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Control-plane connected runners."
         series={[
           {
@@ -62,6 +64,7 @@ describe('TimeSeriesChart', () => {
   it('states that no measurement was available instead of plotting an empty range', () => {
     render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Cumulative worker network counters."
         series={[
           {
@@ -84,6 +87,7 @@ describe('TimeSeriesChart', () => {
   it('plots a measured-zero series flat on the zero baseline', () => {
     const { container } = render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Reported worker exits."
         series={[
           {
@@ -111,6 +115,7 @@ describe('TimeSeriesChart', () => {
   it('positions points by observation time so a real gap is not drawn as continuous data', () => {
     const { container } = render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Accepted desired capacity."
         headingLevel="h3"
         series={[
@@ -139,6 +144,7 @@ describe('TimeSeriesChart', () => {
   it('renders the measurement table inside a focusable labelled region', () => {
     render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Accepted desired capacity."
         headingLevel="h4"
         series={[
@@ -163,6 +169,7 @@ describe('TimeSeriesChart', () => {
   it('hides the decorative plot from assistive technology', () => {
     const { container } = render(
       <TimeSeriesChart
+        cadenceMilliseconds={null}
         description="Accepted desired capacity."
         series={[
           {
@@ -180,5 +187,59 @@ describe('TimeSeriesChart', () => {
     );
 
     expect(container.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+  it('breaks the plotted line across a materially missing cadence gap', () => {
+    const { container } = render(
+      <TimeSeriesChart
+        cadenceMilliseconds={15_000}
+        description="Desired slots."
+        headingLevel="h3"
+        series={[
+          {
+            key: 'desired-slots',
+            label: 'Desired slots',
+            description: 'Requested slots.',
+            points: [
+              { at: '2026-07-26T12:00:00+00:00', value: 1 },
+              { at: '2026-07-26T12:00:15+00:00', value: 2 },
+              { at: '2026-07-26T13:00:00+00:00', value: 3 },
+              { at: '2026-07-26T13:00:15+00:00', value: 4 },
+            ],
+          },
+        ]}
+        testId="gap-chart"
+        title="Capacity"
+        unit="count"
+      />,
+    );
+
+    expect(container.querySelectorAll('polyline')).toHaveLength(2);
+  });
+
+  it('keeps one line when every point follows the rendered cadence', () => {
+    const { container } = render(
+      <TimeSeriesChart
+        cadenceMilliseconds={3_600_000}
+        description="Desired slot peaks."
+        headingLevel="h3"
+        series={[
+          {
+            key: 'desired-slots',
+            label: 'Peak desired slots',
+            description: 'Requested slots.',
+            points: [
+              { at: '2026-07-26T12:00:00+00:00', value: 1 },
+              { at: '2026-07-26T13:00:00+00:00', value: 2 },
+              { at: '2026-07-26T14:00:00+00:00', value: 3 },
+            ],
+          },
+        ]}
+        testId="cadence-chart"
+        title="Capacity"
+        unit="count"
+      />,
+    );
+
+    expect(container.querySelectorAll('polyline')).toHaveLength(1);
   });
 });

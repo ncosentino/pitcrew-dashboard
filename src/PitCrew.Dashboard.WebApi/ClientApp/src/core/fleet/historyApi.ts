@@ -96,6 +96,10 @@ const retentionFloorSchema = z.object({
   droppedRollups: z.number().int().nonnegative(),
   earliestRetainedEvent: offsetDateTimeSchema.nullable(),
   droppedEvents: z.number().int().nonnegative(),
+  earliestRetainedSubsystemHealthChange: offsetDateTimeSchema.nullable(),
+  droppedSubsystemHealthChanges: z.number().int().nonnegative(),
+  earliestRetainedCapacityDeficit: offsetDateTimeSchema.nullable(),
+  droppedCapacityDeficits: z.number().int().nonnegative(),
   rejectedFutureSamples: z.number().int().nonnegative(),
 });
 
@@ -117,7 +121,7 @@ const subsystemHealthChangeSchema = z.object({
 const capacityDeficitObservationSchema = z.object({
   targetKey: z.string().min(1).max(128),
   observedAt: offsetDateTimeSchema,
-  repository: z.string().min(1).max(128).nullable(),
+  repository: z.string().min(1).max(2048).nullable(),
   freshness: z.string().min(1).max(32),
   targetSlots: z.number().int(),
   activeWorkers: z.number().int(),
@@ -140,6 +144,8 @@ const profileHistorySchema = z.object({
   capacityDeficits: z.array(capacityDeficitObservationSchema),
   pointsTruncated: z.boolean(),
   eventsTruncated: z.boolean(),
+  subsystemHealthTruncated: z.boolean(),
+  capacityDeficitsTruncated: z.boolean(),
   journal: eventJournalStateSchema,
   retention: retentionFloorSchema,
 });
@@ -153,8 +159,13 @@ const nodeHistorySchema = z.object({
   profiles: z.array(profileHistorySchema),
   pointsTruncated: z.boolean(),
   eventsTruncated: z.boolean(),
-  pointLimit: z.number().int().positive(),
-  eventLimit: z.number().int().positive(),
+  diagnosticsTruncated: z.boolean(),
+  profilePointLimit: z.number().int().positive(),
+  profileEventLimit: z.number().int().positive(),
+  profileDiagnosticLimit: z.number().int().positive(),
+  nodePointLimit: z.number().int().positive(),
+  nodeEventLimit: z.number().int().positive(),
+  nodeDiagnosticLimit: z.number().int().positive(),
 });
 
 /** Stored resolution served by one bounded history query. */
@@ -183,6 +194,7 @@ export interface HistoryQuery {
   readonly resolution?: HistoryResolution;
   readonly points?: number;
   readonly events?: number;
+  readonly diagnostics?: number;
 }
 
 function buildQueryString(query: HistoryQuery): string {
@@ -201,6 +213,9 @@ function buildQueryString(query: HistoryQuery): string {
   }
   if (query.events != null) {
     parameters.set('events', String(query.events));
+  }
+  if (query.diagnostics != null) {
+    parameters.set('diagnostics', String(query.diagnostics));
   }
   const serialized = parameters.toString();
   return serialized.length === 0 ? '' : `?${serialized}`;

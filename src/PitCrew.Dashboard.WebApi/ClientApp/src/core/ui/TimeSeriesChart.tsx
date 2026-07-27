@@ -28,6 +28,7 @@ interface TimeSeriesChartProps {
   readonly unit: TimeSeriesUnit;
   readonly series: readonly TimeSeriesDefinition[];
   readonly headingLevel: TimeSeriesHeadingLevel;
+  readonly cadenceMilliseconds: number | null;
   readonly testId: string;
 }
 
@@ -49,6 +50,7 @@ const swatches = [
 
 const viewWidth = 600;
 const viewHeight = 120;
+const gapCadenceFactor = 1.5;
 
 /** Formats one measurement, keeping an unavailable observation distinct from a measured zero. */
 function formatMeasurement(value: number | null, unit: TimeSeriesUnit): string {
@@ -83,13 +85,16 @@ function orderedTimestamps(series: readonly TimeSeriesDefinition[]): string[] {
  * Plots one series with time-proportional horizontal positions.
  *
  * Points are positioned by their observation time rather than by their index, so a real gap in
- * retained observations is drawn as a gap instead of as evenly spaced continuous data.
+ * retained observations is drawn as a gap instead of as evenly spaced continuous data. A stretch
+ * that is materially longer than the rendered cadence also breaks the line, so missing history is
+ * never drawn as a straight interpolation across data that was never observed.
  */
 function buildSegments(
   entry: TimeSeriesDefinition,
   timestamps: readonly string[],
   minimum: number,
   maximum: number,
+  cadenceMilliseconds: number | null,
 ): string[] {
   const span = maximum - minimum === 0 ? 1 : maximum - minimum;
   const times = timestamps.map((value) => Date.parse(value));
@@ -97,15 +102,23 @@ function buildSegments(
   const latest = times.length === 0 ? 0 : Math.max(...times);
   const timeSpan = latest - earliest;
   const known = new Set(timestamps);
+  const gapThreshold = cadenceMilliseconds == null ? null : cadenceMilliseconds * gapCadenceFactor;
   const segments: string[] = [];
   let current: string[] = [];
+  let previous: number | null = null;
   for (const point of entry.points) {
     const at = Date.parse(point.at);
     if (point.value == null || !known.has(point.at) || Number.isNaN(at)) {
       if (current.length > 0) segments.push(current.join(' '));
       current = [];
+      previous = null;
       continue;
     }
+    if (gapThreshold != null && previous != null && at - previous > gapThreshold) {
+      if (current.length > 0) segments.push(current.join(' '));
+      current = [];
+    }
+    previous = at;
     const x = timeSpan === 0 ? viewWidth / 2 : ((at - earliest) / timeSpan) * viewWidth;
     const y = viewHeight - ((point.value - minimum) / span) * viewHeight;
     current.push(`${x.toFixed(2)},${y.toFixed(2)}`);
@@ -127,6 +140,7 @@ export function TimeSeriesChart({
   unit,
   series,
   headingLevel,
+  cadenceMilliseconds,
   testId,
 }: TimeSeriesChartProps) {
   const tableId = useId();
@@ -157,16 +171,18 @@ export function TimeSeriesChart({
             viewBox={`0 0 ${viewWidth} ${viewHeight}`}
           >
             {series.map((entry, index) =>
-              buildSegments(entry, timestamps, minimum, maximum).map((segment, segmentIndex) => (
-                <polyline
-                  className={strokes[index % strokes.length]}
-                  fill="none"
-                  key={`${entry.key}-${segmentIndex}`}
-                  points={segment}
-                  strokeWidth={2}
-                  vectorEffect="non-scaling-stroke"
-                />
-              )),
+              buildSegments(entry, timestamps, minimum, maximum, cadenceMilliseconds).map(
+                (segment, segmentIndex) => (
+                  <polyline
+                    className={strokes[index % strokes.length]}
+                    fill="none"
+                    key={`${entry.key}-${segmentIndex}`}
+                    points={segment}
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ),
+              ),
             )}
           </svg>
           <ul className="flex flex-wrap gap-3 text-xs text-muted-foreground">

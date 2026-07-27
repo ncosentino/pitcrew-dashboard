@@ -73,6 +73,8 @@ function profile(profileId: string, observedAt: string) {
     ],
     pointsTruncated: false,
     eventsTruncated: false,
+    subsystemHealthTruncated: false,
+    capacityDeficitsTruncated: false,
     journal: {
       status: 'current',
       capacity: 32,
@@ -94,6 +96,10 @@ function profile(profileId: string, observedAt: string) {
       droppedRollups: 0,
       earliestRetainedEvent: observedAt,
       droppedEvents: 0,
+      earliestRetainedSubsystemHealthChange: observedAt,
+      droppedSubsystemHealthChanges: 0,
+      earliestRetainedCapacityDeficit: observedAt,
+      droppedCapacityDeficits: 0,
       rejectedFutureSamples: 0,
     },
   };
@@ -109,8 +115,13 @@ function historyResponse(overrides: Record<string, unknown>) {
     profiles: [profile('default', '2026-07-26T11:59:45+00:00')],
     pointsTruncated: false,
     eventsTruncated: false,
-    pointLimit: 5000,
-    eventLimit: 1000,
+    diagnosticsTruncated: false,
+    profilePointLimit: 1000,
+    profileEventLimit: 200,
+    profileDiagnosticLimit: 200,
+    nodePointLimit: 5000,
+    nodeEventLimit: 1000,
+    nodeDiagnosticLimit: 1000,
     ...overrides,
   };
 }
@@ -157,6 +168,7 @@ describe('FleetHistoryPanel', () => {
     expect(url).toContain('resolution=raw');
     expect(url).toContain('points=1000');
     expect(url).toContain('events=200');
+    expect(url).toContain('diagnostics=200');
     expect(await screen.findByTestId('history-disclosure-default')).toBeInTheDocument();
   });
 
@@ -194,9 +206,9 @@ describe('FleetHistoryPanel', () => {
     });
   });
 
-  it('states that the node response reached its overall limits rather than implying completeness', async () => {
+  it('states the per-profile and node-wide limits it reached rather than implying completeness', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse(historyResponse({ pointsTruncated: true })),
+      jsonResponse(historyResponse({ pointsTruncated: true, diagnosticsTruncated: true })),
     );
 
     render(
@@ -204,9 +216,66 @@ describe('FleetHistoryPanel', () => {
     );
     await openPanel('history');
 
-    const banner = await screen.findByText(/reached its overall limits/);
-    expect(banner).toHaveTextContent('5000 points');
-    expect(banner).toHaveTextContent('older data inside the same range is hidden');
+    const banner = await screen.findByText(/reached its limits/);
+    expect(banner).toHaveTextContent('points (1000 per profile, 5000 across all profiles)');
+    expect(banner).toHaveTextContent('diagnostics (200 per profile, 1000 across all profiles)');
+    expect(banner).toHaveTextContent('older retained data inside the same range is hidden');
+  });
+
+  it('announces loading and truncation through a single live region', async () => {
+    let releaseSecond: (value: Response) => void = () => undefined;
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse(historyResponse({ pointsTruncated: true })))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseSecond = resolve;
+          }),
+      );
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+    await screen.findByTestId('history-disclosure-default');
+
+    await userEvent.selectOptions(screen.getByLabelText('Time range'), '168');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const regions = screen.getAllByRole('status');
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toHaveTextContent('showing the previous range');
+    expect(regions[0]).not.toHaveTextContent('reached its limits');
+
+    await act(async () => {
+      releaseSecond(jsonResponse(historyResponse({ resolution: 'hourly' })));
+    });
+  });
+
+  it('accepts a target repository at the full contract length', async () => {
+    const repository = `contoso/${'a'.repeat(2000)}`;
+    const retained = profile('default', '2026-07-26T11:59:45+00:00');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(
+        historyResponse({
+          profiles: [
+            {
+              ...retained,
+              capacityDeficits: [{ ...retained.capacityDeficits[0], repository }],
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+
+    const deficits = await screen.findByTestId('history-deficits-default');
+    expect(within(deficits).getByText(repository)).toBeInTheDocument();
   });
 
   it('reports a failed history load as an error instead of an empty range', async () => {

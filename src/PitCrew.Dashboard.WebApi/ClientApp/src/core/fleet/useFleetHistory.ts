@@ -11,6 +11,7 @@ export interface FleetHistoryRequest {
   readonly resolution: 'raw' | 'hourly';
   readonly pointLimit: number;
   readonly eventLimit: number;
+  readonly diagnosticLimit: number;
   readonly enabled: boolean;
 }
 
@@ -51,12 +52,21 @@ function ceilingHour(value: number): number {
  * previously loaded range for the same node stays visible during a refresh instead of blanking.
  */
 export function useFleetHistory(request: FleetHistoryRequest): FleetHistoryState {
-  const { tenantId, nodeId, profileId, rangeHours, resolution, pointLimit, eventLimit, enabled } =
-    request;
+  const {
+    tenantId,
+    nodeId,
+    profileId,
+    rangeHours,
+    resolution,
+    pointLimit,
+    eventLimit,
+    diagnosticLimit,
+    enabled,
+  } = request;
   const isActive = enabled && tenantId !== '' && nodeId !== '';
   const scope = `${tenantId}|${nodeId}|${profileId ?? ''}`;
   const requestKey = isActive
-    ? `${scope}|${rangeHours}|${resolution}|${pointLimit}|${eventLimit}`
+    ? `${scope}|${rangeHours}|${resolution}|${pointLimit}|${eventLimit}|${diagnosticLimit}`
     : '';
   const [result, setResult] = useState<HistoryResult>(idle);
 
@@ -75,6 +85,7 @@ export function useFleetHistory(request: FleetHistoryRequest): FleetHistoryState
       resolution,
       points: pointLimit,
       events: eventLimit,
+      diagnostics: diagnosticLimit,
     };
     const load = async () => {
       try {
@@ -109,6 +120,7 @@ export function useFleetHistory(request: FleetHistoryRequest): FleetHistoryState
     resolution,
     pointLimit,
     eventLimit,
+    diagnosticLimit,
   ]);
 
   const isSettled = result.key === requestKey && requestKey !== '';

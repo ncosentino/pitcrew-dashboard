@@ -69,6 +69,8 @@ export {
   describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
+  describeSubsystemHealthEvidence,
+  resolveCadenceMilliseconds,
 } from './historySeries';
 export type {
   DeficitReasonChange,
