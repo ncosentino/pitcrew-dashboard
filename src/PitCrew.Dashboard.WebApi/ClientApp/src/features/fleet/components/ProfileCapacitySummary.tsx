@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { type CapacityControlState, type ManagerObservedState } from '@/core/fleet';
 import { formatSeconds, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
-import { cn } from '@/lib/utils';
 
 function formatScaleDownCountdown(value: string | null): string {
   if (value === null) return 'Not scheduled';
@@ -24,9 +23,20 @@ interface CapacityMetricProps {
 
 function CapacityMetric({ label, value, testId }: CapacityMetricProps) {
   return (
-    <div className="bg-background px-3 py-3">
+    <div className="bg-background px-3 py-2.5">
       <dt className="text-xs text-muted-foreground uppercase">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold tabular-nums" data-testid={testId}>
+      <dd className="mt-1 text-xl font-semibold tabular-nums" data-testid={testId}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function CapacityDetail({ label, value, testId }: CapacityMetricProps) {
+  return (
+    <div className="flex min-w-0 items-baseline gap-2">
+      <dt className="text-xs text-muted-foreground uppercase">{label}</dt>
+      <dd className="font-medium tabular-nums" data-testid={testId}>
         {value}
       </dd>
     </div>
@@ -120,7 +130,7 @@ export function ProfileCapacitySummary({
   if (autoscaling === null) {
     return (
       <section
-        className="grid gap-3 border-y bg-muted/10 px-4 py-4"
+        className="grid gap-3 border-b bg-muted/10 px-4 py-4"
         data-testid={`profile-capacity-fixed-${profile.profileId}`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -171,13 +181,15 @@ export function ProfileCapacitySummary({
     );
   }
 
-  const capacityMetrics = [
+  const primaryMetrics = [
     ['Maximum', autoscaling.maximumSlots, 'maximum'],
     ['Target', autoscaling.targetSlots, 'target'],
     ['Local slots', profile.activeSlots, 'active'],
     ['GitHub eligible', profile.eligibleSlots ?? 'Unknown', 'eligible'],
-    ['Draining', profile.drainingSlots, 'draining'],
     ['Assigned', autoscaling.assignedJobs, 'assigned'],
+    ['Draining', profile.drainingSlots, 'draining'],
+  ] as const;
+  const secondaryMetrics = [
     ['Running', autoscaling.runningJobs, 'running'],
     ['Available / queued', autoscaling.availableJobs, 'available'],
     ['Idle', autoscaling.idleRunners, 'idle'],
@@ -194,7 +206,7 @@ export function ProfileCapacitySummary({
 
   return (
     <section
-      className="grid gap-3 border-y bg-muted/10 px-4 py-4"
+      className="grid gap-3 border-b bg-muted/10 px-4 py-4"
       data-testid={`profile-capacity-autoscaled-${profile.profileId}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -208,9 +220,19 @@ export function ProfileCapacitySummary({
           <StatusBadge status={autoscaling.status} />
         </span>
       </div>
-      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-center sm:grid-cols-3 xl:grid-cols-5">
-        {capacityMetrics.map(([label, value, key]) => (
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-center sm:grid-cols-3 xl:grid-cols-6">
+        {primaryMetrics.map(([label, value, key]) => (
           <CapacityMetric
+            key={key}
+            label={label}
+            value={value}
+            testId={`profile-capacity-${key}-${profile.profileId}`}
+          />
+        ))}
+      </dl>
+      <dl className="flex flex-wrap gap-x-5 gap-y-2 rounded-md border bg-background px-3 py-2 text-sm">
+        {secondaryMetrics.map(([label, value, key]) => (
+          <CapacityDetail
             key={key}
             label={label}
             value={value}
@@ -226,17 +248,14 @@ export function ProfileCapacitySummary({
           onSetMaximum={onSetMaximum}
         />
       ) : null}
-      <div
-        className={cn(
-          'rounded-md border px-3 py-2 text-sm',
-          autoscaling.lastError
-            ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100'
-            : 'bg-background text-muted-foreground',
-        )}
-        data-testid={`profile-autoscaling-error-${profile.profileId}`}
-      >
-        <span className="font-medium">Last error:</span> {autoscaling.lastError || 'None'}
-      </div>
+      {autoscaling.lastError ? (
+        <div
+          className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+          data-testid={`profile-autoscaling-error-${profile.profileId}`}
+        >
+          <span className="font-medium">Last error:</span> {autoscaling.lastError}
+        </div>
+      ) : null}
     </section>
   );
 }

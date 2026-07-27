@@ -12,11 +12,13 @@ import {
 } from '@/core/fleet';
 import { formatCounter, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { cn } from '@/lib/utils';
 
 import {
   describeRecoveryAvailability,
   recoveryConfirmationSignature,
   type RecoveryFences,
+  type RecoveryUnavailableCode,
 } from '../managerRecovery';
 
 const statusDescriptions: Record<RecoveryCommandStatus, string> = {
@@ -29,6 +31,12 @@ const statusDescriptions: Record<RecoveryCommandStatus, string> = {
   expired: 'The command expired before the connector claimed it.',
   indeterminate: 'The outcome is indeterminate and requires local investigation.',
 };
+
+const informationalUnavailableCodes = new Set<RecoveryUnavailableCode>([
+  'not-authorized',
+  'connector-read-only',
+  'locally-disallowed',
+]);
 
 function shortHash(value: string | null): string {
   if (value === null) return 'Unavailable';
@@ -217,6 +225,8 @@ export function ProfileManagerRecovery({
   const signature = recoveryConfirmationSignature(availability, control);
   const profileId = profile.profileId;
   const explanationId = `profile-recovery-explanation-${profileId}`;
+  const explanationIsInformational =
+    availability.code !== null && informationalUnavailableCodes.has(availability.code);
 
   useEffect(() => {
     if (!isOpen || confirmedSignature.current === signature) return;
@@ -343,7 +353,7 @@ export function ProfileManagerRecovery({
 
   return (
     <section
-      className="grid gap-3 border-b bg-muted/10 px-4 py-4"
+      className="grid gap-2 border-b bg-muted/10 px-4 py-3"
       data-testid={`profile-recovery-${profileId}`}
       aria-labelledby={`profile-recovery-heading-${profileId}`}
     >
@@ -384,7 +394,12 @@ export function ProfileManagerRecovery({
 
       {availability.explanation === null ? null : (
         <p
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          className={cn(
+            'rounded-md border px-3 py-2 text-sm',
+            explanationIsInformational
+              ? 'bg-background text-muted-foreground'
+              : 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100',
+          )}
           id={explanationId}
           data-testid={`profile-recovery-unavailable-${profileId}`}
           data-reason={availability.code ?? ''}
@@ -453,7 +468,9 @@ export function ProfileManagerRecovery({
         </dl>
       )}
 
-      <RecoveryHistory commands={control?.recentCommands ?? []} profileId={profileId} />
+      {control === null && latestCommand === null ? null : (
+        <RecoveryHistory commands={control?.recentCommands ?? []} profileId={profileId} />
+      )}
     </section>
   );
 }

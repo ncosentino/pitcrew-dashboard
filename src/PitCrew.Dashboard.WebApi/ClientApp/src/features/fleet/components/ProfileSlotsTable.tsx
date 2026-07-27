@@ -9,47 +9,95 @@ import { StatusBadge } from '@/core/ui/StatusBadge';
 import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
 function SlotRow({ slot }: { readonly slot: ObservedSlot }) {
+  const repository = slot.repository ?? 'Shared scope';
+  const target = slot.target ?? '—';
+  const resources = slot.resources;
+
   return (
-    <tr className="border-t" data-testid={`slot-row-${slot.key}`}>
-      <td className="px-3 py-2 font-mono text-xs">{slot.key}</td>
-      <td className="px-3 py-2">{slot.repository ?? 'Shared scope'}</td>
-      <td className="px-3 py-2" data-testid={`slot-target-${slot.key}`}>
-        {slot.target ?? '—'}
+    <tr className="border-t align-middle" data-testid={`slot-row-${slot.key}`}>
+      <td className="min-w-36 whitespace-nowrap px-3 py-2 font-mono text-xs">{slot.key}</td>
+      <td className="min-w-64 whitespace-nowrap px-3 py-2">{repository}</td>
+      <td className="min-w-36 whitespace-nowrap px-3 py-2" data-testid={`slot-target-${slot.key}`}>
+        {target}
       </td>
-      <td className="px-3 py-2" data-testid={`slot-activity-${slot.key}`}>
-        {slot.activity ? <StatusBadge status={slot.activity} /> : '—'}
-      </td>
-      <td className="px-3 py-2" data-testid={`slot-registration-${slot.key}`}>
-        <StatusBadge status={slot.registrationStatus ?? 'unknown'} />
-      </td>
-      <td className="px-3 py-2">
-        <StatusBadge status={slot.state} />
+      <td className="min-w-64 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            <span className="sr-only">Job activity: {slot.activity ?? 'unavailable'}.</span>
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap" aria-hidden="true">
+              <span className="text-[10px] text-muted-foreground uppercase">Job</span>
+              <span data-testid={`slot-activity-${slot.key}`}>
+                {slot.activity ? <StatusBadge status={slot.activity} /> : '—'}
+              </span>
+            </span>
+          </span>
+          <span>
+            <span className="sr-only">
+              GitHub registration: {slot.registrationStatus ?? 'unknown'}.
+            </span>
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap" aria-hidden="true">
+              <span className="text-[10px] text-muted-foreground uppercase">GitHub</span>
+              <span data-testid={`slot-registration-${slot.key}`}>
+                <StatusBadge status={slot.registrationStatus ?? 'unknown'} />
+              </span>
+            </span>
+          </span>
+          <span>
+            <span className="sr-only">Local state: {slot.state}.</span>
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap" aria-hidden="true">
+              <span className="text-[10px] text-muted-foreground uppercase">Local</span>
+              <span data-testid={`slot-local-state-${slot.key}`}>
+                <StatusBadge status={slot.state} />
+              </span>
+            </span>
+          </span>
+        </div>
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{slot.failureCount}</td>
-      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-cpu-${slot.key}`}>
-        {slot.resources ? formatCpuCores(slot.resources.cpuCores) : 'Unavailable'}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-memory-${slot.key}`}>
-        {slot.resources ? formatBytes(slot.resources.memoryWorkingSetBytes) : 'Unavailable'}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-pids-${slot.key}`}>
-        {slot.resources ? formatPids(slot.resources.pids) : 'Unavailable'}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-network-${slot.key}`}>
-        {slot.resources
-          ? `${formatOptionalBytes(slot.resources.networkRxBytes)} in · ${formatOptionalBytes(slot.resources.networkTxBytes)} out`
-          : 'Unavailable'}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums" data-testid={`slot-block-io-${slot.key}`}>
-        {slot.resources
-          ? `${formatOptionalBytes(slot.resources.blockReadBytes)} read · ${formatOptionalBytes(slot.resources.blockWriteBytes)} written`
-          : 'Unavailable'}
-      </td>
-      <td className="px-3 py-2" data-testid={`slot-image-${slot.key}`}>
-        <WorkerImageIdentity imageId={slot.imageId} />
-      </td>
-      <td className="px-3 py-2" data-testid={`slot-last-exit-${slot.key}`}>
+      <td className="min-w-52 px-3 py-2" data-testid={`slot-last-exit-${slot.key}`}>
         <WorkerExitEvidence lastExit={slot.lastExit} />
+      </td>
+      <td className="min-w-64 whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
+        <span className="sr-only">
+          {resources
+            ? `CPU ${formatCpuCores(resources.cpuCores)}; memory ${formatBytes(resources.memoryWorkingSetBytes)}; ${formatPids(resources.pids)}.`
+            : 'Worker resources unavailable.'}
+        </span>
+        <span aria-hidden="true">
+          <span data-testid={`slot-cpu-${slot.key}`}>
+            {resources ? formatCpuCores(resources.cpuCores) : 'Unavailable'}
+          </span>
+          <span> · </span>
+          <span data-testid={`slot-memory-${slot.key}`}>
+            {resources ? formatBytes(resources.memoryWorkingSetBytes) : 'Unavailable'}
+          </span>
+          <span> · </span>
+          <span data-testid={`slot-pids-${slot.key}`}>
+            {resources ? formatPids(resources.pids) : 'Unavailable'}
+          </span>
+        </span>
+      </td>
+      <td className="min-w-64 whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
+        <span className="sr-only">
+          {resources
+            ? `Network I/O ${formatOptionalBytes(resources.networkRxBytes)} in and ${formatOptionalBytes(resources.networkTxBytes)} out; block I/O ${formatOptionalBytes(resources.blockReadBytes)} read and ${formatOptionalBytes(resources.blockWriteBytes)} written.`
+            : 'Worker I/O unavailable.'}
+        </span>
+        <div aria-hidden="true">
+          <div data-testid={`slot-network-${slot.key}`}>
+            {resources
+              ? `${formatOptionalBytes(resources.networkRxBytes)} in · ${formatOptionalBytes(resources.networkTxBytes)} out`
+              : 'Unavailable'}
+          </div>
+          <div className="text-muted-foreground" data-testid={`slot-block-io-${slot.key}`}>
+            {resources
+              ? `${formatOptionalBytes(resources.blockReadBytes)} read · ${formatOptionalBytes(resources.blockWriteBytes)} written`
+              : 'Unavailable'}
+          </div>
+        </div>
+      </td>
+      <td className="min-w-32 px-3 py-2" data-testid={`slot-image-${slot.key}`}>
+        <WorkerImageIdentity imageId={slot.imageId} />
       </td>
     </tr>
   );
@@ -69,67 +117,65 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
   }
 
   return (
-    <div className="overflow-x-auto">
-      <p className="px-3 pt-3 text-xs text-muted-foreground">
-        Cumulative I/O counters read Unavailable when the manager did not measure them and 0 B when
-        a measured value is zero.
-      </p>
-      <table className="w-full min-w-4xl text-left text-sm">
-        <caption className="px-3 py-2 text-left font-semibold">
-          Slots for profile {profile.profileId}
-        </caption>
-        <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
-          <tr>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Slot
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Repository
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Target
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Activity
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              GitHub registration
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Local state
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              Failures
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              CPU cores
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              Memory
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              PIDs
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              Network I/O
-            </th>
-            <th scope="col" className="px-3 py-2 text-right font-medium">
-              Block I/O
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Worker image
-            </th>
-            <th scope="col" className="px-3 py-2 font-medium">
-              Last exit
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {profile.slots.map((slot) => (
-            <SlotRow key={slot.key} slot={slot} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <section>
+      <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3">
+        <div>
+          <h2 className="font-semibold">Workers</h2>
+          <p className="text-xs text-muted-foreground">
+            {profile.slots.length} {profile.slots.length === 1 ? 'slot' : 'slots'} · cumulative I/O
+            keeps unavailable measurements distinct from measured zero.
+          </p>
+        </div>
+      </div>
+      <div
+        className="max-h-[70vh] overflow-auto border-t focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
+        role="region"
+        aria-label={`Scrollable worker slots for profile ${profile.profileId}`}
+        tabIndex={0}
+      >
+        <table
+          aria-label={`Slots for profile ${profile.profileId}`}
+          className="w-full min-w-[88rem] text-left text-sm"
+        >
+          <caption className="sr-only">Slots for profile {profile.profileId}</caption>
+          <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground uppercase">
+            <tr>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Slot
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Repository
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Target
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Status
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                Failures
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Last exit
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                Resources
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                I/O
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Worker image
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {profile.slots.map((slot) => (
+              <SlotRow key={slot.key} slot={slot} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

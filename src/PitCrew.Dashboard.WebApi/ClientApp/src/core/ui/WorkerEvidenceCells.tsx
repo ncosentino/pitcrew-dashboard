@@ -16,15 +16,23 @@ export function WorkerImageIdentity({ imageId }: { readonly imageId: string | nu
 export function WorkerExitEvidence({ lastExit }: { readonly lastExit: WorkerLastExit | null }) {
   const summary = describeExitEvidence(lastExit);
   if (lastExit === null) {
-    return <span className="text-xs text-muted-foreground">{summary.description}</span>;
+    return (
+      <span
+        className="inline-flex max-w-48 items-center whitespace-nowrap text-xs text-muted-foreground"
+        title={summary.description}
+      >
+        <span aria-hidden="true">Not recorded</span>
+        <span className="sr-only">{summary.description}</span>
+      </span>
+    );
   }
   return (
-    <>
+    <span className="inline-flex items-center gap-2 whitespace-nowrap">
       <StatusBadge status={lastExit.classification} />
       <span className="sr-only">{summary.description}</span>
-      <div className="text-xs text-muted-foreground">
+      <span className="text-xs text-muted-foreground" title={summary.description}>
         {formatTime(lastExit.observedAt)} · {lastExit.evidence}
-      </div>
-    </>
+      </span>
+    </span>
   );
 }
