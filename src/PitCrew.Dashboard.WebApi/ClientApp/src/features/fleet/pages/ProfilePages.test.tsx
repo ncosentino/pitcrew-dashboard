@@ -458,7 +458,30 @@ describe('profile detail routes', () => {
       await screen.findByRole('heading', { level: 1, name: 'Profile default overview' }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    const navigation = await screen.findByRole('navigation', {
+    expect(
+      await screen.findByTestId('profile-overview-maximum-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('30');
+    expect(screen.getByTestId('profile-overview-target-default')).toHaveTextContent('3');
+    expect(screen.getByTestId('profile-overview-local-default')).toHaveTextContent('1');
+    expect(screen.getByTestId('profile-overview-eligible-default')).toHaveTextContent('1');
+    expect(screen.getByTestId('profile-overview-resources-default')).toHaveTextContent('partial');
+    expect(screen.getByTestId('profile-overview-operations-default')).toHaveTextContent(
+      'unavailable',
+    );
+    expect(screen.getByRole('link', { name: 'View diagnostics' })).toHaveAttribute(
+      'href',
+      `${profilePath}/diagnostics`,
+    );
+    expect(screen.getByRole('link', { name: 'View workers' })).toHaveAttribute(
+      'href',
+      `${profilePath}/workers`,
+    );
+    expect(screen.getByRole('link', { name: 'View recovery' })).toHaveAttribute(
+      'href',
+      `${profilePath}/recovery`,
+    );
+    expect(screen.queryByTestId('profile-overview-history')).not.toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', {
       name: 'default profile navigation',
     });
     expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute(

@@ -1,7 +1,16 @@
 import { useState, type ReactNode } from 'react';
 import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { useSession } from '@/core/auth';
 import {
   describeSubsystemHealth,
@@ -11,6 +20,7 @@ import {
   type FleetNode,
   type ManagerObservedState,
   type RecoveryControlState,
+  type SubsystemHealthSummary,
 } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
@@ -41,11 +51,11 @@ interface ProfileDetailContext {
   readonly refreshNow: () => Promise<void>;
 }
 
-interface OverviewDestinationProps {
-  readonly title: string;
+interface OverviewMetricProps {
+  readonly label: string;
+  readonly value: ReactNode;
   readonly description: string;
-  readonly path: string;
-  readonly children: ReactNode;
+  readonly status?: string;
   readonly testId: string;
 }
 
@@ -53,26 +63,50 @@ function useProfileDetail(): ProfileDetailContext {
   return useOutletContext<ProfileDetailContext>();
 }
 
-function OverviewDestination({
-  title,
-  description,
-  path,
-  children,
-  testId,
-}: OverviewDestinationProps) {
+function OverviewMetric({ label, value, description, status, testId }: OverviewMetricProps) {
   return (
-    <Card className="gap-4 py-5" data-testid={testId}>
+    <Card className="gap-3 py-5 shadow-xs" data-testid={testId}>
       <CardHeader className="px-5">
-        <CardTitle>
-          <Link className="text-primary underline-offset-4 hover:underline" to={path}>
-            {title}
-          </Link>
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription>{label}</CardDescription>
+        <CardTitle className="text-2xl font-semibold tabular-nums">{value}</CardTitle>
+        {status ? (
+          <CardAction>
+            <StatusBadge status={status} />
+          </CardAction>
+        ) : null}
       </CardHeader>
-      <CardContent className="px-5">{children}</CardContent>
+      <CardContent className="px-5 text-xs text-muted-foreground">{description}</CardContent>
     </Card>
   );
+}
+
+interface HealthSummaryRowProps {
+  readonly label: string;
+  readonly description: string;
+  readonly status: string;
+  readonly testId: string;
+}
+
+function HealthSummaryRow({ label, description, status, testId }: HealthSummaryRowProps) {
+  return (
+    <div
+      className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+      data-testid={testId}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{label}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{description}</div>
+      </div>
+      <StatusBadge status={status} />
+    </div>
+  );
+}
+
+function describeSubsystemOverview(summary: SubsystemHealthSummary | null | undefined): string {
+  if (!summary) return 'No operation evidence reported.';
+  if (summary.state === 'unknown') return 'No completed operation observed.';
+  if (summary.consecutiveFailures === 0) return 'No consecutive failures reported.';
+  return `${summary.consecutiveFailures} consecutive failures reported.`;
 }
 
 function MutationMessage({
@@ -237,107 +271,137 @@ export function ProfileOverviewPage() {
   const operations = summarizeManagerOperations(profile.operationJournal);
   const recoveryStatus =
     recoveryControl?.latestCommand?.status ?? (recoveryControl ? 'not requested' : 'read only');
+  const recoveryDescription = recoveryControl?.latestCommand
+    ? `Latest command requested ${formatTime(recoveryControl.latestCommand.requestedAt)}.`
+    : recoveryControl
+      ? 'No manager recovery has been requested.'
+      : 'This connector exposes read-only profile evidence.';
+  const telemetryStatus = profile.resourceTelemetry?.status ?? 'unavailable';
+  const telemetryDescription = profile.resourceTelemetry
+    ? `Sampled ${formatTime(profile.resourceTelemetry.sampledAt)}.`
+    : 'No resource sample was reported.';
 
   return (
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <OverviewDestination
-        title="Capacity"
-        description="Activation targets, local supply, GitHub evidence, and maximum control."
-        path={`${basePath}/capacity`}
-        testId="profile-overview-capacity"
-      >
-        <dl className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">Maximum</dt>
-            <dd className="mt-1 font-semibold tabular-nums">{configured}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">Target</dt>
-            <dd className="mt-1 font-semibold tabular-nums">{target}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">Local</dt>
-            <dd className="mt-1 font-semibold tabular-nums">{profile.activeSlots}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">GitHub eligible</dt>
-            <dd className="mt-1 font-semibold tabular-nums">
-              {profile.eligibleSlots ?? 'Unknown'}
-            </dd>
-          </div>
-        </dl>
-      </OverviewDestination>
+    <section className="grid gap-4" aria-labelledby="profile-overview-heading">
+      <h2 className="sr-only" id="profile-overview-heading">
+        Profile overview
+      </h2>
 
-      <OverviewDestination
-        title="Workers"
-        description="Current worker identities, lifecycle state, exits, resources, and I/O."
-        path={`${basePath}/workers`}
-        testId="profile-overview-workers"
-      >
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span>
-            <strong className="tabular-nums">{profile.slots.length}</strong>{' '}
-            {profile.slots.length === 1 ? 'worker' : 'workers'}
-          </span>
-          <span>
-            <strong className="tabular-nums">{busyWorkers}</strong> busy
-          </span>
-          <span>
-            <strong className="tabular-nums">{profile.drainingSlots}</strong> draining
-          </span>
-        </div>
-      </OverviewDestination>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <OverviewMetric
+          label="Maximum"
+          value={configured}
+          description={
+            profile.autoscaling ? 'Configured autoscaling ceiling.' : 'Configured fixed capacity.'
+          }
+          status={profile.autoscaling?.status ?? 'fixed'}
+          testId={`profile-overview-maximum-${profile.profileId}`}
+        />
+        <OverviewMetric
+          label="Target"
+          value={target}
+          description="Current manager activation target."
+          testId={`profile-overview-target-${profile.profileId}`}
+        />
+        <OverviewMetric
+          label="Local slots"
+          value={profile.activeSlots}
+          description="Worker containers reported by the manager."
+          testId={`profile-overview-local-${profile.profileId}`}
+        />
+        <OverviewMetric
+          label="GitHub eligible"
+          value={profile.eligibleSlots ?? 'Unknown'}
+          description="Current registration eligibility evidence."
+          testId={`profile-overview-eligible-${profile.profileId}`}
+        />
+      </div>
 
-      <OverviewDestination
-        title="Diagnostics"
-        description="Current subsystem outcomes, resource utilization, and manager operations."
-        path={`${basePath}/diagnostics`}
-        testId="profile-overview-diagnostics"
-      >
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="flex items-center gap-1">
-            Docker <StatusBadge status={dockerHealth.status} />
-          </span>
-          <span className="flex items-center gap-1">
-            GitHub <StatusBadge status={githubHealth.status} />
-          </span>
-          <span className="flex items-center gap-1">
-            Resources <StatusBadge status={profile.resourceTelemetry?.status ?? 'unavailable'} />
-          </span>
-          {operations.adverseCount > 0 ? (
-            <span className="text-amber-700 dark:text-amber-300">{operations.label}</span>
-          ) : null}
-        </div>
-      </OverviewDestination>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="gap-0">
+          <CardHeader>
+            <CardTitle>Operational health</CardTitle>
+            <CardDescription>
+              Latest manager-reported subsystem, resource, and operation evidence.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="divide-y">
+            <HealthSummaryRow
+              label="Docker operations"
+              description={describeSubsystemOverview(profile.subsystemHealth?.docker)}
+              status={dockerHealth.status}
+              testId={`profile-overview-docker-${profile.profileId}`}
+            />
+            <HealthSummaryRow
+              label="GitHub operations"
+              description={describeSubsystemOverview(profile.subsystemHealth?.github)}
+              status={githubHealth.status}
+              testId={`profile-overview-github-${profile.profileId}`}
+            />
+            <HealthSummaryRow
+              label="Resource telemetry"
+              description={telemetryDescription}
+              status={telemetryStatus}
+              testId={`profile-overview-resources-${profile.profileId}`}
+            />
+            <HealthSummaryRow
+              label="Manager operations"
+              description={
+                operations.adverseCount > 0
+                  ? operations.label
+                  : `${operations.eventCount} retained ${operations.eventCount === 1 ? 'event' : 'events'}`
+              }
+              status={operations.status}
+              testId={`profile-overview-operations-${profile.profileId}`}
+            />
+          </CardContent>
+          <CardFooter className="border-t">
+            <Button asChild size="sm" variant="outline">
+              <Link to={`${basePath}/diagnostics`}>View diagnostics</Link>
+            </Button>
+          </CardFooter>
+        </Card>
 
-      <OverviewDestination
-        title="History"
-        description="Bounded telemetry trends, deficit changes, and durable manager operations."
-        path={`${basePath}/history`}
-        testId="profile-overview-history"
-      >
-        <p className="text-sm text-muted-foreground">
-          Choose a retained range without loading historical charts into every profile view.
-        </p>
-      </OverviewDestination>
-
-      <OverviewDestination
-        title="Recovery"
-        description="Fenced manager-only recovery, current command progress, and immutable outcomes."
-        path={`${basePath}/recovery`}
-        testId="profile-overview-recovery"
-      >
-        <div className="flex items-center gap-2 text-sm">
-          <StatusBadge status={recoveryStatus} />
-          <span>
-            {recoveryControl?.latestCommand
-              ? 'Latest recovery command'
-              : recoveryControl
-                ? 'No recovery requested'
-                : 'Connector is read-only'}
-          </span>
-        </div>
-      </OverviewDestination>
+        <Card className="gap-0">
+          <CardHeader>
+            <CardTitle>Workers and recovery</CardTitle>
+            <CardDescription>
+              Current worker activity and the latest fenced manager-recovery state.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <dl className="grid grid-cols-3 gap-4 rounded-md border bg-muted/20 px-3 py-3 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">Workers</dt>
+                <dd className="mt-1 font-semibold tabular-nums">{profile.slots.length}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">Busy</dt>
+                <dd className="mt-1 font-semibold tabular-nums">{busyWorkers}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">Draining</dt>
+                <dd className="mt-1 font-semibold tabular-nums">{profile.drainingSlots}</dd>
+              </div>
+            </dl>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-medium">Manager recovery</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{recoveryDescription}</div>
+              </div>
+              <StatusBadge status={recoveryStatus} />
+            </div>
+          </CardContent>
+          <CardFooter className="flex flex-wrap gap-2 border-t">
+            <Button asChild size="sm" variant="outline">
+              <Link to={`${basePath}/workers`}>View workers</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to={`${basePath}/recovery`}>View recovery</Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
     </section>
   );
 }

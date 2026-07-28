@@ -20,16 +20,16 @@ export function EntitySectionNavigation({ label, items }: EntitySectionNavigatio
   return (
     <nav
       aria-label={label}
-      className="overflow-x-auto rounded-lg border bg-card shadow-sm"
+      className="overflow-x-auto border-b"
       data-testid="entity-section-navigation"
     >
-      <ul className="flex min-w-max items-stretch px-1">
+      <ul className="flex min-w-max items-stretch gap-6 px-1">
         {items.map((item) => (
           <li key={item.path}>
             <NavLink
               className={({ isActive }) =>
                 cn(
-                  'block border-b-2 border-transparent px-3 py-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  '-mb-px flex h-11 items-center border-b-2 border-transparent px-0.5 text-sm font-medium text-muted-foreground outline-none transition-colors hover:border-muted-foreground/40 hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring',
                   isActive && 'border-primary text-foreground',
                 )
               }
