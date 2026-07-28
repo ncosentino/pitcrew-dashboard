@@ -364,7 +364,7 @@ describe('authenticated routing', () => {
     const router = renderRoute('/tenants/local/nodes/node-1');
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Node node-1' }),
+      await screen.findByRole('heading', { level: 1, name: 'Node node-1 overview' }),
     ).toBeInTheDocument();
     expect(
       within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
@@ -377,17 +377,37 @@ describe('authenticated routing', () => {
     expect(await screen.findByText('Node not found')).toBeInTheDocument();
 
     await act(async () => {
+      await router.navigate('/tenants/local/nodes/node-1/history');
+    });
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Node node-1 history' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('History', { selector: '[aria-current="page"]' })).toBeInTheDocument();
+
+    await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1/profiles/build');
     });
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Profile build' }),
+      await screen.findByRole('heading', { level: 1, name: 'Profile build overview' }),
     ).toBeInTheDocument();
     expect(
       within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
         name: 'Node node-1',
       }),
     ).toHaveAttribute('href', '/tenants/local/nodes/node-1');
+
+    await act(async () => {
+      await router.navigate('/tenants/local/nodes/node-1/profiles/build/diagnostics');
+    });
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Profile build diagnostics' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Diagnostics', { selector: '[aria-current="page"]' }),
+    ).toBeInTheDocument();
   });
 
   it.each([

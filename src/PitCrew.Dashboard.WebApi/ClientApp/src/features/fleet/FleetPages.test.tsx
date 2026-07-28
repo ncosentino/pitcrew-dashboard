@@ -277,6 +277,20 @@ describe('fleet overview and node detail', () => {
     expect(profile).toHaveTextContent('GitHub eligible1');
     expect(profile).toHaveTextContent('Partial telemetry');
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', { name: 'Alpha navigation' });
+    expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(navigation).getByRole('link', { name: 'History' })).toHaveAttribute(
+      'href',
+      `/tenants/local/nodes/${alphaId}/history`,
+    );
+    expect(within(navigation).getByRole('link', { name: 'Administration' })).toHaveAttribute(
+      'href',
+      `/tenants/local/nodes/${alphaId}/administration`,
+    );
+    expect(screen.queryByTestId('node-history')).not.toBeInTheDocument();
   });
 
   it('renders node-not-found, offline, revoked, and empty-profile states', async () => {
@@ -332,7 +346,7 @@ describe('fleet overview and node detail', () => {
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    const router = createTestRouter(features, [`/tenants/local/nodes/${alphaId}`]);
+    const router = createTestRouter(features, [`/tenants/local/nodes/${alphaId}/administration`]);
     render(
       <SessionProvider>
         <RouterProvider router={router} />
@@ -372,7 +386,7 @@ describe('fleet overview and node detail', () => {
   });
 
   it('hides node administration from viewers', async () => {
-    renderRoute(`/tenants/local/nodes/${alphaId}`, {
+    const router = renderRoute(`/tenants/local/nodes/${alphaId}`, {
       ...ownerSession,
       tenants: [{ ...ownerSession.tenants[0], role: 'viewer' }],
     });
@@ -381,6 +395,12 @@ describe('fleet overview and node detail', () => {
     expect(screen.queryByLabelText('Server display name')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Rotate credential' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Administration' })).not.toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate(`/tenants/local/nodes/${alphaId}/administration`);
+    });
+    expect(await screen.findByText('Insufficient tenant role')).toBeInTheDocument();
   });
 
   it('keeps stale node data visible when a refresh fails', async () => {
@@ -399,7 +419,7 @@ describe('fleet overview and node detail', () => {
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    const router = createTestRouter(features, [`/tenants/local/nodes/${alphaId}`]);
+    const router = createTestRouter(features, [`/tenants/local/nodes/${alphaId}/administration`]);
     render(
       <SessionProvider>
         <RouterProvider router={router} />

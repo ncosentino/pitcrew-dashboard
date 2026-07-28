@@ -7,7 +7,7 @@ import {
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+import { ProfileEvidencePanel } from './ProfileEvidencePanel';
 
 /**
  * Renders the bounded chronological manager operation journal. Sequences are durable across manager
@@ -19,7 +19,7 @@ export function ProfileOperationJournal({ profile }: { readonly profile: Manager
   const events = orderedManagerEvents(journal);
 
   return (
-    <ProfileEvidenceDisclosure
+    <ProfileEvidencePanel
       title="Manager operations"
       description="Bounded chronology of manager-reported operations, newest first."
       summary={
@@ -75,6 +75,6 @@ export function ProfileOperationJournal({ profile }: { readonly profile: Manager
           ))}
         </ol>
       )}
-    </ProfileEvidenceDisclosure>
+    </ProfileEvidencePanel>
   );
 }

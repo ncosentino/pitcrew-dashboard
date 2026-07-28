@@ -7,7 +7,7 @@ import {
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+import { ProfileEvidencePanel } from './ProfileEvidencePanel';
 
 interface SubsystemCardProps {
   readonly summary: SubsystemHealthSummary | null;
@@ -69,7 +69,7 @@ export function ProfileSubsystemHealth({ profile }: { readonly profile: ManagerO
   const github = describeSubsystemHealth(health?.github ?? null, 'GitHub');
 
   return (
-    <ProfileEvidenceDisclosure
+    <ProfileEvidencePanel
       title="Manager subsystem health"
       description="Manager-reported outcomes for the Docker and GitHub operations this manager performed."
       summary={
@@ -106,6 +106,6 @@ export function ProfileSubsystemHealth({ profile }: { readonly profile: ManagerO
           testId={`profile-subsystem-github-${profile.profileId}`}
         />
       </div>
-    </ProfileEvidenceDisclosure>
+    </ProfileEvidencePanel>
   );
 }

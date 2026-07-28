@@ -353,7 +353,7 @@ export function ProfileManagerRecovery({
 
   return (
     <section
-      className="grid gap-2 border-b bg-muted/10 px-4 py-3"
+      className="grid gap-2 rounded-lg border bg-card px-4 py-4 shadow-sm"
       data-testid={`profile-recovery-${profileId}`}
       aria-labelledby={`profile-recovery-heading-${profileId}`}
     >

@@ -1,23 +1,36 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
-import { useFleet, type ManagerObservedState } from '@/core/fleet';
+import { useFleet, type FleetNode, type ManagerObservedState } from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { FleetHistoryPanel } from './components/FleetHistoryPanel';
-import { renameNode, requestCredentialRotation, revokeNode } from './fleetApi';
-import { aggregateNode, aggregateProfileResources, getNodeStatus } from './nodeSummary';
+import { EntitySectionNavigation } from '../components/EntitySectionNavigation';
+import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
+import { renameNode, requestCredentialRotation, revokeNode } from '../fleetApi';
+import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
+
+interface NodeDetailContext {
+  readonly tenantId: string;
+  readonly node: FleetNode;
+  readonly canAdminister: boolean;
+  readonly antiforgeryToken: string;
+  readonly refreshNow: () => Promise<void>;
+}
 
 interface ProfileSummaryProps {
   readonly profile: ManagerObservedState;
   readonly tenantId: string;
   readonly nodeId: string;
+}
+
+function useNodeDetail(): NodeDetailContext {
+  return useOutletContext<NodeDetailContext>();
 }
 
 function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
@@ -104,30 +117,14 @@ function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
   );
 }
 
-/** Renders one node's identity, profile triage summaries, and authorized lifecycle actions. */
-export default function NodeDetailPage() {
+/** Provides shared node identity, status, and route-level secondary navigation. */
+export function NodeDetailLayout() {
   const { tenantId = '', nodeId = '' } = useParams();
   const { session } = useSession();
   const { fleet, error, isLoading, refreshNow } = useFleet();
-  const [mutationError, setMutationError] = useState<string | null>(null);
-  const [isMutating, setIsMutating] = useState(false);
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAdminister = tenant?.role === 'administrator' || tenant?.role === 'owner';
-  const antiforgeryToken = session?.antiforgeryToken ?? '';
   const node = fleet?.nodes.find((candidate) => candidate.nodeId === nodeId);
-
-  const mutate = async (operation: () => Promise<void>) => {
-    setIsMutating(true);
-    setMutationError(null);
-    try {
-      await operation();
-      await refreshNow();
-    } catch (caught) {
-      setMutationError(caught instanceof Error ? caught.message : 'Node administration failed.');
-    } finally {
-      setIsMutating(false);
-    }
-  };
 
   if (isLoading && !fleet) return <p className="text-muted-foreground">Loading node…</p>;
 
@@ -144,7 +141,7 @@ export default function NodeDetailPage() {
 
   if (!node) {
     return (
-      <>
+      <section className="grid gap-4">
         {error ? (
           <div
             className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
@@ -161,30 +158,30 @@ export default function NodeDetailPage() {
             </CardDescription>
           </CardHeader>
         </Card>
-      </>
+      </section>
     );
   }
 
   const status = getNodeStatus(node);
-  const aggregate = aggregateNode(node);
-  const sortedProfiles = [...node.profiles].sort((left, right) =>
-    left.profileId < right.profileId ? -1 : left.profileId > right.profileId ? 1 : 0,
-  );
+  const basePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`;
+  const navigation = [
+    { label: 'Overview', path: basePath },
+    { label: 'History', path: `${basePath}/history` },
+    ...(canAdminister ? [{ label: 'Administration', path: `${basePath}/administration` }] : []),
+  ];
 
   return (
-    <>
-      <section className="grid gap-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">{node.displayName}</h2>
-            <p className="font-mono text-xs text-muted-foreground">{node.nodeId}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge status={status} />
-            {node.credentialRotationRequested ? <StatusBadge status="rotation requested" /> : null}
-          </div>
+    <section className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">{node.displayName}</h2>
+          <p className="font-mono text-xs text-muted-foreground">{node.nodeId}</p>
         </div>
-      </section>
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge status={status} />
+          {node.credentialRotationRequested ? <StatusBadge status="rotation requested" /> : null}
+        </div>
+      </div>
 
       {error ? (
         <div
@@ -194,7 +191,6 @@ export default function NodeDetailPage() {
           Showing stale fleet data. {error}
         </div>
       ) : null}
-
       {status === 'offline' ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
           This node is offline. Profile observations may no longer reflect current capacity.
@@ -205,18 +201,39 @@ export default function NodeDetailPage() {
           This node is revoked and cannot synchronize until it re-enrolls.
         </div>
       ) : null}
-      {mutationError ? (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900" role="alert">
-          {mutationError}
-        </div>
-      ) : null}
 
+      <EntitySectionNavigation label={`${node.displayName} navigation`} items={navigation} />
+      <Outlet
+        context={
+          {
+            tenantId,
+            node,
+            canAdminister,
+            antiforgeryToken: session?.antiforgeryToken ?? '',
+            refreshNow,
+          } satisfies NodeDetailContext
+        }
+      />
+    </section>
+  );
+}
+
+/** Renders node identity and profile triage without detailed operational evidence. */
+export function NodeOverviewPage() {
+  const { tenantId, node } = useNodeDetail();
+  const aggregate = aggregateNode(node);
+  const sortedProfiles = [...node.profiles].sort((left, right) =>
+    left.profileId < right.profileId ? -1 : left.profileId > right.profileId ? 1 : 0,
+  );
+
+  return (
+    <div className="grid gap-4">
       <Card>
         <CardHeader>
           <CardTitle>Node identity</CardTitle>
-          <CardDescription>Connector and enrollment information.</CardDescription>
+          <CardDescription>Connector, enrollment, and current aggregate capacity.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4">
+        <CardContent>
           <dl className="grid gap-3 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-xs text-muted-foreground uppercase">Connector</dt>
@@ -240,54 +257,6 @@ export default function NodeDetailPage() {
               </dd>
             </div>
           </dl>
-          {canAdminister ? (
-            <div className="grid gap-3 border-t pt-4">
-              <DisplayNameEditor
-                value={node.displayName}
-                label="Server display name"
-                submitLabel="Rename server"
-                successMessage="Server name updated."
-                onSave={async (displayName) => {
-                  await renameNode(tenantId, node.nodeId, displayName, antiforgeryToken);
-                  await refreshNow();
-                }}
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isMutating || node.isRevoked || node.credentialRotationRequested}
-                  onClick={() =>
-                    void mutate(() =>
-                      requestCredentialRotation(tenantId, node.nodeId, antiforgeryToken),
-                    )
-                  }
-                >
-                  Rotate credential
-                </Button>
-                <ConfirmActionDialog
-                  title={`Revoke ${node.displayName}?`}
-                  description={`Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`}
-                  confirmLabel="Revoke node"
-                  confirmVariant="destructive"
-                  trigger={
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      disabled={isMutating || node.isRevoked}
-                    >
-                      Revoke
-                    </Button>
-                  }
-                  onConfirm={() =>
-                    mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken))
-                  }
-                />
-              </div>
-            </div>
-          ) : null}
         </CardContent>
       </Card>
 
@@ -318,17 +287,106 @@ export default function NodeDetailPage() {
           ))
         )}
       </section>
+    </div>
+  );
+}
 
-      <Card className="overflow-hidden">
-        <CardContent className="grid gap-0 p-0">
-          <FleetHistoryPanel
-            tenantId={tenantId}
-            nodeId={node.nodeId}
-            profileId={null}
-            testId="node-history"
+/** Renders bounded retained history for every profile reported by the node. */
+export function NodeHistoryPage() {
+  const { tenantId, node } = useNodeDetail();
+  return (
+    <FleetHistoryPanel
+      tenantId={tenantId}
+      nodeId={node.nodeId}
+      profileId={null}
+      presentation="page"
+      testId="node-history"
+    />
+  );
+}
+
+/** Renders authorized node identity and credential lifecycle operations. */
+export function NodeAdministrationPage() {
+  const { tenantId, node, antiforgeryToken, refreshNow } = useNodeDetail();
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [isMutating, setIsMutating] = useState(false);
+
+  const mutate = async (operation: () => Promise<void>) => {
+    setIsMutating(true);
+    setMutationError(null);
+    try {
+      await operation();
+      await refreshNow();
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : 'Node administration failed.');
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Node administration</CardTitle>
+        <CardDescription>
+          Rename this node, rotate its connector credential, or revoke its enrollment.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {mutationError ? (
+          <div
+            className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+            role="alert"
+          >
+            {mutationError}
+          </div>
+        ) : null}
+        {isMutating ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Updating node…
+          </p>
+        ) : null}
+        <DisplayNameEditor
+          value={node.displayName}
+          label="Server display name"
+          submitLabel="Rename server"
+          successMessage="Server name updated."
+          onSave={async (displayName) => {
+            await renameNode(tenantId, node.nodeId, displayName, antiforgeryToken);
+            await refreshNow();
+          }}
+        />
+        <div className="flex flex-wrap gap-2 border-t pt-4">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={isMutating || node.isRevoked || node.credentialRotationRequested}
+            onClick={() =>
+              void mutate(() => requestCredentialRotation(tenantId, node.nodeId, antiforgeryToken))
+            }
+          >
+            Rotate credential
+          </Button>
+          <ConfirmActionDialog
+            title={`Revoke ${node.displayName}?`}
+            description={`Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`}
+            confirmLabel="Revoke node"
+            confirmVariant="destructive"
+            trigger={
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={isMutating || node.isRevoked}
+              >
+                Revoke
+              </Button>
+            }
+            onConfirm={() => mutate(() => revokeNode(tenantId, node.nodeId, antiforgeryToken))}
           />
-        </CardContent>
-      </Card>
-    </>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
