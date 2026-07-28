@@ -23,6 +23,82 @@ public sealed class FleetDashboardOptions
   public int NodeOfflineAfterSeconds { get; set; } = 60;
 
   /// <summary>
+  /// Gets or sets how often the dashboard evaluates credential-free alert evidence.
+  /// </summary>
+  [Range(5, 3600)]
+  public int AlertEvaluationSeconds { get; set; } = 30;
+
+  /// <summary>
+  /// Gets or sets how long a level condition must remain proven before it triggers.
+  /// </summary>
+  [Range(0, 86400)]
+  public int AlertDebounceSeconds { get; set; } = 120;
+
+  /// <summary>
+  /// Gets or sets how old a profile observation may become before the manager is considered stale.
+  /// </summary>
+  [Range(10, 86400)]
+  public int AlertManagerStaleAfterSeconds { get; set; } = 120;
+
+  /// <summary>
+  /// Gets or sets the consecutive failure count required for repeated-operation alerts.
+  /// </summary>
+  [Range(2, 1000)]
+  public int AlertRepeatedFailureCount { get; set; } = 3;
+
+  /// <summary>
+  /// Gets or sets the recent telemetry window inspected for sustained resource pressure.
+  /// </summary>
+  [Range(1, 1440)]
+  public int AlertResourceWindowMinutes { get; set; } = 15;
+
+  /// <summary>
+  /// Gets or sets how many newest measurements must all prove pressure.
+  /// </summary>
+  [Range(2, 100)]
+  public int AlertResourcePressureSamples { get; set; } = 4;
+
+  /// <summary>
+  /// Gets or sets the host CPU percentage that constitutes sustained pressure.
+  /// </summary>
+  [Range(1, 100)]
+  public int AlertCpuPressurePercent { get; set; } = 90;
+
+  /// <summary>
+  /// Gets or sets the host memory percentage that constitutes sustained pressure.
+  /// </summary>
+  [Range(1, 100)]
+  public int AlertMemoryPressurePercent { get; set; } = 90;
+
+  /// <summary>
+  /// Gets or sets the sustained aggregate worker-network rate threshold, or zero to disable that diagnosis.
+  /// </summary>
+  public long AlertNetworkBytesPerSecond { get; set; }
+
+  /// <summary>
+  /// Gets or sets the sustained aggregate worker block-I/O rate threshold, or zero to disable that diagnosis.
+  /// </summary>
+  public long AlertBlockIoBytesPerSecond { get; set; }
+
+  /// <summary>
+  /// Gets or sets how long resolved incident history is retained.
+  /// </summary>
+  [Range(1, 3650)]
+  public int AlertIncidentRetentionDays { get; set; } = 90;
+
+  /// <summary>
+  /// Gets or sets the hard retained resolved-incident ceiling for one tenant.
+  /// </summary>
+  [Range(10, 1_000_000)]
+  public int MaximumResolvedAlertIncidentsPerTenant { get; set; } = 10_000;
+
+  /// <summary>
+  /// Gets or sets the maximum visible incidents returned by one request.
+  /// </summary>
+  [Range(10, 1000)]
+  public int MaximumAlertIncidentsPerQuery { get; set; } = 200;
+
+  /// <summary>
   /// Gets or sets the lifetime of a one-time connector enrollment code.
   /// </summary>
   [Range(1, 1440)]
@@ -290,6 +366,31 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "NodeOfflineAfterSeconds must be at least twice ConnectorPollSeconds.";
+    }
+    if (ConnectorPollSeconds * 2 > AlertManagerStaleAfterSeconds)
+    {
+      yield return
+          "AlertManagerStaleAfterSeconds must be at least twice ConnectorPollSeconds.";
+    }
+    if (AlertNetworkBytesPerSecond < 0)
+    {
+      yield return "AlertNetworkBytesPerSecond cannot be negative.";
+    }
+    if (AlertBlockIoBytesPerSecond < 0)
+    {
+      yield return "AlertBlockIoBytesPerSecond cannot be negative.";
+    }
+    if (AlertResourceWindowMinutes * 60 <
+        ConnectorPollSeconds * AlertResourcePressureSamples)
+    {
+      yield return
+          "AlertResourceWindowMinutes must hold at least AlertResourcePressureSamples connector polls.";
+    }
+    if (MaximumAlertIncidentsPerQuery >
+        MaximumResolvedAlertIncidentsPerTenant)
+    {
+      yield return
+          "MaximumAlertIncidentsPerQuery cannot exceed MaximumResolvedAlertIncidentsPerTenant.";
     }
     if (RecoveryCapabilityFreshnessSeconds < ConnectorPollSeconds * 2)
     {

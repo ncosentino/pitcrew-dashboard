@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Fleet;
@@ -14,6 +15,81 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class HostingTests
 {
+  [Test]
+  public async Task Administrator_Views_And_Acknowledges_Active_Incident(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var now = DateTimeOffset.UtcNow;
+      var store = factory.Services.GetRequiredService<IAlertIncidentStore>();
+      await store.ReconcileAsync(
+          [
+              new AlertCandidate(
+                  "api-test-incident",
+                  DashboardTestHelpers.TenantId,
+                  Guid.NewGuid(),
+                  "default",
+                  "test-alert",
+                  "warning",
+                  now,
+                  TimeSpan.Zero,
+                  "Test operational incident",
+                  "Test incident summary.",
+                  "test-reason",
+                  null,
+                  $"/tenants/{DashboardTestHelpers.TenantId}/fleet"),
+          ],
+          [],
+          now,
+          now.AddDays(-90),
+          100,
+          cancellationToken);
+
+      var incidents =
+          await client.GetFromJsonAsync<AlertIncidentListResponse>(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents?status=active",
+              cancellationToken);
+      await Assert.That(incidents).IsNotNull();
+      await Assert.That(incidents!.Incidents).HasSingleItem();
+      var incident = incidents.Incidents[0];
+
+      using var acknowledgement =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents/{incident.IncidentId:D}/acknowledge",
+              session.AntiforgeryToken,
+              null,
+              cancellationToken);
+      var acknowledged =
+          await client.GetFromJsonAsync<AlertIncidentListResponse>(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents?status=active",
+              cancellationToken);
+
+      await Assert.That(acknowledgement.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(acknowledged).IsNotNull();
+      await Assert.That(acknowledged!.Incidents).HasSingleItem();
+      await Assert.That(acknowledged.Incidents[0].Status)
+          .IsEqualTo("acknowledged");
+      await Assert.That(
+          acknowledged.Incidents[0].AcknowledgedByGitHubUserId)
+          .IsEqualTo(session.User.GitHubUserId);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
   [Test]
   public async Task Tenant_Owner_Renames_Display_Name_Without_Changing_Id(
       CancellationToken cancellationToken)

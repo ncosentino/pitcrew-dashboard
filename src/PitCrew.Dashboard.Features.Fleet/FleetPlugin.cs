@@ -13,6 +13,7 @@ internal sealed class FleetPlugin : IServiceCollectionPlugin
   public void Configure(ServiceCollectionPluginOptions options)
   {
     options.Services.TryAddSingleton(TimeProvider.System);
+    options.Services.AddHostedService<AlertEvaluationWorker>();
     options.Services.Configure<JsonOptions>(
         static jsonOptions =>
             jsonOptions.SerializerOptions.TypeInfoResolverChain.Insert(

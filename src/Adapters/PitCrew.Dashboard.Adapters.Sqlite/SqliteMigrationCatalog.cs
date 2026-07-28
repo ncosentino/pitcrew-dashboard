@@ -800,5 +800,138 @@ internal static class SqliteMigrationCatalog
                 PRIMARY KEY (scope, node_id)
             ) WITHOUT ROWID;
             """),
+      new(
+            10,
+            "restart-safe-alert-incidents",
+            """
+            CREATE TABLE alert_incidents (
+                incident_id TEXT PRIMARY KEY,
+                alert_key TEXT NOT NULL CHECK (length(alert_key) BETWEEN 1 AND 512),
+                tenant_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                profile_id TEXT NULL CHECK (
+                    profile_id IS NULL OR length(profile_id) BETWEEN 1 AND 128),
+                kind TEXT NOT NULL CHECK (length(kind) BETWEEN 1 AND 64),
+                severity TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+                status TEXT NOT NULL CHECK (status IN (
+                    'pending',
+                    'triggered',
+                    'acknowledged',
+                    'resolved')),
+                title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 160),
+                summary TEXT NOT NULL CHECK (length(summary) BETWEEN 1 AND 512),
+                reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 128),
+                evidence TEXT NULL CHECK (
+                    evidence IS NULL OR length(evidence) <= 512),
+                link TEXT NOT NULL CHECK (length(link) BETWEEN 1 AND 2048),
+                first_observed_at TEXT NOT NULL,
+                trigger_after TEXT NOT NULL,
+                last_observed_at TEXT NOT NULL,
+                triggered_at TEXT NULL,
+                acknowledged_at TEXT NULL,
+                acknowledged_by_github_user_id TEXT NULL,
+                resolved_at TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (tenant_id)
+                    REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                FOREIGN KEY (acknowledged_by_github_user_id)
+                    REFERENCES dashboard_users(github_user_id),
+                CHECK (
+                    (status = 'pending'
+                        AND triggered_at IS NULL
+                        AND acknowledged_at IS NULL
+                        AND acknowledged_by_github_user_id IS NULL
+                        AND resolved_at IS NULL)
+                    OR (status = 'triggered'
+                        AND triggered_at IS NOT NULL
+                        AND acknowledged_at IS NULL
+                        AND acknowledged_by_github_user_id IS NULL
+                        AND resolved_at IS NULL)
+                    OR (status = 'acknowledged'
+                        AND triggered_at IS NOT NULL
+                        AND acknowledged_at IS NOT NULL
+                        AND acknowledged_by_github_user_id IS NOT NULL
+                        AND resolved_at IS NULL)
+                    OR (status = 'resolved'
+                        AND triggered_at IS NOT NULL
+                        AND resolved_at IS NOT NULL))
+            );
+
+            CREATE UNIQUE INDEX ix_alert_incidents_open_key
+                ON alert_incidents (alert_key)
+                WHERE status IN ('pending', 'triggered', 'acknowledged');
+
+            CREATE INDEX ix_alert_incidents_tenant_status_updated
+                ON alert_incidents (
+                    tenant_id,
+                    status,
+                    updated_at DESC,
+                    incident_id DESC);
+
+            CREATE INDEX ix_alert_incidents_tenant_resolved
+                ON alert_incidents (
+                    tenant_id,
+                    resolved_at DESC,
+                    incident_id DESC)
+                WHERE status = 'resolved';
+
+            CREATE INDEX ix_capacity_commands_profile_requested
+                ON capacity_commands (
+                    node_id,
+                    profile_id,
+                    requested_at DESC,
+                    command_id DESC);
+
+            CREATE INDEX ix_recovery_commands_profile_requested
+                ON recovery_commands (
+                    node_id,
+                    profile_id,
+                    requested_at DESC,
+                    command_id DESC);
+
+            CREATE TRIGGER trg_alert_incidents_identity_immutable
+            BEFORE UPDATE ON alert_incidents
+            FOR EACH ROW
+            WHEN OLD.incident_id <> NEW.incident_id
+              OR OLD.alert_key <> NEW.alert_key
+              OR OLD.tenant_id <> NEW.tenant_id
+              OR OLD.node_id <> NEW.node_id
+              OR IFNULL(OLD.profile_id, '') <> IFNULL(NEW.profile_id, '')
+              OR OLD.kind <> NEW.kind
+              OR OLD.created_at <> NEW.created_at
+            BEGIN
+                SELECT RAISE(
+                    ABORT,
+                    'alert incident identity is immutable');
+            END;
+
+            CREATE TRIGGER trg_alert_incidents_transitions
+            BEFORE UPDATE OF status ON alert_incidents
+            FOR EACH ROW
+            WHEN NOT (
+                OLD.status = NEW.status
+                OR (OLD.status = 'pending' AND NEW.status = 'triggered')
+                OR (OLD.status = 'triggered' AND NEW.status IN (
+                        'acknowledged',
+                        'resolved'))
+                OR (OLD.status = 'acknowledged'
+                    AND NEW.status = 'resolved'))
+            BEGIN
+                SELECT RAISE(
+                    ABORT,
+                    'invalid alert incident status transition');
+            END;
+
+            CREATE TRIGGER trg_alert_incidents_resolved_immutable
+            BEFORE UPDATE ON alert_incidents
+            FOR EACH ROW
+            WHEN OLD.status = 'resolved'
+            BEGIN
+                SELECT RAISE(
+                    ABORT,
+                    'resolved alert incidents are immutable');
+            END;
+            """),
     ];
 }

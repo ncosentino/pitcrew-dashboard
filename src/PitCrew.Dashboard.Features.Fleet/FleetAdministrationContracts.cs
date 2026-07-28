@@ -58,6 +58,56 @@ public sealed record RecoverManagerResponse(
     Guid CommandId,
     string Status);
 
+/// <summary>
+/// Returns one visible operational incident.
+/// </summary>
+/// <param name="IncidentId">Dashboard-assigned incident identifier.</param>
+/// <param name="NodeId">Node associated with the incident.</param>
+/// <param name="ProfileId">Profile associated with the incident, or <see langword="null"/>.</param>
+/// <param name="Kind">Closed alert kind.</param>
+/// <param name="Severity">Severity: warning or critical.</param>
+/// <param name="Status">Lifecycle status: triggered, acknowledged, or resolved.</param>
+/// <param name="Title">Short operator-facing title.</param>
+/// <param name="Summary">Latest bounded summary.</param>
+/// <param name="Reason">Machine-readable reason.</param>
+/// <param name="Evidence">Sanitized bounded evidence, or <see langword="null"/>.</param>
+/// <param name="Link">Tenant-scoped UI path for related evidence.</param>
+/// <param name="FirstObservedAt">Earliest time the condition was proven present.</param>
+/// <param name="TriggeredAt">Time the debounce boundary was reached.</param>
+/// <param name="LastObservedAt">Latest evaluation that still observed the condition.</param>
+/// <param name="AcknowledgedAt">Time an administrator acknowledged the incident.</param>
+/// <param name="AcknowledgedByGitHubUserId">Acknowledging GitHub user identifier.</param>
+/// <param name="ResolvedAt">Time the condition cleared.</param>
+public sealed record AlertIncidentResponse(
+    Guid IncidentId,
+    Guid NodeId,
+    string? ProfileId,
+    string Kind,
+    string Severity,
+    string Status,
+    string Title,
+    string Summary,
+    string Reason,
+    string? Evidence,
+    string Link,
+    DateTimeOffset FirstObservedAt,
+    DateTimeOffset TriggeredAt,
+    DateTimeOffset LastObservedAt,
+    DateTimeOffset? AcknowledgedAt,
+    string? AcknowledgedByGitHubUserId,
+    DateTimeOffset? ResolvedAt);
+
+/// <summary>
+/// Returns bounded operational incident history for one tenant.
+/// </summary>
+/// <param name="GeneratedAt">Dashboard time when the response was generated.</param>
+/// <param name="Incidents">Visible incidents ordered newest first.</param>
+/// <param name="Truncated">Whether the query limit hid older matching incidents.</param>
+public sealed record AlertIncidentListResponse(
+    DateTimeOffset GeneratedAt,
+    IReadOnlyList<AlertIncidentResponse> Incidents,
+    bool Truncated);
+
 internal sealed record CreatedEnrollmentCode(
     Guid EnrollmentCodeId,
     string Code,
