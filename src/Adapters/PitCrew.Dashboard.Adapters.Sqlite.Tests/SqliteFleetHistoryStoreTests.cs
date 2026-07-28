@@ -94,6 +94,61 @@ public sealed class SqliteFleetHistoryStoreTests
   }
 
   [Test]
+  public async Task Equal_Observation_Appends_New_Journal_Events_Without_Duplicating_The_Sample(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("equal-observation-events");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin,
+                  journal: CreateJournal(
+                      "current",
+                      [CreateEvent(1, Origin)])),
+          ],
+          Origin,
+          Retention,
+          cancellationToken);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [
+              CreateProfile(
+                  Origin,
+                  journal: CreateJournal(
+                      "current",
+                      [CreateEvent(1, Origin), CreateEvent(2, Origin)])),
+          ],
+          Origin.AddSeconds(15),
+          Retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Samples).HasSingleItem();
+      await Assert.That(history.Events.Count).IsEqualTo(2);
+      await Assert.That(history.Journal.StoredHighestSequence).IsEqualTo(2L);
+      await Assert.That(history.Journal.EpochResets).IsEqualTo(0L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Advancing_Observations_Append_Samples_And_Rollups(
       CancellationToken cancellationToken)
   {
@@ -1438,16 +1493,16 @@ public sealed class SqliteFleetHistoryStoreTests
       var retained = history!.Profiles
           .Where(profile => profile.Retention.HistoryExpiredAt is null)
           .ToList();
-      await Assert.That(retained.Count).IsLessThanOrEqualTo(2);
-      await Assert.That(
-          retained.Any(profile => profile.ProfileId == "profile-4"))
-          .IsTrue();
-      var tombstoned = history.Profiles.Any(profile =>
-          profile.ProfileId == "profile-0" &&
-          profile.Retention.HistoryExpiredAt is not null);
-      var floored = history.IncompletenessFloors.Any(floor =>
-          floor.Scope == "node" && floor.ExpiredProfiles > 0);
-      await Assert.That(tombstoned || floored).IsTrue();
+      await Assert.That(retained.Count).IsEqualTo(2);
+      await Assert.That(retained.Count(
+          profile => profile.ProfileId == "profile-3")).IsEqualTo(1);
+      await Assert.That(retained.Count(
+          profile => profile.ProfileId == "profile-4")).IsEqualTo(1);
+      await Assert.That(history.Profiles.Count(
+          profile => profile.ProfileId == "profile-0")).IsEqualTo(0);
+      var nodeFloor = history.IncompletenessFloors.Single(
+          floor => floor.Scope == "node");
+      await Assert.That(nodeFloor.ExpiredProfiles).IsEqualTo(1L);
     }
     finally
     {
@@ -1986,7 +2041,10 @@ public sealed class SqliteFleetHistoryStoreTests
                   Origin,
                   journal: CreateJournal(
                       "current",
-                      [CreateEvent(1, Origin), CreateEvent(2, Origin)])),
+                      [
+                          CreateEvent(1, Origin),
+                          CreateEvent(2, current.AddHours(1)),
+                      ])),
           ],
           current.AddSeconds(15),
           Retention,
@@ -2443,57 +2501,38 @@ public sealed class SqliteFleetHistoryStoreTests
     var databasePath = CreateDatabasePath("highwaterupgrade");
     try
     {
-      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
-          databasePath,
-          cancellationToken);
+      var (connectionFactory, nodeId) =
+          await CreateVersionSevenEnrolledNodeAsync(
+              databasePath,
+              cancellationToken);
       var store = new SqliteFleetHistoryStore(connectionFactory);
-      var fleetStore = new SqliteFleetStore(connectionFactory);
-      var latest = Origin.AddMinutes(3);
-      for (var index = 0; index <= 3; index++)
-      {
-        var observedAt = Origin.AddMinutes(index);
-        await FleetStorageTestTransactions.AppendAsync(
-            store,
-            connectionFactory,
-            nodeId,
-            [CreateProfile(observedAt)],
-            observedAt,
-            Retention,
-            cancellationToken);
-      }
-
-      await FleetStorageTestTransactions.ApplySyncAsync(
-          fleetStore,
+      var latest = Origin.AddMinutes(3).AddMilliseconds(250);
+      await SeedVersionSevenCursorAsync(
           connectionFactory,
           nodeId,
-          "2.0.0",
           latest,
-          [CreateProfile(latest)],
-          new ConnectorCredentialUpdate(
-              ConnectorCredentialUpdateKind.None,
-              string.Empty),
           cancellationToken);
-
-      var retainedRollups = await CountAsync(
+      await SeedVersionSevenRollupAsync(
           connectionFactory,
-          "SELECT COALESCE(SUM(sample_count), 0) " +
-              "FROM profile_telemetry_rollups;",
+          nodeId,
+          Origin,
+          4,
           cancellationToken);
-      await Assert.That(retainedRollups).IsEqualTo(4L);
-
       await ExecuteAsync(
           connectionFactory,
-          """
-          DELETE FROM profile_telemetry_samples;
-          DROP TABLE profile_event_identities;
-          DROP TABLE profile_history_tombstones;
-          DROP TABLE history_maintenance;
-          DROP TABLE history_incompleteness_floors;
-          ALTER TABLE profile_history_cursors DROP COLUMN sample_high_water;
-          ALTER TABLE profile_history_cursors DROP COLUMN history_expired_at;
-          ALTER TABLE profile_subsystem_health DROP COLUMN revisions;
-          ALTER TABLE profile_capacity_deficits DROP COLUMN revisions;
-          DELETE FROM schema_migrations WHERE version >= 8;
+          $"""
+          INSERT INTO profiles (
+              node_id,
+              profile_id,
+              payload_hash,
+              payload_json,
+              observed_at)
+          VALUES (
+              '{nodeId:D}',
+              'default',
+              'payload-hash',
+              '[]',
+              '{latest:O}');
           """,
           cancellationToken);
 
@@ -2526,13 +2565,13 @@ public sealed class SqliteFleetHistoryStoreTests
           "SELECT COALESCE(SUM(sample_count), 0) " +
               "FROM profile_telemetry_rollups;",
           cancellationToken))
-          .IsEqualTo(retainedRollups);
+          .IsEqualTo(4L);
 
       await FleetStorageTestTransactions.AppendAsync(
           store,
           connectionFactory,
           nodeId,
-          [CreateProfile(latest.AddMinutes(2))],
+          [CreateProfile(latest.AddMilliseconds(500))],
           latest.AddMinutes(2),
           Retention,
           cancellationToken);
@@ -2542,6 +2581,255 @@ public sealed class SqliteFleetHistoryStoreTests
           "SELECT COUNT(*) FROM profile_telemetry_samples;",
           cancellationToken))
           .IsEqualTo(1L);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COALESCE(SUM(sample_count), 0) " +
+              "FROM profile_telemetry_rollups;",
+          cancellationToken))
+          .IsEqualTo(5L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Migration_Nine_Uses_The_Rollup_End_When_No_Profile_Projection_Remains(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("rollup-only-highwater");
+    try
+    {
+      var (connectionFactory, nodeId) =
+          await CreateVersionSevenEnrolledNodeAsync(
+              databasePath,
+              cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var observedAt = Origin.AddMinutes(47);
+      await SeedVersionSevenCursorAsync(
+          connectionFactory,
+          nodeId,
+          observedAt,
+          cancellationToken);
+      await SeedVersionSevenRollupAsync(
+          connectionFactory,
+          nodeId,
+          Origin,
+          4,
+          cancellationToken);
+
+      await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+          cancellationToken);
+
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(observedAt)],
+          observedAt.AddMinutes(1),
+          Retention,
+          cancellationToken);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COUNT(*) FROM profile_telemetry_samples;",
+          cancellationToken))
+          .IsEqualTo(0L);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COALESCE(SUM(sample_count), 0) " +
+              "FROM profile_telemetry_rollups;",
+          cancellationToken))
+          .IsEqualTo(4L);
+
+      var nextHour = Origin.AddHours(1).AddMinutes(1);
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(nextHour)],
+          nextHour,
+          Retention,
+          cancellationToken);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COUNT(*) FROM profile_telemetry_samples;",
+          cancellationToken))
+          .IsEqualTo(1L);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Coarse_Incompleteness_Floor_Bounds_Stale_Returning_Profile_And_Node_Floors(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("coarse-floor-gate");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var floorTime = Origin.AddHours(1);
+      await ExecuteAsync(
+          connectionFactory,
+          $"""
+          INSERT INTO history_incompleteness_floors (
+              scope, node_id, earliest_expired_at, latest_expired_at,
+              expired_profiles, dropped_samples, dropped_rollups, dropped_events,
+              dropped_subsystem_health, dropped_capacity_deficits)
+          VALUES
+              ('database', '', '{floorTime.AddMinutes(-2):O}', '{floorTime:O}', 3, 3, 0, 0, 0, 0),
+              ('node', '{nodeId:D}', '{floorTime:O}', '{floorTime:O}', 1, 1, 0, 0, 0, 0),
+              ('node', 'node-b', '{floorTime.AddMinutes(-1):O}', '{floorTime.AddMinutes(-1):O}', 1, 1, 0, 0, 0, 0),
+              ('node', 'node-c', '{floorTime.AddMinutes(-2):O}', '{floorTime.AddMinutes(-2):O}', 1, 1, 0, 0, 0, 0);
+          """,
+          cancellationToken);
+      var bounded = Retention with
+      {
+        MaximumHistoryNodes = 1,
+      };
+
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(floorTime.AddMinutes(-1))],
+          floorTime.AddMinutes(1),
+          bounded,
+          cancellationToken);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COUNT(*) FROM profile_telemetry_samples;",
+          cancellationToken))
+          .IsEqualTo(0L);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COUNT(*) FROM history_incompleteness_floors " +
+              "WHERE scope = 'node';",
+          cancellationToken))
+          .IsEqualTo(1L);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT expired_profiles FROM history_incompleteness_floors " +
+              "WHERE scope = 'database';",
+          cancellationToken))
+          .IsEqualTo(3L);
+
+      var history = await store.GetNodeHistoryAsync(
+          "tenant",
+          nodeId,
+          new HistoryWindow(
+              floorTime,
+              floorTime.AddHours(1),
+              HistoryResolution.Raw,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100),
+          floorTime.AddHours(1),
+          cancellationToken);
+      await Assert.That(history).IsNotNull();
+      await Assert.That(history!.IncompletenessFloors.Count).IsEqualTo(2);
+      var databaseFloor = history.IncompletenessFloors.Single(
+          floor => floor.Scope == "database");
+      var nodeFloor = history.IncompletenessFloors.Single(
+          floor => floor.Scope == "node");
+      await Assert.That(databaseFloor.ExpiredProfiles).IsEqualTo(3L);
+      await Assert.That(nodeFloor.LatestExpiredAt).IsEqualTo(floorTime);
+      var expiredProfile = history.Profiles.Single(
+          profile => profile.ProfileId == "default");
+      await Assert.That(expiredProfile.Journal.Epoch).IsEqualTo(1L);
+      await Assert.That(expiredProfile.Journal.EpochResets).IsEqualTo(1L);
+      await Assert.That(expiredProfile.Retention.HistoryExpiredAt)
+          .IsEqualTo(floorTime);
+
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(floorTime.AddMinutes(2))],
+          floorTime.AddMinutes(2),
+          bounded,
+          cancellationToken);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COUNT(*) FROM profile_telemetry_samples;",
+          cancellationToken))
+          .IsEqualTo(1L);
+      var resumed = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken,
+          HistoryResolution.Raw,
+          floorTime.AddHours(1));
+      await Assert.That(resumed.Retention.HistoryExpiredAt).IsNull();
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Orphaned_Node_Floor_Is_Removed_Without_Double_Counting_The_Database_Floor(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("orphan-floor");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var floorTime = Origin.AddHours(1);
+      await ExecuteAsync(
+          connectionFactory,
+          $"""
+          INSERT INTO history_incompleteness_floors (
+              scope, node_id, earliest_expired_at, latest_expired_at,
+              expired_profiles, dropped_samples, dropped_rollups, dropped_events,
+              dropped_subsystem_health, dropped_capacity_deficits)
+          VALUES
+              ('database', '', '{floorTime:O}', '{floorTime:O}', 1, 2, 3, 4, 5, 6),
+              ('node', 'orphaned-node', '{floorTime:O}', '{floorTime:O}', 1, 2, 3, 4, 5, 6);
+          """,
+          cancellationToken);
+
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [CreateProfile(floorTime.AddMinutes(1))],
+          floorTime.AddMinutes(1),
+          Retention,
+          cancellationToken);
+
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT COUNT(*) FROM history_incompleteness_floors " +
+              "WHERE scope = 'node';",
+          cancellationToken))
+          .IsEqualTo(0L);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT expired_profiles FROM history_incompleteness_floors " +
+              "WHERE scope = 'database';",
+          cancellationToken))
+          .IsEqualTo(1L);
+      await Assert.That(await CountAsync(
+          connectionFactory,
+          "SELECT dropped_capacity_deficits " +
+              "FROM history_incompleteness_floors " +
+              "WHERE scope = 'database';",
+          cancellationToken))
+          .IsEqualTo(6L);
     }
     finally
     {
@@ -2943,6 +3231,119 @@ public sealed class SqliteFleetHistoryStoreTests
             "connector",
             cancellationToken));
   }
+
+  private static async Task<(
+      SqliteConnectionFactory ConnectionFactory,
+      Guid NodeId)> CreateVersionSevenEnrolledNodeAsync(
+      string databasePath,
+      CancellationToken cancellationToken)
+  {
+    var connectionFactory = new SqliteConnectionFactory(
+        Options.Create(new SqliteFleetStoreOptions
+        {
+          DatabasePath = databasePath,
+        }));
+    await SqliteMigrationTestDatabase.ApplyThroughAsync(
+        connectionFactory,
+        7,
+        cancellationToken);
+    var owner = new DashboardUser(
+        "1",
+        "owner",
+        "Owner",
+        null);
+    await new SqliteAccessStore(connectionFactory).EnsureTenantOwnerAsync(
+        "tenant",
+        "Tenant",
+        owner,
+        Origin,
+        cancellationToken);
+    return (
+        connectionFactory,
+        await EnrollNodeAsync(
+            connectionFactory,
+            "connector",
+            cancellationToken));
+  }
+
+  private static Task SeedVersionSevenCursorAsync(
+      SqliteConnectionFactory connectionFactory,
+      Guid nodeId,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken) =>
+      ExecuteAsync(
+          connectionFactory,
+          $"""
+          INSERT INTO profile_history_cursors (
+              node_id,
+              profile_id,
+              journal_status,
+              journal_capacity,
+              epoch,
+              epoch_resets,
+              manager_dropped_events,
+              missed_events,
+              dropped_samples,
+              dropped_rollups,
+              dropped_events,
+              dropped_subsystem_health,
+              dropped_capacity_deficits,
+              rejected_future_samples,
+              rejected_future_events,
+              updated_at)
+          VALUES (
+              '{nodeId:D}',
+              'default',
+              'current',
+              64,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              '{updatedAt:O}');
+          """,
+          cancellationToken);
+
+  private static Task SeedVersionSevenRollupAsync(
+      SqliteConnectionFactory connectionFactory,
+      Guid nodeId,
+      DateTimeOffset bucketStart,
+      int sampleCount,
+      CancellationToken cancellationToken) =>
+      ExecuteAsync(
+          connectionFactory,
+          $"""
+          INSERT INTO profile_telemetry_rollups (
+              node_id,
+              profile_id,
+              bucket_start,
+              sample_count,
+              max_desired_slots,
+              max_active_slots,
+              max_draining_slots,
+              max_local_running_workers,
+              max_exit_reports,
+              max_adverse_exit_reports)
+          VALUES (
+              '{nodeId:D}',
+              'default',
+              '{bucketStart:O}',
+              {sampleCount},
+              4,
+              2,
+              0,
+              2,
+              0,
+              0);
+          """,
+          cancellationToken);
 
   private static async Task<Guid> EnrollNodeAsync(
       SqliteConnectionFactory connectionFactory,

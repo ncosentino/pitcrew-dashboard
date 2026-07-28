@@ -125,6 +125,17 @@ public sealed class GetFleetHistoryUnitOfWorkTests
         nodeId,
         new HistoryQueryInput(null, null, "minutely", null, null, null),
         cancellationToken);
+    var oldRange = await unitOfWork.GetNodeHistoryAsync(
+        "tenant",
+        nodeId,
+        new HistoryQueryInput(
+            Now.AddHours(-options.MaximumHistoryRangeHours - 2).ToString("O"),
+            Now.AddHours(-options.MaximumHistoryRangeHours - 1).ToString("O"),
+            null,
+            null,
+            null,
+            null),
+        cancellationToken);
 
     await Assert.That(wideRange.Status).IsEqualTo(HistoryQueryStatus.Invalid);
     await Assert.That(invertedRange.Status)
@@ -137,6 +148,46 @@ public sealed class GetFleetHistoryUnitOfWorkTests
         .IsEqualTo(HistoryQueryStatus.Invalid);
     await Assert.That(unknownResolution.Status)
         .IsEqualTo(HistoryQueryStatus.Invalid);
+    await Assert.That(oldRange.Status).IsEqualTo(HistoryQueryStatus.Invalid);
+    await Assert.That(oldRange.Error)
+        .IsEqualTo(
+            $"History cannot be queried earlier than {options.MaximumHistoryRangeHours} hours before the current dashboard time.");
+  }
+
+  [Test]
+  public async Task Query_Allows_The_Maximum_Lookback_Boundary(
+      CancellationToken cancellationToken)
+  {
+    var options = new FleetDashboardOptions();
+    var nodeId = Guid.NewGuid();
+    var from = Now.AddHours(-options.MaximumHistoryRangeHours);
+    var to = from.AddHours(1);
+    var store = _mocks.Create<IFleetHistoryStore>();
+    store
+        .Setup(candidate => candidate.GetNodeHistoryAsync(
+            "tenant",
+            nodeId,
+            It.Is<HistoryWindow>(window =>
+                window.From == from &&
+                window.To == to),
+            Now,
+            It.IsAny<CancellationToken>()))
+        .ReturnsAsync(CreateResponse());
+
+    var result = await CreateUnitOfWork(store, options).GetNodeHistoryAsync(
+        "tenant",
+        nodeId,
+        new HistoryQueryInput(
+            from.ToString("O"),
+            to.ToString("O"),
+            null,
+            null,
+            null,
+            null),
+        cancellationToken);
+
+    await Assert.That(result.Status).IsEqualTo(HistoryQueryStatus.Succeeded);
+    _mocks.VerifyAll();
   }
 
   [Test]

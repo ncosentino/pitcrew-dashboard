@@ -160,6 +160,13 @@ internal sealed class GetFleetHistoryUnitOfWork(
           $"A history range cannot exceed {options.MaximumHistoryRangeHours} hours.";
       return null;
     }
+    if (from.Value <
+        generatedAt.AddHours(-options.MaximumHistoryRangeHours))
+    {
+      error =
+          $"History cannot be queried earlier than {options.MaximumHistoryRangeHours} hours before the current dashboard time.";
+      return null;
+    }
 
     var resolution = HistoryResolution.Raw;
     if (!string.IsNullOrWhiteSpace(input.Resolution))

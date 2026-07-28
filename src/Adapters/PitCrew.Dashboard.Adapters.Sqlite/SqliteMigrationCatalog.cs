@@ -748,18 +748,15 @@ internal static class SqliteMigrationCatalog
             -- evidence of an observation the dashboard has already accounted for, so the high-water
             -- is raised to the newest of them.
             --
-            -- The projection time is normalized to UTC and rounded up to the next whole second
-            -- because SQLite truncates sub-second precision, and rounding down would leave a
-            -- sub-second window a stale heartbeat could still slip through.
+            -- The latest projection keeps the exact authoritative observation time. A retained
+            -- rollup is used only when the latest projection is absent; its bucket end is a
+            -- conservative high-water for a profile that is no longer live.
             UPDATE profile_history_cursors
             SET sample_high_water = NULLIF(
                 MAX(
                     COALESCE(sample_high_water, ''),
                     COALESCE((
-                        SELECT strftime(
-                            '%Y-%m-%dT%H:%M:%S.0000000+00:00',
-                            p.observed_at,
-                            '+1 second')
+                        SELECT p.observed_at
                         FROM profiles AS p
                         WHERE p.node_id = profile_history_cursors.node_id
                           AND p.profile_id = profile_history_cursors.profile_id), ''),
@@ -769,10 +766,18 @@ internal static class SqliteMigrationCatalog
                         WHERE s.node_id = profile_history_cursors.node_id
                           AND s.profile_id = profile_history_cursors.profile_id), ''),
                     COALESCE((
-                        SELECT MAX(r.bucket_start)
+                        SELECT strftime(
+                            '%Y-%m-%dT%H:%M:%S.0000000+00:00',
+                            MAX(r.bucket_start),
+                            '+1 hour')
                         FROM profile_telemetry_rollups AS r
                         WHERE r.node_id = profile_history_cursors.node_id
-                          AND r.profile_id = profile_history_cursors.profile_id), '')),
+                          AND r.profile_id = profile_history_cursors.profile_id
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM profiles AS p
+                              WHERE p.node_id = profile_history_cursors.node_id
+                                AND p.profile_id = profile_history_cursors.profile_id)), '')),
                 '');
 
             ALTER TABLE profile_history_cursors

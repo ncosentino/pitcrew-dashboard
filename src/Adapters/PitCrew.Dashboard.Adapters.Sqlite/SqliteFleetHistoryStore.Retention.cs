@@ -30,8 +30,6 @@ internal sealed partial class SqliteFleetHistoryStore
       CapacityDeficitTable,
   ];
 
-  private static readonly string[] FloorScopes = ["node", "database"];
-
   private static readonly HistoryTable[] CountedTables =
   [
       new("profile_telemetry_samples", "observed_at", "observed_at"),
@@ -86,6 +84,12 @@ internal sealed partial class SqliteFleetHistoryStore
       await DeleteOrphanedFloorsAsync(
           connection,
           transaction,
+          cancellationToken);
+      await EnforceGlobalCapsAsync(
+          connection,
+          transaction,
+          receivedAt,
+          retention,
           cancellationToken);
     }
   }
@@ -180,6 +184,11 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         HistoryPartition.Database,
         retention.MaximumProfileHistories,
+        cancellationToken);
+    await BoundIncompletenessFloorsAsync(
+        connection,
+        transaction,
+        retention.MaximumHistoryNodes,
         cancellationToken);
   }
 
@@ -1121,6 +1130,73 @@ internal sealed partial class SqliteFleetHistoryStore
   }
 
   /// <summary>
+  /// Bounds node-scoped incompleteness floors without discarding the database-wide signal.
+  /// </summary>
+  /// <remarks>
+  /// Every tombstone is folded into both its node floor and the database floor. Once the node floor
+  /// exceeds its cap, deleting that redundant finer-grained row keeps the already-recorded
+  /// database-wide loss without counting the same expired profiles a second time.
+  /// </remarks>
+  private static async Task BoundIncompletenessFloorsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      int maximumNodes,
+      CancellationToken cancellationToken)
+  {
+    var excess = new List<string>();
+    await using (var command = connection.CreateCommand())
+    {
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          SELECT node_id
+          FROM (
+              SELECT
+                  node_id,
+                  ROW_NUMBER() OVER (
+                      ORDER BY latest_expired_at DESC, node_id ASC) AS rank_index
+              FROM history_incompleteness_floors
+              WHERE scope = 'node')
+          WHERE rank_index > $maximum;
+          """;
+      command.Parameters.AddWithValue("$maximum", maximumNodes);
+      await using var reader = await command.ExecuteReaderAsync(
+          cancellationToken);
+      while (await reader.ReadAsync(cancellationToken))
+      {
+        excess.Add(reader.GetString(0));
+      }
+    }
+
+    foreach (var nodeId in excess)
+    {
+      await DeleteNodeFloorAsync(
+          connection,
+          transaction,
+          nodeId,
+          cancellationToken);
+    }
+  }
+
+  private static async Task DeleteNodeFloorAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string nodeId,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        DELETE FROM history_incompleteness_floors
+        WHERE scope = 'node'
+          AND node_id = $nodeId;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId);
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  /// <summary>
   /// Folds one evicted tombstone into the bounded node and database incompleteness floors.
   /// </summary>
   /// <remarks>
@@ -1136,64 +1212,63 @@ internal sealed partial class SqliteFleetHistoryStore
       HistoryProfileKey key,
       CancellationToken cancellationToken)
   {
-    foreach (var scope in FloorScopes)
-    {
-      await using var command = connection.CreateCommand();
-      command.Transaction = transaction;
-      command.CommandText =
-          """
-          INSERT INTO history_incompleteness_floors (
-              scope,
-              node_id,
-              earliest_expired_at,
-              latest_expired_at,
-              expired_profiles,
-              dropped_samples,
-              dropped_rollups,
-              dropped_events,
-              dropped_subsystem_health,
-              dropped_capacity_deficits)
-          SELECT
-              $scope,
-              CASE WHEN $scope = 'node' THEN t.node_id ELSE '' END,
-              t.expired_at,
-              t.expired_at,
-              1,
-              t.dropped_samples,
-              t.dropped_rollups,
-              t.dropped_events,
-              t.dropped_subsystem_health,
-              t.dropped_capacity_deficits
-          FROM profile_history_tombstones AS t
-          WHERE t.node_id = $nodeId
-            AND t.profile_id = $profileId
-          ON CONFLICT (scope, node_id) DO UPDATE SET
-              earliest_expired_at = MIN(
-                  history_incompleteness_floors.earliest_expired_at,
-                  excluded.earliest_expired_at),
-              latest_expired_at = MAX(
-                  history_incompleteness_floors.latest_expired_at,
-                  excluded.latest_expired_at),
-              expired_profiles =
-                  history_incompleteness_floors.expired_profiles + 1,
-              dropped_samples = history_incompleteness_floors.dropped_samples
-                  + excluded.dropped_samples,
-              dropped_rollups = history_incompleteness_floors.dropped_rollups
-                  + excluded.dropped_rollups,
-              dropped_events = history_incompleteness_floors.dropped_events
-                  + excluded.dropped_events,
-              dropped_subsystem_health =
-                  history_incompleteness_floors.dropped_subsystem_health
-                  + excluded.dropped_subsystem_health,
-              dropped_capacity_deficits =
-                  history_incompleteness_floors.dropped_capacity_deficits
-                  + excluded.dropped_capacity_deficits;
-          """;
-      command.Parameters.AddWithValue("$scope", scope);
-      command.Parameters.AddWithValue("$nodeId", key.NodeId);
-      command.Parameters.AddWithValue("$profileId", key.ProfileId);
-      await command.ExecuteNonQueryAsync(cancellationToken);
-    }
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        WITH scopes(scope) AS (
+            VALUES ('node'), ('database'))
+        INSERT INTO history_incompleteness_floors (
+            scope,
+            node_id,
+            earliest_expired_at,
+            latest_expired_at,
+            expired_profiles,
+            dropped_samples,
+            dropped_rollups,
+            dropped_events,
+            dropped_subsystem_health,
+            dropped_capacity_deficits)
+        SELECT
+            s.scope,
+            CASE WHEN s.scope = 'node' THEN t.node_id ELSE '' END,
+            t.expired_at,
+            t.expired_at,
+            1,
+            t.dropped_samples,
+            t.dropped_rollups,
+            t.dropped_events,
+            t.dropped_subsystem_health,
+            t.dropped_capacity_deficits
+        FROM profile_history_tombstones AS t
+        CROSS JOIN scopes AS s
+        WHERE t.node_id = $nodeId
+          AND t.profile_id = $profileId
+        ON CONFLICT (scope, node_id) DO UPDATE SET
+            earliest_expired_at = MIN(
+                history_incompleteness_floors.earliest_expired_at,
+                excluded.earliest_expired_at),
+            latest_expired_at = MAX(
+                history_incompleteness_floors.latest_expired_at,
+                excluded.latest_expired_at),
+            expired_profiles =
+                history_incompleteness_floors.expired_profiles + 1,
+            dropped_samples = history_incompleteness_floors.dropped_samples
+                + excluded.dropped_samples,
+            dropped_rollups = history_incompleteness_floors.dropped_rollups
+                + excluded.dropped_rollups,
+            dropped_events = history_incompleteness_floors.dropped_events
+                + excluded.dropped_events,
+            dropped_subsystem_health =
+                history_incompleteness_floors.dropped_subsystem_health
+                + excluded.dropped_subsystem_health,
+            dropped_capacity_deficits =
+                history_incompleteness_floors.dropped_capacity_deficits
+                + excluded.dropped_capacity_deficits;
+        """;
+    command.Parameters.AddWithValue("$nodeId", key.NodeId);
+    command.Parameters.AddWithValue("$profileId", key.ProfileId);
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   private static async Task DeleteTombstoneAsync(
@@ -1235,22 +1310,40 @@ internal sealed partial class SqliteFleetHistoryStore
   }
 
   /// <summary>
-  /// Drops node incompleteness floors whose node no longer exists.
+  /// Drops redundant node incompleteness floors whose node no longer exists.
   /// </summary>
   private static async Task DeleteOrphanedFloorsAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
       CancellationToken cancellationToken)
   {
-    await using var command = connection.CreateCommand();
-    command.Transaction = transaction;
-    command.CommandText =
-        """
-        DELETE FROM history_incompleteness_floors
-        WHERE scope = 'node'
-          AND node_id NOT IN (SELECT node_id FROM nodes);
-        """;
-    await command.ExecuteNonQueryAsync(cancellationToken);
+    var orphaned = new List<string>();
+    await using (var command = connection.CreateCommand())
+    {
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          SELECT node_id
+          FROM history_incompleteness_floors
+          WHERE scope = 'node'
+            AND node_id NOT IN (SELECT node_id FROM nodes);
+          """;
+      await using var reader = await command.ExecuteReaderAsync(
+          cancellationToken);
+      while (await reader.ReadAsync(cancellationToken))
+      {
+        orphaned.Add(reader.GetString(0));
+      }
+    }
+
+    foreach (var nodeId in orphaned)
+    {
+      await DeleteNodeFloorAsync(
+          connection,
+          transaction,
+          nodeId,
+          cancellationToken);
+    }
   }
 
   private static TimeSpan LongestRetention(HistoryRetentionPolicy retention)

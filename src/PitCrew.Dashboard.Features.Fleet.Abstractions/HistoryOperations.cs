@@ -495,7 +495,7 @@ public sealed record NodeHistoryResponse(
 /// server rejects.
 /// </remarks>
 /// <param name="DefaultRangeHours">Range served when a caller supplies no bounds.</param>
-/// <param name="MaximumRangeHours">Widest range one bounded query may request.</param>
+/// <param name="MaximumRangeHours">Widest span and furthest lookback one bounded query may request.</param>
 /// <param name="Resolutions">Stored resolutions this deployment serves.</param>
 /// <param name="MaximumPoints">Largest accepted per-profile point limit.</param>
 /// <param name="MaximumEvents">Largest accepted per-profile event limit.</param>

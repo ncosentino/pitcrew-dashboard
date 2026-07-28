@@ -116,6 +116,14 @@ internal sealed partial class SqliteFleetHistoryStore(
           nodeId,
           profile.ProfileId,
           cancellationToken);
+      if (cursor.SampleHighWater is not null &&
+          (profile.ObservedAt < cursor.SampleHighWater.Value ||
+              (cursor.HistoryExpiredAt is not null &&
+                  profile.ObservedAt <= cursor.SampleHighWater.Value)))
+      {
+        continue;
+      }
+
       var futureEvents = CountImplausibleEvents(profile, horizon);
       if (profile.ObservedAt > horizon ||
           futureEvents > 0 ||
@@ -132,46 +140,45 @@ internal sealed partial class SqliteFleetHistoryStore(
         continue;
       }
 
-      if (cursor.SampleHighWater is not null &&
-          profile.ObservedAt <= cursor.SampleHighWater.Value)
+      var observationAdvanced = cursor.SampleHighWater is null ||
+          profile.ObservedAt > cursor.SampleHighWater.Value;
+      if (observationAdvanced)
       {
-        continue;
+        await AppendSampleAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            receivedAt,
+            cancellationToken);
+        await AdvanceSampleHighWaterAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            receivedAt,
+            cancellationToken);
+        await AccumulateRollupAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            cancellationToken);
+        await AppendSubsystemHealthAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            receivedAt,
+            cancellationToken);
+        await AppendCapacityDeficitsAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            receivedAt,
+            cancellationToken);
       }
-
-      await AppendSampleAsync(
-          connection,
-          sqliteTransaction,
-          nodeId,
-          profile,
-          receivedAt,
-          cancellationToken);
-      await AdvanceSampleHighWaterAsync(
-          connection,
-          sqliteTransaction,
-          nodeId,
-          profile,
-          receivedAt,
-          cancellationToken);
-      await AccumulateRollupAsync(
-          connection,
-          sqliteTransaction,
-          nodeId,
-          profile,
-          cancellationToken);
-      await AppendSubsystemHealthAsync(
-          connection,
-          sqliteTransaction,
-          nodeId,
-          profile,
-          receivedAt,
-          cancellationToken);
-      await AppendCapacityDeficitsAsync(
-          connection,
-          sqliteTransaction,
-          nodeId,
-          profile,
-          receivedAt,
-          cancellationToken);
       await AppendEventsAsync(
           connection,
           sqliteTransaction,
@@ -221,13 +228,15 @@ internal sealed partial class SqliteFleetHistoryStore(
           cancellationToken);
 
   /// <summary>
-  /// Creates the durable cursor for one profile, adopting any tombstone left by a prior expiry.
+  /// Creates the durable cursor for one profile, adopting retained or compacted expiry provenance.
   /// </summary>
   /// <remarks>
   /// A profile that returns after its history was deliberately expired must not look pristine: the
   /// tombstone restores the durable epoch, the durable sample high-water, every dropped or rejected
   /// counter, and the expiry time itself, so an old heartbeat cannot reinsert a sample or reset the
-  /// event epoch and the returning profile keeps reporting the range it can no longer serve.
+  /// event epoch and the returning profile keeps reporting the range it can no longer serve. If its
+  /// tombstone was compacted away, the latest applicable node or database floor conservatively seeds
+  /// the high-water and a reset epoch until a newer authoritative observation arrives.
   /// </remarks>
   private static async Task EnsureCursorAsync(
       SqliteConnection connection,
@@ -268,8 +277,12 @@ internal sealed partial class SqliteFleetHistoryStore(
               $profileId,
               'unreported',
               0,
-              COALESCE(t.epoch, 0),
-              COALESCE(t.epoch_resets, 0),
+              COALESCE(
+                  t.epoch,
+                  CASE WHEN f.latest_expired_at IS NULL THEN 0 ELSE 1 END),
+              COALESCE(
+                  t.epoch_resets,
+                  CASE WHEN f.latest_expired_at IS NULL THEN 0 ELSE 1 END),
               NULL,
               COALESCE(t.manager_dropped_events, 0),
               t.stored_highest_sequence,
@@ -282,12 +295,18 @@ internal sealed partial class SqliteFleetHistoryStore(
               COALESCE(t.rejected_future_samples, 0),
               COALESCE(t.rejected_future_events, 0),
               $updatedAt,
-              t.sample_high_water,
-              t.expired_at
+              COALESCE(t.sample_high_water, f.latest_expired_at),
+              COALESCE(t.expired_at, f.latest_expired_at)
           FROM (SELECT 1) AS present
           LEFT JOIN profile_history_tombstones AS t
             ON t.node_id = $nodeId
            AND t.profile_id = $profileId
+          LEFT JOIN (
+              SELECT MAX(latest_expired_at) AS latest_expired_at
+              FROM history_incompleteness_floors
+              WHERE scope = 'database'
+                 OR (scope = 'node' AND node_id = $nodeId)) AS f
+            ON 1 = 1
           ON CONFLICT (node_id, profile_id) DO NOTHING;
           """;
       command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
@@ -386,7 +405,8 @@ internal sealed partial class SqliteFleetHistoryStore(
   /// <remarks>
   /// The high-water is kept on the cursor rather than derived from retained rows, so a stale
   /// heartbeat arriving after raw retention deleted the sample it duplicates cannot reinsert that
-  /// sample or inflate the hourly rollup it already contributed to.
+  /// sample or inflate the hourly rollup it already contributed to. A newer accepted observation
+  /// clears the per-profile expiry marker because the coarser floor now carries the older loss.
   /// </remarks>
   private static async Task AdvanceSampleHighWaterAsync(
       SqliteConnection connection,
@@ -402,6 +422,7 @@ internal sealed partial class SqliteFleetHistoryStore(
         """
         UPDATE profile_history_cursors
         SET sample_high_water = $observedAt,
+            history_expired_at = NULL,
             updated_at = $updatedAt
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
@@ -1175,7 +1196,7 @@ internal sealed partial class SqliteFleetHistoryStore(
             cancellationToken);
         foreach (var sequence in unknown)
         {
-          if (retained.TryGetValue(sequence, out var stored) &&
+          if (!retained.TryGetValue(sequence, out var stored) ||
               !string.Equals(
                   stored,
                   fingerprints[sequence],
@@ -1621,7 +1642,8 @@ internal sealed partial class SqliteFleetHistoryStore(
             epoch,
             epoch_resets,
             stored_highest_sequence,
-            sample_high_water
+            sample_high_water,
+            history_expired_at
         FROM profile_history_cursors
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
@@ -1632,7 +1654,7 @@ internal sealed partial class SqliteFleetHistoryStore(
         cancellationToken);
     if (!await reader.ReadAsync(cancellationToken))
     {
-      return new CursorState(0, 0, null, null);
+      return new CursorState(0, 0, null, null, null);
     }
 
     var row = new SqliteRowReader(reader);
@@ -1640,7 +1662,8 @@ internal sealed partial class SqliteFleetHistoryStore(
         row.Int64("epoch"),
         row.Int64("epoch_resets"),
         row.OptionalInt64("stored_highest_sequence"),
-        row.OptionalTime("sample_high_water"));
+        row.OptionalTime("sample_high_water"),
+        row.OptionalTime("history_expired_at"));
   }
 
   private static DateTimeOffset BucketStart(DateTimeOffset observedAt)
@@ -1671,5 +1694,6 @@ internal sealed partial class SqliteFleetHistoryStore(
       long Epoch,
       long EpochResets,
       long? StoredHighestSequence,
-      DateTimeOffset? SampleHighWater);
+      DateTimeOffset? SampleHighWater,
+      DateTimeOffset? HistoryExpiredAt);
 }

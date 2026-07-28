@@ -231,7 +231,7 @@ public sealed class FleetDashboardOptions
   public int DefaultHistoryRangeHours { get; set; } = 24;
 
   /// <summary>
-  /// Gets or sets the widest history range one bounded query may request.
+  /// Gets or sets the widest span and furthest lookback one bounded history query may request.
   /// </summary>
   [Range(1, 8760)]
   public int MaximumHistoryRangeHours { get; set; } = 2160;

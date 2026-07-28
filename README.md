@@ -248,12 +248,14 @@ and events.
 
 - A telemetry sample is appended only when the authoritative manager
   `observedAt` advances past a durable per-profile sample high-water mark, so a
-  duplicated connector heartbeat creates no duplicate sample. The high-water is
-  persisted on the profile cursor rather than derived from retained rows, so a
-  stale heartbeat arriving after raw retention already deleted the sample it
-  duplicates can neither reinsert that sample nor inflate the hourly rollup it
-  already contributed to. The high-water survives until the profile and all of
-  its derived history are deliberately expired.
+  duplicated connector heartbeat creates no duplicate sample. An equal-time
+  heartbeat remains sample-deduplicated but may append journal sequences that
+  were not present in the earlier delivery. The high-water is persisted on the
+  profile cursor rather than derived from retained rows, so a stale heartbeat
+  arriving after raw retention already deleted the sample it duplicates can
+  neither reinsert that sample nor inflate the hourly rollup it already
+  contributed to. The high-water survives until the profile and all of its
+  derived history are deliberately expired.
 - A manager event is stored once per durable `(node, profile, epoch, sequence)`
   identity. The epoch is a local, durable generation counter that advances when a
   manager sequence regression proves the manager journal was lost, and also when
@@ -385,9 +387,10 @@ optional cap is omitted from the request whenever the server default already
 matches it.
 
 The history endpoints accept `from`, `to`, `resolution` (`raw` or `hourly`),
-`points`, `events`, and `diagnostics`. The range defaults to 24 hours, is rejected beyond the
-configured maximum, and every response is capped by explicit per-profile and
-node-wide point, event, and diagnostic limits. The node-wide diagnostic budget is
+`points`, `events`, and `diagnostics`. The range defaults to 24 hours, cannot
+start earlier than the configured maximum lookback from current dashboard time,
+and cannot span more than that maximum. Every response is capped by explicit
+per-profile and node-wide point, event, and diagnostic limits. The node-wide diagnostic budget is
 one combined budget shared by subsystem health and capacity deficits, and the two
 per-profile diagnostic ceilings are reported separately
 (`profileSubsystemHealthLimit`, `profileCapacityDeficitLimit`) so the advertised
