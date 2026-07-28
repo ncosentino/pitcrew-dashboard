@@ -1,7 +1,7 @@
 import { describeResourcePolicy, type ManagerObservedState } from '@/core/fleet';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+import { ProfileEvidencePanel } from './ProfileEvidencePanel';
 
 /** Renders the configured per-worker resource policy and profile admission ceiling. */
 export function ProfileResourcePolicy({ profile }: { readonly profile: ManagerObservedState }) {
@@ -10,7 +10,7 @@ export function ProfileResourcePolicy({ profile }: { readonly profile: ManagerOb
   const limits = describeResourcePolicy(policy);
 
   return (
-    <ProfileEvidenceDisclosure
+    <ProfileEvidencePanel
       title="Worker resource policy"
       description={
         policy === null
@@ -49,6 +49,6 @@ export function ProfileResourcePolicy({ profile }: { readonly profile: ManagerOb
           </dd>
         </div>
       </dl>
-    </ProfileEvidenceDisclosure>
+    </ProfileEvidencePanel>
   );
 }

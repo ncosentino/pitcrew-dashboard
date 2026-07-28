@@ -2,7 +2,7 @@ import { type ManagerObservedState, type ObservedSlot } from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatPids, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+import { ProfileEvidencePanel } from './ProfileEvidencePanel';
 
 function aggregateSlotResources(slots: ReadonlyArray<ObservedSlot>) {
   return slots.reduce(
@@ -35,7 +35,7 @@ export function ProfileResourceTelemetry({ profile }: { readonly profile: Manage
       : `${workerResources.reportingSlots} of ${profile.slots.length} slots reporting`;
 
   return (
-    <ProfileEvidenceDisclosure
+    <ProfileEvidencePanel
       title="Resource utilization"
       description={`Point-in-time manager sample · ${workerCoverage}`}
       summary={
@@ -87,6 +87,6 @@ export function ProfileResourceTelemetry({ profile }: { readonly profile: Manage
       <p className="mt-3 text-xs text-muted-foreground">
         Samples arrive roughly every 30 seconds; dashboard polling can repeat the same sample.
       </p>
-    </ProfileEvidenceDisclosure>
+    </ProfileEvidencePanel>
   );
 }

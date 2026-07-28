@@ -26,6 +26,7 @@ interface FleetHistoryPanelProps {
   readonly nodeId: string;
   readonly profileId: string | null;
   readonly testId: string;
+  readonly presentation?: 'disclosure' | 'page';
 }
 
 const scrollRegionClasses =
@@ -323,13 +324,19 @@ function describeLiveState({
 /**
  * Renders bounded retained history for one node or one profile.
  *
- * The same panel serves the node and profile views so the accessible chart, deficit, and manager
- * operation presentation is defined once. Every profile is grouped behind its own disclosure so a
- * node with many profiles does not render an unbounded wall of charts.
+ * The same panel serves node and profile routes so chart, deficit, and manager-operation semantics
+ * stay consistent. Node history groups profiles behind disclosures; a profile history route renders
+ * its one selected profile directly.
  */
-export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: FleetHistoryPanelProps) {
+export function FleetHistoryPanel({
+  tenantId,
+  nodeId,
+  profileId,
+  testId,
+  presentation = 'disclosure',
+}: FleetHistoryPanelProps) {
   const [presetKey, setPresetKey] = useState<string | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(presentation === 'page');
   const {
     capabilities,
     error: capabilitiesError,
@@ -354,6 +361,104 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
     isStale,
     truncation: isBusy ? null : describeResponseTruncation(history),
   });
+  const content = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs font-medium" htmlFor={`${testId}-range`}>
+          Time range
+        </label>
+        <select
+          className="rounded border bg-background px-2 py-1 text-xs"
+          disabled={presets.length === 0}
+          id={`${testId}-range`}
+          onChange={(event) => setPresetKey(event.currentTarget.value)}
+          value={range?.key ?? ''}
+        >
+          {presets.map((candidate) => (
+            <option key={candidate.key} value={candidate.key}>
+              {candidate.label}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">{range?.description ?? ''}</span>
+      </div>
+      <p
+        aria-live="polite"
+        className={
+          liveMessage == null
+            ? 'sr-only'
+            : isLoading
+              ? 'text-xs text-muted-foreground'
+              : 'rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
+        }
+        role="status"
+      >
+        {liveMessage ?? ''}
+      </p>
+      {capabilitiesError != null ? (
+        <p
+          className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+          role="alert"
+        >
+          {capabilitiesError}
+        </p>
+      ) : null}
+      {error != null ? (
+        <p
+          className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
+      {history?.incompletenessFloors.map((floor) => (
+        <p
+          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          key={floor.scope}
+        >
+          {describeIncompletenessFloor(floor)}
+        </p>
+      ))}
+      {history != null && history.profiles.length === 0 ? (
+        <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
+          No retained history exists for this range.
+        </p>
+      ) : null}
+      {history?.profiles.map((profile) =>
+        presentation === 'page' && profileId !== null ? (
+          <ProfileHistorySections
+            expectedRawCadenceSeconds={capabilities?.expectedRawCadenceSeconds ?? null}
+            history={profile}
+            key={profile.profileId}
+            resolution={history.resolution}
+          />
+        ) : (
+          <ProfileHistoryDisclosure
+            history={profile}
+            expectedRawCadenceSeconds={capabilities?.expectedRawCadenceSeconds ?? null}
+            isInitiallyOpen={history.profiles.length === 1}
+            key={profile.profileId}
+            resolution={history.resolution}
+          />
+        ),
+      )}
+    </>
+  );
+
+  if (presentation === 'page') {
+    return (
+      <section className="overflow-hidden rounded-lg border bg-card shadow-sm" data-testid={testId}>
+        <div className="px-4 py-4">
+          <h2 className="font-semibold">History</h2>
+          <p className="text-xs text-muted-foreground">
+            Bounded retained telemetry and durable manager operations. History is retained only
+            while a connector reports advancing manager observations.
+          </p>
+        </div>
+        <div className="grid gap-4 border-t px-4 py-4">{content}</div>
+      </section>
+    );
+  }
 
   return (
     <details
@@ -374,78 +479,7 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
           <span className="hidden group-open:inline">Hide history</span>
         </div>
       </summary>
-      <div className="grid gap-4 border-t px-4 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs font-medium" htmlFor={`${testId}-range`}>
-            Time range
-          </label>
-          <select
-            className="rounded border bg-background px-2 py-1 text-xs"
-            disabled={presets.length === 0}
-            id={`${testId}-range`}
-            onChange={(event) => setPresetKey(event.currentTarget.value)}
-            value={range?.key ?? ''}
-          >
-            {presets.map((candidate) => (
-              <option key={candidate.key} value={candidate.key}>
-                {candidate.label}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-muted-foreground">{range?.description ?? ''}</span>
-        </div>
-        <p
-          aria-live="polite"
-          className={
-            liveMessage == null
-              ? 'sr-only'
-              : isLoading
-                ? 'text-xs text-muted-foreground'
-                : 'rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
-          }
-          role="status"
-        >
-          {liveMessage ?? ''}
-        </p>
-        {capabilitiesError != null ? (
-          <p
-            className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
-            role="alert"
-          >
-            {capabilitiesError}
-          </p>
-        ) : null}
-        {error != null ? (
-          <p
-            className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
-            role="alert"
-          >
-            {error}
-          </p>
-        ) : null}
-        {history?.incompletenessFloors.map((floor) => (
-          <p
-            className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-            key={floor.scope}
-          >
-            {describeIncompletenessFloor(floor)}
-          </p>
-        ))}
-        {history != null && history.profiles.length === 0 ? (
-          <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
-            No retained history exists for this range.
-          </p>
-        ) : null}
-        {history?.profiles.map((profile) => (
-          <ProfileHistoryDisclosure
-            history={profile}
-            expectedRawCadenceSeconds={capabilities?.expectedRawCadenceSeconds ?? null}
-            isInitiallyOpen={history.profiles.length === 1}
-            key={profile.profileId}
-            resolution={history.resolution}
-          />
-        ))}
-      </div>
+      <div className="grid gap-4 border-t px-4 py-4">{content}</div>
     </details>
   );
 }

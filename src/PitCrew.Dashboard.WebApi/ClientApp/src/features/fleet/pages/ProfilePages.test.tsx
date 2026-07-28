@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,10 @@ import { features } from '@/features.registry';
 
 const nodeId = 'a6235ec4-2a15-4f91-a9e0-811152869a51';
 const profilePath = `/tenants/local/nodes/${nodeId}/profiles/default`;
+
+function profileRoute(section?: 'capacity' | 'workers' | 'diagnostics' | 'history' | 'recovery') {
+  return section ? `${profilePath}/${section}` : profilePath;
+}
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -198,6 +202,7 @@ function fleetResponse(nodes: ReadonlyArray<unknown> = [nodeResponse()]) {
 function renderProfile(
   fleet: unknown,
   role: 'viewer' | 'administrator' | 'owner' = 'owner',
+  path = profilePath,
   fetchOverride?: typeof fetch,
 ) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(
@@ -207,7 +212,7 @@ function renderProfile(
         return jsonResponse(fleet);
       }),
   );
-  const router = createTestRouter(features, [profilePath]);
+  const router = createTestRouter(features, [path]);
   render(
     <SessionProvider>
       <RouterProvider router={router} />
@@ -441,27 +446,48 @@ function contractTwelveFleet(overrides: Readonly<Record<string, unknown>> = {}) 
   return fleetResponse([nodeResponse({ profiles: [contractTwelveProfile(overrides)] })]);
 }
 
-describe('ProfileDetailPage', () => {
+describe('profile detail routes', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it('renders autoscaling, partial telemetry, and complete slot diagnostics', async () => {
-    renderProfile(fleetResponse());
+    const router = renderProfile(fleetResponse());
 
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Profile default overview' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    const navigation = await screen.findByRole('navigation', {
+      name: 'default profile navigation',
+    });
+    expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(navigation).getByRole('link', { name: 'Capacity' })).toHaveAttribute(
+      'href',
+      `${profilePath}/capacity`,
+    );
+    expect(document.querySelector('details')).toBeNull();
+
+    await act(async () => {
+      await router.navigate(profileRoute('capacity'));
+    });
     expect(
       await screen.findByTestId('profile-capacity-target-default', {}, { timeout: 5_000 }),
     ).toHaveTextContent('3');
-    expect(screen.getByRole('heading', { level: 1, name: 'Profile default' })).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { name: 'Profile default' })).toHaveLength(1);
-    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(
-      screen.getByText('repo scope · generation 4 · manager contract 10', { exact: false }),
-    ).toBeInTheDocument();
     expect(screen.getByTestId('profile-autoscaling-error-default')).toHaveTextContent(
       'GitHub queue observation failed.',
     );
     expect(screen.getByTestId('profile-capacity-eligible-default')).toHaveTextContent('1');
+
+    await act(async () => {
+      await router.navigate(profileRoute('diagnostics'));
+    });
+    expect(
+      await screen.findByTestId('profile-resource-telemetry-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('partial');
     expect(screen.getByTestId('profile-resource-telemetry-default')).toHaveTextContent('partial');
     expect(screen.getByTestId('profile-resource-host-default')).toHaveTextContent('Unavailable');
     expect(screen.getByTestId('profile-resource-manager-default')).toHaveTextContent(
@@ -471,7 +497,10 @@ describe('ProfileDetailPage', () => {
       '1.25 cores · 256 MiB · 12 PIDs',
     );
 
-    const table = screen.getByRole('table', { name: 'Slots for profile default' });
+    await act(async () => {
+      await router.navigate(profileRoute('workers'));
+    });
+    const table = await screen.findByRole('table', { name: 'Slots for profile default' });
     expect(
       screen.getByRole('region', { name: 'Scrollable worker slots for profile default' }),
     ).toHaveAttribute('tabindex', '0');
@@ -505,15 +534,28 @@ describe('ProfileDetailPage', () => {
       eligibleSlots: 0,
       configuredSlots: 2,
     });
-    renderProfile(fleetResponse([nodeResponse({ profiles: [profile] })]), 'viewer');
+    const router = renderProfile(
+      fleetResponse([nodeResponse({ profiles: [profile] })]),
+      'viewer',
+      profileRoute('capacity'),
+    );
 
     expect(await screen.findByText('Fixed capacity')).toBeInTheDocument();
     expect(screen.getByTestId('profile-capacity-configured-default')).toHaveTextContent('2');
     expect(screen.queryByLabelText('Absolute maximum')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate(profileRoute('diagnostics'));
+    });
+    await screen.findByTestId('profile-resource-telemetry-default');
     expect(screen.getByTestId('profile-resource-host-default')).toHaveTextContent('Unavailable');
     expect(screen.getByTestId('profile-resource-manager-default')).toHaveTextContent('Unavailable');
+
+    await act(async () => {
+      await router.navigate(profileRoute('workers'));
+    });
     expect(
-      screen.getByText('The manager has not reported any slots for this profile.'),
+      await screen.findByText('The manager has not reported any slots for this profile.'),
     ).toBeInTheDocument();
   });
 
@@ -524,11 +566,18 @@ describe('ProfileDetailPage', () => {
       eligibleSlots: undefined,
       slots: [legacySlot],
     });
-    renderProfile(fleetResponse([nodeResponse({ profiles: [profile] })]));
+    const router = renderProfile(
+      fleetResponse([nodeResponse({ profiles: [profile] })]),
+      'owner',
+      profileRoute('capacity'),
+    );
 
     expect(await screen.findByTestId('profile-capacity-eligible-default')).toHaveTextContent(
       'Unknown',
     );
+    await act(async () => {
+      await router.navigate(profileRoute('workers'));
+    });
     expect(screen.getByTestId('slot-registration-repo-default-000001')).toHaveTextContent(
       'unknown',
     );
@@ -538,7 +587,7 @@ describe('ProfileDetailPage', () => {
     ['offline', { isOnline: false }, 'offline'],
     ['revoked', { isRevoked: true }, 'revoked'],
   ])('disables capacity changes for %s nodes', async (_name, nodeOverrides, status) => {
-    renderProfile(fleetResponse([nodeResponse(nodeOverrides)]));
+    renderProfile(fleetResponse([nodeResponse(nodeOverrides)]), 'owner', profileRoute('capacity'));
 
     const input = await screen.findByLabelText('Absolute maximum');
     expect(input).toBeDisabled();
@@ -550,6 +599,8 @@ describe('ProfileDetailPage', () => {
       fleetResponse([
         nodeResponse({ profiles: [profileResponse({ managerStatus, autoscaling: null })] }),
       ]),
+      'owner',
+      profileRoute('capacity'),
     );
 
     expect(await screen.findByTestId('profile-manager-unavailable')).toHaveTextContent(
@@ -566,6 +617,8 @@ describe('ProfileDetailPage', () => {
             capacityControls: [capacityControl(command(status))],
           }),
         ]),
+        'owner',
+        profileRoute('capacity'),
       );
 
       const control = await screen.findByTestId('profile-capacity-control-default');
@@ -591,7 +644,7 @@ describe('ProfileDetailPage', () => {
       if (init?.method === 'POST') return await mutation;
       return jsonResponse(fleetResponse());
     });
-    renderProfile(fleetResponse(), 'owner', fetchMock);
+    renderProfile(fleetResponse(), 'owner', profileRoute('capacity'), fetchMock);
     const user = userEvent.setup();
 
     const input = await screen.findByLabelText('Absolute maximum');
@@ -627,13 +680,9 @@ describe('ProfileDetailPage', () => {
   });
 
   it('renders contract 11 policy, admission ceiling, image identity, I/O, and exit evidence', async () => {
-    renderProfile(contractElevenFleet());
+    const router = renderProfile(contractElevenFleet(), 'owner', profileRoute('workers'));
 
-    expect(await screen.findByTestId('profile-resource-policy-default')).not.toHaveAttribute(
-      'open',
-    );
-    expect(screen.getByTestId('profile-targets-default')).not.toHaveAttribute('open');
-    expect(screen.getByTestId('profile-resource-telemetry-default')).not.toHaveAttribute('open');
+    expect(await screen.findByTestId('profile-resource-policy-default')).toBeInTheDocument();
     expect(await screen.findByTestId('profile-policy-memory-default')).toHaveTextContent('2 GiB');
     expect(screen.getByTestId('profile-policy-memory-plus-swap-default')).toHaveTextContent(
       '4 GiB',
@@ -654,11 +703,25 @@ describe('ProfileDetailPage', () => {
     const lastExit = screen.getByTestId('slot-last-exit-repo-default-000001');
     expect(lastExit).toHaveTextContent('unknown');
     expect(lastExit).not.toHaveTextContent('clean');
+
+    await act(async () => {
+      await router.navigate(profileRoute('capacity'));
+    });
+    expect(await screen.findByTestId('profile-targets-default')).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate(profileRoute('diagnostics'));
+    });
+    expect(await screen.findByTestId('profile-resource-telemetry-default')).toBeInTheDocument();
     expect(screen.queryByText('Last error: None')).not.toBeInTheDocument();
   });
 
   it('describes absent exit evidence without calling it clean', async () => {
-    renderProfile(contractElevenFleet([target()], { lastExit: null }));
+    renderProfile(
+      contractElevenFleet([target()], { lastExit: null }),
+      'owner',
+      profileRoute('workers'),
+    );
 
     const lastExit = await screen.findByTestId('slot-last-exit-repo-default-000001');
     expect(within(lastExit).getByText('Not recorded')).toBeInTheDocument();
@@ -671,7 +734,7 @@ describe('ProfileDetailPage', () => {
   });
 
   it('surfaces registration divergence when GitHub reports more registrations than local workers', async () => {
-    renderProfile(contractElevenFleet());
+    renderProfile(contractElevenFleet(), 'owner', profileRoute('capacity'));
 
     const divergence = await screen.findByTestId('target-divergence-default-scale-set-linux');
     expect(screen.getByTestId('profile-targets-default')).toHaveTextContent('1 warning');
@@ -684,6 +747,8 @@ describe('ProfileDetailPage', () => {
   it('surfaces divergence when GitHub reports no registrations for live workers', async () => {
     renderProfile(
       contractElevenFleet([target({ statistics: statistics({ registeredRunners: 0 }) })]),
+      'owner',
+      profileRoute('capacity'),
     );
 
     const divergence = await screen.findByTestId('target-divergence-default-scale-set-linux');
@@ -705,6 +770,8 @@ describe('ProfileDetailPage', () => {
           }),
         }),
       ]),
+      'owner',
+      profileRoute('capacity'),
     );
 
     expect(await screen.findByTestId('target-freshness-default-scale-set-linux')).toHaveTextContent(
@@ -720,7 +787,11 @@ describe('ProfileDetailPage', () => {
   });
 
   it('keeps unavailable GitHub statistics distinct from measured zero', async () => {
-    renderProfile(contractElevenFleet([target({ statistics: null })]));
+    renderProfile(
+      contractElevenFleet([target({ statistics: null })]),
+      'owner',
+      profileRoute('capacity'),
+    );
 
     expect(await screen.findByTestId('target-github-default-scale-set-linux')).toHaveTextContent(
       'Unavailable',
@@ -734,7 +805,7 @@ describe('ProfileDetailPage', () => {
   });
 
   it('marks contract 10 profiles as lacking contract 11 evidence', async () => {
-    renderProfile(fleetResponse());
+    const router = renderProfile(fleetResponse(), 'owner', profileRoute('workers'));
 
     expect(await screen.findByTestId('profile-policy-memory-default')).toHaveTextContent(
       'Unavailable',
@@ -742,6 +813,9 @@ describe('ProfileDetailPage', () => {
     expect(screen.getByTestId('profile-admission-ceiling-default')).toHaveTextContent(
       'Unavailable',
     );
+    await act(async () => {
+      await router.navigate(profileRoute('capacity'));
+    });
     expect(screen.getByTestId('profile-targets-default')).toHaveTextContent(
       'does not report per-target scale-set evidence',
     );
@@ -817,7 +891,7 @@ describe('ProfileDetailPage', () => {
       'capacity-active',
     ],
   ])('explains why recovery is unavailable for %s', async (_name, role, fleet, reason) => {
-    renderProfile(fleet, role as 'viewer' | 'owner');
+    renderProfile(fleet, role as 'viewer' | 'owner', profileRoute('recovery'));
 
     const action = await screen.findByTestId('profile-recovery-action-default');
     expect(action).toBeDisabled();
@@ -838,7 +912,7 @@ describe('ProfileDetailPage', () => {
       }
       return jsonResponse(recoveryFleet());
     });
-    renderProfile(recoveryFleet(), 'owner', fetchMock);
+    renderProfile(recoveryFleet(), 'owner', profileRoute('recovery'), fetchMock);
     const user = userEvent.setup();
 
     const action = await screen.findByTestId('profile-recovery-action-default');
@@ -906,6 +980,8 @@ describe('ProfileDetailPage', () => {
           }),
         ],
       }),
+      'owner',
+      profileRoute('recovery'),
     );
 
     const progress = await screen.findByTestId('profile-recovery-progress-default');
@@ -946,6 +1022,8 @@ describe('ProfileDetailPage', () => {
           }),
         ],
       }),
+      'owner',
+      profileRoute('recovery'),
     );
 
     expect(await screen.findByTestId('profile-recovery-transition-default')).toHaveTextContent(
@@ -963,10 +1041,17 @@ describe('ProfileDetailPage', () => {
   });
 
   it('keeps capacity and recovery mutually exclusive', async () => {
-    renderProfile(recoveryFleet({ latestCommand: recoveryCommand('started') }));
+    const router = renderProfile(
+      recoveryFleet({ latestCommand: recoveryCommand('started') }),
+      'owner',
+      profileRoute('capacity'),
+    );
 
     expect(await screen.findByLabelText('Absolute maximum')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Queue change' })).toBeDisabled();
+    await act(async () => {
+      await router.navigate(profileRoute('recovery'));
+    });
     expect(screen.getByTestId('profile-recovery-unavailable-default')).toHaveAttribute(
       'data-reason',
       'recovery-active',
@@ -974,7 +1059,7 @@ describe('ProfileDetailPage', () => {
   });
 
   it('tells viewers that recovery has never run without offering the action', async () => {
-    renderProfile(recoveryFleet(), 'viewer');
+    renderProfile(recoveryFleet(), 'viewer', profileRoute('recovery'));
 
     expect(await screen.findByTestId('profile-recovery-empty-default')).toHaveTextContent(
       'No manager recovery has been requested',
@@ -983,7 +1068,7 @@ describe('ProfileDetailPage', () => {
   });
 
   it('shows contract-12 subsystem health, capacity deficits, and manager chronology', async () => {
-    renderProfile(contractTwelveFleet());
+    const router = renderProfile(contractTwelveFleet(), 'owner', profileRoute('diagnostics'));
 
     expect(
       await screen.findByTestId('profile-subsystem-docker-default', {}, { timeout: 5_000 }),
@@ -1007,8 +1092,23 @@ describe('ProfileDetailPage', () => {
       'unknown',
     );
 
+    const chronology = screen.getByRole('list', {
+      name: 'Manager operations for profile default, newest first',
+    });
+    const events = within(chronology).getAllByRole('listitem');
+    expect(events).toHaveLength(2);
+    expect(events[0]).toHaveTextContent('docker-run');
+    expect(events[0]).toHaveTextContent('Retry scheduled for');
+    expect(events[1]).toHaveTextContent('manager-start');
+    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
+      'intact window',
+    );
+
+    await act(async () => {
+      await router.navigate(profileRoute('capacity'));
+    });
     expect(
-      screen.getByTestId('profile-capacity-deficit-target-default-scale-set-linux'),
+      await screen.findByTestId('profile-capacity-deficit-target-default-scale-set-linux'),
     ).toHaveTextContent('3');
     expect(
       screen.getByTestId('profile-capacity-deficit-label-default-scale-set-linux'),
@@ -1022,26 +1122,18 @@ describe('ProfileDetailPage', () => {
     expect(
       screen.getByTestId('profile-capacity-deficit-description-default-scale-set-linux'),
     ).not.toHaveTextContent('30');
-
-    const chronology = screen.getByRole('list', {
-      name: 'Manager operations for profile default, newest first',
-    });
-    const events = within(chronology).getAllByRole('listitem');
-    expect(events).toHaveLength(2);
-    expect(events[0]).toHaveTextContent('docker-run');
-    expect(events[0]).toHaveTextContent('Retry scheduled for');
-    expect(events[1]).toHaveTextContent('manager-start');
-    expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
-      'intact window',
-    );
   });
 
   it('reports contract-11 observations as unavailable rather than healthy or empty', async () => {
-    renderProfile(contractElevenFleet());
+    const router = renderProfile(contractElevenFleet(), 'owner', profileRoute('capacity'));
 
     expect(
       await screen.findByTestId('profile-capacity-evidence-default', {}, { timeout: 5_000 }),
     ).toHaveTextContent('unavailable rather than zero');
+
+    await act(async () => {
+      await router.navigate(profileRoute('diagnostics'));
+    });
     expect(screen.getByTestId('profile-subsystem-docker-default-state')).toHaveTextContent(
       'unavailable',
     );
@@ -1070,7 +1162,11 @@ describe('ProfileDetailPage', () => {
       'could not read or restore its durable journal',
     ],
   ])('explains a %s manager journal', async (_name, overrides, message) => {
-    renderProfile(contractTwelveFleet({ operationJournal: operationJournal(overrides) }));
+    renderProfile(
+      contractTwelveFleet({ operationJournal: operationJournal(overrides) }),
+      'owner',
+      profileRoute('diagnostics'),
+    );
 
     expect(
       await screen.findByTestId('profile-operations-availability-default', {}, { timeout: 5_000 }),
@@ -1100,6 +1196,8 @@ describe('ProfileDetailPage', () => {
           ],
         },
       }),
+      'owner',
+      profileRoute('capacity'),
     );
 
     expect(
@@ -1149,6 +1247,8 @@ describe('ProfileDetailPage', () => {
           ],
         },
       }),
+      'owner',
+      profileRoute('capacity'),
     );
 
     expect(
@@ -1187,6 +1287,8 @@ describe('ProfileDetailPage', () => {
           ],
         }),
       }),
+      'owner',
+      profileRoute('diagnostics'),
     );
 
     expect(
@@ -1216,7 +1318,7 @@ describe('ProfileDetailPage', () => {
   });
 
   it('renders fixed capacity evidence against desired slots', async () => {
-    renderProfile(
+    const router = renderProfile(
       fleetResponse([
         nodeResponse({
           profiles: [
@@ -1252,6 +1354,8 @@ describe('ProfileDetailPage', () => {
           ],
         }),
       ]),
+      'owner',
+      profileRoute('capacity'),
     );
 
     expect(
@@ -1269,6 +1373,10 @@ describe('ProfileDetailPage', () => {
     expect(
       screen.getByTestId('profile-capacity-deficit-description-default-default'),
     ).toHaveTextContent('The manager-supplied blocking reason is launch-pending.');
+
+    await act(async () => {
+      await router.navigate(profileRoute('diagnostics'));
+    });
     expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
       'no notable operation',
     );

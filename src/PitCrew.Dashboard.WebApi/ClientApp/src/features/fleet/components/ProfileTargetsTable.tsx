@@ -8,7 +8,7 @@ import {
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+import { ProfileEvidencePanel } from './ProfileEvidencePanel';
 
 const freshnessStatus: Record<StatisticsFreshness, string> = {
   current: 'available',
@@ -94,7 +94,7 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
   const targets = profile.autoscaling?.targets ?? null;
   if (targets === null) {
     return (
-      <ProfileEvidenceDisclosure
+      <ProfileEvidencePanel
         title="Scale-set targets"
         description="Per-target local and GitHub evidence is unavailable."
         summary={<StatusBadge status="unavailable" />}
@@ -104,7 +104,7 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
           This manager does not report per-target scale-set evidence. Per-target local and GitHub
           counts are unavailable rather than zero.
         </p>
-      </ProfileEvidenceDisclosure>
+      </ProfileEvidencePanel>
     );
   }
 
@@ -120,7 +120,7 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
   ).length;
 
   return (
-    <ProfileEvidenceDisclosure
+    <ProfileEvidencePanel
       title="Scale-set targets"
       description="Local Docker workers and GitHub statistics remain separate evidence."
       summary={
@@ -190,6 +190,6 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
           The manager reported no scale-set targets for this profile.
         </p>
       ) : null}
-    </ProfileEvidenceDisclosure>
+    </ProfileEvidencePanel>
   );
 }

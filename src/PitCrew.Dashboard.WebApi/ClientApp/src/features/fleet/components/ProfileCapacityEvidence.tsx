@@ -7,7 +7,7 @@ import {
 import { formatCounter, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { ProfileEvidenceDisclosure } from './ProfileEvidenceDisclosure';
+import { ProfileEvidencePanel } from './ProfileEvidencePanel';
 
 interface DeficitCardProps {
   readonly scope: CapacityDeficitScope;
@@ -95,7 +95,7 @@ export function ProfileCapacityEvidence({ profile }: { readonly profile: Manager
   const scopes = capacityDeficitScopes(profile);
   if (profile.capacityEvidence === null) {
     return (
-      <ProfileEvidenceDisclosure
+      <ProfileEvidencePanel
         title="Capacity evidence"
         description="Manager-reported shortfall against the accepted activation target."
         summary={<StatusBadge status="unavailable" />}
@@ -106,7 +106,7 @@ export function ProfileCapacityEvidence({ profile }: { readonly profile: Manager
           target is unavailable rather than zero, and the configured maximum is a ceiling rather
           than a missing-capacity threshold.
         </p>
-      </ProfileEvidenceDisclosure>
+      </ProfileEvidencePanel>
     );
   }
 
@@ -117,7 +117,7 @@ export function ProfileCapacityEvidence({ profile }: { readonly profile: Manager
   const staleCount = scopes.filter((scope) => scope.deficit.freshness === 'stale').length;
 
   return (
-    <ProfileEvidenceDisclosure
+    <ProfileEvidencePanel
       title="Capacity evidence"
       description="Manager-reported shortfall against the accepted activation target, never against the configured maximum."
       summary={
@@ -153,6 +153,6 @@ export function ProfileCapacityEvidence({ profile }: { readonly profile: Manager
           ))}
         </div>
       )}
-    </ProfileEvidenceDisclosure>
+    </ProfileEvidencePanel>
   );
 }

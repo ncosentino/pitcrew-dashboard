@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 
-interface ProfileEvidenceDisclosureProps {
+interface ProfileEvidencePanelProps {
   readonly title: string;
   readonly description: string;
   readonly summary: ReactNode;
@@ -8,28 +8,26 @@ interface ProfileEvidenceDisclosureProps {
   readonly children: ReactNode;
 }
 
-/** Groups secondary profile evidence behind a native, accessible disclosure. */
-export function ProfileEvidenceDisclosure({
+/** Presents one focused block of profile evidence within its route-level destination. */
+export function ProfileEvidencePanel({
   title,
   description,
   summary,
   testId,
   children,
-}: ProfileEvidenceDisclosureProps) {
+}: ProfileEvidencePanelProps) {
   return (
-    <details className="group border-b bg-muted/5" data-testid={testId}>
-      <summary className="flex cursor-pointer list-none flex-col items-stretch gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 [&::-webkit-details-marker]:hidden">
+    <section className="overflow-hidden rounded-lg border bg-card shadow-sm" data-testid={testId}>
+      <div className="flex flex-col items-stretch gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="min-w-0">
           <h2 className="font-semibold">{title}</h2>
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
           {summary}
-          <span className="group-open:hidden">Show details</span>
-          <span className="hidden group-open:inline">Hide details</span>
         </div>
-      </summary>
+      </div>
       <div className="border-t px-4 py-4">{children}</div>
-    </details>
+    </section>
   );
 }

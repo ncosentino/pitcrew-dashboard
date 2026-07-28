@@ -212,6 +212,25 @@ describe('FleetHistoryPanel', () => {
     expect(await screen.findByTestId('history-disclosure-default')).toBeInTheDocument();
   });
 
+  it('loads a profile history route immediately without another disclosure', async () => {
+    const fetchMock = mockFetch([() => jsonResponse(historyResponse({}))]);
+
+    render(
+      <FleetHistoryPanel
+        nodeId={nodeId}
+        presentation="page"
+        profileId="default"
+        tenantId="local"
+        testId="history"
+      />,
+    );
+
+    await waitFor(() => expect(historyUrls(fetchMock)).toHaveLength(1));
+    expect(await screen.findByTestId('history-profile-default')).toBeInTheDocument();
+    expect(screen.getByTestId('history').tagName).toBe('SECTION');
+    expect(screen.queryByTestId('history-disclosure-default')).not.toBeInTheDocument();
+  });
+
   it('offers a valid preset when the server advertises a maximum range under four hours', async () => {
     const fetchMock = mockFetch([() => jsonResponse(historyResponse({}))], {
       maximumRangeHours: 2,

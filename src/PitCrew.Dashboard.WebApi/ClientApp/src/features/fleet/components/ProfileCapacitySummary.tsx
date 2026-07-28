@@ -130,7 +130,7 @@ export function ProfileCapacitySummary({
   if (autoscaling === null) {
     return (
       <section
-        className="grid gap-3 border-b bg-muted/10 px-4 py-4"
+        className="grid gap-3 rounded-lg border bg-card px-4 py-4 shadow-sm"
         data-testid={`profile-capacity-fixed-${profile.profileId}`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -206,7 +206,7 @@ export function ProfileCapacitySummary({
 
   return (
     <section
-      className="grid gap-3 border-b bg-muted/10 px-4 py-4"
+      className="grid gap-3 rounded-lg border bg-card px-4 py-4 shadow-sm"
       data-testid={`profile-capacity-autoscaled-${profile.profileId}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
