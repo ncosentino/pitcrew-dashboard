@@ -128,6 +128,12 @@ internal sealed partial class SqliteFleetHistoryStore
         nodeId,
         profileId,
         cancellationToken);
+    var floors = await LoadIncompletenessFloorsAsync(
+        connection,
+        sqliteTransaction,
+        nodeId,
+        window,
+        cancellationToken);
     await transaction.CommitAsync(cancellationToken);
 
     var profileIds = new SortedSet<string>(StringComparer.Ordinal);
@@ -195,7 +201,68 @@ internal sealed partial class SqliteFleetHistoryStore
         window.DiagnosticLimit,
         window.NodePointLimit,
         window.NodeEventLimit,
-        window.NodeDiagnosticLimit);
+        window.NodeDiagnosticLimit,
+        floors);
+  }
+
+  /// <summary>
+  /// Loads the coarse incompleteness floors a bounded query range can still reach.
+  /// </summary>
+  /// <remarks>
+  /// A floor is only relevant while the requested range starts before the newest expiry it covers.
+  /// Once the range no longer reaches the deleted data, reporting the floor would describe a loss
+  /// the caller did not ask about.
+  /// </remarks>
+  private static async Task<IReadOnlyList<HistoryIncompletenessFloor>>
+      LoadIncompletenessFloorsAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          HistoryWindow window,
+          CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT
+            scope,
+            earliest_expired_at,
+            latest_expired_at,
+            expired_profiles,
+            dropped_samples,
+            dropped_rollups,
+            dropped_events,
+            dropped_subsystem_health,
+            dropped_capacity_deficits
+        FROM history_incompleteness_floors
+        WHERE latest_expired_at >= $from
+          AND ((scope = 'database' AND node_id = '')
+              OR (scope = 'node' AND node_id = $nodeId))
+        ORDER BY scope ASC;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$from", Utc(window.From));
+    var floors = new List<HistoryIncompletenessFloor>();
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    SqliteRowReader? row = null;
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      row ??= new SqliteRowReader(reader);
+      floors.Add(new HistoryIncompletenessFloor(
+          row.String("scope"),
+          row.Time("earliest_expired_at"),
+          row.Time("latest_expired_at"),
+          row.Int64("expired_profiles"),
+          row.Int64("dropped_samples"),
+          row.Int64("dropped_rollups"),
+          row.Int64("dropped_events"),
+          row.Int64("dropped_subsystem_health"),
+          row.Int64("dropped_capacity_deficits")));
+    }
+
+    return floors;
   }
 
   /// <summary>
@@ -268,7 +335,8 @@ internal sealed partial class SqliteFleetHistoryStore
                 ROW_NUMBER() OVER (
                     PARTITION BY profile_id
                     ORDER BY observed_at DESC) AS row_index,
-                ROW_NUMBER() OVER (ORDER BY observed_at DESC) AS node_index
+                ROW_NUMBER() OVER (
+                    ORDER BY observed_at DESC, profile_id ASC) AS node_index
             FROM profile_telemetry_samples
             WHERE node_id = $nodeId
               AND observed_at >= $from
@@ -384,7 +452,8 @@ internal sealed partial class SqliteFleetHistoryStore
                 ROW_NUMBER() OVER (
                     PARTITION BY profile_id
                     ORDER BY bucket_start DESC) AS row_index,
-                ROW_NUMBER() OVER (ORDER BY bucket_start DESC) AS node_index
+                ROW_NUMBER() OVER (
+                    ORDER BY bucket_start DESC, profile_id ASC) AS node_index
             FROM profile_telemetry_rollups
             WHERE node_id = $nodeId
               AND bucket_start >= $from
@@ -478,7 +547,11 @@ internal sealed partial class SqliteFleetHistoryStore
                     ORDER BY observed_at DESC, epoch DESC, sequence DESC)
                     AS row_index,
                 ROW_NUMBER() OVER (
-                    ORDER BY observed_at DESC, epoch DESC, sequence DESC)
+                    ORDER BY
+                        observed_at DESC,
+                        profile_id ASC,
+                        epoch DESC,
+                        sequence DESC)
                     AS node_index
             FROM profile_manager_events
             WHERE node_id = $nodeId
@@ -763,6 +836,7 @@ internal sealed partial class SqliteFleetHistoryStore
             c.rejected_future_samples AS rejected_future_samples,
             c.rejected_future_events AS rejected_future_events,
             c.updated_at AS updated_at,
+            c.history_expired_at AS history_expired_at,
             (SELECT MIN(e.sequence)
              FROM profile_manager_events AS e
              WHERE e.node_id = c.node_id
@@ -834,7 +908,7 @@ internal sealed partial class SqliteFleetHistoryStore
               row.OptionalTime("earliest_capacity_deficit"),
               row.Int64("dropped_capacity_deficits"),
               row.Int64("rejected_future_samples"),
-              null));
+              row.OptionalTime("history_expired_at")));
     }
 
     await LoadTombstonesAsync(

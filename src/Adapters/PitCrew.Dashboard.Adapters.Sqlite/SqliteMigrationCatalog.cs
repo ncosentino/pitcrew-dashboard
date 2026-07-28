@@ -735,5 +735,70 @@ internal static class SqliteMigrationCatalog
             INSERT INTO history_maintenance (singleton, last_swept_at)
             VALUES (0, NULL);
             """),
+      new(
+            9,
+            "conservative-high-water-and-incompleteness-floors",
+            """
+            -- Migration 8 backfilled the durable sample high-water from surviving raw samples
+            -- alone. Raw samples are the shortest-lived evidence in the database, so a realistic
+            -- upgrade where raw retention already pruned them left the high-water NULL and let the
+            -- first stale heartbeat after the upgrade reinsert an old sample and inflate the hourly
+            -- rollup it had already contributed to. The authoritative latest profile projection,
+            -- the retained hourly buckets, and any high-water already recorded are all independent
+            -- evidence of an observation the dashboard has already accounted for, so the high-water
+            -- is raised to the newest of them.
+            --
+            -- The latest projection keeps the exact authoritative observation time. A retained
+            -- rollup is used only when the latest projection is absent; its bucket end is a
+            -- conservative high-water for a profile that is no longer live.
+            UPDATE profile_history_cursors
+            SET sample_high_water = NULLIF(
+                MAX(
+                    COALESCE(sample_high_water, ''),
+                    COALESCE((
+                        SELECT p.observed_at
+                        FROM profiles AS p
+                        WHERE p.node_id = profile_history_cursors.node_id
+                          AND p.profile_id = profile_history_cursors.profile_id), ''),
+                    COALESCE((
+                        SELECT MAX(s.observed_at)
+                        FROM profile_telemetry_samples AS s
+                        WHERE s.node_id = profile_history_cursors.node_id
+                          AND s.profile_id = profile_history_cursors.profile_id), ''),
+                    COALESCE((
+                        SELECT strftime(
+                            '%Y-%m-%dT%H:%M:%S.0000000+00:00',
+                            MAX(r.bucket_start),
+                            '+1 hour')
+                        FROM profile_telemetry_rollups AS r
+                        WHERE r.node_id = profile_history_cursors.node_id
+                          AND r.profile_id = profile_history_cursors.profile_id
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM profiles AS p
+                              WHERE p.node_id = profile_history_cursors.node_id
+                                AND p.profile_id = profile_history_cursors.profile_id)), '')),
+                '');
+
+            ALTER TABLE profile_history_cursors
+                ADD COLUMN history_expired_at TEXT NULL;
+
+            CREATE TABLE history_incompleteness_floors (
+                scope TEXT NOT NULL CHECK (scope IN ('database', 'node')),
+                node_id TEXT NOT NULL,
+                earliest_expired_at TEXT NOT NULL,
+                latest_expired_at TEXT NOT NULL,
+                expired_profiles INTEGER NOT NULL
+                    CHECK (expired_profiles >= 0),
+                dropped_samples INTEGER NOT NULL CHECK (dropped_samples >= 0),
+                dropped_rollups INTEGER NOT NULL CHECK (dropped_rollups >= 0),
+                dropped_events INTEGER NOT NULL CHECK (dropped_events >= 0),
+                dropped_subsystem_health INTEGER NOT NULL
+                    CHECK (dropped_subsystem_health >= 0),
+                dropped_capacity_deficits INTEGER NOT NULL
+                    CHECK (dropped_capacity_deficits >= 0),
+                PRIMARY KEY (scope, node_id)
+            ) WITHOUT ROWID;
+            """),
     ];
 }

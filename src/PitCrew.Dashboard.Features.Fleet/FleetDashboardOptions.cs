@@ -231,7 +231,7 @@ public sealed class FleetDashboardOptions
   public int DefaultHistoryRangeHours { get; set; } = 24;
 
   /// <summary>
-  /// Gets or sets the widest history range one bounded query may request.
+  /// Gets or sets the widest span and furthest lookback one bounded history query may request.
   /// </summary>
   [Range(1, 8760)]
   public int MaximumHistoryRangeHours { get; set; } = 2160;
@@ -360,6 +360,11 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "MaximumProfileHistories must be at least MaximumProfilesPerNode.";
+    }
+    if (TelemetryRollupRetentionDays * 24 < MaximumHistoryRangeHours)
+    {
+      yield return
+          "TelemetryRollupRetentionDays must cover MaximumHistoryRangeHours, because completeness provenance has to survive every range a caller may legally query.";
     }
   }
 }

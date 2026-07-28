@@ -151,6 +151,18 @@ const profileHistorySchema = z.object({
   retention: retentionFloorSchema,
 });
 
+const incompletenessFloorSchema = z.object({
+  scope: z.string().min(1).max(16),
+  earliestExpiredAt: offsetDateTimeSchema,
+  latestExpiredAt: offsetDateTimeSchema,
+  expiredProfiles: z.number().int().nonnegative(),
+  droppedSamples: z.number().int().nonnegative(),
+  droppedRollups: z.number().int().nonnegative(),
+  droppedEvents: z.number().int().nonnegative(),
+  droppedSubsystemHealthChanges: z.number().int().nonnegative(),
+  droppedCapacityDeficits: z.number().int().nonnegative(),
+});
+
 const nodeHistorySchema = z.object({
   nodeId: z.string().uuid(),
   generatedAt: offsetDateTimeSchema,
@@ -168,6 +180,7 @@ const nodeHistorySchema = z.object({
   nodePointLimit: z.number().int().positive(),
   nodeEventLimit: z.number().int().positive(),
   nodeDiagnosticLimit: z.number().int().positive(),
+  incompletenessFloors: z.array(incompletenessFloorSchema),
 });
 
 const historyCapabilitiesSchema = z.object({
@@ -204,6 +217,8 @@ export type ProfileCapacityDeficitObservation = z.infer<typeof capacityDeficitOb
 export type ProfileEventJournalState = z.infer<typeof eventJournalStateSchema>;
 /** Bounded retained history for one profile. */
 export type ProfileHistory = z.infer<typeof profileHistorySchema>;
+/** Coarse node or database record of history whose per-profile provenance was compacted away. */
+export type HistoryIncompletenessFloor = z.infer<typeof incompletenessFloorSchema>;
 /** Bounded retained history for one tenant node. */
 export type NodeHistoryResponse = z.infer<typeof nodeHistorySchema>;
 

@@ -28,7 +28,8 @@ internal static class FleetHistoryPolicy
           options.MaximumDiagnosticsPerDatabase,
           options.MaximumProfileHistories,
           options.MaximumHistoryNodes,
-          TimeSpan.FromSeconds(options.HistoryGlobalSweepSeconds));
+          TimeSpan.FromSeconds(options.HistoryGlobalSweepSeconds),
+          TimeSpan.FromHours(options.MaximumHistoryRangeHours));
 
   public static HistoryCapabilities CreateCapabilities(
       FleetDashboardOptions options) =>

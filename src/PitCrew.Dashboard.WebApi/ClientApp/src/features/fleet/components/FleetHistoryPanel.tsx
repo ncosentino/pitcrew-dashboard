@@ -7,11 +7,13 @@ import {
   describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
+  describeIncompletenessFloor,
   describeManagerEvent,
   describeSubsystemHealthEvidence,
   resolveCadenceMilliseconds,
   useFleetHistory,
   useHistoryCapabilities,
+  type HistoryAvailability,
   type NodeHistoryResponse,
   type ProfileHistory,
 } from '@/core/fleet';
@@ -28,6 +30,23 @@ interface FleetHistoryPanelProps {
 
 const scrollRegionClasses =
   'max-h-64 overflow-auto rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600';
+
+/**
+ * Renders one availability verdict as a badge, an explicit label, and its description.
+ *
+ * The badge alone only carries the coarse status, so an expired or truncated range would otherwise
+ * be indistinguishable from an ordinary partial one. The label states the verdict in the words the
+ * describing function chose, which is the only place `Expired` is ever said out loud.
+ */
+function AvailabilityNote({ availability }: { readonly availability: HistoryAvailability }) {
+  return (
+    <>
+      <StatusBadge status={availability.status} />
+      <span className="text-xs font-medium">{availability.label}</span>
+      <p className="text-xs text-muted-foreground">{availability.description}</p>
+    </>
+  );
+}
 
 function ProfileHistorySections({
   history,
@@ -53,8 +72,7 @@ function ProfileHistorySections({
   return (
     <div className="grid gap-4" data-testid={`history-profile-${history.profileId}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge status={availability.status} />
-        <p className="text-xs text-muted-foreground">{availability.description}</p>
+        <AvailabilityNote availability={availability} />
       </div>
       {availability.status === 'unavailable' ? null : (
         <div className="grid gap-6">
@@ -76,8 +94,7 @@ function ProfileHistorySections({
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h4 className="text-sm font-semibold">Capacity-deficit reasons</h4>
-          <StatusBadge status={deficitEvidence.status} />
-          <p className="text-xs text-muted-foreground">{deficitEvidence.description}</p>
+          <AvailabilityNote availability={deficitEvidence} />
         </div>
         {deficits.length === 0 ? null : (
           <div
@@ -126,8 +143,7 @@ function ProfileHistorySections({
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h4 className="text-sm font-semibold">Subsystem health changes</h4>
-          <StatusBadge status={subsystemEvidence.status} />
-          <p className="text-xs text-muted-foreground">{subsystemEvidence.description}</p>
+          <AvailabilityNote availability={subsystemEvidence} />
         </div>
         {history.subsystemHealthChanges.length === 0 ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
@@ -177,8 +193,7 @@ function ProfileHistorySections({
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h4 className="text-sm font-semibold">Manager operations</h4>
-          <StatusBadge status={journal.status} />
-          <p className="text-xs text-muted-foreground">{journal.description}</p>
+          <AvailabilityNote availability={journal} />
         </div>
         {history.events.length === 0 ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
@@ -379,18 +394,19 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
           </select>
           <span className="text-xs text-muted-foreground">{range?.description ?? ''}</span>
         </div>
-        {liveMessage == null ? null : (
-          <p
-            className={
-              isLoading
+        <p
+          aria-live="polite"
+          className={
+            liveMessage == null
+              ? 'sr-only'
+              : isLoading
                 ? 'text-xs text-muted-foreground'
                 : 'rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
-            }
-            role="status"
-          >
-            {liveMessage}
-          </p>
-        )}
+          }
+          role="status"
+        >
+          {liveMessage ?? ''}
+        </p>
         {capabilitiesError != null ? (
           <p
             className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
@@ -407,6 +423,14 @@ export function FleetHistoryPanel({ tenantId, nodeId, profileId, testId }: Fleet
             {error}
           </p>
         ) : null}
+        {history?.incompletenessFloors.map((floor) => (
+          <p
+            className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+            key={floor.scope}
+          >
+            {describeIncompletenessFloor(floor)}
+          </p>
+        ))}
         {history != null && history.profiles.length === 0 ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
             No retained history exists for this range.

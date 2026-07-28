@@ -248,12 +248,14 @@ and events.
 
 - A telemetry sample is appended only when the authoritative manager
   `observedAt` advances past a durable per-profile sample high-water mark, so a
-  duplicated connector heartbeat creates no duplicate sample. The high-water is
-  persisted on the profile cursor rather than derived from retained rows, so a
-  stale heartbeat arriving after raw retention already deleted the sample it
-  duplicates can neither reinsert that sample nor inflate the hourly rollup it
-  already contributed to. The high-water survives until the profile and all of
-  its derived history are deliberately expired.
+  duplicated connector heartbeat creates no duplicate sample. An equal-time
+  heartbeat remains sample-deduplicated but may append journal sequences that
+  were not present in the earlier delivery. The high-water is persisted on the
+  profile cursor rather than derived from retained rows, so a stale heartbeat
+  arriving after raw retention already deleted the sample it duplicates can
+  neither reinsert that sample nor inflate the hourly rollup it already
+  contributed to. The high-water survives until the profile and all of its
+  derived history are deliberately expired.
 - A manager event is stored once per durable `(node, profile, epoch, sequence)`
   identity. The epoch is a local, durable generation counter that advances when a
   manager sequence regression proves the manager journal was lost, and also when
@@ -268,7 +270,13 @@ and events.
   exact replay is dropped without reinserting an event or inflating a dashboard
   drop counter, while a conflicting sequence reuse still advances the epoch. The
   epoch advance and the batch insert happen in the same transaction, so a reset
-  batch is never split across epochs.
+  batch is never split across epochs. Event processing is gated by the same
+  authoritative `observedAt` high-water as the sample, so a stale heartbeat can
+  neither reset the epoch nor replay an older ring: it is ignored without
+  mutating the cursor, the high-water, the identity window, or any drop counter.
+  When a stored identity fingerprint is unknown, the incoming event is compared
+  against the retained event content before the unknown fingerprint is replaced,
+  so a conflicting reset is never skipped.
 - Hourly rollups accumulate incrementally as samples arrive and are never
   recomputed from raw rows, so pruning raw samples can never lower or overwrite a
   completed hourly peak or sample count.
@@ -293,14 +301,16 @@ and events.
   row of that profile is gone. Profile-identifier churn is additionally capped by
   `MaximumProfilesPerNode`, which deletes the least recently updated profiles
   outright, so churn cannot bypass the node-wide bounds.
-- Retention does not depend on the syncing node alone. A bounded global
-  maintenance sweep runs inside the same heartbeat transaction no more often than
-  `HistoryGlobalSweepSeconds` and ages history across abandoned nodes too, then
-  enforces database-wide ceilings
-  (`MaximumTelemetrySamplesPerDatabase`, `MaximumTelemetryRollupsPerDatabase`,
-  `MaximumManagerEventsPerDatabase`, `MaximumDiagnosticsPerDatabase`,
-  `MaximumProfileHistories`, `MaximumHistoryNodes`), so enroll, sync, and abandon
-  churn inside the retention window cannot grow the database indefinitely.
+- Retention does not depend on the syncing node alone. Every database-wide
+  ceiling (`MaximumTelemetrySamplesPerDatabase`,
+  `MaximumTelemetryRollupsPerDatabase`, `MaximumManagerEventsPerDatabase`,
+  `MaximumDiagnosticsPerDatabase`, `MaximumProfileHistories`,
+  `MaximumHistoryNodes`, and the tombstone ceilings) is enforced inside every
+  history transaction, so rapid multi-node enroll, sync, and abandon churn cannot
+  exceed a configured cap between maintenance windows. Only age-based sweeping of
+  abandoned nodes is throttled to no more often than `HistoryGlobalSweepSeconds`;
+  that sweep also re-applies the configured per-node ceilings to every abandoned
+  node, including after an operator lowered them.
 - Every ceiling is enforced by deterministic `ROW_NUMBER` ranking over the full
   primary key rather than by a timestamp cutoff, so tied timestamps and tied
   buckets retain exactly the configured newest count — never zero rows and never
@@ -310,11 +320,21 @@ and events.
   dropped and rejected counter, so a returning profile never looks pristine and a
   query that can still reach the deleted window reports explicit retention-loss
   metadata (`historyExpiredAt`) rather than an empty, complete-looking record.
+  Provenance survives at least `MaximumHistoryRangeHours` — the widest range a
+  caller may legally request — rather than only as long as retained rows, and the
+  configuration is rejected when retention could expire provenance sooner. When
+  the bounded tombstone ceilings force per-profile provenance out, the evicted
+  tombstones are compacted into node and database incompleteness floors
+  (`incompletenessFloors`) covering the deleted expiry range, so a query that
+  still reaches that range is told it is incomplete instead of looking whole
+  again.
 - Journal and retention gaps stay explicit: the dashboard records durable
   sequences the manager advanced past between deliveries, sequences the manager
   still retains above the highest delivered one, detected journal resets,
   rejected future timestamps, and how many rows dashboard retention itself
-  deleted, with the oldest retained observation for each kind of row.
+  deleted, with the oldest retained observation for each kind of row. An expired
+  journal or an expired profile history is rendered as explicitly expired and
+  incomplete, never as complete.
 - `null` continues to mean unavailable and `0` continues to mean measured zero.
   Local worker counts and GitHub control-plane counts remain separate evidence.
 
@@ -367,9 +387,10 @@ optional cap is omitted from the request whenever the server default already
 matches it.
 
 The history endpoints accept `from`, `to`, `resolution` (`raw` or `hourly`),
-`points`, `events`, and `diagnostics`. The range defaults to 24 hours, is rejected beyond the
-configured maximum, and every response is capped by explicit per-profile and
-node-wide point, event, and diagnostic limits. The node-wide diagnostic budget is
+`points`, `events`, and `diagnostics`. The range defaults to 24 hours, cannot
+start earlier than the configured maximum lookback from current dashboard time,
+and cannot span more than that maximum. Every response is capped by explicit
+per-profile and node-wide point, event, and diagnostic limits. The node-wide diagnostic budget is
 one combined budget shared by subsystem health and capacity deficits, and the two
 per-profile diagnostic ceilings are reported separately
 (`profileSubsystemHealthLimit`, `profileCapacityDeficitLimit`) so the advertised
