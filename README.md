@@ -415,6 +415,41 @@ aligns its own hourly requests the same way.
 
 A node owned by another tenant is indistinguishable from a missing node.
 
+## Operational incidents
+
+The dashboard evaluates only credential-free evidence that PitCrew managers and
+connectors already publish. Level conditions first become durable hidden pending
+incidents. They trigger only after the configured debounce boundary, so pending
+timers survive dashboard restart while brief disconnects and one-off failures
+leave no incident history. If evidence becomes stale or unavailable, a pending
+timer restarts and a previously triggered incident remains open without claiming
+recovery, fixed at its last proven observation; only fresh evidence can advance
+or resolve it.
+
+- `GET /api/tenants/{tenantId}/fleet/v1/incidents`
+  returns bounded active, resolved, or combined incident history and reports
+  when older matching incidents were truncated by the response limit.
+- `POST /api/tenants/{tenantId}/fleet/v1/incidents/{incidentId}/acknowledge`
+  acknowledges an active incident without resolving or deleting it.
+- Triggered and acknowledged incidents resolve automatically when their proven
+  condition clears. Resolved history remains immutable and is bounded by age and
+  per-tenant count.
+- Every incident links to its tenant-scoped node or profile evidence. Incidents
+  never queue or repeat a recovery action.
+
+Current alert rules cover connector offline state, stale or unavailable managers,
+repeated Docker/GitHub and manager-operation failures, truthful worker exits and
+Docker-confirmed OOM kills, current manager-supplied capacity deficits, failed
+capacity/recovery commands, journal unavailability or discontinuity, and
+sustained resource pressure from complete historical samples. An offline
+connector suppresses profile diagnoses; stale, unavailable, partial, or unknown
+evidence suppresses any more specific diagnosis it cannot prove. Autoscaled
+capacity below the configured maximum is never treated as a deficit by itself.
+CPU and memory pressure use host-capacity percentages by default. Network and
+block-I/O pressure require explicit nonzero byte-per-second thresholds because
+the protocol does not publish a safe host bandwidth or device-throughput
+capacity from which the dashboard could derive a universal percentage.
+
 ## Images
 
 - Dashboard: ASP.NET 10 Alpine with prebuilt React assets.

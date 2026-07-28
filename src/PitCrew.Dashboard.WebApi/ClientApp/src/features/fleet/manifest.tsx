@@ -3,6 +3,7 @@ import { lazyFeature } from '@/core/features/lazyFeature';
 import { TenantRouteGuard } from '@/core/routing/guards';
 
 const FleetOverviewPage = lazyFeature('fleet', () => import('./FleetOverviewPage'));
+const IncidentsPage = lazyFeature('fleet', () => import('./IncidentsPage'));
 const NodeDetailPage = lazyFeature('fleet', () => import('./NodeDetailPage'));
 const ProfileDetailPage = lazyFeature('fleet', () => import('./pages/ProfileDetailPage'));
 
@@ -19,6 +20,11 @@ export const fleetManifest: FeatureManifest = {
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
       ],
     },
+    {
+      label: 'Incidents',
+      path: '/tenants/:tenantId/incidents',
+      activePathPatterns: ['/tenants/:tenantId/incidents'],
+    },
   ],
   routePresentations: [
     {
@@ -33,6 +39,11 @@ export const fleetManifest: FeatureManifest = {
         { label: 'Fleet', path: '/tenants/:tenantId/fleet' },
         { label: 'Node :nodeId' },
       ],
+    },
+    {
+      path: '/tenants/:tenantId/incidents',
+      title: 'Operational incidents',
+      breadcrumbs: [{ label: 'Incidents' }],
     },
     {
       path: '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
@@ -58,6 +69,14 @@ export const fleetManifest: FeatureManifest = {
       element: (
         <TenantRouteGuard minimumRole="viewer">
           <NodeDetailPage />
+        </TenantRouteGuard>
+      ),
+    },
+    {
+      path: 'tenants/:tenantId/incidents',
+      element: (
+        <TenantRouteGuard minimumRole="viewer">
+          <IncidentsPage />
         </TenantRouteGuard>
       ),
     },

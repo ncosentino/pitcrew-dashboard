@@ -36,6 +36,7 @@ public sealed class FleetCarterModule : ICarterModule
         .RequireAuthorization(AccessPolicies.TenantViewer);
     fleet.MapGet("/nodes", GetFleetAsync);
     fleet.MapGet("/history/capabilities", GetHistoryCapabilities);
+    fleet.MapGet("/incidents", GetIncidentsAsync);
     fleet.MapGet("/nodes/{nodeId:guid}/history", GetNodeHistoryAsync);
     fleet.MapGet(
         "/nodes/{nodeId:guid}/profiles/{profileId}/history",
@@ -67,6 +68,12 @@ public sealed class FleetCarterModule : ICarterModule
     fleet.MapPost(
             "/nodes/{nodeId:guid}/profiles/{profileId}/manager-recovery",
             RecoverManagerAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .RequireAuthorization(
+            AccessPolicies.TenantAdministrator);
+    fleet.MapPost(
+            "/incidents/{incidentId:guid}/acknowledge",
+            AcknowledgeIncidentAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
             AccessPolicies.TenantAdministrator);
@@ -165,6 +172,39 @@ public sealed class FleetCarterModule : ICarterModule
   private static IResult GetHistoryCapabilities(
       IGetFleetHistoryUnitOfWork unitOfWork) =>
       Results.Ok(unitOfWork.GetCapabilities());
+
+  private static async Task<IResult> GetIncidentsAsync(
+      HttpContext context,
+      string tenantId,
+      IGetAlertsUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var query = context.Request.Query;
+    var result = await unitOfWork.GetAsync(
+        tenantId,
+        new AlertQueryInput(
+            query["status"].ToString(),
+            query["limit"].ToString()),
+        cancellationToken);
+    return result.Status switch
+    {
+      AlertQueryStatus.Succeeded => Results.Ok(
+          ToResponse(result.Page ??
+              throw new InvalidOperationException(
+                  "A successful incident query did not return a page."))),
+      AlertQueryStatus.Invalid => Results.BadRequest(new
+      {
+        error = new
+        {
+          code = "invalid_incident_query",
+          message = result.Error,
+        },
+      }),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported incident query result."),
+    };
+  }
 
   private static async Task<IResult> GetNodeHistoryAsync(
       HttpContext context,
@@ -312,6 +352,37 @@ public sealed class FleetCarterModule : ICarterModule
               tenantId,
               nodeId,
               cancellationToken));
+
+  private static async Task<IResult> AcknowledgeIncidentAsync(
+      HttpContext context,
+      string tenantId,
+      Guid incidentId,
+      IAcknowledgeAlertUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var status = await unitOfWork.AcknowledgeOrNullAsync(
+        context.User,
+        tenantId,
+        incidentId,
+        cancellationToken);
+    return status switch
+    {
+      null => Results.Unauthorized(),
+      AlertAcknowledgeStatus.Succeeded => Results.NoContent(),
+      AlertAcknowledgeStatus.NotFound => Results.NotFound(),
+      AlertAcknowledgeStatus.Resolved => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "incident_resolved",
+          message = "The incident resolved before it could be acknowledged.",
+        },
+      }),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported incident acknowledgement result."),
+    };
+  }
 
   private static async Task<IResult> SetCapacityMaximumAsync(
       HttpContext context,
@@ -497,4 +568,29 @@ public sealed class FleetCarterModule : ICarterModule
             statusCode: StatusCodes.Status500InternalServerError,
             title: "Unsupported node mutation result."),
       };
+
+  private static AlertIncidentListResponse ToResponse(
+      AlertIncidentPage page) =>
+      new(
+            page.GeneratedAt,
+            page.Incidents.Select(incident => new AlertIncidentResponse(
+                incident.IncidentId,
+                incident.NodeId,
+                incident.ProfileId,
+                incident.Kind,
+                incident.Severity,
+                incident.Status,
+                incident.Title,
+                incident.Summary,
+                incident.Reason,
+                incident.Evidence,
+                incident.Link,
+                incident.FirstObservedAt,
+                incident.TriggeredAt,
+                incident.LastObservedAt,
+                incident.AcknowledgedAt,
+                incident.AcknowledgedByGitHubUserId,
+                incident.ResolvedAt))
+                .ToArray(),
+            page.Truncated);
 }
