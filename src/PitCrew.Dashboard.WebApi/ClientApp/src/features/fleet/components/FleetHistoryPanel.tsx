@@ -10,6 +10,7 @@ import {
   describeIncompletenessFloor,
   describeManagerEvent,
   describeSubsystemHealthEvidence,
+  describeWorkerUpdateEvidence,
   resolveCadenceMilliseconds,
   useFleetHistory,
   useHistoryCapabilities,
@@ -62,6 +63,7 @@ function ProfileHistorySections({
   const journal = describeHistoryJournal(history);
   const deficitEvidence = describeDeficitEvidence(history);
   const subsystemEvidence = describeSubsystemHealthEvidence(history);
+  const workerUpdateEvidence = describeWorkerUpdateEvidence(history);
   const groups = buildHistorySeries(history, resolution);
   const cadenceMilliseconds = resolveCadenceMilliseconds(
     history,
@@ -91,6 +93,64 @@ function ProfileHistorySections({
           ))}
         </div>
       )}
+
+      <section className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold">Worker image rollout changes</h4>
+          <AvailabilityNote availability={workerUpdateEvidence} />
+        </div>
+        {history.workerUpdateChanges.length === 0 ? (
+          <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
+            {workerUpdateEvidence.description}
+          </p>
+        ) : (
+          <div
+            aria-label={`Worker image rollout changes for profile ${history.profileId}`}
+            className={scrollRegionClasses}
+            role="region"
+            tabIndex={0}
+          >
+            <table
+              className="w-full text-left text-xs"
+              data-testid={`history-worker-updates-${history.profileId}`}
+            >
+              <caption className="sr-only">
+                Worker image rollout changes for profile {history.profileId}.
+              </caption>
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th scope="col">Observed at</th>
+                  <th scope="col">Change</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Target image</th>
+                  <th scope="col">Current</th>
+                  <th scope="col">Stale</th>
+                  <th scope="col">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.workerUpdateChanges.map((change) => (
+                  <tr key={`${change.kind}-${change.observedAt}`}>
+                    <th className="font-normal" scope="row">
+                      {formatTime(change.observedAt)}
+                    </th>
+                    <td>{change.kind.replaceAll('-', ' ')}</td>
+                    <td>
+                      <StatusBadge status={change.status} />
+                    </td>
+                    <td className="font-mono" title={change.targetImage ?? change.targetRevision}>
+                      {change.targetImage ?? change.targetRevision.slice(0, 12)}
+                    </td>
+                    <td>{change.currentWorkers}</td>
+                    <td>{change.staleWorkers}</td>
+                    <td>{change.lastError ?? 'None'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -286,7 +346,7 @@ function describeResponseTruncation(history: NodeHistoryResponse | null): string
   }
   if (history.diagnosticsTruncated) {
     capped.push(
-      `diagnostics (${history.profileSubsystemHealthLimit} subsystem-health and ${history.profileCapacityDeficitLimit} capacity-deficit rows per profile, ${history.nodeDiagnosticLimit} combined across all profiles)`,
+      `diagnostics (${history.profileSubsystemHealthLimit} subsystem-health, ${history.profileCapacityDeficitLimit} capacity-deficit, and ${history.profileWorkerUpdateLimit} worker-rollout rows per profile, ${history.nodeDiagnosticLimit} combined across all profiles)`,
     );
   }
   if (capped.length === 0) return null;

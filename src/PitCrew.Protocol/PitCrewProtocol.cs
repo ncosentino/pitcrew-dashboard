@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 4;
+  public const int Version = 5;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -89,6 +89,25 @@ public sealed record ManagerAutoscalingState(
     IReadOnlyList<AutoscalingTargetState>? Targets = null);
 
 /// <summary>
+/// Describes convergence from existing workers to one configured worker-image revision.
+/// </summary>
+/// <param name="Status">Current convergence status: current, rolling, or degraded.</param>
+/// <param name="TargetImage">Configured OCI image reference when reported; otherwise <see langword="null"/>.</param>
+/// <param name="TargetImageId">Resolved immutable local image identity when reported; otherwise <see langword="null"/>.</param>
+/// <param name="TargetRevision">SHA-256 worker revision derived from the complete worker contract.</param>
+/// <param name="CurrentWorkers">Live workers already using the target revision.</param>
+/// <param name="StaleWorkers">Live workers retained on an older revision until they can exit safely.</param>
+/// <param name="LastError">Most recent rollout error when degraded; otherwise <see langword="null"/>.</param>
+public sealed record ManagerWorkerUpdateState(
+    [property: JsonRequired] string Status,
+    string? TargetImage,
+    string? TargetImageId,
+    [property: JsonRequired] string TargetRevision,
+    [property: JsonRequired] int CurrentWorkers,
+    [property: JsonRequired] int StaleWorkers,
+    [property: JsonRequired] string? LastError);
+
+/// <summary>
 /// Represents the credential-free operational projection published by one Pitcrew profile manager.
 /// </summary>
 /// <param name="SchemaVersion">Observed-state document schema version.</param>
@@ -113,6 +132,7 @@ public sealed record ManagerAutoscalingState(
 /// <param name="OperationJournal">Manager contract 12 bounded durable operation journal when reported; otherwise <see langword="null"/>.</param>
 /// <param name="SubsystemHealth">Manager contract 12 Docker and GitHub operation health when reported; otherwise <see langword="null"/>.</param>
 /// <param name="CapacityEvidence">Manager contract 12 fixed or per-target capacity-deficit evidence when reported; otherwise <see langword="null"/>.</param>
+/// <param name="Update">Worker-image convergence evidence when reported; otherwise <see langword="null"/>.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -135,7 +155,8 @@ public sealed record ManagerObservedState(
     WorkerResourcePolicy? ResourcePolicy = null,
     ManagerOperationJournal? OperationJournal = null,
     ManagerSubsystemHealth? SubsystemHealth = null,
-    ManagerCapacityEvidence? CapacityEvidence = null);
+    ManagerCapacityEvidence? CapacityEvidence = null,
+    ManagerWorkerUpdateState? Update = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.

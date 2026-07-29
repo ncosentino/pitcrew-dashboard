@@ -24,6 +24,42 @@ public sealed class SyncConnectorContractElevenTests
   }
 
   [Test]
+  public async Task IsValidProfile_Rejects_Inconsistent_Worker_Update_Projection()
+  {
+    var profile = CreateContractElevenProfile();
+    var update = profile.Update ??
+        throw new InvalidOperationException(
+            "The contract-11 fixture must include worker update evidence.");
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(profile with
+    {
+      Update = update with
+      {
+        Status = "current",
+        CurrentWorkers = 1,
+        StaleWorkers = 1,
+      },
+    })).IsFalse();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(profile with
+    {
+      Update = update with
+      {
+        Status = "rolling",
+        CurrentWorkers = 2,
+        StaleWorkers = 0,
+      },
+    })).IsFalse();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(profile with
+    {
+      Update = update with
+      {
+        TargetImage = null,
+        TargetImageId = "sha256:" + new string('2', 64),
+      },
+    })).IsFalse();
+  }
+
+  [Test]
   public async Task IsValidProfile_Accepts_Divergent_Local_And_GitHub_Evidence()
   {
     var profile = CreateContractElevenProfile();
@@ -159,6 +195,7 @@ public sealed class SyncConnectorContractElevenTests
     var contractTenProfile = profile with
     {
       ManagerContractVersion = 10,
+      Update = null,
       ResourcePolicy = null,
       Autoscaling = autoscaling with
       {
@@ -732,5 +769,16 @@ public sealed class SyncConnectorContractElevenTests
               8_589_934_592,
               10_737_418_240,
               "2.5",
-              1024));
+              1024),
+          null,
+          null,
+          null,
+          new ManagerWorkerUpdateState(
+              "current",
+              "ghcr.io/example/runner@sha256:" + new string('a', 64),
+              "sha256:" + new string('1', 64),
+              new string('b', 64),
+              2,
+              0,
+              null));
 }

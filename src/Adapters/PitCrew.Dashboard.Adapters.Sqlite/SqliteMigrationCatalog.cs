@@ -933,5 +933,51 @@ internal static class SqliteMigrationCatalog
                     'resolved alert incidents are immutable');
             END;
             """),
+      new(
+            11,
+            "worker-image-rollout-history",
+            """
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_update_status TEXT NULL
+                    CHECK (worker_update_status IS NULL
+                        OR worker_update_status IN (
+                            'current',
+                            'rolling',
+                            'degraded'));
+
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_target_image TEXT NULL
+                    CHECK (worker_target_image IS NULL
+                        OR length(worker_target_image) BETWEEN 1 AND 2048);
+
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_target_image_id TEXT NULL
+                    CHECK (worker_target_image_id IS NULL
+                        OR (length(worker_target_image_id) = 71
+                            AND substr(worker_target_image_id, 1, 7) = 'sha256:'
+                            AND substr(worker_target_image_id, 8)
+                                NOT GLOB '*[^0-9a-f]*'));
+
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_target_revision TEXT NULL
+                    CHECK (worker_target_revision IS NULL
+                        OR (length(worker_target_revision) = 64
+                            AND worker_target_revision NOT GLOB '*[^0-9a-f]*'));
+
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_current_workers INTEGER NULL
+                    CHECK (worker_current_workers IS NULL
+                        OR worker_current_workers >= 0);
+
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_stale_workers INTEGER NULL
+                    CHECK (worker_stale_workers IS NULL
+                        OR worker_stale_workers >= 0);
+
+            ALTER TABLE profile_telemetry_samples
+                ADD COLUMN worker_update_error TEXT NULL
+                    CHECK (worker_update_error IS NULL
+                        OR length(worker_update_error) <= 512);
+            """),
     ];
 }

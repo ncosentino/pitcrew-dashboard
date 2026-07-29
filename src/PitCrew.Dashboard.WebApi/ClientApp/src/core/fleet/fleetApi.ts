@@ -117,6 +117,19 @@ const managerAutoscalingStateSchema = z.object({
   targets: z.array(autoscalingTargetSchema).nullable().default(null),
 });
 
+const managerWorkerUpdateStateSchema = z.object({
+  status: z.enum(['current', 'rolling', 'degraded']),
+  targetImage: z.string().min(1).max(2048).regex(/^\S+$/u).nullable(),
+  targetImageId: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/u, 'Image identity must be an immutable sha256 digest.')
+    .nullable(),
+  targetRevision: z.string().regex(/^[0-9a-f]{64}$/u),
+  currentWorkers: z.number().int().nonnegative(),
+  staleWorkers: z.number().int().nonnegative(),
+  lastError: z.string().max(512).nullable(),
+});
+
 const registrationStatusSchema = z.enum([
   'connected',
   'disconnected',
@@ -335,6 +348,7 @@ const managerObservedStateSchema = z
     operationJournal: managerOperationJournalSchema.nullable().default(null),
     subsystemHealth: managerSubsystemHealthSchema.nullable().default(null),
     capacityEvidence: managerCapacityEvidenceSchema.nullable().default(null),
+    update: managerWorkerUpdateStateSchema.nullable().default(null),
   })
   .superRefine((profile, context) => {
     if (profile.managerContractVersion >= 10) {
@@ -366,6 +380,38 @@ const managerObservedStateSchema = z
           message: 'Eligible slot capacity must equal connected slot count.',
           path: ['eligibleSlots'],
         });
+      }
+
+      const update = profile.update;
+      if (update != null) {
+        if (update.currentWorkers + update.staleWorkers !== profile.activeSlots) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Current and stale rollout workers must equal active slots.',
+            path: ['update', 'currentWorkers'],
+          });
+        }
+        if (update.status === 'current' && update.staleWorkers !== 0) {
+          context.addIssue({
+            code: 'custom',
+            message: 'A current rollout cannot retain stale workers.',
+            path: ['update', 'staleWorkers'],
+          });
+        }
+        if (update.status === 'rolling' && update.staleWorkers === 0) {
+          context.addIssue({
+            code: 'custom',
+            message: 'A rolling rollout must retain at least one stale worker.',
+            path: ['update', 'staleWorkers'],
+          });
+        }
+        if (update.targetImageId != null && update.targetImage == null) {
+          context.addIssue({
+            code: 'custom',
+            message: 'A resolved target image identity requires its configured reference.',
+            path: ['update', 'targetImage'],
+          });
+        }
       }
     }
 

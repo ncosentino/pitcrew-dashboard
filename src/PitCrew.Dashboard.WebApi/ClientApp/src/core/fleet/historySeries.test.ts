@@ -14,6 +14,7 @@ import {
   describeHistoryJournal,
   describeIncompletenessFloor,
   describeSubsystemHealthEvidence,
+  describeWorkerUpdateEvidence,
   resolveCadenceMilliseconds,
 } from './historySeries';
 
@@ -56,6 +57,13 @@ function sample(overrides: Partial<ProfileTelemetrySample> = {}): ProfileTelemet
     eligibilityCapacityDeficit: 0,
     capacityDeficitReason: 'docker-failed',
     capacityDeficitFreshness: 'current',
+    workerUpdateStatus: null,
+    workerTargetImage: null,
+    workerTargetImageId: null,
+    workerTargetRevision: null,
+    workerCurrentWorkers: null,
+    workerStaleWorkers: null,
+    workerUpdateError: null,
     ...overrides,
   };
 }
@@ -121,10 +129,12 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
     events: [],
     subsystemHealthChanges: [],
     capacityDeficits: [deficit()],
+    workerUpdateChanges: [],
     pointsTruncated: false,
     eventsTruncated: false,
     subsystemHealthTruncated: false,
     capacityDeficitsTruncated: false,
+    workerUpdatesTruncated: false,
     retention: {
       earliestRetainedSample: '2026-07-26T11:00:00+00:00',
       droppedSamples: 0,
@@ -167,6 +177,42 @@ describe('buildHistorySeries', () => {
     expect(
       counts?.series.find((series) => series.key === 'local-running-workers')?.points[0]?.value,
     ).toBe(2);
+  });
+
+  describe('describeWorkerUpdateEvidence', () => {
+    it('distinguishes retained, truncated, and retention-limited rollout evidence', () => {
+      const change = {
+        kind: 'rollout-started' as const,
+        observedAt: '2026-07-26T12:00:00+00:00',
+        status: 'rolling' as const,
+        targetImage: 'ghcr.io/example/runner:1.0',
+        targetImageId: `sha256:${'1'.repeat(64)}`,
+        targetRevision: 'a'.repeat(64),
+        currentWorkers: 1,
+        staleWorkers: 1,
+        lastError: null,
+      };
+
+      expect(describeWorkerUpdateEvidence(history({ workerUpdateChanges: [change] })).status).toBe(
+        'available',
+      );
+      expect(
+        describeWorkerUpdateEvidence(
+          history({ workerUpdateChanges: [change], workerUpdatesTruncated: true }),
+        ).label,
+      ).toBe('Truncated');
+      expect(
+        describeWorkerUpdateEvidence(
+          history({
+            workerUpdateChanges: [],
+            retention: {
+              ...history().retention,
+              droppedSamples: 1,
+            },
+          }),
+        ).status,
+      ).toBe('partial');
+    });
   });
 
   it('preserves an unavailable measurement instead of plotting a measured zero', () => {

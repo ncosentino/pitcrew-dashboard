@@ -1,5 +1,6 @@
 export { FleetProvider } from './FleetProvider';
 export { useFleet } from './useFleet';
+export { describeWorkerUpdate } from './workerUpdate';
 export {
   describeExitEvidence,
   describeResourcePolicy,
@@ -70,6 +71,7 @@ export type {
   HistoryIncompletenessFloor,
   ProfileTelemetryRollup,
   ProfileTelemetrySample,
+  ProfileWorkerUpdateChange,
 } from './historyApi';
 export {
   buildDeficitReasonChanges,
@@ -79,6 +81,7 @@ export {
   describeHistoryJournal,
   describeIncompletenessFloor,
   describeSubsystemHealthEvidence,
+  describeWorkerUpdateEvidence,
   resolveCadenceMilliseconds,
 } from './historySeries';
 export type {
