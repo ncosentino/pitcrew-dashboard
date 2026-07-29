@@ -557,6 +557,7 @@ describe('profile detail routes', () => {
       eligibleSlots: 0,
       configuredSlots: 2,
     });
+
     const router = renderProfile(
       fleetResponse([nodeResponse({ profiles: [profile] })]),
       'viewer',
@@ -581,6 +582,87 @@ describe('profile detail routes', () => {
       await screen.findByText('The manager has not reported any slots for this profile.'),
     ).toBeInTheDocument();
   });
+
+  it.each([
+    [
+      'unavailable',
+      null,
+      'No worker-image rollout evidence was reported.',
+      'No rollout evidence was reported',
+    ],
+    [
+      'current',
+      {
+        status: 'current',
+        targetImage: 'ghcr.io/example/runner:1.0',
+        targetImageId: imageDigest,
+        targetRevision: 'a'.repeat(64),
+        currentWorkers: 1,
+        staleWorkers: 0,
+        lastError: null,
+      },
+      '1 current workers; no stale workers reported.',
+      '1 current · 0 stale',
+    ],
+    [
+      'rolling',
+      {
+        status: 'rolling',
+        targetImage: 'ghcr.io/example/runner:2.0',
+        targetImageId: imageDigest,
+        targetRevision: 'b'.repeat(64),
+        currentWorkers: 0,
+        staleWorkers: 1,
+        lastError: null,
+      },
+      '0 current and 1 stale workers.',
+      '0 current · 1 stale',
+    ],
+    [
+      'degraded',
+      {
+        status: 'degraded',
+        targetImage: 'ghcr.io/example/runner:2.0',
+        targetImageId: imageDigest,
+        targetRevision: 'b'.repeat(64),
+        currentWorkers: 0,
+        staleWorkers: 1,
+        lastError: 'Candidate rollout is blocked.',
+      },
+      'Candidate rollout is blocked.',
+      'Candidate rollout is blocked.',
+    ],
+  ])(
+    'renders %s worker-image rollout evidence',
+    async (_status, update, overviewExpected, detailExpected) => {
+      const fleet = fleetResponse([
+        nodeResponse({
+          profiles: [
+            profileResponse({
+              update,
+            }),
+          ],
+        }),
+      ]);
+      const router = renderProfile(fleet);
+
+      expect(await screen.findByTestId('profile-overview-worker-update-default')).toHaveTextContent(
+        String(overviewExpected),
+      );
+      await act(async () => {
+        await router.navigate(profileRoute('workers'));
+      });
+      expect(await screen.findByTestId('profile-worker-update-default')).toHaveTextContent(
+        String(detailExpected),
+      );
+      await act(async () => {
+        await router.navigate(profileRoute('recovery'));
+      });
+      expect(await screen.findByTestId('profile-worker-update-default')).toHaveTextContent(
+        String(detailExpected),
+      );
+    },
+  );
 
   it('treats registration eligibility from older manager contracts as unknown', async () => {
     const legacySlot = slotResponse({ registrationStatus: undefined });

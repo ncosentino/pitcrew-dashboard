@@ -17,6 +17,7 @@ function statusClasses(status: string): string {
     case 'resolved':
     case 'healthy':
     case 'clean':
+    case 'current':
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
     case 'partial':
     case 'draining':
@@ -30,6 +31,7 @@ function statusClasses(status: string): string {
     case 'acknowledged':
     case 'stale':
     case 'retry-scheduled':
+    case 'rolling':
       return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
     case 'backoff':
     case 'disconnected':

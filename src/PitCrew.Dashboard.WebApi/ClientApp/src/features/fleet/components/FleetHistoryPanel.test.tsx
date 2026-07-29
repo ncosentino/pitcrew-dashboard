@@ -48,6 +48,13 @@ function profile(profileId: string, observedAt: string) {
         eligibilityCapacityDeficit: 0,
         capacityDeficitReason: 'docker-failed',
         capacityDeficitFreshness: 'current',
+        workerUpdateStatus: 'rolling',
+        workerTargetImage: 'ghcr.io/example/runner:2.0',
+        workerTargetImageId: `sha256:${'2'.repeat(64)}`,
+        workerTargetRevision: 'b'.repeat(64),
+        workerCurrentWorkers: 1,
+        workerStaleWorkers: 1,
+        workerUpdateError: null,
       },
     ],
     rollups: [],
@@ -71,10 +78,24 @@ function profile(profileId: string, observedAt: string) {
         evidence: null,
       },
     ],
+    workerUpdateChanges: [
+      {
+        kind: 'rollout-started',
+        observedAt,
+        status: 'rolling',
+        targetImage: 'ghcr.io/example/runner:2.0',
+        targetImageId: `sha256:${'2'.repeat(64)}`,
+        targetRevision: 'b'.repeat(64),
+        currentWorkers: 1,
+        staleWorkers: 1,
+        lastError: null,
+      },
+    ],
     pointsTruncated: false,
     eventsTruncated: false,
     subsystemHealthTruncated: false,
     capacityDeficitsTruncated: false,
+    workerUpdatesTruncated: false,
     journal: {
       status: 'current',
       capacity: 32,
@@ -139,6 +160,7 @@ function historyResponse(overrides: Record<string, unknown>) {
     profileEventLimit: 200,
     profileSubsystemHealthLimit: 200,
     profileCapacityDeficitLimit: 200,
+    profileWorkerUpdateLimit: 200,
     nodePointLimit: 5000,
     nodeEventLimit: 1000,
     nodeDiagnosticLimit: 1000,
@@ -300,7 +322,7 @@ describe('FleetHistoryPanel', () => {
     const banner = await screen.findByText(/reached its limits/);
     expect(banner).toHaveTextContent('points (1000 per profile, 5000 across all profiles)');
     expect(banner).toHaveTextContent(
-      'diagnostics (200 subsystem-health and 200 capacity-deficit rows per profile, 1000 combined across all profiles)',
+      'diagnostics (200 subsystem-health, 200 capacity-deficit, and 200 worker-rollout rows per profile, 1000 combined across all profiles)',
     );
     expect(banner).toHaveTextContent('older retained data inside the same range is hidden');
   });
@@ -491,6 +513,9 @@ describe('FleetHistoryPanel', () => {
     expect(opened.getByTestId('history-chart-default-capacity')).toBeInTheDocument();
     expect(
       opened.getByRole('region', { name: /Capacity-deficit reason changes for profile default/ }),
+    ).toHaveAttribute('tabindex', '0');
+    expect(
+      opened.getByRole('region', { name: /Worker image rollout changes for profile default/ }),
     ).toHaveAttribute('tabindex', '0');
   });
 });

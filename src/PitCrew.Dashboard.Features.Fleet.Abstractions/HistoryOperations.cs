@@ -187,7 +187,43 @@ public sealed record ProfileTelemetrySample(
     int? LocalCapacityDeficit,
     int? EligibilityCapacityDeficit,
     string? CapacityDeficitReason,
-    string? CapacityDeficitFreshness);
+    string? CapacityDeficitFreshness)
+{
+  /// <summary>
+  /// Gets the worker-image rollout status observed with this sample.
+  /// </summary>
+  public string? WorkerUpdateStatus { get; init; }
+
+  /// <summary>
+  /// Gets the configured target image reference observed with this sample.
+  /// </summary>
+  public string? WorkerTargetImage { get; init; }
+
+  /// <summary>
+  /// Gets the resolved target image identity observed with this sample.
+  /// </summary>
+  public string? WorkerTargetImageId { get; init; }
+
+  /// <summary>
+  /// Gets the target worker revision observed with this sample.
+  /// </summary>
+  public string? WorkerTargetRevision { get; init; }
+
+  /// <summary>
+  /// Gets the workers already using the target revision.
+  /// </summary>
+  public int? WorkerCurrentWorkers { get; init; }
+
+  /// <summary>
+  /// Gets the workers retained on an older revision.
+  /// </summary>
+  public int? WorkerStaleWorkers { get; init; }
+
+  /// <summary>
+  /// Gets the rollout error observed with this sample.
+  /// </summary>
+  public string? WorkerUpdateError { get; init; }
+}
 
 /// <summary>
 /// Describes one deterministic hourly rollup derived from retained samples.
@@ -391,6 +427,29 @@ public sealed record ProfileCapacityDeficitObservation(
     string? Evidence);
 
 /// <summary>
+/// Describes one rollout transition derived from retained profile samples.
+/// </summary>
+/// <param name="Kind">Transition kind: target-changed, rollout-started, rollout-converged, or rollout-degraded.</param>
+/// <param name="ObservedAt">Manager observation time that carried the transition.</param>
+/// <param name="Status">Worker-image rollout status after the transition.</param>
+/// <param name="TargetImage">Configured target image reference when reported.</param>
+/// <param name="TargetImageId">Resolved immutable target image identity when reported.</param>
+/// <param name="TargetRevision">Target worker revision.</param>
+/// <param name="CurrentWorkers">Workers already using the target revision.</param>
+/// <param name="StaleWorkers">Workers retained on an older revision.</param>
+/// <param name="LastError">Rollout error when degraded.</param>
+public sealed record ProfileWorkerUpdateChange(
+    string Kind,
+    DateTimeOffset ObservedAt,
+    string Status,
+    string? TargetImage,
+    string? TargetImageId,
+    string TargetRevision,
+    int CurrentWorkers,
+    int StaleWorkers,
+    string? LastError);
+
+/// <summary>
 /// Returns the bounded retained history for one profile.
 /// </summary>
 /// <param name="ProfileId">Profile identifier local to the connected server.</param>
@@ -417,7 +476,18 @@ public sealed record ProfileHistory(
     bool SubsystemHealthTruncated,
     bool CapacityDeficitsTruncated,
     ProfileEventJournalState Journal,
-    ProfileRetentionFloor Retention);
+    ProfileRetentionFloor Retention)
+{
+  /// <summary>
+  /// Gets rollout transitions derived from retained telemetry samples.
+  /// </summary>
+  public IReadOnlyList<ProfileWorkerUpdateChange> WorkerUpdateChanges { get; init; } = [];
+
+  /// <summary>
+  /// Gets whether the diagnostic limit hid older rollout transitions.
+  /// </summary>
+  public bool WorkerUpdatesTruncated { get; init; }
+}
 
 /// <summary>
 /// Reports history the dashboard deleted after per-profile provenance itself had to be compacted.
@@ -458,14 +528,14 @@ public sealed record HistoryIncompletenessFloor(
 /// <param name="Profiles">Per-profile bounded history.</param>
 /// <param name="PointsTruncated">Whether a point ceiling hid older points in the response.</param>
 /// <param name="EventsTruncated">Whether an event ceiling hid older events in the response.</param>
-/// <param name="DiagnosticsTruncated">Whether a diagnostic ceiling hid older subsystem-health or capacity-deficit rows in the response.</param>
+/// <param name="DiagnosticsTruncated">Whether a diagnostic ceiling hid older subsystem-health, capacity-deficit, or worker-update rows in the response.</param>
 /// <param name="ProfilePointLimit">Per-profile point ceiling applied to the response.</param>
 /// <param name="ProfileEventLimit">Per-profile event ceiling applied to the response.</param>
 /// <param name="ProfileSubsystemHealthLimit">Per-profile subsystem-health ceiling applied to the response.</param>
 /// <param name="ProfileCapacityDeficitLimit">Per-profile capacity-deficit ceiling applied to the response.</param>
 /// <param name="NodePointLimit">Node-wide point ceiling applied to the response.</param>
 /// <param name="NodeEventLimit">Node-wide event ceiling applied to the response.</param>
-/// <param name="NodeDiagnosticLimit">Combined node-wide ceiling shared by both diagnostic collections.</param>
+/// <param name="NodeDiagnosticLimit">Combined node-wide ceiling shared by every diagnostic collection.</param>
 /// <param name="IncompletenessFloors">Coarse node and database floors describing history whose per-profile provenance was compacted away.</param>
 public sealed record NodeHistoryResponse(
     Guid NodeId,
@@ -484,7 +554,13 @@ public sealed record NodeHistoryResponse(
     int NodePointLimit,
     int NodeEventLimit,
     int NodeDiagnosticLimit,
-    IReadOnlyList<HistoryIncompletenessFloor> IncompletenessFloors);
+    IReadOnlyList<HistoryIncompletenessFloor> IncompletenessFloors)
+{
+  /// <summary>
+  /// Gets the per-profile worker-update transition ceiling applied to the response.
+  /// </summary>
+  public int ProfileWorkerUpdateLimit { get; init; }
+}
 
 /// <summary>
 /// Advertises the bounded history query shapes one dashboard deployment can answer.

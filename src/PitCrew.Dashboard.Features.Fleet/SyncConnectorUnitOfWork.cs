@@ -389,6 +389,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
         profile.Slots.Count > 10000 ||
         profile.ConfiguredSlots is < 0 ||
         !IsValidResourcePolicy(profile.ResourcePolicy) ||
+        !IsValidWorkerUpdate(profile) ||
         !IsValidAutoscaling(profile) ||
         !IsValidResourceTelemetry(profile.ResourceTelemetry) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
@@ -471,6 +472,38 @@ internal sealed partial class SyncConnectorUnitOfWork(
 
     return IsConsistentResourceTelemetry(profile) &&
         ManagerDiagnosticsValidator.IsValid(profile);
+  }
+
+  private static bool IsValidWorkerUpdate(ManagerObservedState profile)
+  {
+    var update = profile.Update;
+    if (update is null)
+    {
+      return true;
+    }
+
+    if (update.Status is not ("current" or "rolling" or "degraded") ||
+        string.IsNullOrWhiteSpace(update.TargetRevision) ||
+        update.TargetRevision.Length != 64 ||
+        !update.TargetRevision.All(character =>
+            character is >= '0' and <= '9' or
+                >= 'a' and <= 'f') ||
+        update.CurrentWorkers < 0 ||
+        update.StaleWorkers < 0 ||
+        update.CurrentWorkers + update.StaleWorkers != profile.ActiveSlots ||
+        update.Status == "current" && update.StaleWorkers != 0 ||
+        update.Status == "rolling" && update.StaleWorkers == 0 ||
+        update.TargetImage is not null &&
+        (update.TargetImage.Length is < 1 or > 2048 ||
+         update.TargetImage.Any(char.IsWhiteSpace)) ||
+        !IsValidImageId(update.TargetImageId) ||
+        update.TargetImageId is not null && update.TargetImage is null ||
+        update.LastError?.Length > 512)
+    {
+      return false;
+    }
+
+    return true;
   }
 
   private static bool IsValidAutoscaling(ManagerObservedState profile)

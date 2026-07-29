@@ -82,6 +82,13 @@ internal sealed partial class SqliteFleetHistoryStore
         profileId,
         window,
         cancellationToken);
+    var workerUpdates = await LoadWorkerUpdatesAsync(
+        connection,
+        sqliteTransaction,
+        nodeId,
+        profileId,
+        window,
+        cancellationToken);
     var pointTotals = await LoadTotalsAsync(
         connection,
         sqliteTransaction,
@@ -122,6 +129,13 @@ internal sealed partial class SqliteFleetHistoryStore
         profileId,
         window,
         cancellationToken);
+    var workerUpdateTotals = await LoadWorkerUpdateTotalsAsync(
+        connection,
+        sqliteTransaction,
+        nodeId,
+        profileId,
+        window,
+        cancellationToken);
     var journals = await LoadJournalsAsync(
         connection,
         sqliteTransaction,
@@ -142,6 +156,7 @@ internal sealed partial class SqliteFleetHistoryStore
     profileIds.UnionWith(eventTotals.Keys);
     profileIds.UnionWith(healthTotals.Keys);
     profileIds.UnionWith(deficitTotals.Keys);
+    profileIds.UnionWith(workerUpdateTotals.Keys);
 
     var histories = new List<ProfileHistory>(profileIds.Count);
     var pointsTruncated = false;
@@ -154,6 +169,7 @@ internal sealed partial class SqliteFleetHistoryStore
       var profileEvents = events.GetValueOrDefault(id) ?? [];
       var profileHealth = health.GetValueOrDefault(id) ?? [];
       var profileDeficits = deficits.GetValueOrDefault(id) ?? [];
+      var profileWorkerUpdates = workerUpdates.GetValueOrDefault(id) ?? [];
       var returnedPoints = window.Resolution == HistoryResolution.Hourly
           ? profileRollups.Count
           : profileSamples.Count;
@@ -165,10 +181,14 @@ internal sealed partial class SqliteFleetHistoryStore
           profileHealth.Count < healthTotals.GetValueOrDefault(id);
       var profileDeficitsTruncated =
           profileDeficits.Count < deficitTotals.GetValueOrDefault(id);
+      var profileWorkerUpdatesTruncated =
+          profileWorkerUpdates.Count < workerUpdateTotals.GetValueOrDefault(id);
       pointsTruncated |= profilePointsTruncated;
       eventsTruncated |= profileEventsTruncated;
       diagnosticsTruncated |=
-          profileHealthTruncated || profileDeficitsTruncated;
+          profileHealthTruncated ||
+          profileDeficitsTruncated ||
+          profileWorkerUpdatesTruncated;
       var journal = journals.GetValueOrDefault(id);
       histories.Add(new ProfileHistory(
           id,
@@ -182,7 +202,11 @@ internal sealed partial class SqliteFleetHistoryStore
           profileHealthTruncated,
           profileDeficitsTruncated,
           journal?.Journal ?? EmptyJournal(),
-          journal?.Retention ?? EmptyRetention()));
+          journal?.Retention ?? EmptyRetention())
+      {
+        WorkerUpdateChanges = profileWorkerUpdates,
+        WorkerUpdatesTruncated = profileWorkerUpdatesTruncated,
+      });
     }
 
     return new NodeHistoryResponse(
@@ -202,7 +226,10 @@ internal sealed partial class SqliteFleetHistoryStore
         window.NodePointLimit,
         window.NodeEventLimit,
         window.NodeDiagnosticLimit,
-        floors);
+        floors)
+    {
+      ProfileWorkerUpdateLimit = window.DiagnosticLimit,
+    };
   }
 
   /// <summary>
@@ -400,7 +427,16 @@ internal sealed partial class SqliteFleetHistoryStore
           row.OptionalInt32("local_capacity_deficit"),
           row.OptionalInt32("eligibility_capacity_deficit"),
           row.OptionalString("capacity_deficit_reason"),
-          row.OptionalString("capacity_deficit_freshness")));
+          row.OptionalString("capacity_deficit_freshness"))
+      {
+        WorkerUpdateStatus = row.OptionalString("worker_update_status"),
+        WorkerTargetImage = row.OptionalString("worker_target_image"),
+        WorkerTargetImageId = row.OptionalString("worker_target_image_id"),
+        WorkerTargetRevision = row.OptionalString("worker_target_revision"),
+        WorkerCurrentWorkers = row.OptionalInt32("worker_current_workers"),
+        WorkerStaleWorkers = row.OptionalInt32("worker_stale_workers"),
+        WorkerUpdateError = row.OptionalString("worker_update_error"),
+      });
     }
 
     return pages;
@@ -605,17 +641,147 @@ internal sealed partial class SqliteFleetHistoryStore
   }
 
   /// <summary>
-  /// Ranks both diagnostic collections inside one shared node-wide budget.
+  /// Ranks every diagnostic collection inside one shared node-wide budget.
   /// </summary>
   /// <remarks>
-  /// Subsystem-health changes and capacity-deficit observations compete for the same node-wide
-  /// budget, so the advertised node-wide diagnostic cap is truthful instead of being applied twice.
-  /// The per-profile ceiling stays separate for each collection so neither hides the other, and both
-  /// per-profile ceilings are reported explicitly.
+  /// Subsystem-health changes, capacity-deficit observations, and worker-image rollout transitions
+  /// compete for the same node-wide budget, so the advertised node-wide diagnostic cap is truthful.
+  /// The per-profile ceiling stays separate for each collection so none hides another.
   /// </remarks>
   private const string RankedDiagnosticsSql =
       """
-      WITH combined AS (
+      WITH update_source AS (
+          SELECT
+              profile_id,
+              observed_at,
+              worker_update_status,
+              worker_target_image,
+              worker_target_image_id,
+              worker_target_revision,
+              worker_current_workers,
+              worker_stale_workers,
+              worker_update_error
+          FROM profile_telemetry_samples
+          WHERE node_id = $nodeId
+            AND observed_at >= $from
+            AND observed_at < $to
+            AND worker_update_status IS NOT NULL
+            AND ($profileId IS NULL OR profile_id = $profileId)
+          UNION ALL
+          SELECT
+              sample.profile_id,
+              sample.observed_at,
+              sample.worker_update_status,
+              sample.worker_target_image,
+              sample.worker_target_image_id,
+              sample.worker_target_revision,
+              sample.worker_current_workers,
+              sample.worker_stale_workers,
+              sample.worker_update_error
+          FROM profile_telemetry_samples AS sample
+          WHERE sample.node_id = $nodeId
+            AND sample.worker_update_status IS NOT NULL
+            AND ($profileId IS NULL OR sample.profile_id = $profileId)
+            AND sample.observed_at = (
+                SELECT MAX(previous.observed_at)
+                FROM profile_telemetry_samples AS previous
+                WHERE previous.node_id = sample.node_id
+                  AND previous.profile_id = sample.profile_id
+                  AND previous.worker_update_status IS NOT NULL
+                  AND previous.observed_at < $from)),
+      update_sequence AS (
+          SELECT
+              profile_id,
+              observed_at,
+              worker_update_status,
+              worker_target_image,
+              worker_target_image_id,
+              worker_target_revision,
+              worker_current_workers,
+              worker_stale_workers,
+              worker_update_error,
+              LAG(worker_update_status) OVER (
+                  PARTITION BY profile_id ORDER BY observed_at) AS previous_status,
+              LAG(worker_target_image) OVER (
+                  PARTITION BY profile_id ORDER BY observed_at) AS previous_target_image,
+              LAG(worker_target_image_id) OVER (
+                  PARTITION BY profile_id ORDER BY observed_at) AS previous_target_image_id,
+              LAG(worker_target_revision) OVER (
+                  PARTITION BY profile_id ORDER BY observed_at) AS previous_target_revision,
+              LAG(worker_update_error) OVER (
+                  PARTITION BY profile_id ORDER BY observed_at) AS previous_error
+          FROM update_source),
+      worker_update_changes AS (
+          SELECT
+              profile_id,
+              observed_at,
+              'target-changed' AS event_kind,
+              worker_update_status,
+              worker_target_image,
+              worker_target_image_id,
+              worker_target_revision,
+              worker_current_workers,
+              worker_stale_workers,
+              worker_update_error
+          FROM update_sequence
+          WHERE observed_at >= $from
+            AND worker_update_status IS NOT NULL
+            AND (
+                worker_target_image IS NOT previous_target_image
+                OR worker_target_image_id IS NOT previous_target_image_id
+                OR worker_target_revision IS NOT previous_target_revision)
+          UNION ALL
+          SELECT
+              profile_id,
+              observed_at,
+              'rollout-started',
+              worker_update_status,
+              worker_target_image,
+              worker_target_image_id,
+              worker_target_revision,
+              worker_current_workers,
+              worker_stale_workers,
+              worker_update_error
+          FROM update_sequence
+          WHERE observed_at >= $from
+            AND worker_update_status = 'rolling'
+            AND previous_status IS NOT 'rolling'
+          UNION ALL
+          SELECT
+              profile_id,
+              observed_at,
+              'rollout-converged',
+              worker_update_status,
+              worker_target_image,
+              worker_target_image_id,
+              worker_target_revision,
+              worker_current_workers,
+              worker_stale_workers,
+              worker_update_error
+          FROM update_sequence
+          WHERE observed_at >= $from
+            AND worker_update_status = 'current'
+            AND previous_status IS NOT NULL
+            AND previous_status IS NOT 'current'
+          UNION ALL
+          SELECT
+              profile_id,
+              observed_at,
+              'rollout-degraded',
+              worker_update_status,
+              worker_target_image,
+              worker_target_image_id,
+              worker_target_revision,
+              worker_current_workers,
+              worker_stale_workers,
+              worker_update_error
+          FROM update_sequence
+          WHERE observed_at >= $from
+            AND worker_update_status = 'degraded'
+            AND (
+                previous_status IS NOT 'degraded'
+                OR worker_update_error IS NOT previous_error)),
+      combined AS (
           SELECT
               'a' AS kind,
               profile_id,
@@ -636,7 +802,14 @@ internal sealed partial class SqliteFleetHistoryStore
           WHERE node_id = $nodeId
             AND observed_at >= $from
             AND observed_at < $to
-            AND ($profileId IS NULL OR profile_id = $profileId)),
+            AND ($profileId IS NULL OR profile_id = $profileId)
+          UNION ALL
+          SELECT
+              'c' AS kind,
+              profile_id,
+              event_kind AS key_value,
+              observed_at
+          FROM worker_update_changes),
       ranked AS (
           SELECT
               kind,
@@ -805,6 +978,102 @@ internal sealed partial class SqliteFleetHistoryStore
     }
 
     return deficits;
+  }
+
+  private static async Task<Dictionary<string, List<ProfileWorkerUpdateChange>>>
+      LoadWorkerUpdatesAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          string? profileId,
+          HistoryWindow window,
+          CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        {RankedDiagnosticsSql}
+        SELECT
+            u.profile_id AS profile_id,
+            u.event_kind AS event_kind,
+            u.observed_at AS observed_at,
+            u.worker_update_status AS worker_update_status,
+            u.worker_target_image AS worker_target_image,
+            u.worker_target_image_id AS worker_target_image_id,
+            u.worker_target_revision AS worker_target_revision,
+            u.worker_current_workers AS worker_current_workers,
+            u.worker_stale_workers AS worker_stale_workers,
+            u.worker_update_error AS worker_update_error
+        FROM worker_update_changes AS u
+        JOIN ranked AS r
+          ON r.kind = 'c'
+         AND r.profile_id = u.profile_id
+         AND r.key_value = u.event_kind
+         AND r.observed_at = u.observed_at
+        WHERE r.row_index <= $diagnosticLimit
+          AND r.node_index <= $nodeDiagnosticLimit
+        ORDER BY u.profile_id, u.observed_at, u.event_kind;
+        """;
+    AddDiagnosticParameters(command, nodeId, profileId, window);
+    var changes =
+        new Dictionary<string, List<ProfileWorkerUpdateChange>>(
+            StringComparer.Ordinal);
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    SqliteRowReader? row = null;
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      row ??= new SqliteRowReader(reader);
+      var id = row.String("profile_id");
+      if (!changes.TryGetValue(id, out var page))
+      {
+        page = [];
+        changes[id] = page;
+      }
+
+      page.Add(new ProfileWorkerUpdateChange(
+          row.String("event_kind"),
+          row.Time("observed_at"),
+          row.String("worker_update_status"),
+          row.OptionalString("worker_target_image"),
+          row.OptionalString("worker_target_image_id"),
+          row.String("worker_target_revision"),
+          row.Int32("worker_current_workers"),
+          row.Int32("worker_stale_workers"),
+          row.OptionalString("worker_update_error")));
+    }
+
+    return changes;
+  }
+
+  private static async Task<Dictionary<string, long>>
+      LoadWorkerUpdateTotalsAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          string? profileId,
+          HistoryWindow window,
+          CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        {RankedDiagnosticsSql}
+        SELECT profile_id, COUNT(*)
+        FROM worker_update_changes
+        GROUP BY profile_id;
+        """;
+    AddDiagnosticParameters(command, nodeId, profileId, window);
+    var totals = new Dictionary<string, long>(StringComparer.Ordinal);
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      totals[reader.GetString(0)] = reader.GetInt64(1);
+    }
+    return totals;
   }
 
   private static async Task<Dictionary<string, JournalPage>> LoadJournalsAsync(
@@ -1135,7 +1404,16 @@ internal sealed partial class SqliteFleetHistoryStore
             : deficit.LocalDeficit,
         deficit?.EligibilityDeficit,
         deficit?.Reason,
-        deficit?.Freshness);
+        deficit?.Freshness)
+    {
+      WorkerUpdateStatus = profile.Update?.Status,
+      WorkerTargetImage = profile.Update?.TargetImage,
+      WorkerTargetImageId = profile.Update?.TargetImageId,
+      WorkerTargetRevision = profile.Update?.TargetRevision,
+      WorkerCurrentWorkers = profile.Update?.CurrentWorkers,
+      WorkerStaleWorkers = profile.Update?.StaleWorkers,
+      WorkerUpdateError = profile.Update?.LastError,
+    };
   }
 
   private static CapacityDeficitEvidence? SelectDeficit(
@@ -1192,7 +1470,16 @@ internal sealed partial class SqliteFleetHistoryStore
       int? LocalCapacityDeficit,
       int? EligibilityCapacityDeficit,
       string? CapacityDeficitReason,
-      string? CapacityDeficitFreshness);
+      string? CapacityDeficitFreshness)
+  {
+    public string? WorkerUpdateStatus { get; init; }
+    public string? WorkerTargetImage { get; init; }
+    public string? WorkerTargetImageId { get; init; }
+    public string? WorkerTargetRevision { get; init; }
+    public int? WorkerCurrentWorkers { get; init; }
+    public int? WorkerStaleWorkers { get; init; }
+    public string? WorkerUpdateError { get; init; }
+  }
 
   private sealed record JournalPage(
       ProfileEventJournalState Journal,

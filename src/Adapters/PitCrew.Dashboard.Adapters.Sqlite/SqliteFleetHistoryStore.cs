@@ -68,7 +68,14 @@ internal sealed partial class SqliteFleetHistoryStore(
       local_capacity_deficit,
       eligibility_capacity_deficit,
       capacity_deficit_reason,
-      capacity_deficit_freshness
+      capacity_deficit_freshness,
+      worker_update_status,
+      worker_target_image,
+      worker_target_image_id,
+      worker_target_revision,
+      worker_current_workers,
+      worker_stale_workers,
+      worker_update_error
       """;
 
   /// <summary>
@@ -525,7 +532,14 @@ internal sealed partial class SqliteFleetHistoryStore(
             $localCapacityDeficit,
             $eligibilityCapacityDeficit,
             $capacityDeficitReason,
-            $capacityDeficitFreshness
+            $capacityDeficitFreshness,
+            $workerUpdateStatus,
+            $workerTargetImage,
+            $workerTargetImageId,
+            $workerTargetRevision,
+            $workerCurrentWorkers,
+            $workerStaleWorkers,
+            $workerUpdateError
         WHERE NOT EXISTS (
             SELECT 1
             FROM profile_history_cursors
@@ -611,6 +625,13 @@ internal sealed partial class SqliteFleetHistoryStore(
         command,
         "$capacityDeficitFreshness",
         sample.CapacityDeficitFreshness);
+    AddNullable(command, "$workerUpdateStatus", sample.WorkerUpdateStatus);
+    AddNullable(command, "$workerTargetImage", sample.WorkerTargetImage);
+    AddNullable(command, "$workerTargetImageId", sample.WorkerTargetImageId);
+    AddNullable(command, "$workerTargetRevision", sample.WorkerTargetRevision);
+    AddNullable(command, "$workerCurrentWorkers", sample.WorkerCurrentWorkers);
+    AddNullable(command, "$workerStaleWorkers", sample.WorkerStaleWorkers);
+    AddNullable(command, "$workerUpdateError", sample.WorkerUpdateError);
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 

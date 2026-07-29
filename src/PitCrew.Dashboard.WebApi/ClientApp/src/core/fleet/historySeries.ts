@@ -455,6 +455,7 @@ export function describeSubsystemHealthEvidence(history: ProfileHistory): Histor
       description: `Only the ${history.subsystemHealthChanges.length} most recent subsystem health changes inside this range are shown; older retained changes inside the same range are hidden. Narrow the range or raise the requested diagnostic limit to see them.${retentionNote}`,
     };
   }
+
   if (history.subsystemHealthChanges.length > 0) {
     return {
       status: dropped > 0 ? 'partial' : 'available',
@@ -465,6 +466,7 @@ export function describeSubsystemHealthEvidence(history: ProfileHistory): Histor
           : 'Only observations where manager-reported subsystem health changed are listed, and every retained change inside this range is shown.',
     };
   }
+
   if (dropped > 0) {
     return {
       status: 'partial',
@@ -477,6 +479,41 @@ export function describeSubsystemHealthEvidence(history: ProfileHistory): Histor
     label: 'None retained',
     description:
       'No retained observation inside this range carried a manager subsystem health change.',
+  };
+}
+
+/** Describes how completely retained worker-image rollout transitions are shown. */
+export function describeWorkerUpdateEvidence(history: ProfileHistory): HistoryAvailability {
+  const dropped = history.retention.droppedSamples;
+  const retentionNote =
+    dropped > 0
+      ? ` Dashboard retention has already deleted ${dropped} older telemetry samples, so older rollout transitions may no longer be derivable.`
+      : '';
+  if (history.workerUpdateChanges.length > 0 && history.workerUpdatesTruncated) {
+    return {
+      status: 'partial',
+      label: 'Truncated',
+      description: `Only the ${history.workerUpdateChanges.length} most recent worker-image rollout transitions inside this range are shown. Narrow the range or raise the requested diagnostic limit to see older retained transitions.${retentionNote}`,
+    };
+  }
+  if (history.workerUpdateChanges.length > 0) {
+    return {
+      status: dropped > 0 ? 'partial' : 'available',
+      label: dropped > 0 ? 'Retention floor' : 'Retained',
+      description: `Every worker-image rollout transition derivable from retained samples inside this range is listed.${retentionNote}`,
+    };
+  }
+  if (dropped > 0) {
+    return {
+      status: 'partial',
+      label: 'Retention floor',
+      description: `No rollout transition is derivable inside this range. Older samples were deleted, so this is not proof that no rollout occurred.${retentionNote}`,
+    };
+  }
+  return {
+    status: 'unavailable',
+    label: 'None retained',
+    description: 'No retained sample inside this range carried a worker-image rollout transition.',
   };
 }
 

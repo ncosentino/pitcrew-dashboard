@@ -90,6 +90,7 @@ public sealed class ProtocolCompatibilityTests
     await Assert.That(profile.Slots[0].LastExit).IsNull();
     await Assert.That(profile.Slots[0].Resources?.NetworkRxBytes).IsNull();
     await Assert.That(profile.Slots[0].Resources?.BlockWriteBytes).IsNull();
+    await Assert.That(profile.Update).IsNull();
   }
 
   [Test]
@@ -191,6 +192,15 @@ public sealed class ProtocolCompatibilityTests
                 }
               }
             ]
+          },
+          "update": {
+            "status": "rolling",
+            "targetImage": "ghcr.io/example/runner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "targetImageId": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "targetRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "currentWorkers": 0,
+            "staleWorkers": 1,
+            "lastError": null
           }
         }
         """,
@@ -225,6 +235,9 @@ public sealed class ProtocolCompatibilityTests
         .IsEqualTo(0);
     await Assert.That(reserialized.Slots[0].Resources?.BlockWriteBytes)
         .IsNull();
+    await Assert.That(reserialized.Update).IsEqualTo(profile.Update);
+    await Assert.That(reserialized.Update?.TargetImageId)
+        .IsEqualTo("sha256:" + new string('2', 64));
   }
 
   [Test]

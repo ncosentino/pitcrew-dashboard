@@ -94,6 +94,131 @@ public sealed class SqliteFleetHistoryStoreTests
   }
 
   [Test]
+  public async Task Worker_Image_Rollout_Transitions_Are_Durable_And_Bounded(
+        CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("worker-update-history");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var imageOne = "ghcr.io/example/runner@sha256:" + new string('1', 64);
+      var imageTwo = "ghcr.io/example/runner@sha256:" + new string('2', 64);
+      var imageIdOne = "sha256:" + new string('1', 64);
+      var imageIdTwo = "sha256:" + new string('2', 64);
+      var revisionOne = new string('a', 64);
+      var revisionTwo = new string('b', 64);
+      var observations = new[]
+      {
+          CreateProfile(Origin) with
+          {
+            Update = new ManagerWorkerUpdateState(
+                "current",
+                imageOne,
+                imageIdOne,
+                revisionOne,
+                2,
+                0,
+                null),
+          },
+          CreateProfile(Origin.AddMinutes(1)) with
+          {
+            Update = new ManagerWorkerUpdateState(
+                "rolling",
+                imageTwo,
+                imageIdTwo,
+                revisionTwo,
+                1,
+                1,
+                null),
+          },
+          CreateProfile(Origin.AddMinutes(2)) with
+          {
+            Update = new ManagerWorkerUpdateState(
+                "degraded",
+                imageTwo,
+                imageIdTwo,
+                revisionTwo,
+                1,
+                1,
+                "candidate verification delayed"),
+          },
+          CreateProfile(Origin.AddMinutes(3)) with
+          {
+            Update = new ManagerWorkerUpdateState(
+                "current",
+                imageTwo,
+                imageIdTwo,
+                revisionTwo,
+                2,
+                0,
+                null),
+          },
+      };
+      foreach (var observation in observations)
+      {
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            nodeId,
+            [observation],
+            observation.ObservedAt,
+            Retention,
+            cancellationToken);
+      }
+
+      var restartedStore = new SqliteFleetHistoryStore(connectionFactory);
+      var history = await ReadProfileHistoryAsync(
+          restartedStore,
+          nodeId,
+          cancellationToken);
+      var kinds = history.WorkerUpdateChanges
+          .Select(change => change.Kind)
+          .ToArray();
+
+      await Assert.That(history.Samples).Count().IsEqualTo(4);
+      await Assert.That(history.Samples[1].WorkerUpdateStatus)
+          .IsEqualTo("rolling");
+      await Assert.That(kinds.Contains("target-changed")).IsTrue();
+      await Assert.That(kinds.Contains("rollout-started")).IsTrue();
+      await Assert.That(kinds.Contains("rollout-degraded")).IsTrue();
+      await Assert.That(kinds.Contains("rollout-converged")).IsTrue();
+      await Assert.That(history.WorkerUpdatesTruncated).IsFalse();
+
+      var bounded = await restartedStore.GetProfileHistoryAsync(
+          "tenant",
+          nodeId,
+          "default",
+          new HistoryWindow(
+              Origin.AddDays(-1),
+              Origin.AddDays(1),
+              HistoryResolution.Raw,
+              100,
+              100,
+              2,
+              NodePointLimit,
+              NodeEventLimit,
+              NodeDiagnosticLimit),
+          Origin.AddMinutes(4),
+          cancellationToken);
+      await Assert.That(bounded).IsNotNull();
+      await Assert.That(bounded!.Profiles).HasSingleItem();
+      await Assert.That(bounded.Profiles[0].WorkerUpdateChanges)
+          .Count()
+          .IsEqualTo(2);
+      await Assert.That(bounded.Profiles[0].WorkerUpdatesTruncated).IsTrue();
+      await Assert.That(bounded.ProfileWorkerUpdateLimit).IsEqualTo(2);
+      await Assert.That(bounded.DiagnosticsTruncated).IsTrue();
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Equal_Observation_Appends_New_Journal_Events_Without_Duplicating_The_Sample(
       CancellationToken cancellationToken)
   {
@@ -1899,7 +2024,7 @@ public sealed class SqliteFleetHistoryStoreTests
   }
 
   [Test]
-  public async Task Node_Diagnostic_Budget_Is_Shared_By_Both_Collections(
+  public async Task Node_Diagnostic_Budget_Is_Shared_By_All_Collections(
       CancellationToken cancellationToken)
   {
     var databasePath = CreateDatabasePath("diagnosticbudget");
@@ -1911,16 +2036,25 @@ public sealed class SqliteFleetHistoryStoreTests
       var store = new SqliteFleetHistoryStore(connectionFactory);
       for (var index = 0; index < 4; index++)
       {
+        var observation = CreateAutoscalingProfile(
+            Origin.AddMinutes(index),
+            index % 2 == 0 ? "degraded" : "healthy",
+            index) with
+        {
+          Update = new ManagerWorkerUpdateState(
+              "rolling",
+              $"ghcr.io/example/runner:{index}",
+              $"sha256:{new string((char)('1' + index), 64)}",
+              new string((char)('a' + index), 64),
+              1,
+              1,
+              null),
+        };
         await FleetStorageTestTransactions.AppendAsync(
             store,
             connectionFactory,
             nodeId,
-            [
-                CreateAutoscalingProfile(
-                    Origin.AddMinutes(index),
-                    index % 2 == 0 ? "degraded" : "healthy",
-                    index),
-            ],
+            [observation],
             Origin.AddMinutes(index),
             Retention,
             cancellationToken);
@@ -1945,8 +2079,10 @@ public sealed class SqliteFleetHistoryStoreTests
       await Assert.That(history).IsNotNull();
       var profile = history!.Profiles.Single();
       var returned = profile.SubsystemHealthChanges.Count +
-          profile.CapacityDeficits.Count;
+          profile.CapacityDeficits.Count +
+          profile.WorkerUpdateChanges.Count;
       await Assert.That(returned).IsEqualTo(3);
+      await Assert.That(profile.WorkerUpdateChanges.Count).IsGreaterThan(0);
       await Assert.That(history.DiagnosticsTruncated).IsTrue();
     }
     finally

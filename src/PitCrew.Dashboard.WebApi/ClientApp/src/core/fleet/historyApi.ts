@@ -44,6 +44,21 @@ const telemetrySampleSchema = z.object({
   eligibilityCapacityDeficit: z.number().int().nonnegative().nullable(),
   capacityDeficitReason: z.string().min(1).max(128).nullable(),
   capacityDeficitFreshness: z.string().min(1).max(32).nullable(),
+  workerUpdateStatus: z.enum(['current', 'rolling', 'degraded']).nullable().default(null),
+  workerTargetImage: z.string().min(1).max(2048).nullable().default(null),
+  workerTargetImageId: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/u)
+    .nullable()
+    .default(null),
+  workerTargetRevision: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/u)
+    .nullable()
+    .default(null),
+  workerCurrentWorkers: z.number().int().nonnegative().nullable().default(null),
+  workerStaleWorkers: z.number().int().nonnegative().nullable().default(null),
+  workerUpdateError: z.string().max(512).nullable().default(null),
 });
 
 const telemetryRollupSchema = z.object({
@@ -136,6 +151,21 @@ const capacityDeficitObservationSchema = z.object({
   evidence: z.string().min(1).max(512).nullable(),
 });
 
+const workerUpdateChangeSchema = z.object({
+  kind: z.enum(['target-changed', 'rollout-started', 'rollout-converged', 'rollout-degraded']),
+  observedAt: offsetDateTimeSchema,
+  status: z.enum(['current', 'rolling', 'degraded']),
+  targetImage: z.string().min(1).max(2048).nullable(),
+  targetImageId: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/u)
+    .nullable(),
+  targetRevision: z.string().regex(/^[0-9a-f]{64}$/u),
+  currentWorkers: z.number().int().nonnegative(),
+  staleWorkers: z.number().int().nonnegative(),
+  lastError: z.string().max(512).nullable(),
+});
+
 const profileHistorySchema = z.object({
   profileId: z.string().min(1).max(128),
   samples: z.array(telemetrySampleSchema),
@@ -143,10 +173,12 @@ const profileHistorySchema = z.object({
   events: z.array(managerEventSchema),
   subsystemHealthChanges: z.array(subsystemHealthChangeSchema),
   capacityDeficits: z.array(capacityDeficitObservationSchema),
+  workerUpdateChanges: z.array(workerUpdateChangeSchema).default([]),
   pointsTruncated: z.boolean(),
   eventsTruncated: z.boolean(),
   subsystemHealthTruncated: z.boolean(),
   capacityDeficitsTruncated: z.boolean(),
+  workerUpdatesTruncated: z.boolean().default(false),
   journal: eventJournalStateSchema,
   retention: retentionFloorSchema,
 });
@@ -177,6 +209,7 @@ const nodeHistorySchema = z.object({
   profileEventLimit: z.number().int().positive(),
   profileSubsystemHealthLimit: z.number().int().positive(),
   profileCapacityDeficitLimit: z.number().int().positive(),
+  profileWorkerUpdateLimit: z.number().int().nonnegative().default(0),
   nodePointLimit: z.number().int().positive(),
   nodeEventLimit: z.number().int().positive(),
   nodeDiagnosticLimit: z.number().int().positive(),
@@ -213,6 +246,8 @@ export type ProfileRetentionFloor = z.infer<typeof retentionFloorSchema>;
 export type ProfileSubsystemHealthChange = z.infer<typeof subsystemHealthChangeSchema>;
 /** One retained target-keyed capacity-deficit observation. */
 export type ProfileCapacityDeficitObservation = z.infer<typeof capacityDeficitObservationSchema>;
+/** One worker-image rollout transition derived from retained profile samples. */
+export type ProfileWorkerUpdateChange = z.infer<typeof workerUpdateChangeSchema>;
 /** Explicit durable manager-journal availability and gap state. */
 export type ProfileEventJournalState = z.infer<typeof eventJournalStateSchema>;
 /** Bounded retained history for one profile. */

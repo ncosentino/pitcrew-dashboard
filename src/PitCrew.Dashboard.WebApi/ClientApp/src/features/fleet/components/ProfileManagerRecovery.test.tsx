@@ -42,6 +42,7 @@ const profile: ManagerObservedState = {
   operationJournal: null,
   subsystemHealth: null,
   capacityEvidence: null,
+  update: null,
 };
 
 const control: RecoveryControlState = {

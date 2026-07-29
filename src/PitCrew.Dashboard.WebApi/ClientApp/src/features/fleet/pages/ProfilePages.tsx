@@ -14,6 +14,7 @@ import {
 import { useSession } from '@/core/auth';
 import {
   describeSubsystemHealth,
+  describeWorkerUpdate,
   summarizeManagerOperations,
   useFleet,
   type CapacityControlState,
@@ -36,6 +37,7 @@ import { ProfileResourceTelemetry } from '../components/ProfileResourceTelemetry
 import { ProfileSlotsTable } from '../components/ProfileSlotsTable';
 import { ProfileSubsystemHealth } from '../components/ProfileSubsystemHealth';
 import { ProfileTargetsTable } from '../components/ProfileTargetsTable';
+import { ProfileWorkerUpdateSummary } from '../components/ProfileWorkerUpdateSummary';
 import { recoverManager, setCapacityMaximum } from '../fleetApi';
 import { isRecoveryCommandActive, type RecoveryFences } from '../managerRecovery';
 
@@ -345,6 +347,12 @@ export function ProfileOverviewPage() {
               testId={`profile-overview-resources-${profile.profileId}`}
             />
             <HealthSummaryRow
+              label="Worker image rollout"
+              description={describeWorkerUpdate(profile)}
+              status={profile.update?.status ?? 'unavailable'}
+              testId={`profile-overview-worker-update-${profile.profileId}`}
+            />
+            <HealthSummaryRow
               label="Manager operations"
               description={
                 operations.adverseCount > 0
@@ -470,6 +478,7 @@ export function ProfileWorkersPage() {
   const { profile } = useProfileDetail();
   return (
     <section className="grid gap-4">
+      <ProfileWorkerUpdateSummary profile={profile} />
       <ProfileResourcePolicy profile={profile} />
       <ProfileSlotsTable profile={profile} />
     </section>
@@ -539,6 +548,7 @@ export function ProfileRecoveryPage() {
         error={mutationError}
         busyMessage={isMutating ? 'Queuing manager recovery…' : null}
       />
+      <ProfileWorkerUpdateSummary profile={profile} />
       <ProfileManagerRecovery
         tenantId={tenantId}
         node={node}

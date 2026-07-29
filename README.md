@@ -122,6 +122,14 @@ for the same profile. Protocol 1-3 connectors never receive recovery work. See
 [Manager recovery](docs/manager-recovery.md) and
 [ADR-0002](docs/adr/adr-0002-typed-manager-recovery.md).
 
+Connector protocol 5 carries additive, read-only worker-image rollout evidence:
+the configured target image reference, resolved target image ID, worker
+revision, current and stale worker counts, and rollout error. Profile overview,
+workers, and recovery pages distinguish current, rolling, degraded, and
+unavailable evidence, while bounded history derives target changes and rollout
+start, convergence, and degradation transitions from durable samples. Protocol
+1-4 connectors remain compatible and display rollout state as unavailable.
+
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.
