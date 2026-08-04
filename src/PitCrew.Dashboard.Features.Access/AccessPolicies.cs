@@ -26,4 +26,11 @@ public static class AccessPolicies
   /// Requires owner access to the tenant in the current route.
   /// </summary>
   public const string TenantOwner = "PitCrew.TenantOwner";
+
+  /// <summary>
+  /// Requires one scoped noninteractive diagnostic credential.
+  /// </summary>
+  public const string DiagnosticsReader =
+      "PitCrew.DiagnosticsReader";
+
 }

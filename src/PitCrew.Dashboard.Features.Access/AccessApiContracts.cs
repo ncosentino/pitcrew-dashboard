@@ -70,3 +70,54 @@ public sealed record TenantMemberResponse(
     DashboardUserResponse User,
     string Role,
     DateTimeOffset CreatedAt);
+
+/// <summary>
+/// Requests one scoped, expiring diagnostic credential.
+/// </summary>
+/// <param name="Label">Operator-facing purpose.</param>
+/// <param name="ExpiresAt">Time after which authentication fails.</param>
+/// <param name="NodeIds">Allowed nodes, or empty for all tenant nodes.</param>
+/// <param name="ProfileIds">Allowed profiles, or empty for all profiles.</param>
+public sealed record CreateDiagnosticCredentialRequest(
+    string Label,
+    DateTimeOffset ExpiresAt,
+    IReadOnlyList<Guid>? NodeIds,
+    IReadOnlyList<string>? ProfileIds);
+
+/// <summary>
+/// Returns non-secret diagnostic credential metadata.
+/// </summary>
+/// <param name="CredentialId">Dashboard-assigned credential identifier.</param>
+/// <param name="Label">Operator-facing purpose.</param>
+/// <param name="CreatedByGitHubUserId">Administrator that created the credential.</param>
+/// <param name="CreatedAt">Creation time.</param>
+/// <param name="ExpiresAt">Expiry time.</param>
+/// <param name="RevokedAt">Revocation time when inactive.</param>
+/// <param name="RevokedByGitHubUserId">Administrator that revoked the credential.</param>
+/// <param name="RotatedFromCredentialId">Credential replaced by this credential.</param>
+/// <param name="LastUsedAt">Most recent successful authentication time.</param>
+/// <param name="UseCount">Successful authentication count.</param>
+/// <param name="NodeIds">Allowed nodes, or empty for all tenant nodes.</param>
+/// <param name="ProfileIds">Allowed profiles, or empty for all profiles.</param>
+public sealed record DiagnosticCredentialResponse(
+    Guid CredentialId,
+    string Label,
+    string CreatedByGitHubUserId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ExpiresAt,
+    DateTimeOffset? RevokedAt,
+    string? RevokedByGitHubUserId,
+    Guid? RotatedFromCredentialId,
+    DateTimeOffset? LastUsedAt,
+    long UseCount,
+    IReadOnlyList<Guid> NodeIds,
+    IReadOnlyList<string> ProfileIds);
+
+/// <summary>
+/// Returns a raw diagnostic credential exactly once with its metadata.
+/// </summary>
+/// <param name="Credential">Non-secret credential metadata.</param>
+/// <param name="Value">Raw credential that is never stored recoverably.</param>
+public sealed record DiagnosticCredentialCreatedResponse(
+    DiagnosticCredentialResponse Credential,
+    string Value);

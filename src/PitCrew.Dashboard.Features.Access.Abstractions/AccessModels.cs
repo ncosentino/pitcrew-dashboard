@@ -92,3 +92,91 @@ public enum AccessMutationStatus
   /// </summary>
   LastOwner,
 }
+
+/// <summary>
+/// Describes the outcome of a diagnostic-credential mutation.
+/// </summary>
+public enum DiagnosticCredentialMutationStatus
+{
+  /// <summary>
+  /// The credential mutation completed.
+  /// </summary>
+  Succeeded,
+
+  /// <summary>
+  /// The credential or tenant does not exist.
+  /// </summary>
+  NotFound,
+
+  /// <summary>
+  /// A requested node is not owned by the tenant.
+  /// </summary>
+  InvalidNode,
+
+  /// <summary>
+  /// The credential state conflicts with the requested mutation.
+  /// </summary>
+  Conflict,
+}
+
+/// <summary>
+/// Defines one scoped, read-only diagnostic credential.
+/// </summary>
+/// <param name="CredentialId">Dashboard-assigned credential identifier.</param>
+/// <param name="TenantId">Only tenant the credential may read.</param>
+/// <param name="Label">Operator-facing credential purpose.</param>
+/// <param name="CreatedByGitHubUserId">Administrator that created the credential.</param>
+/// <param name="CreatedAt">Time the credential was created.</param>
+/// <param name="ExpiresAt">Time after which authentication fails.</param>
+/// <param name="RevokedAt">Revocation time when the credential is inactive.</param>
+/// <param name="RevokedByGitHubUserId">Administrator that revoked the credential.</param>
+/// <param name="RotatedFromCredentialId">Credential replaced by this credential.</param>
+/// <param name="LastUsedAt">Most recent successful authentication time.</param>
+/// <param name="UseCount">Successful authentication count.</param>
+/// <param name="NodeIds">Allowed nodes, or empty for every tenant node.</param>
+/// <param name="ProfileIds">Allowed profiles, or empty for every profile.</param>
+public sealed record DiagnosticCredential(
+    Guid CredentialId,
+    string TenantId,
+    string Label,
+    string CreatedByGitHubUserId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ExpiresAt,
+    DateTimeOffset? RevokedAt,
+    string? RevokedByGitHubUserId,
+    Guid? RotatedFromCredentialId,
+    DateTimeOffset? LastUsedAt,
+    long UseCount,
+    IReadOnlyList<Guid> NodeIds,
+    IReadOnlyList<string> ProfileIds);
+
+/// <summary>
+/// Carries a diagnostic credential definition into durable storage.
+/// </summary>
+/// <param name="Credential">Non-secret credential metadata.</param>
+/// <param name="TokenHash">One-way SHA-256 hash of the raw credential.</param>
+public sealed record DiagnosticCredentialWrite(
+    DiagnosticCredential Credential,
+    string TokenHash);
+
+/// <summary>
+/// Represents one authenticated diagnostic scope.
+/// </summary>
+/// <param name="CredentialId">Credential that authenticated the request.</param>
+/// <param name="TenantId">Only tenant the credential may read.</param>
+/// <param name="NodeIds">Allowed nodes, or empty for every tenant node.</param>
+/// <param name="ProfileIds">Allowed profiles, or empty for every profile.</param>
+public sealed record DiagnosticAccessScope(
+    Guid CredentialId,
+    string TenantId,
+    IReadOnlyList<Guid> NodeIds,
+    IReadOnlyList<string> ProfileIds);
+
+/// <summary>
+/// Returns a diagnostic-credential mutation and any resulting credential metadata.
+/// </summary>
+/// <param name="Status">Mutation outcome.</param>
+/// <param name="Credential">Created credential metadata when successful.</param>
+public sealed record DiagnosticCredentialMutation(
+    DiagnosticCredentialMutationStatus Status,
+    DiagnosticCredential? Credential);

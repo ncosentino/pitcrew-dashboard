@@ -16,6 +16,370 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 public sealed class HostingTests
 {
   [Test]
+  public async Task Diagnostic_Credential_Is_Scoped_Read_Only_Revocable_And_Rotatable(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var administrator = factory.CreateClient();
+      using var diagnostics = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          administrator,
+          cancellationToken);
+      var firstCode = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          administrator,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Allowed node",
+          cancellationToken);
+      var firstNode = await DashboardTestHelpers.EnrollAsync(
+          administrator,
+          "diagnostic-node-one",
+          "Diagnostic Node One",
+          firstCode.Code,
+          cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          administrator,
+          firstNode.Credential,
+          "2.0.0",
+          DashboardTestHelpers.CreateObservedState(
+              "default",
+              "https://github.com/example/project"),
+          cancellationToken);
+      var secondCode = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          administrator,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Blocked node",
+          cancellationToken);
+      var secondNode = await DashboardTestHelpers.EnrollAsync(
+          administrator,
+          "diagnostic-node-two",
+          "Diagnostic Node Two",
+          secondCode.Code,
+          cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          administrator,
+          secondNode.Credential,
+          "2.0.0",
+          DashboardTestHelpers.CreateObservedState(
+              "other-profile",
+              "https://github.com/example/other"),
+          cancellationToken);
+
+      var created =
+          await DashboardTestHelpers.CreateDiagnosticCredentialAsync(
+              administrator,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "Performance report",
+              DateTimeOffset.UtcNow.AddHours(1),
+              [firstNode.NodeId],
+              ["default"],
+              cancellationToken);
+      using var current = await DashboardTestHelpers.SendDiagnosticAsync(
+          diagnostics,
+          HttpMethod.Get,
+          $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+          created.Value,
+          null,
+          cancellationToken);
+      var currentFleet = await current.Content.ReadFromJsonAsync<
+          DiagnosticFleetPageResponse>(
+              cancellationToken);
+      using var forbiddenTenant =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              "/api/diagnostics/v1/tenants/other/fleet/nodes",
+              created.Value,
+              null,
+              cancellationToken);
+      using var forbiddenNode =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes/{secondNode.NodeId:D}/history",
+              created.Value,
+              null,
+              cancellationToken);
+      using var forbiddenProfile =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes/{firstNode.NodeId:D}/profiles/other-profile/history",
+              created.Value,
+              null,
+              cancellationToken);
+      using var profileScopedNodeHistory =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes/{firstNode.NodeId:D}/history",
+              created.Value,
+              null,
+              cancellationToken);
+      using var allowedProfileHistory =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes/{firstNode.NodeId:D}/profiles/default/history",
+              created.Value,
+              null,
+              cancellationToken);
+      using var mutation =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Post,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/enrollment-codes",
+              created.Value,
+              new CreateEnrollmentCodeRequest(
+                  "Diagnostic mutation attempt"),
+              cancellationToken);
+
+      await Assert.That(current.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(currentFleet).IsNotNull();
+      await Assert.That(currentFleet!.Nodes).HasSingleItem();
+      await Assert.That(currentFleet.Nodes[0].NodeId)
+          .IsEqualTo(firstNode.NodeId);
+      await Assert.That(currentFleet.Nodes[0].Profiles)
+          .HasSingleItem();
+      await Assert.That(currentFleet.Nodes[0].Profiles[0].ProfileId)
+          .IsEqualTo("default");
+      await Assert.That(currentFleet.Nodes[0].CapacityControls).IsEmpty();
+      await Assert.That(currentFleet.Nodes[0].RecoveryControls).IsEmpty();
+      await Assert.That(forbiddenTenant.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(forbiddenNode.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(forbiddenProfile.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(profileScopedNodeHistory.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(allowedProfileHistory.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(
+          current.Headers.CacheControl?.NoStore)
+          .IsTrue();
+      await Assert.That(mutation.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+
+      using var rotate = await DashboardTestHelpers.PostAuthenticatedAsync(
+          administrator,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/diagnostic-credentials/{created.Credential.CredentialId:D}/rotate",
+          session.AntiforgeryToken,
+          null,
+          cancellationToken);
+      var rotated = await rotate.Content.ReadFromJsonAsync<
+          DiagnosticCredentialCreatedResponse>(
+              cancellationToken);
+      using var oldAfterRotation =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              created.Value,
+              null,
+              cancellationToken);
+      using var replacement =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              rotated!.Value,
+              null,
+              cancellationToken);
+
+      await Assert.That(rotate.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(rotated).IsNotNull();
+      await Assert.That(rotated!.Credential.RotatedFromCredentialId)
+          .IsEqualTo(created.Credential.CredentialId);
+      await Assert.That(oldAfterRotation.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(replacement.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+
+      for (var requestIndex = 1; requestIndex < 120; requestIndex++)
+      {
+        using var permitted =
+            await DashboardTestHelpers.SendDiagnosticAsync(
+                diagnostics,
+                HttpMethod.Get,
+                $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+                rotated.Value,
+                null,
+                cancellationToken);
+        await Assert.That(permitted.StatusCode)
+            .IsEqualTo(HttpStatusCode.OK);
+      }
+      using var rateLimited =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              rotated.Value,
+              null,
+              cancellationToken);
+      await Assert.That(rateLimited.StatusCode)
+          .IsEqualTo(HttpStatusCode.TooManyRequests);
+
+      using var revoke = await DashboardTestHelpers.PostAuthenticatedAsync(
+          administrator,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/diagnostic-credentials/{rotated.Credential.CredentialId:D}/revoke",
+          session.AntiforgeryToken,
+          null,
+          cancellationToken);
+      using var replacementAfterRevocation =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              rotated.Value,
+              null,
+              cancellationToken);
+      var credentials = await administrator.GetFromJsonAsync<
+          DiagnosticCredentialResponse[]>(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/diagnostic-credentials",
+              cancellationToken);
+
+      await Assert.That(revoke.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(replacementAfterRevocation.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(credentials).IsNotNull();
+      await Assert.That(credentials!).Count().IsEqualTo(2);
+      await Assert.That(credentials.Any(item => item.LastUsedAt is not null))
+          .IsTrue();
+      await Assert.That(credentials.Any(item => item.UseCount > 0))
+          .IsTrue();
+
+      var unrestricted =
+          await DashboardTestHelpers.CreateDiagnosticCredentialAsync(
+              administrator,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "Fleet pagination",
+              DateTimeOffset.UtcNow.AddHours(1),
+              [],
+              [],
+              cancellationToken);
+      using var firstPage =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes?limit=1",
+              unrestricted.Value,
+              null,
+              cancellationToken);
+      var firstPageBody = await firstPage.Content.ReadFromJsonAsync<
+          DiagnosticFleetPageResponse>(
+              cancellationToken);
+      using var secondPage =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes?limit=1&afterNodeId={firstPageBody!.NextAfterNodeId:D}",
+              unrestricted.Value,
+              null,
+              cancellationToken);
+      var secondPageBody = await secondPage.Content.ReadFromJsonAsync<
+          DiagnosticFleetPageResponse>(
+              cancellationToken);
+      using var invalidPage =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes?limit=101",
+              unrestricted.Value,
+              null,
+              cancellationToken);
+
+      await Assert.That(firstPage.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(firstPageBody).IsNotNull();
+      await Assert.That(firstPageBody!.Nodes).HasSingleItem();
+      await Assert.That(firstPageBody.NextAfterNodeId).IsNotNull();
+      await Assert.That(secondPage.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(secondPageBody).IsNotNull();
+      await Assert.That(secondPageBody!.Nodes).HasSingleItem();
+      await Assert.That(secondPageBody.NextAfterNodeId).IsNull();
+      await Assert.That(secondPageBody.Nodes[0].NodeId)
+          .IsNotEqualTo(firstPageBody.Nodes[0].NodeId);
+      await Assert.That(invalidPage.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+
+      var profileOnly =
+          await DashboardTestHelpers.CreateDiagnosticCredentialAsync(
+              administrator,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "Profile-only scope",
+              DateTimeOffset.UtcNow.AddHours(1),
+              [],
+              ["default"],
+              cancellationToken);
+      using var profileOnlyFleet =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              profileOnly.Value,
+              null,
+              cancellationToken);
+      var profileOnlyBody = await profileOnlyFleet.Content.ReadFromJsonAsync<
+          DiagnosticFleetPageResponse>(
+              cancellationToken);
+      await Assert.That(profileOnlyFleet.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(profileOnlyBody).IsNotNull();
+      await Assert.That(profileOnlyBody!.Nodes).HasSingleItem();
+      await Assert.That(profileOnlyBody.Nodes[0].NodeId)
+          .IsEqualTo(firstNode.NodeId);
+
+      var unauthenticatedThrottled = false;
+      for (var requestIndex = 0; requestIndex < 150; requestIndex++)
+      {
+        using var malformed =
+            await DashboardTestHelpers.SendDiagnosticAsync(
+                diagnostics,
+                HttpMethod.Get,
+                $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+                "not-a-valid-credential",
+                null,
+                cancellationToken);
+        if (malformed.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+          unauthenticatedThrottled = true;
+          break;
+        }
+        await Assert.That(malformed.StatusCode)
+            .IsEqualTo(HttpStatusCode.Unauthorized);
+      }
+      await Assert.That(unauthenticatedThrottled)
+          .IsTrue()
+          .Because("failed authentication must be bounded before SQLite lookup");
+      using var mixedCaseThrottle =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/API/Diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              "not-a-valid-credential",
+              null,
+              cancellationToken);
+      await Assert.That(mixedCaseThrottle.StatusCode)
+          .IsEqualTo(HttpStatusCode.TooManyRequests);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Administrator_Views_And_Acknowledges_Active_Incident(
       CancellationToken cancellationToken)
   {
