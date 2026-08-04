@@ -979,5 +979,61 @@ internal static class SqliteMigrationCatalog
                     CHECK (worker_update_error IS NULL
                         OR length(worker_update_error) <= 512);
             """),
+        new(
+              12,
+              "scoped-diagnostic-credentials",
+              """
+              CREATE TABLE diagnostic_credentials (
+                  credential_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  label TEXT NOT NULL,
+                  token_hash TEXT NOT NULL UNIQUE,
+                  created_by_github_user_id TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  revoked_at TEXT NULL,
+                  revoked_by_github_user_id TEXT NULL,
+                  rotated_from_credential_id TEXT NULL,
+                  last_used_at TEXT NULL,
+                  use_count INTEGER NOT NULL DEFAULT 0
+                      CHECK (use_count >= 0),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (created_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (revoked_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (rotated_from_credential_id)
+                      REFERENCES diagnostic_credentials(credential_id)
+              );
+
+              CREATE INDEX ix_diagnostic_credentials_tenant_created
+                  ON diagnostic_credentials (tenant_id, created_at DESC);
+
+              CREATE INDEX ix_diagnostic_credentials_active_expiry
+                  ON diagnostic_credentials (tenant_id, expires_at)
+                  WHERE revoked_at IS NULL;
+
+              CREATE TABLE diagnostic_credential_nodes (
+                  credential_id TEXT NOT NULL,
+                  node_id TEXT NOT NULL,
+                  PRIMARY KEY (credential_id, node_id),
+                  FOREIGN KEY (credential_id)
+                      REFERENCES diagnostic_credentials(credential_id)
+                      ON DELETE CASCADE,
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id)
+                      ON DELETE CASCADE
+              ) WITHOUT ROWID;
+
+              CREATE TABLE diagnostic_credential_profiles (
+                  credential_id TEXT NOT NULL,
+                  profile_id TEXT NOT NULL,
+                  PRIMARY KEY (credential_id, profile_id),
+                  FOREIGN KEY (credential_id)
+                      REFERENCES diagnostic_credentials(credential_id)
+                      ON DELETE CASCADE
+              ) WITHOUT ROWID;
+              """),
     ];
 }

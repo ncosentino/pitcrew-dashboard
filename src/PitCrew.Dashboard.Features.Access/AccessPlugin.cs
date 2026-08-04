@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NexusLabs.Needlr;
 
 using PitCrew.Dashboard.Features.Access.Abstractions;
+using PitCrew.Dashboard.Kernel.Authentication;
 
 namespace PitCrew.Dashboard.Features.Access;
 
@@ -20,6 +22,15 @@ internal sealed class AccessPlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<
         IAuthorizationHandler,
         SystemAdministratorAuthorizationHandler>();
+    options.Services.AddSingleton<
+        IAuthorizationHandler,
+        DiagnosticAccessAuthorizationHandler>();
+    options.Services.AddAuthentication()
+        .AddScheme<
+            AuthenticationSchemeOptions,
+            DiagnosticCredentialAuthenticationHandler>(
+                DiagnosticAuthenticationDefaults.Scheme,
+                static _ => { });
     options.Services.AddAuthorizationBuilder()
         .AddPolicy(
             AccessPolicies.SystemAdministrator,
@@ -45,7 +56,15 @@ internal sealed class AccessPlugin : IServiceCollectionPlugin
             policy => policy
                 .RequireAuthenticatedUser()
                 .AddRequirements(
-                    new TenantAccessRequirement(TenantRole.Owner)));
+                    new TenantAccessRequirement(TenantRole.Owner)))
+        .AddPolicy(
+            AccessPolicies.DiagnosticsReader,
+            policy => policy
+                .AddAuthenticationSchemes(
+                    DiagnosticAuthenticationDefaults.Scheme)
+                .RequireAuthenticatedUser()
+                .AddRequirements(
+                    new DiagnosticAccessRequirement()));
     options.Services.AddHostedService<DevelopmentAccessInitializer>();
   }
 }

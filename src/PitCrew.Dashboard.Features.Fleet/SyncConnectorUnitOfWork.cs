@@ -768,18 +768,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
   }
 
   internal static bool IsValidProfileId(string profileId)
-  {
-    if (profileId.Length is < 1 or > 32 ||
-        profileId[0] is < 'a' or > 'z')
-    {
-      return false;
-    }
-
-    return profileId.All(character =>
-        character is >= 'a' and <= 'z' or
-            >= '0' and <= '9' or
-            '-');
-  }
+      => PitCrewProfileId.IsValid(profileId);
 
   [GeneratedRegex(
       @"^sha256:[0-9a-f]{64}$",

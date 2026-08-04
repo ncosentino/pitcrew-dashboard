@@ -14,6 +14,10 @@ const EnrollmentSettingsPage = lazyFeature('settings', async () => {
   const module = await import('./SettingsPages');
   return { default: module.EnrollmentSettingsPage };
 });
+const DiagnosticsSettingsPage = lazyFeature('settings', async () => {
+  const module = await import('./SettingsPages');
+  return { default: module.DiagnosticsSettingsPage };
+});
 
 /** Settings feature routes and navigation contribution. */
 export const settingsManifest: FeatureManifest = {
@@ -31,6 +35,11 @@ export const settingsManifest: FeatureManifest = {
     {
       label: 'Enrollment',
       path: '/tenants/:tenantId/settings/enrollment',
+      minimumTenantRole: 'administrator',
+    },
+    {
+      label: 'Diagnostics',
+      path: '/tenants/:tenantId/settings/diagnostics',
       minimumTenantRole: 'administrator',
     },
   ],
@@ -56,6 +65,14 @@ export const settingsManifest: FeatureManifest = {
         { label: 'Enrollment' },
       ],
     },
+    {
+      path: '/tenants/:tenantId/settings/diagnostics',
+      title: 'Diagnostic credentials',
+      breadcrumbs: [
+        { label: 'Settings', path: '/tenants/:tenantId/settings/general' },
+        { label: 'Diagnostics' },
+      ],
+    },
   ],
   routes: [
     {
@@ -79,6 +96,14 @@ export const settingsManifest: FeatureManifest = {
       element: (
         <TenantRouteGuard minimumRole="administrator">
           <EnrollmentSettingsPage />
+        </TenantRouteGuard>
+      ),
+    },
+    {
+      path: 'tenants/:tenantId/settings/diagnostics',
+      element: (
+        <TenantRouteGuard minimumRole="administrator">
+          <DiagnosticsSettingsPage />
         </TenantRouteGuard>
       ),
     },

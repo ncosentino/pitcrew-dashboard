@@ -22,6 +22,12 @@ internal sealed class DevelopmentAuthenticationHandler(
 {
   protected override Task<AuthenticateResult> HandleAuthenticateAsync()
   {
+    if (Request.Headers.Authorization.ToString().StartsWith(
+        $"{DiagnosticAuthenticationDefaults.AuthorizationScheme} ",
+        StringComparison.OrdinalIgnoreCase))
+    {
+      return Task.FromResult(AuthenticateResult.NoResult());
+    }
     var options = _dashboardOptions.Value;
     var claims = new List<Claim>
     {

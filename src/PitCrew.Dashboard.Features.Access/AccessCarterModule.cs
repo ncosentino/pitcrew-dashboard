@@ -43,6 +43,24 @@ public sealed class AccessCarterModule : ICarterModule
             "/members/{githubUserId}",
             RemoveMembershipAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>();
+
+    var administrators = app.MapGroup("/api/tenants/{tenantId}")
+        .RequireAuthorization(AccessPolicies.TenantAdministrator);
+    administrators.MapGet(
+        "/diagnostic-credentials",
+        GetDiagnosticCredentialsAsync);
+    administrators.MapPost(
+            "/diagnostic-credentials",
+            CreateDiagnosticCredentialAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>();
+    administrators.MapPost(
+            "/diagnostic-credentials/{credentialId:guid}/revoke",
+            RevokeDiagnosticCredentialAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>();
+    administrators.MapPost(
+            "/diagnostic-credentials/{credentialId:guid}/rotate",
+            RotateDiagnosticCredentialAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>();
   }
 
   private static async Task<IResult> GetSessionAsync(
@@ -199,6 +217,150 @@ public sealed class AccessCarterModule : ICarterModule
           tenantId,
           githubUserId,
           cancellationToken));
+
+  private static async Task<IResult> GetDiagnosticCredentialsAsync(
+      HttpContext context,
+      string tenantId,
+      IDiagnosticCredentialUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok((await unitOfWork.GetAllAsync(
+        tenantId,
+        cancellationToken)).Select(MapDiagnosticCredential));
+  }
+
+  private static async Task<IResult> CreateDiagnosticCredentialAsync(
+      HttpContext context,
+      string tenantId,
+      CreateDiagnosticCredentialRequest request,
+      IDiagnosticCredentialUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    context.Response.Headers.CacheControl = "no-store";
+    var result = await unitOfWork.CreateAsync(
+        context.User,
+        tenantId,
+        new CreateDiagnosticCredentialInput(
+            request.Label,
+            request.ExpiresAt,
+            request.NodeIds ?? [],
+            request.ProfileIds ?? []),
+        cancellationToken);
+    return DiagnosticCredentialResult(
+        result,
+        created: true);
+  }
+
+  private static async Task<IResult> RevokeDiagnosticCredentialAsync(
+      HttpContext context,
+      string tenantId,
+      Guid credentialId,
+      IDiagnosticCredentialUnitOfWork unitOfWork,
+      CancellationToken cancellationToken) =>
+      DiagnosticCredentialMutationResult(
+          await unitOfWork.RevokeAsync(
+              context.User,
+              tenantId,
+              credentialId,
+              cancellationToken));
+
+  private static Task<IResult> RotateDiagnosticCredentialAsync(
+      HttpContext context,
+      string tenantId,
+      Guid credentialId,
+      IDiagnosticCredentialUnitOfWork unitOfWork,
+      CancellationToken cancellationToken) =>
+      RotateDiagnosticCredentialResultAsync(
+          context,
+          tenantId,
+          credentialId,
+          unitOfWork,
+          cancellationToken);
+
+  private static async Task<IResult> RotateDiagnosticCredentialResultAsync(
+      HttpContext context,
+      string tenantId,
+      Guid credentialId,
+      IDiagnosticCredentialUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    context.Response.Headers.CacheControl = "no-store";
+    return DiagnosticCredentialResult(
+        await unitOfWork.RotateAsync(
+            context.User,
+            tenantId,
+            credentialId,
+            cancellationToken),
+        created: false);
+  }
+
+  private static IResult DiagnosticCredentialResult(
+      DiagnosticCredentialCommandResult result,
+      bool created)
+  {
+    if (result.Status ==
+            DiagnosticCredentialMutationStatus.Succeeded &&
+        result.Credential is not null &&
+        result.RawCredential is not null)
+    {
+      var response = new DiagnosticCredentialCreatedResponse(
+          MapDiagnosticCredential(result.Credential),
+          result.RawCredential);
+      return created
+          ? Results.Created(
+              $"/api/tenants/{result.Credential.TenantId}/diagnostic-credentials/{result.Credential.CredentialId:D}",
+              response)
+          : Results.Ok(response);
+    }
+    if (result.Error is not null)
+    {
+      return Invalid(
+          "invalid_diagnostic_credential",
+          result.Error);
+    }
+    return result.Status switch
+    {
+      DiagnosticCredentialMutationStatus.NotFound =>
+          Results.NotFound(),
+      DiagnosticCredentialMutationStatus.InvalidNode =>
+          Invalid(
+              "invalid_diagnostic_node",
+              "Every node restriction must belong to the tenant."),
+      _ => Conflict(
+          "diagnostic_credential_conflict",
+          "The diagnostic credential could not be changed."),
+    };
+  }
+
+  private static IResult DiagnosticCredentialMutationResult(
+      DiagnosticCredentialMutationStatus status) =>
+      status switch
+      {
+        DiagnosticCredentialMutationStatus.Succeeded =>
+            Results.NoContent(),
+        DiagnosticCredentialMutationStatus.NotFound =>
+            Results.NotFound(),
+        _ => Conflict(
+            "diagnostic_credential_conflict",
+            "The diagnostic credential could not be changed."),
+      };
+
+  private static DiagnosticCredentialResponse MapDiagnosticCredential(
+      DiagnosticCredential credential) =>
+      new(
+          credential.CredentialId,
+          credential.Label,
+          credential.CreatedByGitHubUserId,
+          credential.CreatedAt,
+          credential.ExpiresAt,
+          credential.RevokedAt,
+          credential.RevokedByGitHubUserId,
+          credential.RotatedFromCredentialId,
+          credential.LastUsedAt,
+          credential.UseCount,
+          credential.NodeIds,
+          credential.ProfileIds);
 
   private static IResult MutationResult(
       AccessMutationStatus status) =>

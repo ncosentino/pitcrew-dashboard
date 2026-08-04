@@ -65,6 +65,69 @@ internal static class DashboardTestHelpers
             "Enrollment-code response was empty.");
   }
 
+  public static async Task<DiagnosticCredentialCreatedResponse>
+      CreateDiagnosticCredentialAsync(
+          HttpClient client,
+          string antiforgeryToken,
+          string tenantId,
+          string label,
+          DateTimeOffset expiresAt,
+          IReadOnlyList<Guid> nodeIds,
+          IReadOnlyList<string> profileIds,
+          CancellationToken cancellationToken)
+  {
+    using var request = new HttpRequestMessage(
+        HttpMethod.Post,
+        $"/api/tenants/{tenantId}/diagnostic-credentials")
+    {
+      Content = JsonContent.Create(
+          new CreateDiagnosticCredentialRequest(
+              label,
+              expiresAt,
+              nodeIds,
+              profileIds)),
+    };
+    request.Headers.Add(
+        AntiforgeryHeader,
+        antiforgeryToken);
+    using var response = await client.SendAsync(
+        request,
+        cancellationToken);
+    if (!response.IsSuccessStatusCode)
+    {
+      var error = await response.Content.ReadAsStringAsync(
+          cancellationToken);
+      throw new InvalidOperationException(
+          $"Diagnostic credential request returned {(int)response.StatusCode}: {error}");
+    }
+    return await response.Content.ReadFromJsonAsync<
+        DiagnosticCredentialCreatedResponse>(
+            cancellationToken) ??
+        throw new InvalidOperationException(
+            "Diagnostic credential response was empty.");
+  }
+
+  public static async Task<HttpResponseMessage> SendDiagnosticAsync(
+      HttpClient client,
+      HttpMethod method,
+      string path,
+      string credential,
+      object? body,
+      CancellationToken cancellationToken)
+  {
+    var request = new HttpRequestMessage(method, path);
+    request.Headers.Authorization = new AuthenticationHeaderValue(
+        "PitCrew-Diagnostics",
+        credential);
+    if (body is not null)
+    {
+      request.Content = JsonContent.Create(body);
+    }
+    return await client.SendAsync(
+        request,
+        cancellationToken);
+  }
+
   public static async Task<ConnectorEnrollmentResponse> EnrollAsync(
       HttpClient client,
       string connectorInstanceId,

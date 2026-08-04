@@ -7,6 +7,7 @@ import { useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
 
 import { createEnrollmentCode, type EnrollmentCodeResponse } from './settingsApi';
+import { DiagnosticCredentials } from './DiagnosticCredentials';
 import { TenantAdministration } from './TenantAdministration';
 import { TenantSettings } from './TenantSettings';
 
@@ -44,6 +45,11 @@ function SettingsPage({ children }: SettingsPageProps) {
         <Button asChild variant="outline" size="sm">
           <NavLink to={`${settingsPath}/enrollment`}>Enrollment</NavLink>
         </Button>
+        {tenant.role === 'administrator' || tenant.role === 'owner' ? (
+          <Button asChild variant="outline" size="sm">
+            <NavLink to={`${settingsPath}/diagnostics`}>Diagnostics</NavLink>
+          </Button>
+        ) : null}
       </nav>
       {children}
     </section>
@@ -145,6 +151,17 @@ export function EnrollmentSettingsPage() {
           ) : null}
         </CardContent>
       </Card>
+    </SettingsPage>
+  );
+}
+
+/** Administrator-managed noninteractive diagnostics route. */
+export function DiagnosticsSettingsPage() {
+  const { tenantId, session } = useCurrentTenant();
+  if (!session) return null;
+  return (
+    <SettingsPage>
+      <DiagnosticCredentials tenantId={tenantId} antiforgeryToken={session.antiforgeryToken} />
     </SettingsPage>
   );
 }

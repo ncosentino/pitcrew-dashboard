@@ -229,6 +229,11 @@ code to re-enroll.
 See [Hosted deployment](docs/hosted-deployment.md) for the ingress decision
 guide, shared security contract, and membership workflow.
 
+Tenant administrators can also issue scoped, expiring credentials for
+noninteractive read-only fleet and history queries. These credentials use
+dedicated endpoints and never authorize browser or mutation APIs. See
+[Noninteractive read-only diagnostics](docs/noninteractive-diagnostics.md).
+
 ## Persistence
 
 SQLite stores connector identities and the latest profile projection. The
