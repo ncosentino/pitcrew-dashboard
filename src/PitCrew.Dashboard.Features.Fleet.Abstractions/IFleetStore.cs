@@ -183,6 +183,28 @@ public interface IFleetStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Applies the node-level hardware projection from authoritative profile observations.
+  /// </summary>
+  /// <remarks>
+  /// Callers must pass only profiles whose observation advanced and passed the shared history
+  /// clock and high-water gates. An empty list explicitly clears current hardware.
+  /// </remarks>
+  /// <param name="transaction">Transaction that carries the connector snapshot and bounded history write.</param>
+  /// <param name="nodeId">Authenticated node identifier.</param>
+  /// <param name="profiles">Accepted profile observations eligible to update node hardware.</param>
+  /// <param name="activeProfileIds">Complete profile identifiers present in the accepted connector snapshot.</param>
+  /// <param name="receivedAt">Dashboard time when the synchronization was accepted.</param>
+  /// <param name="cancellationToken">Token that cancels synchronization.</param>
+  /// <returns>A task that completes after the hardware projection is written.</returns>
+  Task ApplyHostHardwareAsync(
+      IFleetStorageTransaction transaction,
+      Guid nodeId,
+      IReadOnlyList<ManagerObservedState> profiles,
+      IReadOnlyCollection<string> activeProfileIds,
+      DateTimeOffset receivedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Loads the latest fleet projection for one tenant.
   /// </summary>
   /// <param name="tenantId">Tenant whose enrolled nodes should be returned.</param>

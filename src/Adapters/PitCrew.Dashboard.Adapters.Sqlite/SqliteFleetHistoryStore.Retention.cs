@@ -116,6 +116,11 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         null,
         cancellationToken);
+    var hardwareBefore = await CountHardwareRevisionsAsync(
+        connection,
+        transaction,
+        null,
+        cancellationToken);
     await BoundRowsAsync(
         connection,
         transaction,
@@ -147,6 +152,13 @@ internal sealed partial class SqliteFleetHistoryStore
         HistoryPartition.Database,
         retention.MaximumDiagnosticsPerDatabase,
         cancellationToken);
+    await BoundHardwareRevisionsAsync(
+        connection,
+        transaction,
+        null,
+        HistoryPartition.Database,
+        retention.MaximumDiagnosticsPerDatabase,
+        cancellationToken);
     var after = await CountRowsAsync(
         connection,
         transaction,
@@ -164,6 +176,18 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         receivedAt,
         retention.MaximumHistoryNodes,
+        cancellationToken);
+    var hardwareAfter = await CountHardwareRevisionsAsync(
+        connection,
+        transaction,
+        null,
+        cancellationToken);
+    await RecordDroppedHardwareAsync(
+        connection,
+        transaction,
+        hardwareBefore,
+        hardwareAfter,
+        receivedAt,
         cancellationToken);
     await BoundProfileHistoriesAsync(
         connection,
@@ -214,6 +238,11 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         nodeId,
         cancellationToken);
+    var hardwareBefore = await CountHardwareRevisionsAsync(
+        connection,
+        transaction,
+        nodeId,
+        cancellationToken);
 
     await DeleteOlderThanAsync(
         connection,
@@ -241,6 +270,12 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         nodeId,
         CountedTables[3],
+        receivedAt - retention.DiagnosticRetention,
+        cancellationToken);
+    await DeleteHardwareRevisionsOlderThanAsync(
+        connection,
+        transaction,
+        nodeId,
         receivedAt - retention.DiagnosticRetention,
         cancellationToken);
     await DeleteOlderThanAsync(
@@ -315,6 +350,13 @@ internal sealed partial class SqliteFleetHistoryStore
         HistoryPartition.Node,
         retention.MaximumDiagnosticsPerNode,
         cancellationToken);
+    await BoundHardwareRevisionsAsync(
+        connection,
+        transaction,
+        nodeId,
+        HistoryPartition.Node,
+        retention.MaximumDiagnosticsPerNode,
+        cancellationToken);
 
     var after = await CountRowsAsync(
         connection,
@@ -326,6 +368,18 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         before,
         after,
+        cancellationToken);
+    var hardwareAfter = await CountHardwareRevisionsAsync(
+        connection,
+        transaction,
+        nodeId,
+        cancellationToken);
+    await RecordDroppedHardwareAsync(
+        connection,
+        transaction,
+        hardwareBefore,
+        hardwareAfter,
+        receivedAt,
         cancellationToken);
 
     await BoundProfileHistoriesAsync(
@@ -343,6 +397,72 @@ internal sealed partial class SqliteFleetHistoryStore
         receivedAt,
         retention,
         cancellationToken);
+  }
+
+  private static async Task DeleteHardwareRevisionsOlderThanAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string? nodeId,
+      DateTimeOffset cutoff,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        DELETE FROM node_hardware_revisions
+        WHERE last_observed_at < $cutoff
+          AND ($nodeId IS NULL OR node_id = $nodeId);
+        """;
+    command.Parameters.AddWithValue(
+        "$cutoff",
+        cutoff.ToUniversalTime().ToString(
+            "O",
+            System.Globalization.CultureInfo.InvariantCulture));
+    command.Parameters.AddWithValue(
+        "$nodeId",
+        (object?)nodeId ?? DBNull.Value);
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static async Task BoundHardwareRevisionsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      string? nodeId,
+      HistoryPartition partition,
+      int maximumRows,
+      CancellationToken cancellationToken)
+  {
+    var partitionClause = partition == HistoryPartition.Node
+        ? "PARTITION BY node_id "
+        : string.Empty;
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        $"""
+        DELETE FROM node_hardware_revisions
+        WHERE revision_id IN (
+            SELECT revision_id
+            FROM (
+                SELECT
+                    revision_id,
+                    ROW_NUMBER() OVER (
+                        {partitionClause}ORDER BY
+                            last_observed_at DESC,
+                            node_id,
+                            revision_id DESC) AS rank_index
+                FROM node_hardware_revisions
+                WHERE $nodeId IS NULL OR node_id = $nodeId)
+            WHERE rank_index > $maximumRows
+        );
+        """;
+    command.Parameters.AddWithValue(
+        "$nodeId",
+        (object?)nodeId ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$maximumRows",
+        maximumRows);
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   /// <summary>
@@ -577,6 +697,105 @@ internal sealed partial class SqliteFleetHistoryStore
     return counts;
   }
 
+  private static async Task<Dictionary<string, long>>
+      CountHardwareRevisionsAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          string? nodeId,
+          CancellationToken cancellationToken)
+  {
+    var counts = new Dictionary<string, long>(
+        StringComparer.Ordinal);
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT node_id, COUNT(*)
+        FROM node_hardware_revisions
+        WHERE $nodeId IS NULL OR node_id = $nodeId
+        GROUP BY node_id;
+        """;
+    AddNullable(command, "$nodeId", nodeId);
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      counts[reader.GetString(0)] = reader.GetInt64(1);
+    }
+    return counts;
+  }
+
+  private static async Task RecordDroppedHardwareAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      IReadOnlyDictionary<string, long> before,
+      IReadOnlyDictionary<string, long> after,
+      DateTimeOffset receivedAt,
+      CancellationToken cancellationToken)
+  {
+    foreach (var (nodeId, previous) in before)
+    {
+      var remaining = after.TryGetValue(nodeId, out var retained)
+          ? retained
+          : 0;
+      var dropped = previous - remaining;
+      if (dropped <= 0)
+      {
+        continue;
+      }
+
+      await using var command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          WITH scopes(scope) AS (
+              VALUES ('node'), ('database'))
+          INSERT INTO history_incompleteness_floors (
+              scope,
+              node_id,
+              earliest_expired_at,
+              latest_expired_at,
+              expired_profiles,
+              dropped_samples,
+              dropped_rollups,
+              dropped_events,
+              dropped_subsystem_health,
+              dropped_capacity_deficits,
+              dropped_hardware_revisions)
+          SELECT
+              scope,
+              CASE WHEN scope = 'node' THEN $nodeId ELSE '' END,
+              $expiredAt,
+              $expiredAt,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              $dropped
+          FROM scopes
+          WHERE true
+          ON CONFLICT (scope, node_id) DO UPDATE SET
+              earliest_expired_at = MIN(
+                  history_incompleteness_floors.earliest_expired_at,
+                  excluded.earliest_expired_at),
+              latest_expired_at = MAX(
+                  history_incompleteness_floors.latest_expired_at,
+                  excluded.latest_expired_at),
+              dropped_hardware_revisions =
+                  history_incompleteness_floors.dropped_hardware_revisions
+                  + excluded.dropped_hardware_revisions;
+          """;
+      command.Parameters.AddWithValue("$nodeId", nodeId);
+      command.Parameters.AddWithValue(
+          "$expiredAt",
+          Utc(receivedAt));
+      command.Parameters.AddWithValue("$dropped", dropped);
+      await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+  }
+
   private static async Task RecordDroppedAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -709,8 +928,15 @@ internal sealed partial class SqliteFleetHistoryStore
                   ROW_NUMBER() OVER (
                       ORDER BY newest DESC, node_id ASC) AS rank_index
               FROM (
-                  SELECT node_id, MAX(updated_at) AS newest
-                  FROM profile_history_cursors
+                  SELECT node_id, MAX(newest) AS newest
+                  FROM (
+                      SELECT node_id, MAX(updated_at) AS newest
+                      FROM profile_history_cursors
+                      GROUP BY node_id
+                      UNION ALL
+                      SELECT node_id, MAX(last_observed_at) AS newest
+                      FROM node_hardware_revisions
+                      GROUP BY node_id)
                   GROUP BY node_id))
           WHERE rank_index > $maximum;
           """;
@@ -753,6 +979,16 @@ internal sealed partial class SqliteFleetHistoryStore
             receivedAt,
             cancellationToken);
       }
+
+      await using var hardware = connection.CreateCommand();
+      hardware.Transaction = transaction;
+      hardware.CommandText =
+          """
+          DELETE FROM node_hardware_revisions
+          WHERE node_id = $nodeId;
+          """;
+      hardware.Parameters.AddWithValue("$nodeId", node);
+      await hardware.ExecuteNonQueryAsync(cancellationToken);
     }
   }
 

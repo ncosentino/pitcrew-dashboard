@@ -347,8 +347,9 @@ internal sealed class SqliteFleetStore(
     for (var index = 0; index < profiles.Count; index++)
     {
       var profile = profiles[index];
+      var storedProfile = profile with { Host = null };
       var payload = JsonSerializer.Serialize(
-          profile,
+          storedProfile,
           PitCrewProtocolJsonContext.Default.ManagerObservedState);
       var payloadHash = Convert.ToHexString(
           SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(payload)));
@@ -392,6 +393,27 @@ internal sealed class SqliteFleetStore(
     }
   }
 
+  public Task ApplyHostHardwareAsync(
+      IFleetStorageTransaction transaction,
+      Guid nodeId,
+      IReadOnlyList<ManagerObservedState> profiles,
+      IReadOnlyCollection<string> activeProfileIds,
+      DateTimeOffset receivedAt,
+      CancellationToken cancellationToken)
+  {
+    ArgumentNullException.ThrowIfNull(profiles);
+    ArgumentNullException.ThrowIfNull(activeProfileIds);
+    var enlisted = SqliteFleetTransaction.Resolve(transaction);
+    return ApplyHostHardwareCoreAsync(
+        enlisted.Connection,
+        enlisted.Transaction,
+        nodeId,
+        profiles,
+        activeProfileIds,
+        receivedAt,
+        cancellationToken);
+  }
+
   public async Task<FleetResponse> GetFleetAsync(
       string tenantId,
       DateTimeOffset generatedAt,
@@ -413,9 +435,27 @@ internal sealed class SqliteFleetStore(
                 n.last_seen_at,
                 n.revoked_at,
                 n.rotation_requested_at,
-                p.payload_json
+                p.payload_json,
+                h.status,
+                h.collected_at,
+                h.attempted_at,
+                h.inventory_hash,
+                h.processor_model,
+                h.architecture,
+                h.physical_core_count,
+                h.logical_processor_count,
+                h.performance_core_count,
+                h.efficiency_core_count,
+                h.memory_bytes,
+                h.operating_system,
+                h.kernel_version,
+                h.docker_server_version,
+                h.docker_storage_driver,
+                h.docker_backing_filesystem
             FROM nodes AS n
             LEFT JOIN profiles AS p ON p.node_id = n.node_id
+            LEFT JOIN node_hardware_current AS h
+                ON h.node_id = n.node_id
             WHERE n.tenant_id = $tenantId
             ORDER BY
                 COALESCE(
@@ -450,7 +490,10 @@ internal sealed class SqliteFleetStore(
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind),
             !await reader.IsDBNullAsync(5, cancellationToken),
-            !await reader.IsDBNullAsync(6, cancellationToken));
+            !await reader.IsDBNullAsync(6, cancellationToken),
+            await ReadHostHardwareOrNullAsync(
+                reader,
+                cancellationToken));
         profilesByNode[nodeId] = [];
       }
 
@@ -485,7 +528,10 @@ internal sealed class SqliteFleetStore(
           row.CredentialRotationRequested,
           profilesByNode[pair.Key],
           [],
-          []));
+          [])
+      {
+        Hardware = row.Hardware,
+      });
     }
 
     return new FleetResponse(generatedAt, nodes);
@@ -608,5 +654,444 @@ internal sealed class SqliteFleetStore(
       DateTimeOffset EnrolledAt,
       DateTimeOffset? LastSeenAt,
       bool IsRevoked,
-      bool CredentialRotationRequested);
+      bool CredentialRotationRequested,
+      HostHardwareInventory? Hardware);
+
+  private sealed record CurrentHardwareState(
+      string Status,
+      string? InventoryHash,
+      string SourceProfileId,
+      DateTimeOffset AttemptedAt);
+
+  private static async Task ApplyHostHardwareCoreAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Guid nodeId,
+      IReadOnlyList<ManagerObservedState> profiles,
+      IReadOnlyCollection<string> activeProfileIds,
+      DateTimeOffset receivedAt,
+      CancellationToken cancellationToken)
+  {
+    var acceptedProfileIds = profiles
+        .Select(profile => profile.ProfileId)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var activeProfiles = activeProfileIds.ToHashSet(
+        StringComparer.OrdinalIgnoreCase);
+    if (acceptedProfileIds.Count == 0 && activeProfiles.Count > 0)
+    {
+      return;
+    }
+    CurrentHardwareState? previousCurrent = null;
+    await using (var previous = connection.CreateCommand())
+    {
+      previous.Transaction = transaction;
+      previous.CommandText =
+          """
+          SELECT
+              status,
+              inventory_hash,
+              source_profile_id,
+              attempted_at
+          FROM node_hardware_current
+          WHERE node_id = $nodeId;
+          """;
+      previous.Parameters.AddWithValue(
+          "$nodeId",
+          nodeId.ToString("D"));
+      await using var reader = await previous.ExecuteReaderAsync(
+          cancellationToken);
+      if (await reader.ReadAsync(cancellationToken))
+      {
+        previousCurrent = new CurrentHardwareState(
+            reader.GetString(0),
+            await reader.IsDBNullAsync(1, cancellationToken)
+                ? null
+                : reader.GetString(1),
+            reader.GetString(2),
+            ParseTimestamp(reader.GetString(3)));
+      }
+    }
+    var candidate = profiles
+        .Where(profile => profile.Host?.Hardware is not null)
+        .Select(profile => (
+            profile.ProfileId,
+            Hardware: profile.Host!.Hardware))
+        .OrderByDescending(item => HardwareStatusRank(
+            item.Hardware.Status))
+        .ThenByDescending(item => item.Hardware.AttemptedAt)
+        .ThenBy(item => item.ProfileId, StringComparer.Ordinal)
+        .FirstOrDefault();
+    var preservePrevious = previousCurrent is not null &&
+        activeProfiles.Contains(previousCurrent.SourceProfileId) &&
+        !acceptedProfileIds.Contains(previousCurrent.SourceProfileId);
+    if (candidate.Hardware is not null && preservePrevious)
+    {
+      var previousRank = HardwareStatusRank(previousCurrent!.Status);
+      var candidateRank = HardwareStatusRank(candidate.Hardware.Status);
+      if (previousRank > candidateRank ||
+          previousRank == candidateRank &&
+          (previousCurrent.AttemptedAt > candidate.Hardware.AttemptedAt ||
+              previousCurrent.AttemptedAt ==
+                  candidate.Hardware.AttemptedAt &&
+              string.CompareOrdinal(
+                  previousCurrent.SourceProfileId,
+                  candidate.ProfileId) <= 0))
+      {
+        return;
+      }
+    }
+    if (candidate.Hardware is null)
+    {
+      if (preservePrevious)
+      {
+        return;
+      }
+      await using var clear = connection.CreateCommand();
+      clear.Transaction = transaction;
+      clear.CommandText =
+          """
+          DELETE FROM node_hardware_current
+          WHERE node_id = $nodeId;
+          """;
+      clear.Parameters.AddWithValue(
+          "$nodeId",
+          nodeId.ToString("D"));
+      await clear.ExecuteNonQueryAsync(cancellationToken);
+      return;
+    }
+
+    await using var current = connection.CreateCommand();
+    current.Transaction = transaction;
+    current.CommandText =
+        """
+        INSERT INTO node_hardware_current (
+            node_id,
+            status,
+            collected_at,
+            attempted_at,
+            inventory_hash,
+            source_profile_id,
+            processor_model,
+            architecture,
+            physical_core_count,
+            logical_processor_count,
+            performance_core_count,
+            efficiency_core_count,
+            memory_bytes,
+            operating_system,
+            kernel_version,
+            docker_server_version,
+            docker_storage_driver,
+            docker_backing_filesystem,
+            recorded_at)
+        VALUES (
+            $nodeId,
+            $status,
+            $collectedAt,
+            $attemptedAt,
+            $inventoryHash,
+            $sourceProfileId,
+            $processorModel,
+            $architecture,
+            $physicalCoreCount,
+            $logicalProcessorCount,
+            $performanceCoreCount,
+            $efficiencyCoreCount,
+            $memoryBytes,
+            $operatingSystem,
+            $kernelVersion,
+            $dockerServerVersion,
+            $dockerStorageDriver,
+            $dockerBackingFilesystem,
+            $recordedAt)
+        ON CONFLICT (node_id) DO UPDATE SET
+            status = excluded.status,
+            collected_at = excluded.collected_at,
+            attempted_at = excluded.attempted_at,
+            inventory_hash = excluded.inventory_hash,
+            source_profile_id = excluded.source_profile_id,
+            processor_model = excluded.processor_model,
+            architecture = excluded.architecture,
+            physical_core_count = excluded.physical_core_count,
+            logical_processor_count = excluded.logical_processor_count,
+            performance_core_count = excluded.performance_core_count,
+            efficiency_core_count = excluded.efficiency_core_count,
+            memory_bytes = excluded.memory_bytes,
+            operating_system = excluded.operating_system,
+            kernel_version = excluded.kernel_version,
+            docker_server_version = excluded.docker_server_version,
+            docker_storage_driver = excluded.docker_storage_driver,
+            docker_backing_filesystem =
+                excluded.docker_backing_filesystem,
+            recorded_at = excluded.recorded_at
+        WHERE excluded.recorded_at >=
+            node_hardware_current.recorded_at;
+        """;
+    AddHostHardwareParameters(
+        current,
+        nodeId,
+        candidate.ProfileId,
+        candidate.Hardware,
+        receivedAt);
+    await current.ExecuteNonQueryAsync(cancellationToken);
+
+    if (candidate.Hardware.InventoryHash is null ||
+        candidate.Hardware.CollectedAt is null)
+    {
+      return;
+    }
+    long? latestRevisionId = null;
+    string? latestInventoryHash = null;
+    await using (var latestRevision = connection.CreateCommand())
+    {
+      latestRevision.Transaction = transaction;
+      latestRevision.CommandText =
+          """
+          SELECT revision_id, inventory_hash
+          FROM node_hardware_revisions
+          WHERE node_id = $nodeId
+          ORDER BY last_observed_at DESC, revision_id DESC
+          LIMIT 1;
+          """;
+      latestRevision.Parameters.AddWithValue(
+          "$nodeId",
+          nodeId.ToString("D"));
+      await using var reader = await latestRevision.ExecuteReaderAsync(
+          cancellationToken);
+      if (await reader.ReadAsync(cancellationToken))
+      {
+        latestRevisionId = reader.GetInt64(0);
+        latestInventoryHash = reader.GetString(1);
+      }
+    }
+    if (previousCurrent is not null &&
+        previousCurrent.Status is not "unavailable" &&
+        string.Equals(
+            previousCurrent.InventoryHash,
+            candidate.Hardware.InventoryHash,
+            StringComparison.Ordinal) &&
+        latestRevisionId is not null &&
+        string.Equals(
+            latestInventoryHash,
+            candidate.Hardware.InventoryHash,
+            StringComparison.Ordinal))
+    {
+      await using var refresh = connection.CreateCommand();
+      refresh.Transaction = transaction;
+      refresh.CommandText =
+          """
+          UPDATE node_hardware_revisions
+          SET last_observed_at = $recordedAt,
+              last_status = $status,
+              last_attempted_at = $attemptedAt,
+              source_profile_id = $sourceProfileId
+          WHERE revision_id = $revisionId
+            AND last_observed_at <= $recordedAt;
+          """;
+      refresh.Parameters.AddWithValue(
+          "$recordedAt",
+          FormatTimestamp(receivedAt));
+      refresh.Parameters.AddWithValue(
+          "$status",
+          candidate.Hardware.Status);
+      refresh.Parameters.AddWithValue(
+          "$attemptedAt",
+          FormatTimestamp(candidate.Hardware.AttemptedAt));
+      refresh.Parameters.AddWithValue(
+          "$sourceProfileId",
+          candidate.ProfileId);
+      refresh.Parameters.AddWithValue(
+          "$revisionId",
+          latestRevisionId.Value);
+      await refresh.ExecuteNonQueryAsync(cancellationToken);
+      return;
+    }
+    await using var revision = connection.CreateCommand();
+    revision.Transaction = transaction;
+    revision.CommandText =
+        """
+        INSERT INTO node_hardware_revisions (
+            node_id,
+            inventory_hash,
+            collected_at,
+            first_observed_at,
+            last_observed_at,
+            last_status,
+            last_attempted_at,
+            source_profile_id,
+            processor_model,
+            architecture,
+            physical_core_count,
+            logical_processor_count,
+            performance_core_count,
+            efficiency_core_count,
+            memory_bytes,
+            operating_system,
+            kernel_version,
+            docker_server_version,
+            docker_storage_driver,
+            docker_backing_filesystem)
+        VALUES (
+            $nodeId,
+            $inventoryHash,
+            $collectedAt,
+            $recordedAt,
+            $recordedAt,
+            $status,
+            $attemptedAt,
+            $sourceProfileId,
+            $processorModel,
+            $architecture,
+            $physicalCoreCount,
+            $logicalProcessorCount,
+            $performanceCoreCount,
+            $efficiencyCoreCount,
+            $memoryBytes,
+            $operatingSystem,
+            $kernelVersion,
+            $dockerServerVersion,
+            $dockerStorageDriver,
+            $dockerBackingFilesystem);
+        """;
+    AddHostHardwareParameters(
+        revision,
+        nodeId,
+        candidate.ProfileId,
+        candidate.Hardware,
+        receivedAt);
+    await revision.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static void AddHostHardwareParameters(
+      SqliteCommand command,
+      Guid nodeId,
+      string profileId,
+      HostHardwareInventory hardware,
+      DateTimeOffset recordedAt)
+  {
+    command.Parameters.AddWithValue(
+        "$nodeId",
+        nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$status", hardware.Status);
+    command.Parameters.AddWithValue(
+        "$collectedAt",
+        hardware.CollectedAt is null
+            ? DBNull.Value
+            : FormatTimestamp(hardware.CollectedAt.Value));
+    command.Parameters.AddWithValue(
+        "$attemptedAt",
+        FormatTimestamp(hardware.AttemptedAt));
+    command.Parameters.AddWithValue(
+        "$inventoryHash",
+        (object?)hardware.InventoryHash ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$sourceProfileId",
+        profileId);
+    command.Parameters.AddWithValue(
+        "$processorModel",
+        (object?)hardware.ProcessorModel ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$architecture",
+        (object?)hardware.Architecture ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$physicalCoreCount",
+        (object?)hardware.PhysicalCoreCount ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$logicalProcessorCount",
+        (object?)hardware.LogicalProcessorCount ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$performanceCoreCount",
+        (object?)hardware.PerformanceCoreCount ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$efficiencyCoreCount",
+        (object?)hardware.EfficiencyCoreCount ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$memoryBytes",
+        (object?)hardware.MemoryBytes ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$operatingSystem",
+        (object?)hardware.OperatingSystem ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$kernelVersion",
+        (object?)hardware.KernelVersion ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$dockerServerVersion",
+        (object?)hardware.DockerServerVersion ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$dockerStorageDriver",
+        (object?)hardware.DockerStorageDriver ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$dockerBackingFilesystem",
+        (object?)hardware.DockerBackingFilesystem ?? DBNull.Value);
+    command.Parameters.AddWithValue(
+        "$recordedAt",
+        FormatTimestamp(recordedAt));
+  }
+
+  private static async Task<HostHardwareInventory?>
+      ReadHostHardwareOrNullAsync(
+          SqliteDataReader reader,
+          CancellationToken cancellationToken)
+  {
+    if (await reader.IsDBNullAsync(8, cancellationToken))
+    {
+      return null;
+    }
+    return new HostHardwareInventory(
+        reader.GetString(8),
+        await reader.IsDBNullAsync(9, cancellationToken)
+            ? null
+            : ParseTimestamp(reader.GetString(9)),
+        ParseTimestamp(reader.GetString(10)),
+        await reader.IsDBNullAsync(11, cancellationToken)
+            ? null
+            : reader.GetString(11),
+        await OptionalStringAsync(reader, 12, cancellationToken),
+        await OptionalStringAsync(reader, 13, cancellationToken),
+        await OptionalInt64Async(reader, 14, cancellationToken),
+        await OptionalInt64Async(reader, 15, cancellationToken),
+        await OptionalInt64Async(reader, 16, cancellationToken),
+        await OptionalInt64Async(reader, 17, cancellationToken),
+        await OptionalInt64Async(reader, 18, cancellationToken),
+        await OptionalStringAsync(reader, 19, cancellationToken),
+        await OptionalStringAsync(reader, 20, cancellationToken),
+        await OptionalStringAsync(reader, 21, cancellationToken),
+        await OptionalStringAsync(reader, 22, cancellationToken),
+        await OptionalStringAsync(reader, 23, cancellationToken));
+  }
+
+  private static async Task<string?> OptionalStringAsync(
+      SqliteDataReader reader,
+      int ordinal,
+      CancellationToken cancellationToken) =>
+      await reader.IsDBNullAsync(ordinal, cancellationToken)
+          ? null
+          : reader.GetString(ordinal);
+
+  private static async Task<long?> OptionalInt64Async(
+      SqliteDataReader reader,
+      int ordinal,
+      CancellationToken cancellationToken) =>
+      await reader.IsDBNullAsync(ordinal, cancellationToken)
+          ? null
+          : reader.GetInt64(ordinal);
+
+  private static int HardwareStatusRank(string status) =>
+      status switch
+      {
+        "current" => 2,
+        "stale" => 1,
+        _ => 0,
+      };
+
+  private static string FormatTimestamp(DateTimeOffset value) =>
+      value.ToUniversalTime().ToString(
+          "O",
+          CultureInfo.InvariantCulture);
+
+  private static DateTimeOffset ParseTimestamp(string value) =>
+      DateTimeOffset.Parse(
+          value,
+          CultureInfo.InvariantCulture,
+          DateTimeStyles.RoundtripKind);
 }

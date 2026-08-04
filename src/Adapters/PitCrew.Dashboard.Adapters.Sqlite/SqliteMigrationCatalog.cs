@@ -1035,5 +1035,82 @@ internal static class SqliteMigrationCatalog
                       ON DELETE CASCADE
               ) WITHOUT ROWID;
               """),
+        new(
+              13,
+              "node-hardware-inventory-history",
+              """
+              ALTER TABLE history_incompleteness_floors
+                  ADD COLUMN dropped_hardware_revisions INTEGER NOT NULL
+                      DEFAULT 0
+                      CHECK (dropped_hardware_revisions >= 0);
+
+              CREATE TABLE node_hardware_current (
+                  node_id TEXT PRIMARY KEY,
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'current',
+                          'stale',
+                          'unavailable')),
+                  collected_at TEXT NULL,
+                  attempted_at TEXT NOT NULL,
+                  inventory_hash TEXT NULL
+                      CHECK (inventory_hash IS NULL
+                          OR (length(inventory_hash) = 64
+                              AND inventory_hash
+                                  NOT GLOB '*[^0-9a-f]*')),
+                  source_profile_id TEXT NOT NULL,
+                  processor_model TEXT NULL,
+                  architecture TEXT NULL,
+                  physical_core_count INTEGER NULL,
+                  logical_processor_count INTEGER NULL,
+                  performance_core_count INTEGER NULL,
+                  efficiency_core_count INTEGER NULL,
+                  memory_bytes INTEGER NULL,
+                  operating_system TEXT NULL,
+                  kernel_version TEXT NULL,
+                  docker_server_version TEXT NULL,
+                  docker_storage_driver TEXT NULL,
+                  docker_backing_filesystem TEXT NULL,
+                  recorded_at TEXT NOT NULL,
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE
+              );
+
+              CREATE TABLE node_hardware_revisions (
+                  revision_id INTEGER PRIMARY KEY,
+                  node_id TEXT NOT NULL,
+                  inventory_hash TEXT NOT NULL
+                      CHECK (length(inventory_hash) = 64
+                          AND inventory_hash
+                              NOT GLOB '*[^0-9a-f]*'),
+                  collected_at TEXT NOT NULL,
+                  first_observed_at TEXT NOT NULL,
+                  last_observed_at TEXT NOT NULL,
+                  last_status TEXT NOT NULL
+                      CHECK (last_status IN ('current', 'stale')),
+                  last_attempted_at TEXT NOT NULL,
+                  source_profile_id TEXT NOT NULL,
+                  processor_model TEXT NULL,
+                  architecture TEXT NULL,
+                  physical_core_count INTEGER NULL,
+                  logical_processor_count INTEGER NULL,
+                  performance_core_count INTEGER NULL,
+                  efficiency_core_count INTEGER NULL,
+                  memory_bytes INTEGER NULL,
+                  operating_system TEXT NULL,
+                  kernel_version TEXT NULL,
+                  docker_server_version TEXT NULL,
+                  docker_storage_driver TEXT NULL,
+                  docker_backing_filesystem TEXT NULL,
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_node_hardware_revisions_observed
+                  ON node_hardware_revisions (
+                      node_id,
+                      first_observed_at,
+                      revision_id);
+              """),
     ];
 }

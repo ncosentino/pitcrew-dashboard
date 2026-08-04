@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
 
-import { managerEventSchema, offsetDateTimeSchema } from './fleetApi';
+import { hostHardwareInventorySchema, managerEventSchema, offsetDateTimeSchema } from './fleetApi';
 
 const historyResolutionSchema = z.enum(['raw', 'hourly']);
 
@@ -193,6 +193,16 @@ const incompletenessFloorSchema = z.object({
   droppedEvents: z.number().int().nonnegative(),
   droppedSubsystemHealthChanges: z.number().int().nonnegative(),
   droppedCapacityDeficits: z.number().int().nonnegative(),
+  droppedHardwareRevisions: z.number().int().nonnegative().default(0),
+});
+
+const hostHardwareRevisionSchema = z.object({
+  inventoryHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  collectedAt: offsetDateTimeSchema,
+  firstObservedAt: offsetDateTimeSchema,
+  lastObservedAt: offsetDateTimeSchema,
+  sourceProfileId: z.string().min(1).max(32),
+  hardware: hostHardwareInventorySchema,
 });
 
 const nodeHistorySchema = z.object({
@@ -214,6 +224,8 @@ const nodeHistorySchema = z.object({
   nodeEventLimit: z.number().int().positive(),
   nodeDiagnosticLimit: z.number().int().positive(),
   incompletenessFloors: z.array(incompletenessFloorSchema),
+  hardwareRevisions: z.array(hostHardwareRevisionSchema).default([]),
+  hardwareRevisionsTruncated: z.boolean().default(false),
 });
 
 const historyCapabilitiesSchema = z.object({
@@ -254,6 +266,8 @@ export type ProfileEventJournalState = z.infer<typeof eventJournalStateSchema>;
 export type ProfileHistory = z.infer<typeof profileHistorySchema>;
 /** Coarse node or database record of history whose per-profile provenance was compacted away. */
 export type HistoryIncompletenessFloor = z.infer<typeof incompletenessFloorSchema>;
+/** One deduplicated node hardware change in retained history. */
+export type HostHardwareRevision = z.infer<typeof hostHardwareRevisionSchema>;
 /** Bounded retained history for one tenant node. */
 export type NodeHistoryResponse = z.infer<typeof nodeHistorySchema>;
 

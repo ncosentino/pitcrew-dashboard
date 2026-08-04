@@ -33,6 +33,7 @@ export type {
   CapacityDeficitEvidence,
   FleetNode,
   FleetResponse,
+  HostHardwareInventory,
   ManagerCapacityEvidence,
   ManagerEvent,
   ManagerObservedState,

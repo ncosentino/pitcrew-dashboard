@@ -334,23 +334,94 @@ function ProfileHistoryDisclosure({
 function describeResponseTruncation(history: NodeHistoryResponse | null): string | null {
   if (history == null) return null;
   const capped: string[] = [];
+  let hasProfileScopedTruncation = false;
   if (history.pointsTruncated) {
+    hasProfileScopedTruncation = true;
     capped.push(
       `points (${history.profilePointLimit} per profile, ${history.nodePointLimit} across all profiles)`,
     );
   }
   if (history.eventsTruncated) {
+    hasProfileScopedTruncation = true;
     capped.push(
       `manager operations (${history.profileEventLimit} per profile, ${history.nodeEventLimit} across all profiles)`,
     );
   }
   if (history.diagnosticsTruncated) {
+    hasProfileScopedTruncation = true;
     capped.push(
       `diagnostics (${history.profileSubsystemHealthLimit} subsystem-health, ${history.profileCapacityDeficitLimit} capacity-deficit, and ${history.profileWorkerUpdateLimit} worker-rollout rows per profile, ${history.nodeDiagnosticLimit} combined across all profiles)`,
     );
   }
+  if (history.hardwareRevisionsTruncated) {
+    capped.push(`hardware revisions (${history.nodeDiagnosticLimit} across the node)`);
+  }
   if (capped.length === 0) return null;
-  return `This response reached its limits for ${capped.join(', ')}. The most recent data inside the range is shown and older retained data inside the same range is hidden. Open a single profile or narrow the range to see the hidden observations.`;
+  return `This response reached its limits for ${capped.join(', ')}. The most recent data inside the range is shown and older retained data inside the same range is hidden. Narrow the range to see the hidden observations.${hasProfileScopedTruncation ? ' Opening a single profile can also recover profile-scoped rows.' : ''}`;
+}
+
+function HostHardwareRevisionHistory({ history }: { readonly history: NodeHistoryResponse }) {
+  if (history.hardwareRevisions.length === 0) return null;
+  return (
+    <section className="grid gap-2" data-testid="history-hardware-revisions">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold">Host hardware changes</h3>
+        {history.hardwareRevisions.length > 1 ? (
+          <StatusBadge status="changed" />
+        ) : (
+          <StatusBadge status="current" />
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Each row is one observed inventory episode. Consecutive reports from several profiles are
+        deduplicated.
+      </p>
+      <div
+        aria-label="Host hardware revisions"
+        className={scrollRegionClasses}
+        role="region"
+        tabIndex={0}
+      >
+        <table className="w-full text-left text-xs">
+          <caption className="sr-only">Host hardware changes inside the requested range.</caption>
+          <thead className="text-muted-foreground">
+            <tr>
+              <th scope="col">First observed</th>
+              <th scope="col">Processor</th>
+              <th scope="col">Physical / logical</th>
+              <th scope="col">Docker runtime</th>
+              <th scope="col">Source profile</th>
+              <th scope="col">Inventory</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.hardwareRevisions.map((revision) => (
+              <tr
+                className="border-t"
+                key={`${revision.inventoryHash}:${revision.firstObservedAt}`}
+              >
+                <th className="font-normal" scope="row">
+                  {formatTime(revision.firstObservedAt)}
+                </th>
+                <td>{revision.hardware.processorModel ?? 'Unavailable'}</td>
+                <td>
+                  {revision.hardware.physicalCoreCount ?? 'Unknown'} /{' '}
+                  {revision.hardware.logicalProcessorCount ?? 'Unknown'}
+                </td>
+                <td>
+                  {[revision.hardware.dockerServerVersion, revision.hardware.dockerStorageDriver]
+                    .filter((value) => value != null)
+                    .join(' / ') || 'Unavailable'}
+                </td>
+                <td>{revision.sourceProfileId}</td>
+                <td className="font-mono">{revision.inventoryHash.slice(0, 12)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 /**
@@ -479,7 +550,10 @@ export function FleetHistoryPanel({
           {describeIncompletenessFloor(floor)}
         </p>
       ))}
-      {history != null && history.profiles.length === 0 ? (
+      {history == null ? null : <HostHardwareRevisionHistory history={history} />}
+      {history != null &&
+      history.profiles.length === 0 &&
+      history.hardwareRevisions.length === 0 ? (
         <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
           No retained history exists for this range.
         </p>

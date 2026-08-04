@@ -293,6 +293,26 @@ public sealed class RecoverManagerSyncTests
             It.Is<HistoryAppendPolicy>(
                 policy => policy.Retention.MaximumSamplesPerProfile > 0),
             It.IsAny<CancellationToken>()))
+        .ReturnsAsync(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+    historyStore
+        .Setup(store => store.EnforceRetentionAsync(
+            It.IsNotNull<IFleetStorageTransaction>(),
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
+            It.Is<HistoryRetentionPolicy>(
+                retention => retention.MaximumSamplesPerProfile > 0),
+            It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
+    fleetStore
+        .Setup(store => store.ApplyHostHardwareAsync(
+            It.IsNotNull<IFleetStorageTransaction>(),
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            It.Is<IReadOnlyList<ManagerObservedState>>(
+                profiles => profiles.Count == 0),
+            It.Is<IReadOnlyCollection<string>>(
+                profileIds => profileIds.Count == 0),
+            It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
+            It.IsAny<CancellationToken>()))
         .Returns(Task.CompletedTask);
     var transactionFactory = _mocks.Create<IFleetStorageTransactionFactory>();
     var transaction = _mocks.Create<IFleetStorageTransaction>();

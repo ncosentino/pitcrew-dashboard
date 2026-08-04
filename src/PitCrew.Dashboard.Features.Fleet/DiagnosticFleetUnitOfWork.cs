@@ -119,7 +119,13 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
               .Where(profile =>
                   allowedProfiles is null ||
                   allowedProfiles.Contains(profile.ProfileId))
+              .Select(profile => allowedProfiles is null
+                  ? profile
+                  : profile with { Host = null })
               .ToArray(),
+          Hardware = allowedProfiles is null
+              ? node.Hardware
+              : null,
           CapacityControls = [],
           RecoveryControls = [],
         })
@@ -191,13 +197,24 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
     {
       return Forbidden();
     }
-    return FromHistoryResult(
-        await _historyUnitOfWork.GetProfileHistoryAsync(
-            tenantId,
-            nodeId,
-            profileId,
-            input,
-            cancellationToken));
+    var result = await _historyUnitOfWork.GetProfileHistoryAsync(
+        tenantId,
+        nodeId,
+        profileId,
+        input,
+        cancellationToken);
+    if (result.Response is not null)
+    {
+      result = result with
+      {
+        Response = result.Response with
+        {
+          HardwareRevisions = [],
+          HardwareRevisionsTruncated = false,
+        },
+      };
+    }
+    return FromHistoryResult(result);
   }
 
   public HistoryCapabilities GetCapabilities() =>

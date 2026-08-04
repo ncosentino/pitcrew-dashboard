@@ -538,7 +538,7 @@ public sealed class SyncConnectorContractTwelveTests
           "launch-pending",
           "Worker launch is pending.");
 
-  private static ManagerObservedState CreateAutoscaledProfile() =>
+  internal static ManagerObservedState CreateAutoscaledProfile() =>
       CreateBaseProfile() with
       {
         ConfiguredSlots = 8,

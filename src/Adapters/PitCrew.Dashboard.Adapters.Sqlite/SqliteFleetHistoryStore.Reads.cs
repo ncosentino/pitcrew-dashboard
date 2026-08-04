@@ -89,6 +89,18 @@ internal sealed partial class SqliteFleetHistoryStore
         profileId,
         window,
         cancellationToken);
+    IReadOnlyList<HostHardwareRevision> hardwareRevisions = [];
+    var hardwareRevisionsTruncated = false;
+    if (profileId is null)
+    {
+      (hardwareRevisions, hardwareRevisionsTruncated) =
+          await LoadHardwareRevisionsAsync(
+              connection,
+              sqliteTransaction,
+              nodeId,
+              window,
+              cancellationToken);
+    }
     var pointTotals = await LoadTotalsAsync(
         connection,
         sqliteTransaction,
@@ -148,6 +160,15 @@ internal sealed partial class SqliteFleetHistoryStore
         nodeId,
         window,
         cancellationToken);
+    if (profileId is not null)
+    {
+      floors = floors
+          .Select(floor => floor with
+          {
+            DroppedHardwareRevisions = 0,
+          })
+          .ToArray();
+    }
     await transaction.CommitAsync(cancellationToken);
 
     var profileIds = new SortedSet<string>(StringComparer.Ordinal);
@@ -229,7 +250,106 @@ internal sealed partial class SqliteFleetHistoryStore
         floors)
     {
       ProfileWorkerUpdateLimit = window.DiagnosticLimit,
+      HardwareRevisions = hardwareRevisions,
+      HardwareRevisionsTruncated = hardwareRevisionsTruncated,
     };
+  }
+
+  private static async Task<(
+      IReadOnlyList<HostHardwareRevision> Revisions,
+      bool Truncated)> LoadHardwareRevisionsAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          HistoryWindow window,
+          CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT
+            inventory_hash,
+            collected_at,
+            first_observed_at,
+            last_observed_at,
+            last_status,
+            last_attempted_at,
+            source_profile_id,
+            processor_model,
+            architecture,
+            physical_core_count,
+            logical_processor_count,
+            performance_core_count,
+            efficiency_core_count,
+            memory_bytes,
+            operating_system,
+            kernel_version,
+            docker_server_version,
+            docker_storage_driver,
+            docker_backing_filesystem
+        FROM node_hardware_revisions
+        WHERE node_id = $nodeId
+          AND first_observed_at >= $from
+          AND first_observed_at < $to
+        ORDER BY first_observed_at DESC, revision_id DESC
+        LIMIT $limit;
+        """;
+    command.Parameters.AddWithValue(
+        "$nodeId",
+        nodeId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$from",
+        window.From.ToUniversalTime().ToString(
+            "O",
+            CultureInfo.InvariantCulture));
+    command.Parameters.AddWithValue(
+        "$to",
+        window.To.ToUniversalTime().ToString(
+            "O",
+            CultureInfo.InvariantCulture));
+    command.Parameters.AddWithValue(
+        "$limit",
+        window.NodeDiagnosticLimit + 1);
+    var revisions = new List<HostHardwareRevision>();
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      var row = new SqliteRowReader(reader);
+      var hash = row.String("inventory_hash");
+      var collectedAt = row.Time("collected_at");
+      var attemptedAt = row.Time("last_attempted_at");
+      revisions.Add(new HostHardwareRevision(
+          hash,
+          collectedAt,
+          row.Time("first_observed_at"),
+          row.Time("last_observed_at"),
+          row.String("source_profile_id"),
+          new HostHardwareInventory(
+              row.String("last_status"),
+              collectedAt,
+              attemptedAt,
+              hash,
+              row.OptionalString("processor_model"),
+              row.OptionalString("architecture"),
+              row.OptionalInt64("physical_core_count"),
+              row.OptionalInt64("logical_processor_count"),
+              row.OptionalInt64("performance_core_count"),
+              row.OptionalInt64("efficiency_core_count"),
+              row.OptionalInt64("memory_bytes"),
+              row.OptionalString("operating_system"),
+              row.OptionalString("kernel_version"),
+              row.OptionalString("docker_server_version"),
+              row.OptionalString("docker_storage_driver"),
+              row.OptionalString("docker_backing_filesystem"))));
+    }
+    var truncated = revisions.Count > window.NodeDiagnosticLimit;
+    if (truncated)
+    {
+      revisions.RemoveAt(revisions.Count - 1);
+    }
+    return (revisions, truncated);
   }
 
   /// <summary>
@@ -261,7 +381,8 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_rollups,
             dropped_events,
             dropped_subsystem_health,
-            dropped_capacity_deficits
+            dropped_capacity_deficits,
+            dropped_hardware_revisions
         FROM history_incompleteness_floors
         WHERE latest_expired_at >= $from
           AND ((scope = 'database' AND node_id = '')
@@ -286,7 +407,8 @@ internal sealed partial class SqliteFleetHistoryStore
           row.Int64("dropped_rollups"),
           row.Int64("dropped_events"),
           row.Int64("dropped_subsystem_health"),
-          row.Int64("dropped_capacity_deficits")));
+          row.Int64("dropped_capacity_deficits"),
+          row.Int64("dropped_hardware_revisions")));
     }
 
     return floors;

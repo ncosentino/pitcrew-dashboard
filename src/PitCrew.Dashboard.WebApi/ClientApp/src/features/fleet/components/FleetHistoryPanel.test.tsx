@@ -165,7 +165,37 @@ function historyResponse(overrides: Record<string, unknown>) {
     nodeEventLimit: 1000,
     nodeDiagnosticLimit: 1000,
     incompletenessFloors: [],
+    hardwareRevisions: [],
+    hardwareRevisionsTruncated: false,
     ...overrides,
+  };
+}
+
+function hardwareRevision(hash: string, processorModel: string, firstObservedAt: string) {
+  return {
+    inventoryHash: hash,
+    collectedAt: firstObservedAt,
+    firstObservedAt,
+    lastObservedAt: firstObservedAt,
+    sourceProfileId: 'default',
+    hardware: {
+      status: 'current',
+      collectedAt: firstObservedAt,
+      attemptedAt: firstObservedAt,
+      inventoryHash: hash,
+      processorModel,
+      architecture: 'amd64',
+      physicalCoreCount: 10,
+      logicalProcessorCount: 20,
+      performanceCoreCount: null,
+      efficiencyCoreCount: null,
+      memoryBytes: 34359738368,
+      operatingSystem: 'Docker Desktop',
+      kernelVersion: '6.12.34',
+      dockerServerVersion: '28.3.3',
+      dockerStorageDriver: 'overlayfs',
+      dockerBackingFilesystem: 'extfs',
+    },
   };
 }
 
@@ -213,6 +243,56 @@ describe('FleetHistoryPanel', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('annotates deduplicated host hardware changes', async () => {
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            hardwareRevisions: [
+              hardwareRevision('a'.repeat(64), 'Example Processor', '2026-07-26T11:30:00+00:00'),
+              hardwareRevision('b'.repeat(64), 'Changed Processor', '2026-07-26T11:00:00+00:00'),
+              hardwareRevision('a'.repeat(64), 'Example Processor', '2026-07-26T09:00:00+00:00'),
+            ],
+          }),
+        ),
+    ]);
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+
+    const hardware = await screen.findByTestId('history-hardware-revisions');
+    expect(hardware).toHaveTextContent('Changed Processor');
+    expect(hardware).toHaveTextContent('Example Processor');
+    expect(hardware).toHaveTextContent('changed');
+    expect(within(hardware).getAllByRole('row')).toHaveLength(4);
+  });
+
+  it('does not suggest a profile route for node-wide hardware truncation', async () => {
+    mockFetch([
+      () =>
+        jsonResponse(
+          historyResponse({
+            profiles: [],
+            hardwareRevisions: [
+              hardwareRevision('a'.repeat(64), 'Example Processor', '2026-07-26T09:00:00+00:00'),
+            ],
+            hardwareRevisionsTruncated: true,
+          }),
+        ),
+    ]);
+
+    render(
+      <FleetHistoryPanel nodeId={nodeId} profileId={null} tenantId="local" testId="history" />,
+    );
+    await openPanel('history');
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Narrow the range');
+    expect(status).not.toHaveTextContent('Opening a single profile');
   });
 
   it('requests a server-advertised bounded range only after the panel is opened', async () => {
@@ -388,6 +468,7 @@ describe('FleetHistoryPanel', () => {
                 droppedEvents: 9,
                 droppedSubsystemHealthChanges: 2,
                 droppedCapacityDeficits: 1,
+                droppedHardwareRevisions: 4,
               },
             ],
           }),
@@ -400,7 +481,8 @@ describe('FleetHistoryPanel', () => {
     await openPanel('history');
     await screen.findByTestId('history-disclosure-default');
 
-    expect(screen.getByText(/expired 3 profile histories for this node/i)).toBeInTheDocument();
+    const floor = screen.getByText(/3 profile histories expired/i);
+    expect(floor).toHaveTextContent('4 hardware revisions');
   });
 
   it('renders an expired profile history as expired rather than complete', async () => {

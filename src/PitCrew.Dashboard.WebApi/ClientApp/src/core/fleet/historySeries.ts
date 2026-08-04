@@ -682,5 +682,5 @@ export function describeHistoryJournal(history: ProfileHistory): HistoryAvailabi
  */
 export function describeIncompletenessFloor(floor: HistoryIncompletenessFloor): string {
   const scope = floor.scope === 'node' ? 'this node' : 'this dashboard';
-  return `Dashboard retention expired ${floor.expiredProfiles} profile histories for ${scope} between ${floor.earliestExpiredAt} and ${floor.latestExpiredAt}, and their per-profile provenance has been compacted. This range is incomplete: ${floor.droppedSamples} samples, ${floor.droppedRollups} hourly buckets, ${floor.droppedEvents} manager events, ${floor.droppedSubsystemHealthChanges} subsystem-health changes, and ${floor.droppedCapacityDeficits} capacity-deficit observations were deleted.`;
+  return `Dashboard retention compacted history for ${scope} between ${floor.earliestExpiredAt} and ${floor.latestExpiredAt}. This range is incomplete: ${floor.expiredProfiles} profile histories expired; ${floor.droppedSamples} samples, ${floor.droppedRollups} hourly buckets, ${floor.droppedEvents} manager events, ${floor.droppedSubsystemHealthChanges} subsystem-health changes, ${floor.droppedCapacityDeficits} capacity-deficit observations, and ${floor.droppedHardwareRevisions} hardware revisions were deleted.`;
 }
