@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 5;
+  public const int Version = 6;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -133,6 +133,7 @@ public sealed record ManagerWorkerUpdateState(
 /// <param name="SubsystemHealth">Manager contract 12 Docker and GitHub operation health when reported; otherwise <see langword="null"/>.</param>
 /// <param name="CapacityEvidence">Manager contract 12 fixed or per-target capacity-deficit evidence when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Update">Worker-image convergence evidence when reported; otherwise <see langword="null"/>.</param>
+/// <param name="Host">Manager contract 13 sanitized node hardware inventory when reported.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -156,7 +157,8 @@ public sealed record ManagerObservedState(
     ManagerOperationJournal? OperationJournal = null,
     ManagerSubsystemHealth? SubsystemHealth = null,
     ManagerCapacityEvidence? CapacityEvidence = null,
-    ManagerWorkerUpdateState? Update = null);
+    ManagerWorkerUpdateState? Update = null,
+    ObservedHost? Host = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.

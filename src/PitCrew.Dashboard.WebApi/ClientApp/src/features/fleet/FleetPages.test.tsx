@@ -35,7 +35,7 @@ function jsonResponse(value: unknown, status = 200): Response {
 function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     schemaVersion: 1,
-    managerContractVersion: 10,
+    managerContractVersion: 13,
     profileId: 'build',
     managerInstanceId: 'manager-build',
     managerStatus: 'running',
@@ -58,6 +58,57 @@ function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
         memoryWorkingSetBytes: 1024,
         pids: 10,
       },
+    },
+    operationJournal: {
+      status: 'current',
+      capacity: 32,
+      highestSequence: null,
+      droppedEvents: 0,
+      events: [],
+    },
+    subsystemHealth: {
+      docker: {
+        state: 'unknown',
+        observedAt: '2026-07-19T18:30:00+00:00',
+        consecutiveFailures: 0,
+        retryAt: null,
+        lastSuccess: null,
+        lastFailure: null,
+      },
+      github: {
+        state: 'unknown',
+        observedAt: '2026-07-19T18:30:00+00:00',
+        consecutiveFailures: 0,
+        retryAt: null,
+        lastSuccess: null,
+        lastFailure: null,
+      },
+    },
+    capacityEvidence: {
+      fixed: {
+        observedAt: '2026-07-19T18:30:00+00:00',
+        freshness: 'current',
+        targetSlots: 3,
+        activeWorkers: 2,
+        startingWorkers: 0,
+        drainingWorkers: 1,
+        cleanupPendingWorkers: 0,
+        eligibleWorkers: 1,
+        localDeficit: 0,
+        eligibilityDeficit: 2,
+        reason: 'none',
+        evidence: null,
+      },
+      targets: [],
+    },
+    update: {
+      status: 'rolling',
+      targetImage: null,
+      targetImageId: null,
+      targetRevision: 'b'.repeat(64),
+      currentWorkers: 1,
+      staleWorkers: 1,
+      lastError: null,
     },
     slots: [
       {
@@ -120,6 +171,24 @@ function fleetResponse() {
         credentialRotationRequested: false,
         profiles: [profileResponse()],
         capacityControls: [],
+        hardware: {
+          status: 'current',
+          collectedAt: '2026-07-19T18:00:00+00:00',
+          attemptedAt: '2026-07-19T18:30:00+00:00',
+          inventoryHash: 'a'.repeat(64),
+          processorModel: 'Example Processor 9000',
+          architecture: 'riscv64',
+          physicalCoreCount: 10,
+          logicalProcessorCount: 20,
+          performanceCoreCount: null,
+          efficiencyCoreCount: null,
+          memoryBytes: 34359738368,
+          operatingSystem: 'Docker Desktop',
+          kernelVersion: '6.12.34',
+          dockerServerVersion: '28.3.3',
+          dockerStorageDriver: 'overlayfs',
+          dockerBackingFilesystem: 'extfs',
+        },
       },
       {
         nodeId: bravoId,
@@ -132,6 +201,24 @@ function fleetResponse() {
         credentialRotationRequested: false,
         profiles: [],
         capacityControls: [],
+        hardware: {
+          status: 'stale',
+          collectedAt: '2026-07-18T18:00:00+00:00',
+          attemptedAt: '2026-07-19T17:30:00+00:00',
+          inventoryHash: 'b'.repeat(64),
+          processorModel: 'Other Processor',
+          architecture: 'amd64',
+          physicalCoreCount: 6,
+          logicalProcessorCount: 12,
+          performanceCoreCount: null,
+          efficiencyCoreCount: null,
+          memoryBytes: 17179869184,
+          operatingSystem: 'Docker Desktop',
+          kernelVersion: '6.12.34',
+          dockerServerVersion: '28.3.3',
+          dockerStorageDriver: 'overlayfs',
+          dockerBackingFilesystem: 'extfs',
+        },
       },
     ],
   };
@@ -174,6 +261,35 @@ describe('fleet overview and node detail', () => {
     expect(row).toHaveTextContent('partial');
     expect(screen.queryByText('Absolute maximum')).not.toBeInTheDocument();
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
+  });
+
+  it('compares selected node hardware without inferring unavailable fields', async () => {
+    const user = userEvent.setup();
+    renderRoute('/tenants/local/fleet');
+
+    await screen.findByTestId(`fleet-node-${alphaId}`);
+    await user.click(screen.getByLabelText('Compare Alpha'));
+    await user.click(screen.getByLabelText('Compare Bravo'));
+
+    const comparison = screen.getByTestId('hardware-comparison');
+    expect(within(comparison).getByText('Example Processor 9000')).toBeInTheDocument();
+    expect(within(comparison).getByText('Other Processor')).toBeInTheDocument();
+    expect(within(comparison).getByText('10 / 20')).toBeInTheDocument();
+    expect(within(comparison).getByText('6 / 12')).toBeInTheDocument();
+    expect(within(comparison).getByText('32 GiB')).toBeInTheDocument();
+    expect(within(comparison).getByText('16 GiB')).toBeInTheDocument();
+  });
+
+  it('renders current hardware context on node detail', async () => {
+    renderRoute(`/tenants/local/nodes/${alphaId}`);
+
+    const hardware = await screen.findByTestId('node-hardware');
+    expect(hardware).toHaveTextContent('Example Processor 9000');
+    expect(hardware).toHaveTextContent('riscv64');
+    expect(hardware).toHaveTextContent('10 / 20');
+    expect(hardware).toHaveTextContent('Docker Desktop');
+    expect(hardware).toHaveTextContent('overlayfs / extfs');
+    expect(hardware).toHaveTextContent('current');
   });
 
   it('does not infer partial node eligibility from older manager contracts', async () => {

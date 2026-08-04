@@ -94,7 +94,7 @@ internal sealed partial class SqliteFleetHistoryStore(
   /// heartbeat and is counted. Rejection never erases the prior watermark or provenance, so a
   /// mis-set manager clock cannot destroy what the dashboard already knows.
   /// </remarks>
-  public async Task AppendAsync(
+  public async Task<IReadOnlySet<string>> AppendAsync(
       IFleetStorageTransaction transaction,
       Guid nodeId,
       IReadOnlyList<ManagerObservedState> profiles,
@@ -108,6 +108,8 @@ internal sealed partial class SqliteFleetHistoryStore(
     var connection = enlisted.Connection;
     var sqliteTransaction = enlisted.Transaction;
     var horizon = receivedAt + policy.MaximumClockSkew;
+    var acceptedProfileIds = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase);
     foreach (var profile in profiles)
     {
       await EnsureCursorAsync(
@@ -151,6 +153,7 @@ internal sealed partial class SqliteFleetHistoryStore(
           profile.ObservedAt > cursor.SampleHighWater.Value;
       if (observationAdvanced)
       {
+        acceptedProfileIds.Add(profile.ProfileId);
         await AppendSampleAsync(
             connection,
             sqliteTransaction,
@@ -202,6 +205,25 @@ internal sealed partial class SqliteFleetHistoryStore(
         nodeId,
         receivedAt,
         policy.Retention,
+        cancellationToken);
+    return acceptedProfileIds;
+  }
+
+  public Task EnforceRetentionAsync(
+      IFleetStorageTransaction transaction,
+      Guid nodeId,
+      DateTimeOffset receivedAt,
+      HistoryRetentionPolicy retention,
+      CancellationToken cancellationToken)
+  {
+    ArgumentNullException.ThrowIfNull(retention);
+    var enlisted = SqliteFleetTransaction.Resolve(transaction);
+    return ApplyRetentionAsync(
+        enlisted.Connection,
+        enlisted.Transaction,
+        nodeId,
+        receivedAt,
+        retention,
         cancellationToken);
   }
 

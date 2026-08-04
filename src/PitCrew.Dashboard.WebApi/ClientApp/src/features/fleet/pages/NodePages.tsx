@@ -12,6 +12,7 @@ import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { EntitySectionNavigation } from '../components/EntitySectionNavigation';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
+import { HostHardwareCard } from '../components/HostHardwareSummary';
 import { renameNode, requestCredentialRotation, revokeNode } from '../fleetApi';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
 
@@ -259,6 +260,8 @@ export function NodeOverviewPage() {
           </dl>
         </CardContent>
       </Card>
+
+      <HostHardwareCard hardware={node.hardware ?? null} />
 
       <section className="grid gap-3">
         <div>

@@ -14,6 +14,7 @@ import {
   type NodeSort,
   type NodeStatusFilter,
 } from './nodeSummary';
+import { HardwareComparison } from './components/HostHardwareSummary';
 
 type FleetDensity = 'comfortable' | 'compact';
 
@@ -50,15 +51,32 @@ interface NodeSummaryRowProps {
   readonly node: FleetNode;
   readonly tenantId: string;
   readonly density: FleetDensity;
+  readonly selected: boolean;
+  readonly onSelectionChanged: (nodeId: string, selected: boolean) => void;
 }
 
-function NodeSummaryRow({ node, tenantId, density }: NodeSummaryRowProps) {
+function NodeSummaryRow({
+  node,
+  tenantId,
+  density,
+  selected,
+  onSelectionChanged,
+}: NodeSummaryRowProps) {
   const aggregate = aggregateNode(node);
   const status = getNodeStatus(node);
   const resources = aggregate.resources;
   return (
     <tr className="border-t" data-testid={`fleet-node-${node.nodeId}`}>
       <td className={cn('px-4', density === 'compact' ? 'py-2' : 'py-4')}>
+        <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            aria-label={`Compare ${node.displayName}`}
+            checked={selected}
+            onChange={(event) => onSelectionChanged(node.nodeId, event.currentTarget.checked)}
+            type="checkbox"
+          />
+          Compare hardware
+        </label>
         <Link
           className="font-semibold text-primary underline-offset-4 hover:underline"
           to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
@@ -104,11 +122,23 @@ export default function FleetOverviewPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<NodeSort>('name');
   const [density, setDensity] = useState<FleetDensity>(readDensity);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([]);
   const nodes = selectNodes(fleet?.nodes ?? [], status, query, sort);
+  const selectedNodes = (fleet?.nodes ?? []).filter((node) =>
+    selectedNodeIds.includes(node.nodeId),
+  );
 
   const changeDensity = (nextDensity: FleetDensity) => {
     setDensity(nextDensity);
     storeDensity(nextDensity);
+  };
+
+  const changeSelection = (nodeId: string, selected: boolean) => {
+    setSelectedNodeIds((current) => {
+      if (!selected) return current.filter((candidate) => candidate !== nodeId);
+      if (current.includes(nodeId) || current.length >= 4) return current;
+      return [...current, nodeId];
+    });
   };
 
   return (
@@ -199,6 +229,8 @@ export default function FleetOverviewPage() {
             </label>
           </section>
 
+          <HardwareComparison nodes={selectedNodes} />
+
           {nodes.length === 0 ? (
             <Card>
               <CardHeader>
@@ -246,6 +278,8 @@ export default function FleetOverviewPage() {
                       node={node}
                       tenantId={tenantId}
                       density={density}
+                      selected={selectedNodeIds.includes(node.nodeId)}
+                      onSelectionChanged={changeSelection}
                     />
                   ))}
                 </tbody>

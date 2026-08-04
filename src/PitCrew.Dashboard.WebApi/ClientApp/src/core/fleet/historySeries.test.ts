@@ -570,9 +570,11 @@ describe('describeIncompletenessFloor', () => {
       droppedEvents: 9,
       droppedSubsystemHealthChanges: 2,
       droppedCapacityDeficits: 1,
+      droppedHardwareRevisions: 4,
     });
 
     expect(message).toContain('3 profile histories');
+    expect(message).toContain('4 hardware revisions');
     expect(message).toContain('this node');
     expect(message).toContain('incomplete');
   });

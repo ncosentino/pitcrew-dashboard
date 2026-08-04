@@ -381,6 +381,75 @@ internal static class DashboardTestHelpers
          1);
   }
 
+  public static ManagerObservedState CreateContractThirteenObservedState(
+      string profileId,
+      string repository)
+  {
+    var baseline = CreateObservedState(profileId, repository);
+    var observedAt = baseline.ObservedAt;
+    var hardware = new HostHardwareInventory(
+        "current",
+        observedAt.AddMinutes(-5),
+        observedAt,
+        "c4e642cd75f1f5b5028b528beefca104d35f7eccc3dac31627017d4ed5857e42",
+        "Example Processor 9000",
+        "amd64",
+        2,
+        16,
+        null,
+        null,
+        34359738368,
+        "Docker Desktop",
+        "6.12.34-test",
+        "28.3.3",
+        "overlayfs",
+        "extfs");
+    var unknownHealth = new SubsystemHealthSummary(
+        "unknown",
+        observedAt,
+        0,
+        null,
+        null,
+        null);
+    return baseline with
+    {
+      ManagerContractVersion = 13,
+      OperationJournal = new ManagerOperationJournal(
+          "current",
+          64,
+          null,
+          0,
+          []),
+      SubsystemHealth = new ManagerSubsystemHealth(
+          unknownHealth,
+          unknownHealth),
+      CapacityEvidence = new ManagerCapacityEvidence(
+          new CapacityDeficitEvidence(
+              observedAt,
+              "current",
+              1,
+              1,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              "none",
+              null),
+          []),
+      Update = new ManagerWorkerUpdateState(
+          "current",
+          null,
+          null,
+          new string('b', 64),
+          1,
+          0,
+          null),
+      Host = new ObservedHost(hardware),
+    };
+  }
+
   public static string CreateDatabasePath() =>
       Path.Combine(
           Path.GetTempPath(),

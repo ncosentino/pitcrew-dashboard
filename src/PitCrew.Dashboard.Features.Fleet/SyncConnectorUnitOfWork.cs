@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.Options;
@@ -178,13 +181,42 @@ internal sealed partial class SyncConnectorUnitOfWork(
         input.Profiles,
         credentialUpdate,
         cancellationToken);
-    await _fleetHistoryStore.AppendAsync(
+    var historyPolicy =
+        FleetHistoryPolicy.CreateAppendPolicy(_options.Value);
+    var acceptedProfileIds = await _fleetHistoryStore.AppendAsync(
         storageTransaction,
         identity.NodeId,
         input.Profiles,
         acceptedAt,
-        FleetHistoryPolicy.CreateAppendPolicy(_options.Value),
+        historyPolicy,
         cancellationToken);
+    IReadOnlyList<ManagerObservedState>? hardwareProfiles =
+        input.Profiles.Count == 0
+            ? []
+            : acceptedProfileIds.Count == 0
+                ? null
+                : input.Profiles
+                    .Where(profile =>
+                        acceptedProfileIds.Contains(profile.ProfileId))
+                    .ToArray();
+    if (hardwareProfiles is not null)
+    {
+      await _fleetStore.ApplyHostHardwareAsync(
+          storageTransaction,
+          identity.NodeId,
+          hardwareProfiles,
+          input.Profiles
+              .Select(profile => profile.ProfileId)
+              .ToArray(),
+          acceptedAt,
+          cancellationToken);
+      await _fleetHistoryStore.EnforceRetentionAsync(
+          storageTransaction,
+          identity.NodeId,
+          acceptedAt,
+          historyPolicy.Retention,
+          cancellationToken);
+    }
     await storageTransaction.CommitAsync(cancellationToken);
     SetCapacityCommand? capacityCommand = null;
     if (input.ProtocolVersion >= 3)
@@ -390,6 +422,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
         profile.ConfiguredSlots is < 0 ||
         !IsValidResourcePolicy(profile.ResourcePolicy) ||
         !IsValidWorkerUpdate(profile) ||
+        !IsValidHostHardware(profile) ||
         !IsValidAutoscaling(profile) ||
         !IsValidResourceTelemetry(profile.ResourceTelemetry) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
@@ -472,6 +505,192 @@ internal sealed partial class SyncConnectorUnitOfWork(
 
     return IsConsistentResourceTelemetry(profile) &&
         ManagerDiagnosticsValidator.IsValid(profile);
+  }
+
+  private static bool IsValidHostHardware(
+      ManagerObservedState profile)
+  {
+    var hardware = profile.Host?.Hardware;
+    if (profile.ManagerContractVersion < 13)
+    {
+      return hardware is null;
+    }
+    if (profile.ManagerContractVersion >= 13 && hardware is null)
+    {
+      return false;
+    }
+    if (hardware is null)
+    {
+      return true;
+    }
+    if (hardware.Status is not (
+            "current" or
+            "stale" or
+            "unavailable") ||
+        hardware.AttemptedAt == default ||
+        hardware.AttemptedAt > profile.ObservedAt ||
+        !IsHardwareText(hardware.ProcessorModel, 256) ||
+        !IsHardwareText(hardware.Architecture, 64) ||
+        !IsPositiveOrNull(hardware.PhysicalCoreCount) ||
+        !IsPositiveOrNull(hardware.LogicalProcessorCount) ||
+        !IsPositiveOrNull(hardware.PerformanceCoreCount) ||
+        !IsPositiveOrNull(hardware.EfficiencyCoreCount) ||
+        !IsPositiveOrNull(hardware.MemoryBytes) ||
+        !IsHardwareText(hardware.OperatingSystem, 256) ||
+        !IsHardwareText(hardware.KernelVersion, 256) ||
+        !IsHardwareText(hardware.DockerServerVersion, 256) ||
+        !IsHardwareText(hardware.DockerStorageDriver, 256) ||
+        !IsHardwareText(hardware.DockerBackingFilesystem, 256))
+    {
+      return false;
+    }
+    var hasValue = HardwareValues(hardware).Any(value => value);
+    if (hardware.Status == "unavailable")
+    {
+      return hardware.CollectedAt is null &&
+          hardware.InventoryHash is null &&
+          !hasValue;
+    }
+    if (hardware.CollectedAt is null ||
+        hardware.CollectedAt > hardware.AttemptedAt ||
+        hardware.InventoryHash is null ||
+        !Regex.IsMatch(
+            hardware.InventoryHash,
+            "^[0-9a-f]{64}$",
+            RegexOptions.CultureInvariant) ||
+        !hasValue)
+    {
+      return false;
+    }
+    return string.Equals(
+        hardware.InventoryHash,
+        ComputeHardwareHash(hardware),
+        StringComparison.Ordinal);
+  }
+
+  private static IEnumerable<bool> HardwareValues(
+      HostHardwareInventory hardware)
+  {
+    yield return hardware.ProcessorModel is not null;
+    yield return hardware.Architecture is not null;
+    yield return hardware.PhysicalCoreCount is not null;
+    yield return hardware.LogicalProcessorCount is not null;
+    yield return hardware.PerformanceCoreCount is not null;
+    yield return hardware.EfficiencyCoreCount is not null;
+    yield return hardware.MemoryBytes is not null;
+    yield return hardware.OperatingSystem is not null;
+    yield return hardware.KernelVersion is not null;
+    yield return hardware.DockerServerVersion is not null;
+    yield return hardware.DockerStorageDriver is not null;
+    yield return hardware.DockerBackingFilesystem is not null;
+  }
+
+  private static bool IsHardwareText(
+      string? value,
+      int maximumLength) =>
+      value is null ||
+      value.Length is >= 1 &&
+      value.Length <= maximumLength &&
+      !value.Any(char.IsControl);
+
+  private static bool IsPositiveOrNull(long? value) =>
+      value is null or > 0;
+
+  private static string ComputeHardwareHash(
+      HostHardwareInventory hardware)
+  {
+    using var stream = new MemoryStream();
+    using (var writer = new Utf8JsonWriter(
+        stream,
+        new JsonWriterOptions
+        {
+          Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        }))
+    {
+      writer.WriteStartObject();
+      WriteHardwareString(
+          writer,
+          "processorModel",
+          hardware.ProcessorModel);
+      WriteHardwareString(
+          writer,
+          "architecture",
+          hardware.Architecture);
+      WriteHardwareNumber(
+          writer,
+          "physicalCoreCount",
+          hardware.PhysicalCoreCount);
+      WriteHardwareNumber(
+          writer,
+          "logicalProcessorCount",
+          hardware.LogicalProcessorCount);
+      WriteHardwareNumber(
+          writer,
+          "performanceCoreCount",
+          hardware.PerformanceCoreCount);
+      WriteHardwareNumber(
+          writer,
+          "efficiencyCoreCount",
+          hardware.EfficiencyCoreCount);
+      WriteHardwareNumber(
+          writer,
+          "memoryBytes",
+          hardware.MemoryBytes);
+      WriteHardwareString(
+          writer,
+          "operatingSystem",
+          hardware.OperatingSystem);
+      WriteHardwareString(
+          writer,
+          "kernelVersion",
+          hardware.KernelVersion);
+      WriteHardwareString(
+          writer,
+          "dockerServerVersion",
+          hardware.DockerServerVersion);
+      WriteHardwareString(
+          writer,
+          "dockerStorageDriver",
+          hardware.DockerStorageDriver);
+      WriteHardwareString(
+          writer,
+          "dockerBackingFilesystem",
+          hardware.DockerBackingFilesystem);
+      writer.WriteEndObject();
+    }
+    return Convert.ToHexString(
+        SHA256.HashData(stream.ToArray()))
+        .ToLowerInvariant();
+  }
+
+  private static void WriteHardwareString(
+      Utf8JsonWriter writer,
+      string propertyName,
+      string? value)
+  {
+    if (value is null)
+    {
+      writer.WriteNull(propertyName);
+    }
+    else
+    {
+      writer.WriteString(propertyName, value);
+    }
+  }
+
+  private static void WriteHardwareNumber(
+      Utf8JsonWriter writer,
+      string propertyName,
+      long? value)
+  {
+    if (value is null)
+    {
+      writer.WriteNull(propertyName);
+    }
+    else
+    {
+      writer.WriteNumber(propertyName, value.Value);
+    }
   }
 
   private static bool IsValidWorkerUpdate(ManagerObservedState profile)

@@ -16,6 +16,93 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 public sealed class HostingTests
 {
   [Test]
+  public async Task Contract_Thirteen_Hardware_Round_Trips_Through_Fleet_And_History(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Hardware node",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "hardware-node",
+          "Hardware Node",
+          code.Code,
+          cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "6.0.0",
+          DashboardTestHelpers.CreateContractThirteenObservedState(
+              "default",
+              "https://github.com/example/project"),
+          cancellationToken);
+
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+      var history = await client.GetFromJsonAsync<NodeHistoryResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes/{identity.NodeId:D}/history",
+          cancellationToken);
+      var profileHistory = await client.GetFromJsonAsync<NodeHistoryResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/history",
+          cancellationToken);
+
+      await Assert.That(fleet).IsNotNull();
+      await Assert.That(fleet!.Nodes).HasSingleItem();
+      var currentHardware = fleet.Nodes[0].Hardware ??
+          throw new InvalidOperationException(
+              "Contract-13 fleet response omitted hardware.");
+      await Assert.That(fleet.Nodes[0].Profiles[0].Host).IsNull();
+      await Assert.That(currentHardware.ProcessorModel)
+          .IsEqualTo("Example Processor 9000");
+      await Assert.That(history).IsNotNull();
+      await Assert.That(history!.HardwareRevisions).HasSingleItem();
+      await Assert.That(history.HardwareRevisions[0].InventoryHash)
+          .IsEqualTo(currentHardware.InventoryHash);
+      await Assert.That(profileHistory).IsNotNull();
+      await Assert.That(profileHistory!.HardwareRevisions).IsEmpty();
+
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "5.0.0",
+          DashboardTestHelpers.CreateObservedState(
+              "default",
+              "https://github.com/example/project"),
+          cancellationToken);
+      var downgraded = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+      var retainedHistory = await client.GetFromJsonAsync<
+          NodeHistoryResponse>(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes/{identity.NodeId:D}/history",
+              cancellationToken);
+
+      await Assert.That(downgraded).IsNotNull();
+      await Assert.That(downgraded!.Nodes[0].Hardware).IsNull();
+      await Assert.That(retainedHistory).IsNotNull();
+      await Assert.That(retainedHistory!.HardwareRevisions).HasSingleItem();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Diagnostic_Credential_Is_Scoped_Read_Only_Revocable_And_Rotatable(
       CancellationToken cancellationToken)
   {
@@ -46,7 +133,7 @@ public sealed class HostingTests
           administrator,
           firstNode.Credential,
           "2.0.0",
-          DashboardTestHelpers.CreateObservedState(
+          DashboardTestHelpers.CreateContractThirteenObservedState(
               "default",
               "https://github.com/example/project"),
           cancellationToken);
@@ -131,6 +218,10 @@ public sealed class HostingTests
               created.Value,
               null,
               cancellationToken);
+      var allowedProfileHistoryBody =
+          await allowedProfileHistory.Content.ReadFromJsonAsync<
+              NodeHistoryResponse>(
+                  cancellationToken);
       using var mutation =
           await DashboardTestHelpers.SendDiagnosticAsync(
               diagnostics,
@@ -151,6 +242,8 @@ public sealed class HostingTests
           .HasSingleItem();
       await Assert.That(currentFleet.Nodes[0].Profiles[0].ProfileId)
           .IsEqualTo("default");
+      await Assert.That(currentFleet.Nodes[0].Profiles[0].Host).IsNull();
+      await Assert.That(currentFleet.Nodes[0].Hardware).IsNull();
       await Assert.That(currentFleet.Nodes[0].CapacityControls).IsEmpty();
       await Assert.That(currentFleet.Nodes[0].RecoveryControls).IsEmpty();
       await Assert.That(forbiddenTenant.StatusCode)
@@ -163,6 +256,9 @@ public sealed class HostingTests
           .IsEqualTo(HttpStatusCode.Forbidden);
       await Assert.That(allowedProfileHistory.StatusCode)
           .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(allowedProfileHistoryBody).IsNotNull();
+      await Assert.That(allowedProfileHistoryBody!.HardwareRevisions)
+          .IsEmpty();
       await Assert.That(
           current.Headers.CacheControl?.NoStore)
           .IsTrue();
@@ -268,6 +364,18 @@ public sealed class HostingTests
               [],
               [],
               cancellationToken);
+      using var unrestrictedFleet =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              diagnostics,
+              HttpMethod.Get,
+              $"/api/diagnostics/v1/tenants/{DashboardTestHelpers.TenantId}/fleet/nodes",
+              unrestricted.Value,
+              null,
+              cancellationToken);
+      var unrestrictedFleetBody =
+          await unrestrictedFleet.Content.ReadFromJsonAsync<
+              DiagnosticFleetPageResponse>(
+                  cancellationToken);
       using var firstPage =
           await DashboardTestHelpers.SendDiagnosticAsync(
               diagnostics,
@@ -300,6 +408,11 @@ public sealed class HostingTests
               cancellationToken);
 
       await Assert.That(firstPage.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(unrestrictedFleet.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(unrestrictedFleetBody).IsNotNull();
+      await Assert.That(unrestrictedFleetBody!.Nodes.Single(
+          node => node.NodeId == firstNode.NodeId).Hardware).IsNotNull();
       await Assert.That(firstPageBody).IsNotNull();
       await Assert.That(firstPageBody!.Nodes).HasSingleItem();
       await Assert.That(firstPageBody.NextAfterNodeId).IsNotNull();
@@ -339,6 +452,7 @@ public sealed class HostingTests
       await Assert.That(profileOnlyBody!.Nodes).HasSingleItem();
       await Assert.That(profileOnlyBody.Nodes[0].NodeId)
           .IsEqualTo(firstNode.NodeId);
+      await Assert.That(profileOnlyBody.Nodes[0].Hardware).IsNull();
 
       var unauthenticatedThrottled = false;
       for (var requestIndex = 0; requestIndex < 150; requestIndex++)

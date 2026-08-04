@@ -27,7 +27,13 @@ public sealed record FleetNode(
     bool CredentialRotationRequested,
     IReadOnlyList<ManagerObservedState> Profiles,
     IReadOnlyList<CapacityControlState> CapacityControls,
-    IReadOnlyList<RecoveryControlState> RecoveryControls);
+    IReadOnlyList<RecoveryControlState> RecoveryControls)
+{
+  /// <summary>
+  /// Gets the latest sanitized node hardware inventory when reported.
+  /// </summary>
+  public HostHardwareInventory? Hardware { get; init; }
+}
 
 /// <summary>
 /// Returns the current fleet projection visible to one dashboard tenant.

@@ -91,6 +91,43 @@ const hostResourceCapacitySchema = z.object({
   memoryBytes: z.number().int().positive(),
 });
 
+const hardwareArchitectureSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .refine((value) =>
+    Array.from(value).every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint >= 0x20 && codePoint !== 0x7f;
+    }),
+  );
+
+export const hostHardwareInventorySchema = z.object({
+  status: z.enum(['current', 'stale', 'unavailable']),
+  collectedAt: offsetDateTimeSchema.nullable(),
+  attemptedAt: offsetDateTimeSchema,
+  inventoryHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/u)
+    .nullable(),
+  processorModel: z.string().min(1).max(256).nullable(),
+  architecture: hardwareArchitectureSchema.nullable(),
+  physicalCoreCount: z.number().int().positive().nullable(),
+  logicalProcessorCount: z.number().int().positive().nullable(),
+  performanceCoreCount: z.number().int().positive().nullable(),
+  efficiencyCoreCount: z.number().int().positive().nullable(),
+  memoryBytes: z.number().int().positive().nullable(),
+  operatingSystem: z.string().min(1).max(256).nullable(),
+  kernelVersion: z.string().min(1).max(256).nullable(),
+  dockerServerVersion: z.string().min(1).max(256).nullable(),
+  dockerStorageDriver: z.string().min(1).max(256).nullable(),
+  dockerBackingFilesystem: z.string().min(1).max(256).nullable(),
+});
+
+const observedHostSchema = z.object({
+  hardware: hostHardwareInventorySchema,
+});
+
 const managerResourceTelemetrySchema = z.object({
   sampledAt: offsetDateTimeSchema,
   status: z.enum(['available', 'partial', 'unavailable']),
@@ -349,8 +386,57 @@ const managerObservedStateSchema = z
     subsystemHealth: managerSubsystemHealthSchema.nullable().default(null),
     capacityEvidence: managerCapacityEvidenceSchema.nullable().default(null),
     update: managerWorkerUpdateStateSchema.nullable().default(null),
+    host: observedHostSchema.nullable().optional(),
   })
   .superRefine((profile, context) => {
+    const hardware = profile.host?.hardware;
+    if (hardware != null) {
+      const values = [
+        hardware.processorModel,
+        hardware.architecture,
+        hardware.physicalCoreCount,
+        hardware.logicalProcessorCount,
+        hardware.performanceCoreCount,
+        hardware.efficiencyCoreCount,
+        hardware.memoryBytes,
+        hardware.operatingSystem,
+        hardware.kernelVersion,
+        hardware.dockerServerVersion,
+        hardware.dockerStorageDriver,
+        hardware.dockerBackingFilesystem,
+      ];
+      if (hardware.status === 'unavailable') {
+        if (
+          hardware.collectedAt != null ||
+          hardware.inventoryHash != null ||
+          values.some((value) => value != null)
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Unavailable hardware cannot retain inventory values.',
+            path: ['host', 'hardware', 'status'],
+          });
+        }
+      } else if (
+        hardware.collectedAt == null ||
+        hardware.inventoryHash == null ||
+        !values.some((value) => value != null)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Current or stale hardware requires a retained inventory.',
+          path: ['host', 'hardware'],
+        });
+      }
+      if (Date.parse(hardware.attemptedAt) > Date.parse(profile.observedAt)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Hardware collection cannot postdate the manager observation.',
+          path: ['host', 'hardware', 'attemptedAt'],
+        });
+      }
+    }
+
     if (profile.managerContractVersion >= 10) {
       if (profile.eligibleSlots == null) {
         context.addIssue({
@@ -643,6 +729,7 @@ const fleetNodeSchema = z.object({
   profiles: z.array(managerObservedStateSchema),
   capacityControls: z.array(capacityControlStateSchema).default([]),
   recoveryControls: z.array(recoveryControlStateSchema).default([]),
+  hardware: hostHardwareInventorySchema.nullable().optional(),
 });
 
 const fleetResponseSchema = z.object({
@@ -676,6 +763,8 @@ export type CapacityDeficitEvidence = z.infer<typeof capacityDeficitEvidenceSche
 export type TargetCapacityDeficitEvidence = z.infer<typeof targetCapacityDeficitEvidenceSchema>;
 /** Fixed or per-target manager contract 12 capacity-deficit evidence. */
 export type ManagerCapacityEvidence = z.infer<typeof managerCapacityEvidenceSchema>;
+/** Sanitized manager contract 13 node hardware inventory. */
+export type HostHardwareInventory = z.infer<typeof hostHardwareInventorySchema>;
 /** Credential-free projection published by one PitCrew manager. */
 export type ManagerObservedState = z.infer<typeof managerObservedStateSchema>;
 /** Lifecycle state of one connector capacity command. */

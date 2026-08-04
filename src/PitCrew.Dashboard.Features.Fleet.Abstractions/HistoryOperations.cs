@@ -450,6 +450,23 @@ public sealed record ProfileWorkerUpdateChange(
     string? LastError);
 
 /// <summary>
+/// Represents one deduplicated node hardware revision.
+/// </summary>
+/// <param name="InventoryHash">Stable SHA-256 hardware identity.</param>
+/// <param name="CollectedAt">Manager time when the revision was first collected.</param>
+/// <param name="FirstObservedAt">Dashboard time when the revision first arrived.</param>
+/// <param name="LastObservedAt">Dashboard time when the revision most recently arrived.</param>
+/// <param name="SourceProfileId">Profile that most recently reported the revision.</param>
+/// <param name="Hardware">Sanitized hardware values for the revision.</param>
+public sealed record HostHardwareRevision(
+    string InventoryHash,
+    DateTimeOffset CollectedAt,
+    DateTimeOffset FirstObservedAt,
+    DateTimeOffset LastObservedAt,
+    string SourceProfileId,
+    HostHardwareInventory Hardware);
+
+/// <summary>
 /// Returns the bounded retained history for one profile.
 /// </summary>
 /// <param name="ProfileId">Profile identifier local to the connected server.</param>
@@ -506,6 +523,7 @@ public sealed record ProfileHistory(
 /// <param name="DroppedEvents">Manager events the compacted profile histories had lost.</param>
 /// <param name="DroppedSubsystemHealthChanges">Subsystem-health changes the compacted profile histories had lost.</param>
 /// <param name="DroppedCapacityDeficits">Capacity-deficit observations the compacted profile histories had lost.</param>
+/// <param name="DroppedHardwareRevisions">Node hardware revisions deleted by bounded retention.</param>
 public sealed record HistoryIncompletenessFloor(
     string Scope,
     DateTimeOffset EarliestExpiredAt,
@@ -515,7 +533,8 @@ public sealed record HistoryIncompletenessFloor(
     long DroppedRollups,
     long DroppedEvents,
     long DroppedSubsystemHealthChanges,
-    long DroppedCapacityDeficits);
+    long DroppedCapacityDeficits,
+    long DroppedHardwareRevisions);
 
 /// <summary>
 /// Returns bounded retained history for one tenant node.
@@ -560,6 +579,16 @@ public sealed record NodeHistoryResponse(
   /// Gets the per-profile worker-update transition ceiling applied to the response.
   /// </summary>
   public int ProfileWorkerUpdateLimit { get; init; }
+
+  /// <summary>
+  /// Gets node hardware changes whose first observation falls inside the requested range.
+  /// </summary>
+  public IReadOnlyList<HostHardwareRevision> HardwareRevisions { get; init; } = [];
+
+  /// <summary>
+  /// Gets whether the node-wide diagnostic ceiling hid older hardware revisions.
+  /// </summary>
+  public bool HardwareRevisionsTruncated { get; init; }
 }
 
 /// <summary>
@@ -616,13 +645,29 @@ public interface IFleetHistoryStore
   /// <param name="receivedAt">Dashboard time when the heartbeat was accepted.</param>
   /// <param name="policy">Retention and clock-skew policy applied to the append.</param>
   /// <param name="cancellationToken">Token that cancels the append.</param>
-  /// <returns>A task that completes after history is written into the transaction.</returns>
-  Task AppendAsync(
+  /// <returns>Profile identifiers whose authoritative observation advanced and passed every history acceptance gate.</returns>
+  Task<IReadOnlySet<string>> AppendAsync(
       IFleetStorageTransaction transaction,
       Guid nodeId,
       IReadOnlyList<ManagerObservedState> profiles,
       DateTimeOffset receivedAt,
       HistoryAppendPolicy policy,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Reapplies bounded retention after another accepted history collection was written.
+  /// </summary>
+  /// <param name="transaction">Transaction carrying the accepted connector heartbeat.</param>
+  /// <param name="nodeId">Authenticated node identifier.</param>
+  /// <param name="receivedAt">Dashboard time when the heartbeat was accepted.</param>
+  /// <param name="retention">Retention policy to enforce.</param>
+  /// <param name="cancellationToken">Token that cancels retention.</param>
+  /// <returns>A task that completes after every history ceiling is enforced.</returns>
+  Task EnforceRetentionAsync(
+      IFleetStorageTransaction transaction,
+      Guid nodeId,
+      DateTimeOffset receivedAt,
+      HistoryRetentionPolicy retention,
       CancellationToken cancellationToken);
 
   /// <summary>
