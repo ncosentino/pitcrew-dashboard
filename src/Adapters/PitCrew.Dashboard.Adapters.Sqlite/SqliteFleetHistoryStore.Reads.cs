@@ -89,6 +89,14 @@ internal sealed partial class SqliteFleetHistoryStore
         profileId,
         window,
         cancellationToken);
+    var (runnerAssignments, runnerAssignmentsTruncated) =
+        await LoadRunnerAssignmentsAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profileId,
+            window,
+            cancellationToken);
     IReadOnlyList<HostHardwareRevision> hardwareRevisions = [];
     var hardwareRevisionsTruncated = false;
     if (profileId is null)
@@ -166,7 +174,8 @@ internal sealed partial class SqliteFleetHistoryStore
           .Select(floor => floor with
           {
             DroppedHardwareRevisions = 0,
-          })
+        DroppedRunnerAssignments = 0,
+      })
           .ToArray();
     }
     await transaction.CommitAsync(cancellationToken);
@@ -178,6 +187,9 @@ internal sealed partial class SqliteFleetHistoryStore
     profileIds.UnionWith(healthTotals.Keys);
     profileIds.UnionWith(deficitTotals.Keys);
     profileIds.UnionWith(workerUpdateTotals.Keys);
+    profileIds.UnionWith(
+        runnerAssignments.Select(assignment =>
+            assignment.ProfileId));
 
     var histories = new List<ProfileHistory>(profileIds.Count);
     var pointsTruncated = false;
@@ -252,7 +264,76 @@ internal sealed partial class SqliteFleetHistoryStore
       ProfileWorkerUpdateLimit = window.DiagnosticLimit,
       HardwareRevisions = hardwareRevisions,
       HardwareRevisionsTruncated = hardwareRevisionsTruncated,
+      RunnerAssignments = runnerAssignments,
+      RunnerAssignmentsTruncated = runnerAssignmentsTruncated,
     };
+  }
+
+  private static async Task<(
+      IReadOnlyList<RunnerAssignmentInterval> Assignments,
+      bool Truncated)> LoadRunnerAssignmentsAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          string? profileId,
+          HistoryWindow window,
+          CancellationToken cancellationToken)
+  {
+    var limit = profileId is null
+        ? window.NodeDiagnosticLimit
+        : window.DiagnosticLimit;
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT
+            runner_name_hash,
+            profile_id,
+            slot_key,
+            repository,
+            target,
+            first_observed_at,
+            last_observed_at
+        FROM profile_runner_assignments
+        WHERE node_id = $nodeId
+          AND ($profileId IS NULL OR profile_id = $profileId)
+          AND first_observed_at < $to
+          AND last_observed_at >= $from
+        ORDER BY
+            first_observed_at DESC,
+            profile_id,
+            runner_name_hash
+        LIMIT $limit;
+        """;
+    command.Parameters.AddWithValue(
+        "$nodeId",
+        nodeId.ToString("D"));
+    AddNullable(command, "$profileId", profileId);
+    command.Parameters.AddWithValue("$from", Utc(window.From));
+    command.Parameters.AddWithValue("$to", Utc(window.To));
+    command.Parameters.AddWithValue("$limit", limit + 1);
+    var assignments = new List<RunnerAssignmentInterval>();
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    SqliteRowReader? row = null;
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      row ??= new SqliteRowReader(reader);
+      assignments.Add(new RunnerAssignmentInterval(
+          row.String("runner_name_hash"),
+          row.String("profile_id"),
+          row.String("slot_key"),
+          row.OptionalString("repository"),
+          row.OptionalString("target"),
+          row.Time("first_observed_at"),
+          row.Time("last_observed_at")));
+    }
+    var truncated = assignments.Count > limit;
+    if (truncated)
+    {
+      assignments.RemoveAt(assignments.Count - 1);
+    }
+    return (assignments, truncated);
   }
 
   private static async Task<(
@@ -382,7 +463,8 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_events,
             dropped_subsystem_health,
             dropped_capacity_deficits,
-            dropped_hardware_revisions
+            dropped_hardware_revisions,
+            dropped_runner_assignments
         FROM history_incompleteness_floors
         WHERE latest_expired_at >= $from
           AND ((scope = 'database' AND node_id = '')
@@ -408,7 +490,8 @@ internal sealed partial class SqliteFleetHistoryStore
           row.Int64("dropped_events"),
           row.Int64("dropped_subsystem_health"),
           row.Int64("dropped_capacity_deficits"),
-          row.Int64("dropped_hardware_revisions")));
+          row.Int64("dropped_hardware_revisions"),
+          row.Int64("dropped_runner_assignments")));
     }
 
     return floors;
@@ -1224,6 +1307,7 @@ internal sealed partial class SqliteFleetHistoryStore
             c.dropped_events AS dropped_events,
             c.dropped_subsystem_health AS dropped_subsystem_health,
             c.dropped_capacity_deficits AS dropped_capacity_deficits,
+            c.dropped_runner_assignments AS dropped_runner_assignments,
             c.rejected_future_samples AS rejected_future_samples,
             c.rejected_future_events AS rejected_future_events,
             c.updated_at AS updated_at,
@@ -1252,7 +1336,11 @@ internal sealed partial class SqliteFleetHistoryStore
             (SELECT MIN(d.observed_at)
              FROM profile_capacity_deficits AS d
              WHERE d.node_id = c.node_id
-               AND d.profile_id = c.profile_id) AS earliest_capacity_deficit
+               AND d.profile_id = c.profile_id) AS earliest_capacity_deficit,
+            (SELECT MIN(a.first_observed_at)
+             FROM profile_runner_assignments AS a
+             WHERE a.node_id = c.node_id
+               AND a.profile_id = c.profile_id) AS earliest_runner_assignment
         FROM profile_history_cursors AS c
         WHERE c.node_id = $nodeId
           AND ($profileId IS NULL OR c.profile_id = $profileId);
@@ -1298,6 +1386,8 @@ internal sealed partial class SqliteFleetHistoryStore
               row.Int64("dropped_subsystem_health"),
               row.OptionalTime("earliest_capacity_deficit"),
               row.Int64("dropped_capacity_deficits"),
+              row.OptionalTime("earliest_runner_assignment"),
+              row.Int64("dropped_runner_assignments"),
               row.Int64("rejected_future_samples"),
               row.OptionalTime("history_expired_at")));
     }
@@ -1345,6 +1435,7 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_events,
             dropped_subsystem_health,
             dropped_capacity_deficits,
+            dropped_runner_assignments,
             rejected_future_samples,
             rejected_future_events
         FROM profile_history_tombstones
@@ -1390,6 +1481,8 @@ internal sealed partial class SqliteFleetHistoryStore
               row.Int64("dropped_subsystem_health"),
               null,
               row.Int64("dropped_capacity_deficits"),
+              null,
+              row.Int64("dropped_runner_assignments"),
               row.Int64("rejected_future_samples"),
               row.Time("expired_at")));
     }
@@ -1411,7 +1504,21 @@ internal sealed partial class SqliteFleetHistoryStore
           null);
 
   private static ProfileRetentionFloor EmptyRetention() =>
-      new(null, 0, null, 0, null, 0, null, 0, null, 0, 0, null);
+      new(
+          null,
+          0,
+          null,
+          0,
+          null,
+          0,
+          null,
+          0,
+          null,
+          0,
+          null,
+          0,
+          0,
+          null);
 
   private static void AddWindowParameters(
       SqliteCommand command,

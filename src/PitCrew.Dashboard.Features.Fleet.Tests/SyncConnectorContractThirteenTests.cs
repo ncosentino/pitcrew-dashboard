@@ -164,7 +164,7 @@ public sealed class SyncConnectorContractThirteenTests
         Host = new ObservedHost(hardware),
       });
 
-  private static HostHardwareInventory CreateHardware(
+  internal static HostHardwareInventory CreateHardware(
       DateTimeOffset observedAt) =>
       new(
           "current",

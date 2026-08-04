@@ -450,6 +450,27 @@ internal static class DashboardTestHelpers
     };
   }
 
+  public static ManagerObservedState CreateContractFourteenObservedState(
+      string profileId,
+      string repository)
+  {
+    var baseline = CreateContractThirteenObservedState(
+        profileId,
+        repository);
+    return baseline with
+    {
+      ManagerContractVersion = 14,
+      Slots = baseline.Slots
+          .Select((slot, index) => slot with
+          {
+            RunnerNameHash = index == 0
+                ? "e0054523055d4ebd049b2b33a1f3b55ba66e5f194b1bbbe5a69eca1ac6a5bf41"
+                : null,
+          })
+          .ToArray(),
+    };
+  }
+
   public static string CreateDatabasePath() =>
       Path.Combine(
           Path.GetTempPath(),

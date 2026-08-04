@@ -339,6 +339,8 @@ public sealed record ProfileEventJournalState(
 /// <param name="DroppedSubsystemHealthChanges">Subsystem-health changes this profile lost to dashboard retention.</param>
 /// <param name="EarliestRetainedCapacityDeficit">Oldest retained capacity-deficit observation, or <see langword="null"/> when none is retained.</param>
 /// <param name="DroppedCapacityDeficits">Capacity-deficit observations this profile lost to dashboard retention.</param>
+/// <param name="EarliestRetainedRunnerAssignment">Oldest retained runner assignment observation, or <see langword="null"/> when none is retained.</param>
+/// <param name="DroppedRunnerAssignments">Runner assignments this profile lost to dashboard retention.</param>
 /// <param name="RejectedFutureSamples">Samples rejected because their timestamp exceeded accepted clock skew.</param>
 /// <param name="HistoryExpiredAt">Dashboard time when every retained row of this profile was deliberately expired, or <see langword="null"/> while the profile history is live.</param>
 public sealed record ProfileRetentionFloor(
@@ -352,6 +354,8 @@ public sealed record ProfileRetentionFloor(
     long DroppedSubsystemHealthChanges,
     DateTimeOffset? EarliestRetainedCapacityDeficit,
     long DroppedCapacityDeficits,
+    DateTimeOffset? EarliestRetainedRunnerAssignment,
+    long DroppedRunnerAssignments,
     long RejectedFutureSamples,
     DateTimeOffset? HistoryExpiredAt);
 
@@ -467,6 +471,25 @@ public sealed record HostHardwareRevision(
     HostHardwareInventory Hardware);
 
 /// <summary>
+/// Describes one retained exact runner-to-profile assignment interval.
+/// </summary>
+/// <param name="RunnerNameHash">Lowercase SHA-256 of the exact GitHub runner name.</param>
+/// <param name="ProfileId">Profile that owned the runner.</param>
+/// <param name="SlotKey">Stable profile-scoped slot key.</param>
+/// <param name="Repository">Sanitized repository identity when reported.</param>
+/// <param name="Target">Autoscaling target key when reported.</param>
+/// <param name="FirstObservedAt">Dashboard time when the assignment first arrived.</param>
+/// <param name="LastObservedAt">Dashboard time when the assignment most recently arrived.</param>
+public sealed record RunnerAssignmentInterval(
+    string RunnerNameHash,
+    string ProfileId,
+    string SlotKey,
+    string? Repository,
+    string? Target,
+    DateTimeOffset FirstObservedAt,
+    DateTimeOffset LastObservedAt);
+
+/// <summary>
 /// Returns the bounded retained history for one profile.
 /// </summary>
 /// <param name="ProfileId">Profile identifier local to the connected server.</param>
@@ -524,6 +547,7 @@ public sealed record ProfileHistory(
 /// <param name="DroppedSubsystemHealthChanges">Subsystem-health changes the compacted profile histories had lost.</param>
 /// <param name="DroppedCapacityDeficits">Capacity-deficit observations the compacted profile histories had lost.</param>
 /// <param name="DroppedHardwareRevisions">Node hardware revisions deleted by bounded retention.</param>
+/// <param name="DroppedRunnerAssignments">Runner assignments deleted after their per-profile provenance was compacted.</param>
 public sealed record HistoryIncompletenessFloor(
     string Scope,
     DateTimeOffset EarliestExpiredAt,
@@ -534,7 +558,8 @@ public sealed record HistoryIncompletenessFloor(
     long DroppedEvents,
     long DroppedSubsystemHealthChanges,
     long DroppedCapacityDeficits,
-    long DroppedHardwareRevisions);
+    long DroppedHardwareRevisions,
+    long DroppedRunnerAssignments);
 
 /// <summary>
 /// Returns bounded retained history for one tenant node.
@@ -589,6 +614,16 @@ public sealed record NodeHistoryResponse(
   /// Gets whether the node-wide diagnostic ceiling hid older hardware revisions.
   /// </summary>
   public bool HardwareRevisionsTruncated { get; init; }
+
+  /// <summary>
+  /// Gets retained runner assignment intervals overlapping the requested range.
+  /// </summary>
+  public IReadOnlyList<RunnerAssignmentInterval> RunnerAssignments { get; init; } = [];
+
+  /// <summary>
+  /// Gets whether the applicable diagnostic ceiling hid runner assignments.
+  /// </summary>
+  public bool RunnerAssignmentsTruncated { get; init; }
 }
 
 /// <summary>

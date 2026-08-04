@@ -134,9 +134,15 @@ Connector protocol 6 adds sanitized PitCrew manager contract 13 host hardware
 inventory. Current node views and selected-node comparison show reported
 processor topology, Docker-visible memory, OS/kernel identity, and Docker
 runtime/storage context. SQLite deduplicates revisions by node and inventory
-hash and annotates retained node history when hardware changes. Protocol 1-5
+hash and annotates retained node history when hardware changes. Protocol 1-6
 connectors remain compatible and show hardware as unreported. See
 [Host hardware inventory](docs/hardware-inventory.md).
+
+Protocol 7 accepts PitCrew manager contract 14 runner-name hashes and retains
+bounded hash-to-node/profile assignment intervals after ephemeral workers exit.
+Diagnostic clients hash GitHub's exact `runner_name` locally and join by exact
+equality; Dashboard never stores the raw runner name. See
+[Runner correlation assignments](docs/runner-correlation.md).
 
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,

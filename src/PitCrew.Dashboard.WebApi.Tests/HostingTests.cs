@@ -103,6 +103,73 @@ public sealed class HostingTests
   }
 
   [Test]
+  public async Task Contract_Fourteen_Runner_Assignment_Round_Trips(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Runner assignment node",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "runner-assignment-node",
+          "Runner Assignment Node",
+          code.Code,
+          cancellationToken);
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "7.0.0",
+          DashboardTestHelpers.CreateContractFourteenObservedState(
+              "default",
+              "https://github.com/example/project"),
+          cancellationToken);
+
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+      var history = await client.GetFromJsonAsync<NodeHistoryResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes/{identity.NodeId:D}/history",
+          cancellationToken);
+      var profileHistory = await client.GetFromJsonAsync<
+          NodeHistoryResponse>(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/history",
+              cancellationToken);
+
+      await Assert.That(fleet).IsNotNull();
+      await Assert.That(fleet!.Nodes).HasSingleItem();
+      await Assert.That(
+          fleet.Nodes[0].Profiles[0].Slots[0].RunnerNameHash)
+          .IsEqualTo(
+              "e0054523055d4ebd049b2b33a1f3b55ba66e5f194b1bbbe5a69eca1ac6a5bf41");
+      await Assert.That(history).IsNotNull();
+      await Assert.That(history!.RunnerAssignments).HasSingleItem();
+      await Assert.That(history.RunnerAssignments[0].ProfileId)
+          .IsEqualTo("default");
+      await Assert.That(profileHistory).IsNotNull();
+      await Assert.That(profileHistory!.RunnerAssignments).HasSingleItem();
+      await Assert.That(profileHistory.RunnerAssignments[0].ProfileId)
+          .IsEqualTo("default");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Diagnostic_Credential_Is_Scoped_Read_Only_Revocable_And_Rotatable(
       CancellationToken cancellationToken)
   {
@@ -133,7 +200,7 @@ public sealed class HostingTests
           administrator,
           firstNode.Credential,
           "2.0.0",
-          DashboardTestHelpers.CreateContractThirteenObservedState(
+          DashboardTestHelpers.CreateContractFourteenObservedState(
               "default",
               "https://github.com/example/project"),
           cancellationToken);
@@ -242,6 +309,9 @@ public sealed class HostingTests
           .HasSingleItem();
       await Assert.That(currentFleet.Nodes[0].Profiles[0].ProfileId)
           .IsEqualTo("default");
+      await Assert.That(
+          currentFleet.Nodes[0].Profiles[0].Slots[0].RunnerNameHash)
+          .IsNotNull();
       await Assert.That(currentFleet.Nodes[0].Profiles[0].Host).IsNull();
       await Assert.That(currentFleet.Nodes[0].Hardware).IsNull();
       await Assert.That(currentFleet.Nodes[0].CapacityControls).IsEmpty();
@@ -259,6 +329,11 @@ public sealed class HostingTests
       await Assert.That(allowedProfileHistoryBody).IsNotNull();
       await Assert.That(allowedProfileHistoryBody!.HardwareRevisions)
           .IsEmpty();
+      await Assert.That(allowedProfileHistoryBody.RunnerAssignments)
+          .HasSingleItem();
+      await Assert.That(
+          allowedProfileHistoryBody.RunnerAssignments[0].ProfileId)
+          .IsEqualTo("default");
       await Assert.That(
           current.Headers.CacheControl?.NoStore)
           .IsTrue();

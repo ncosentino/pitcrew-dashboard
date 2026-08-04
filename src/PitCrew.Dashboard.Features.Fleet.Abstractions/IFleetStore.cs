@@ -170,6 +170,7 @@ public interface IFleetStore
   /// <param name="connectorVersion">Connector application version.</param>
   /// <param name="receivedAt">Dashboard time when the synchronization was accepted.</param>
   /// <param name="profiles">Latest profile observations visible to the connector.</param>
+  /// <param name="acceptedProfileIds">Profiles whose authoritative observation passed history gates and advanced.</param>
   /// <param name="credentialUpdate">Credential mutation committed with the snapshot.</param>
   /// <param name="cancellationToken">Token that cancels synchronization.</param>
   /// <returns>A task that completes after the projection is written into the transaction.</returns>
@@ -179,6 +180,7 @@ public interface IFleetStore
       string connectorVersion,
       DateTimeOffset receivedAt,
       IReadOnlyList<ManagerObservedState> profiles,
+      IReadOnlySet<string> acceptedProfileIds,
       ConnectorCredentialUpdate credentialUpdate,
       CancellationToken cancellationToken);
 

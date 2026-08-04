@@ -55,6 +55,12 @@ Node and profile restrictions are enforced before returning current or
 historical data. Empty restrictions mean every node or profile in the one
 tenant.
 
+Node history also returns bounded contract-14 runner assignment intervals.
+Clients hash GitHub's exact `runner_name` locally and compare the lowercase
+SHA-256 digest by equality. Profile-history routes return only that profile's
+assignments. Raw runner names are never accepted, stored, or returned; see
+[Runner correlation assignments](runner-correlation.md).
+
 ## Isolation
 
 Diagnostic credentials do not satisfy browser viewer, administrator, owner, or
