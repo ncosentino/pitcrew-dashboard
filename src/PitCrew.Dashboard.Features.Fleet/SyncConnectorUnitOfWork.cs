@@ -112,6 +112,15 @@ internal sealed partial class SyncConnectorUnitOfWork(
             null);
       }
     }
+    if (!IsValidProtocolProfileContracts(
+        input.ProtocolVersion,
+        input.Profiles))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Manager contract 14 requires connector protocol version 7.",
+          null);
+    }
     if (input.ProtocolVersion < 3 &&
         (input.CapacityOperator is not null ||
          input.CapacityCommandOutcome is not null))
@@ -173,14 +182,6 @@ internal sealed partial class SyncConnectorUnitOfWork(
 
     await using var storageTransaction =
         await _transactionFactory.BeginAsync(cancellationToken);
-    await _fleetStore.ApplySyncAsync(
-        storageTransaction,
-        identity.NodeId,
-        input.ConnectorVersion,
-        acceptedAt,
-        input.Profiles,
-        credentialUpdate,
-        cancellationToken);
     var historyPolicy =
         FleetHistoryPolicy.CreateAppendPolicy(_options.Value);
     var acceptedProfileIds = await _fleetHistoryStore.AppendAsync(
@@ -189,6 +190,15 @@ internal sealed partial class SyncConnectorUnitOfWork(
         input.Profiles,
         acceptedAt,
         historyPolicy,
+        cancellationToken);
+    await _fleetStore.ApplySyncAsync(
+        storageTransaction,
+        identity.NodeId,
+        input.ConnectorVersion,
+        acceptedAt,
+        input.Profiles,
+        acceptedProfileIds,
+        credentialUpdate,
         cancellationToken);
     IReadOnlyList<ManagerObservedState>? hardwareProfiles =
         input.Profiles.Count == 0
@@ -451,12 +461,19 @@ internal sealed partial class SyncConnectorUnitOfWork(
 
     var slotKeys = new HashSet<string>(
         StringComparer.OrdinalIgnoreCase);
+    var runnerNameHashes = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase);
     foreach (var slot in profile.Slots)
     {
       if (string.IsNullOrWhiteSpace(slot.Key) ||
           slot.Key.Length > 128 ||
           !slotKeys.Add(slot.Key) ||
-          slot.Repository?.Length > 2048 ||
+          slot.Repository is not null &&
+          (string.IsNullOrWhiteSpace(slot.Repository) ||
+           slot.Repository.Length > 2048) ||
+          slot.Target is not null &&
+          (string.IsNullOrWhiteSpace(slot.Target) ||
+           slot.Target.Length > 512) ||
           slot.FailureCount < 0 ||
           slot.BackoffSeconds < 0 ||
           slot.Activity is not null &&
@@ -475,6 +492,12 @@ internal sealed partial class SyncConnectorUnitOfWork(
           !IsValidResourceUsage(slot.Resources) ||
           !IsValidImageId(slot.ImageId) ||
           !IsValidLastExit(slot.LastExit) ||
+          slot.RunnerNameHash is not null &&
+          (!Regex.IsMatch(
+              slot.RunnerNameHash,
+              "^[0-9a-f]{64}$",
+              RegexOptions.CultureInvariant) ||
+           !runnerNameHashes.Add(slot.RunnerNameHash)) ||
           slot.State is not (
               "starting" or
               "online" or
@@ -485,6 +508,12 @@ internal sealed partial class SyncConnectorUnitOfWork(
       {
         return false;
       }
+    }
+    if (profile.ManagerContractVersion < 14 &&
+        profile.Slots.Any(slot =>
+            slot.RunnerNameHash is not null))
+    {
+      return false;
     }
 
     if (profile.ManagerContractVersion >= 10 &&
@@ -506,6 +535,13 @@ internal sealed partial class SyncConnectorUnitOfWork(
     return IsConsistentResourceTelemetry(profile) &&
         ManagerDiagnosticsValidator.IsValid(profile);
   }
+
+  internal static bool IsValidProtocolProfileContracts(
+      int protocolVersion,
+      IReadOnlyList<ManagerObservedState> profiles) =>
+      protocolVersion >= 7 ||
+      profiles.All(profile =>
+          profile.ManagerContractVersion < 14);
 
   private static bool IsValidHostHardware(
       ManagerObservedState profile)

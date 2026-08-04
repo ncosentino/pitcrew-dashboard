@@ -115,6 +115,8 @@ const retentionFloorSchema = z.object({
   droppedSubsystemHealthChanges: z.number().int().nonnegative(),
   earliestRetainedCapacityDeficit: offsetDateTimeSchema.nullable(),
   droppedCapacityDeficits: z.number().int().nonnegative(),
+  earliestRetainedRunnerAssignment: offsetDateTimeSchema.nullable().default(null),
+  droppedRunnerAssignments: z.number().int().nonnegative().default(0),
   rejectedFutureSamples: z.number().int().nonnegative(),
   historyExpiredAt: offsetDateTimeSchema.nullable(),
 });
@@ -194,6 +196,7 @@ const incompletenessFloorSchema = z.object({
   droppedSubsystemHealthChanges: z.number().int().nonnegative(),
   droppedCapacityDeficits: z.number().int().nonnegative(),
   droppedHardwareRevisions: z.number().int().nonnegative().default(0),
+  droppedRunnerAssignments: z.number().int().nonnegative().default(0),
 });
 
 const hostHardwareRevisionSchema = z.object({
@@ -203,6 +206,16 @@ const hostHardwareRevisionSchema = z.object({
   lastObservedAt: offsetDateTimeSchema,
   sourceProfileId: z.string().min(1).max(32),
   hardware: hostHardwareInventorySchema,
+});
+
+const runnerAssignmentIntervalSchema = z.object({
+  runnerNameHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  profileId: z.string().min(1).max(32),
+  slotKey: z.string().min(1).max(128),
+  repository: z.string().min(1).max(2048).nullable(),
+  target: z.string().min(1).max(512).nullable(),
+  firstObservedAt: offsetDateTimeSchema,
+  lastObservedAt: offsetDateTimeSchema,
 });
 
 const nodeHistorySchema = z.object({
@@ -226,6 +239,8 @@ const nodeHistorySchema = z.object({
   incompletenessFloors: z.array(incompletenessFloorSchema),
   hardwareRevisions: z.array(hostHardwareRevisionSchema).default([]),
   hardwareRevisionsTruncated: z.boolean().default(false),
+  runnerAssignments: z.array(runnerAssignmentIntervalSchema).default([]),
+  runnerAssignmentsTruncated: z.boolean().default(false),
 });
 
 const historyCapabilitiesSchema = z.object({
@@ -268,6 +283,8 @@ export type ProfileHistory = z.infer<typeof profileHistorySchema>;
 export type HistoryIncompletenessFloor = z.infer<typeof incompletenessFloorSchema>;
 /** One deduplicated node hardware change in retained history. */
 export type HostHardwareRevision = z.infer<typeof hostHardwareRevisionSchema>;
+/** One retained exact runner-to-profile assignment interval. */
+export type RunnerAssignmentInterval = z.infer<typeof runnerAssignmentIntervalSchema>;
 /** Bounded retained history for one tenant node. */
 export type NodeHistoryResponse = z.infer<typeof nodeHistorySchema>;
 

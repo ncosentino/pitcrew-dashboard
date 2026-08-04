@@ -1112,5 +1112,56 @@ internal static class SqliteMigrationCatalog
                       first_observed_at,
                       revision_id);
               """),
+        new(
+              14,
+              "runner-correlation-assignment-history",
+              """
+              ALTER TABLE profile_history_cursors
+                  ADD COLUMN dropped_runner_assignments INTEGER NOT NULL
+                      DEFAULT 0
+                      CHECK (dropped_runner_assignments >= 0);
+
+              ALTER TABLE profile_history_tombstones
+                  ADD COLUMN dropped_runner_assignments INTEGER NOT NULL
+                      DEFAULT 0
+                      CHECK (dropped_runner_assignments >= 0);
+
+              ALTER TABLE history_incompleteness_floors
+                  ADD COLUMN dropped_runner_assignments INTEGER NOT NULL
+                      DEFAULT 0
+                      CHECK (dropped_runner_assignments >= 0);
+
+              CREATE TABLE profile_runner_assignments (
+                  node_id TEXT NOT NULL,
+                  profile_id TEXT NOT NULL
+                      CHECK (length(profile_id) BETWEEN 1 AND 32),
+                  runner_name_hash TEXT NOT NULL
+                      CHECK (length(runner_name_hash) = 64
+                          AND runner_name_hash
+                              NOT GLOB '*[^0-9a-f]*'),
+                  slot_key TEXT NOT NULL
+                      CHECK (length(slot_key) BETWEEN 1 AND 128),
+                  repository TEXT NULL
+                      CHECK (repository IS NULL
+                          OR length(repository) BETWEEN 1 AND 2048),
+                  target TEXT NULL
+                      CHECK (target IS NULL
+                          OR length(target) BETWEEN 1 AND 512),
+                  first_observed_at TEXT NOT NULL,
+                  last_observed_at TEXT NOT NULL,
+                  PRIMARY KEY (
+                      node_id,
+                      profile_id,
+                      runner_name_hash),
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE
+              ) WITHOUT ROWID;
+
+              CREATE INDEX ix_profile_runner_assignments_node_interval
+                  ON profile_runner_assignments (
+                      node_id,
+                      last_observed_at,
+                      first_observed_at);
+              """),
     ];
 }

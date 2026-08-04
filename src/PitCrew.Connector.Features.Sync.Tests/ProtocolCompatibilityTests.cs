@@ -241,6 +241,66 @@ public sealed class ProtocolCompatibilityTests
   }
 
   [Test]
+  public async Task Contract_Fourteen_Runner_Hash_Round_Trips_Through_Json()
+  {
+    var profile = JsonSerializer.Deserialize(
+        """
+        {
+          "schemaVersion": 1,
+          "managerContractVersion": 14,
+          "profileId": "default",
+          "managerInstanceId": "manager-instance",
+          "managerStatus": "running",
+          "observedAt": "2026-08-04T12:00:00+00:00",
+          "scope": "repo",
+          "generation": 1,
+          "desiredStateHash": null,
+          "desiredStateStatus": "accepted",
+          "desiredSlots": 1,
+          "activeSlots": 1,
+          "drainingSlots": 0,
+          "eligibleSlots": 1,
+          "slots": [
+            {
+              "key": "repo-example-000001",
+              "repository": "https://github.com/example/project",
+              "desired": true,
+              "processRunning": true,
+              "state": "online",
+              "failureCount": 0,
+              "backoffSeconds": 0,
+              "updatedAt": "2026-08-04T12:00:00+00:00",
+              "resources": null,
+              "activity": "busy",
+              "target": "repo:example/project",
+              "registrationStatus": "connected",
+              "imageId": null,
+              "lastExit": null,
+              "runnerNameHash": "e0054523055d4ebd049b2b33a1f3b55ba66e5f194b1bbbe5a69eca1ac6a5bf41"
+            }
+          ],
+          "resourceTelemetry": null,
+          "configuredSlots": 1,
+          "autoscaling": null
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(profile).IsNotNull();
+    var reserialized = JsonSerializer.Deserialize(
+        JsonSerializer.Serialize(
+            profile!,
+            PitCrewProtocolJsonContext.Default.ManagerObservedState),
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(reserialized).IsNotNull();
+    await Assert.That(reserialized!.Slots).HasSingleItem();
+    await Assert.That(reserialized.Slots[0].RunnerNameHash)
+        .IsEqualTo(
+            "e0054523055d4ebd049b2b33a1f3b55ba66e5f194b1bbbe5a69eca1ac6a5bf41");
+  }
+
+  [Test]
   public async Task Protocol_Three_Payloads_Remain_Readable_Without_Recovery_Fields()
   {
     var request = JsonSerializer.Deserialize(

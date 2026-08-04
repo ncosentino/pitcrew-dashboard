@@ -146,6 +146,8 @@ function history(overrides: Partial<ProfileHistory> = {}): ProfileHistory {
       droppedSubsystemHealthChanges: 0,
       earliestRetainedCapacityDeficit: '2026-07-26T11:00:00+00:00',
       droppedCapacityDeficits: 0,
+      earliestRetainedRunnerAssignment: '2026-07-26T11:00:00+00:00',
+      droppedRunnerAssignments: 0,
       rejectedFutureSamples: 0,
       historyExpiredAt: null,
     },
@@ -571,10 +573,12 @@ describe('describeIncompletenessFloor', () => {
       droppedSubsystemHealthChanges: 2,
       droppedCapacityDeficits: 1,
       droppedHardwareRevisions: 4,
+      droppedRunnerAssignments: 5,
     });
 
     expect(message).toContain('3 profile histories');
     expect(message).toContain('4 hardware revisions');
+    expect(message).toContain('5 runner assignments');
     expect(message).toContain('this node');
     expect(message).toContain('incomplete');
   });

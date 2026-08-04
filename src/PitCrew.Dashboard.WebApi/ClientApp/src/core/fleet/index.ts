@@ -73,6 +73,7 @@ export type {
   ProfileTelemetryRollup,
   ProfileTelemetrySample,
   ProfileWorkerUpdateChange,
+  RunnerAssignmentInterval,
 } from './historyApi';
 export {
   buildDeficitReasonChanges,

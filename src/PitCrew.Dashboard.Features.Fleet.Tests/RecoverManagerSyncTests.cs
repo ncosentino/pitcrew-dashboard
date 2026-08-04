@@ -268,6 +268,8 @@ public sealed class RecoverManagerSyncTests
             It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
             It.Is<IReadOnlyList<ManagerObservedState>>(
                 profiles => profiles.Count == 0),
+            It.Is<IReadOnlySet<string>>(
+                accepted => accepted.Count == 0),
             It.Is<ConnectorCredentialUpdate>(update =>
                 update.Kind == ConnectorCredentialUpdateKind.None),
             It.IsAny<CancellationToken>()))

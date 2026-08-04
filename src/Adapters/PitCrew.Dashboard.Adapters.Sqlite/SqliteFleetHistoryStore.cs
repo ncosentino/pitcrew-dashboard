@@ -188,6 +188,13 @@ internal sealed partial class SqliteFleetHistoryStore(
             profile,
             receivedAt,
             cancellationToken);
+        await AppendRunnerAssignmentsAsync(
+            connection,
+            sqliteTransaction,
+            nodeId,
+            profile,
+            receivedAt,
+            cancellationToken);
       }
       await AppendEventsAsync(
           connection,
@@ -296,6 +303,7 @@ internal sealed partial class SqliteFleetHistoryStore(
               dropped_events,
               dropped_subsystem_health,
               dropped_capacity_deficits,
+              dropped_runner_assignments,
               rejected_future_samples,
               rejected_future_events,
               updated_at,
@@ -321,6 +329,7 @@ internal sealed partial class SqliteFleetHistoryStore(
               COALESCE(t.dropped_events, 0),
               COALESCE(t.dropped_subsystem_health, 0),
               COALESCE(t.dropped_capacity_deficits, 0),
+              COALESCE(t.dropped_runner_assignments, 0),
               COALESCE(t.rejected_future_samples, 0),
               COALESCE(t.rejected_future_events, 0),
               $updatedAt,
@@ -655,6 +664,78 @@ internal sealed partial class SqliteFleetHistoryStore(
     AddNullable(command, "$workerStaleWorkers", sample.WorkerStaleWorkers);
     AddNullable(command, "$workerUpdateError", sample.WorkerUpdateError);
     await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static async Task AppendRunnerAssignmentsAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Guid nodeId,
+      ManagerObservedState profile,
+      DateTimeOffset receivedAt,
+      CancellationToken cancellationToken)
+  {
+    foreach (var slot in profile.Slots)
+    {
+      if (slot.RunnerNameHash is null)
+      {
+        continue;
+      }
+
+      await using var command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          INSERT INTO profile_runner_assignments (
+              node_id,
+              profile_id,
+              runner_name_hash,
+              slot_key,
+              repository,
+              target,
+              first_observed_at,
+              last_observed_at)
+          VALUES (
+              $nodeId,
+              $profileId,
+              $runnerNameHash,
+              $slotKey,
+              $repository,
+              $target,
+              $observedAt,
+              $observedAt)
+          ON CONFLICT (
+              node_id,
+              profile_id,
+              runner_name_hash) DO UPDATE SET
+              slot_key = excluded.slot_key,
+              repository = excluded.repository,
+              target = excluded.target,
+              first_observed_at = MIN(
+                  profile_runner_assignments.first_observed_at,
+                  excluded.first_observed_at),
+              last_observed_at = MAX(
+                  profile_runner_assignments.last_observed_at,
+                  excluded.last_observed_at)
+          WHERE excluded.last_observed_at >=
+              profile_runner_assignments.last_observed_at;
+          """;
+      command.Parameters.AddWithValue(
+          "$nodeId",
+          nodeId.ToString("D"));
+      command.Parameters.AddWithValue(
+          "$profileId",
+          profile.ProfileId);
+      command.Parameters.AddWithValue(
+          "$runnerNameHash",
+          slot.RunnerNameHash);
+      command.Parameters.AddWithValue("$slotKey", slot.Key);
+      AddNullable(command, "$repository", slot.Repository);
+      AddNullable(command, "$target", slot.Target);
+      command.Parameters.AddWithValue(
+          "$observedAt",
+          Utc(receivedAt));
+      await command.ExecuteNonQueryAsync(cancellationToken);
+    }
   }
 
   private static async Task AccumulateRollupAsync(

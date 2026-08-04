@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 6;
+  public const int Version = 7;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -35,6 +35,7 @@ public static class PitCrewProtocol
 /// <param name="RegistrationStatus">GitHub registration eligibility when reported; otherwise <see langword="null"/>.</param>
 /// <param name="ImageId">Immutable local Docker image identity (<c>sha256:</c> and 64 hexadecimal characters) when reported; otherwise <see langword="null"/>.</param>
 /// <param name="LastExit">Bounded manager contract 11 exit evidence when available; otherwise <see langword="null"/>, which never means a clean exit.</param>
+/// <param name="RunnerNameHash">Manager contract 14 lowercase SHA-256 correlation key for the exact runner name when available; otherwise <see langword="null"/>.</param>
 public sealed record ObservedSlotState(
     string Key,
     string? Repository,
@@ -49,7 +50,8 @@ public sealed record ObservedSlotState(
     string? Target,
     string? RegistrationStatus = null,
     string? ImageId = null,
-    WorkerLastExitDiagnostic? LastExit = null);
+    WorkerLastExitDiagnostic? LastExit = null,
+    string? RunnerNameHash = null);
 
 /// <summary>
 /// Describes the demand-driven scale-set projection published by one profile manager.

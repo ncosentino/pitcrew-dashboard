@@ -64,12 +64,16 @@ internal static class FleetStorageTestTransactions
     await using var transaction = await SqliteFleetTransaction.BeginAsync(
         connectionFactory,
         cancellationToken);
+    var acceptedProfileIds = profiles
+        .Select(profile => profile.ProfileId)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
     await store.ApplySyncAsync(
         transaction,
         nodeId,
         connectorVersion,
         acceptedAt,
         profiles,
+        acceptedProfileIds,
         credentialUpdate,
         cancellationToken);
     await store.ApplyHostHardwareAsync(
@@ -97,20 +101,21 @@ internal static class FleetStorageTestTransactions
     await using var transaction = await SqliteFleetTransaction.BeginAsync(
         connectionFactory,
         cancellationToken);
-    await store.ApplySyncAsync(
-        transaction,
-        nodeId,
-        connectorVersion,
-        acceptedAt,
-        profiles,
-        credentialUpdate,
-        cancellationToken);
     var acceptedProfileIds = await historyStore.AppendAsync(
         transaction,
         nodeId,
         profiles,
         acceptedAt,
         historyPolicy,
+        cancellationToken);
+    await store.ApplySyncAsync(
+        transaction,
+        nodeId,
+        connectorVersion,
+        acceptedAt,
+        profiles,
+        acceptedProfileIds,
+        credentialUpdate,
         cancellationToken);
     var hardwareUpdated = false;
     if (profiles.Count == 0)

@@ -251,9 +251,12 @@ internal sealed class SqliteFleetStore(
       string connectorVersion,
       DateTimeOffset receivedAt,
       IReadOnlyList<ManagerObservedState> profiles,
+      IReadOnlySet<string> acceptedProfileIds,
       ConnectorCredentialUpdate credentialUpdate,
       CancellationToken cancellationToken)
   {
+    ArgumentNullException.ThrowIfNull(profiles);
+    ArgumentNullException.ThrowIfNull(acceptedProfileIds);
     var enlisted = SqliteFleetTransaction.Resolve(storageTransaction);
     var connection = enlisted.Connection;
     var transaction = enlisted.Transaction;
@@ -329,7 +332,7 @@ internal sealed class SqliteFleetStore(
     {
       sql.AppendLine("DELETE FROM profiles WHERE node_id = $nodeId;");
     }
-    else
+    else if (acceptedProfileIds.Count > 0)
     {
       var profileParameters = new string[profiles.Count];
       for (var index = 0; index < profiles.Count; index++)
@@ -347,6 +350,10 @@ internal sealed class SqliteFleetStore(
     for (var index = 0; index < profiles.Count; index++)
     {
       var profile = profiles[index];
+      if (!acceptedProfileIds.Contains(profile.ProfileId))
+      {
+        continue;
+      }
       var storedProfile = profile with { Host = null };
       var payload = JsonSerializer.Serialize(
           storedProfile,

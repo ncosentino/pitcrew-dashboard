@@ -193,6 +193,11 @@ const observedSlotSchema = z.object({
     .nullable()
     .default(null),
   lastExit: workerLastExitSchema.nullable().default(null),
+  runnerNameHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/u)
+    .nullable()
+    .default(null),
 });
 
 const managerEventSubsystemSchema = z.enum([
@@ -435,6 +440,23 @@ const managerObservedStateSchema = z
           path: ['host', 'hardware', 'attemptedAt'],
         });
       }
+    }
+    const runnerNameHashes = profile.slots
+      .map((slot) => slot.runnerNameHash)
+      .filter((hash): hash is string => hash != null);
+    if (new Set(runnerNameHashes).size !== runnerNameHashes.length) {
+      context.addIssue({
+        code: 'custom',
+        message: 'One runner-name hash identifies exactly one live slot.',
+        path: ['slots'],
+      });
+    }
+    if (profile.managerContractVersion < 14 && runnerNameHashes.length > 0) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Runner-name hashes require manager contract 14.',
+        path: ['slots'],
+      });
     }
 
     if (profile.managerContractVersion >= 10) {

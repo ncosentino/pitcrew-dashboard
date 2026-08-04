@@ -20,6 +20,7 @@ internal sealed partial class SqliteFleetHistoryStore
 {
   private const string SubsystemHealthTable = "profile_subsystem_health";
   private const string CapacityDeficitTable = "profile_capacity_deficits";
+  private const string RunnerAssignmentsTable = "profile_runner_assignments";
 
   private static readonly string[] ProfileScopedTables =
   [
@@ -28,6 +29,7 @@ internal sealed partial class SqliteFleetHistoryStore
       "profile_manager_events",
       SubsystemHealthTable,
       CapacityDeficitTable,
+      RunnerAssignmentsTable,
   ];
 
   private static readonly HistoryTable[] CountedTables =
@@ -37,6 +39,7 @@ internal sealed partial class SqliteFleetHistoryStore
       new("profile_manager_events", "observed_at", "epoch, sequence"),
       new(SubsystemHealthTable, "observed_at", "subsystem, observed_at"),
       new(CapacityDeficitTable, "observed_at", "target_key, observed_at"),
+      new(RunnerAssignmentsTable, "last_observed_at", "runner_name_hash"),
   ];
 
   private static async Task ApplyRetentionAsync(
@@ -156,6 +159,14 @@ internal sealed partial class SqliteFleetHistoryStore
         connection,
         transaction,
         null,
+        HistoryPartition.Database,
+        retention.MaximumDiagnosticsPerDatabase,
+        cancellationToken);
+    await BoundRowsAsync(
+        connection,
+        transaction,
+        null,
+        CountedTables[5],
         HistoryPartition.Database,
         retention.MaximumDiagnosticsPerDatabase,
         cancellationToken);
@@ -285,6 +296,13 @@ internal sealed partial class SqliteFleetHistoryStore
         CountedTables[4],
         receivedAt - retention.DiagnosticRetention,
         cancellationToken);
+    await DeleteOlderThanAsync(
+        connection,
+        transaction,
+        nodeId,
+        CountedTables[5],
+        receivedAt - retention.DiagnosticRetention,
+        cancellationToken);
 
     await BoundRowsAsync(
         connection,
@@ -315,6 +333,14 @@ internal sealed partial class SqliteFleetHistoryStore
         transaction,
         nodeId,
         CountedTables[4],
+        HistoryPartition.Profile,
+        retention.MaximumDiagnosticsPerProfile,
+        cancellationToken);
+    await BoundRowsAsync(
+        connection,
+        transaction,
+        nodeId,
+        CountedTables[5],
         HistoryPartition.Profile,
         retention.MaximumDiagnosticsPerProfile,
         cancellationToken);
@@ -354,6 +380,14 @@ internal sealed partial class SqliteFleetHistoryStore
         connection,
         transaction,
         nodeId,
+        HistoryPartition.Node,
+        retention.MaximumDiagnosticsPerNode,
+        cancellationToken);
+    await BoundRowsAsync(
+        connection,
+        transaction,
+        nodeId,
+        CountedTables[5],
         HistoryPartition.Node,
         retention.MaximumDiagnosticsPerNode,
         cancellationToken);
@@ -812,11 +846,13 @@ internal sealed partial class SqliteFleetHistoryStore
       var events = previous[2] - remaining[2];
       var health = previous[3] - remaining[3];
       var deficits = previous[4] - remaining[4];
+      var runnerAssignments = previous[5] - remaining[5];
       if (samples == 0 &&
           rollups == 0 &&
           events == 0 &&
           health == 0 &&
-          deficits == 0)
+          deficits == 0 &&
+          runnerAssignments == 0)
       {
         continue;
       }
@@ -832,7 +868,9 @@ internal sealed partial class SqliteFleetHistoryStore
               dropped_subsystem_health =
                   dropped_subsystem_health + $droppedHealth,
               dropped_capacity_deficits =
-                  dropped_capacity_deficits + $droppedDeficits
+                  dropped_capacity_deficits + $droppedDeficits,
+              dropped_runner_assignments =
+                  dropped_runner_assignments + $droppedRunnerAssignments
           WHERE node_id = $nodeId
             AND profile_id = $profileId;
           """;
@@ -843,6 +881,9 @@ internal sealed partial class SqliteFleetHistoryStore
       command.Parameters.AddWithValue("$droppedEvents", events);
       command.Parameters.AddWithValue("$droppedHealth", health);
       command.Parameters.AddWithValue("$droppedDeficits", deficits);
+      command.Parameters.AddWithValue(
+          "$droppedRunnerAssignments",
+          runnerAssignments);
       await command.ExecuteNonQueryAsync(cancellationToken);
     }
   }
@@ -1076,6 +1117,9 @@ internal sealed partial class SqliteFleetHistoryStore
                 WHERE node_id = $nodeId AND profile_id = $profileId),
             dropped_capacity_deficits = dropped_capacity_deficits + (
                 SELECT COUNT(*) FROM {CountedTables[4].Name}
+                WHERE node_id = $nodeId AND profile_id = $profileId),
+            dropped_runner_assignments = dropped_runner_assignments + (
+                SELECT COUNT(*) FROM {CountedTables[5].Name}
                 WHERE node_id = $nodeId AND profile_id = $profileId)
         WHERE node_id = $nodeId
           AND profile_id = $profileId;
@@ -1111,6 +1155,7 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_events,
             dropped_subsystem_health,
             dropped_capacity_deficits,
+            dropped_runner_assignments,
             rejected_future_samples,
             rejected_future_events)
         SELECT
@@ -1128,6 +1173,7 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_events,
             dropped_subsystem_health,
             dropped_capacity_deficits,
+            dropped_runner_assignments,
             rejected_future_samples,
             rejected_future_events
         FROM profile_history_cursors
@@ -1161,6 +1207,7 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_events = excluded.dropped_events,
             dropped_subsystem_health = excluded.dropped_subsystem_health,
             dropped_capacity_deficits = excluded.dropped_capacity_deficits,
+            dropped_runner_assignments = excluded.dropped_runner_assignments,
             rejected_future_samples = excluded.rejected_future_samples,
             rejected_future_events = excluded.rejected_future_events;
         """;
@@ -1464,7 +1511,9 @@ internal sealed partial class SqliteFleetHistoryStore
             dropped_rollups,
             dropped_events,
             dropped_subsystem_health,
-            dropped_capacity_deficits)
+            dropped_capacity_deficits,
+            dropped_hardware_revisions,
+            dropped_runner_assignments)
         SELECT
             s.scope,
             CASE WHEN s.scope = 'node' THEN t.node_id ELSE '' END,
@@ -1475,7 +1524,9 @@ internal sealed partial class SqliteFleetHistoryStore
             t.dropped_rollups,
             t.dropped_events,
             t.dropped_subsystem_health,
-            t.dropped_capacity_deficits
+            t.dropped_capacity_deficits,
+            0,
+            t.dropped_runner_assignments
         FROM profile_history_tombstones AS t
         CROSS JOIN scopes AS s
         WHERE t.node_id = $nodeId
@@ -1500,7 +1551,10 @@ internal sealed partial class SqliteFleetHistoryStore
                 + excluded.dropped_subsystem_health,
             dropped_capacity_deficits =
                 history_incompleteness_floors.dropped_capacity_deficits
-                + excluded.dropped_capacity_deficits;
+                + excluded.dropped_capacity_deficits,
+            dropped_runner_assignments =
+                history_incompleteness_floors.dropped_runner_assignments
+                + excluded.dropped_runner_assignments;
         """;
     command.Parameters.AddWithValue("$nodeId", key.NodeId);
     command.Parameters.AddWithValue("$profileId", key.ProfileId);

@@ -469,6 +469,7 @@ describe('FleetHistoryPanel', () => {
                 droppedSubsystemHealthChanges: 2,
                 droppedCapacityDeficits: 1,
                 droppedHardwareRevisions: 4,
+                droppedRunnerAssignments: 5,
               },
             ],
           }),
