@@ -3,7 +3,7 @@ import { useId } from 'react';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
 
 /** Measurement unit used to format one plotted series. */
-export type TimeSeriesUnit = 'count' | 'bytes' | 'cores' | 'pids';
+export type TimeSeriesUnit = 'count' | 'bytes' | 'cores' | 'pids' | 'percent' | 'load';
 
 /** One plotted point, where `null` means unavailable rather than a measured zero. */
 export interface TimeSeriesPoint {
@@ -19,6 +19,15 @@ export interface TimeSeriesDefinition {
   readonly points: readonly TimeSeriesPoint[];
 }
 
+/** One workload interval rendered behind measured series. */
+export interface TimeSeriesInterval {
+  readonly key: string;
+  readonly label: string;
+  readonly from: string;
+  readonly to: string;
+  readonly href?: string;
+}
+
 /** Heading element used for one chart title so the surrounding outline stays correct. */
 export type TimeSeriesHeadingLevel = 'h3' | 'h4';
 
@@ -30,6 +39,8 @@ interface TimeSeriesChartProps {
   readonly headingLevel: TimeSeriesHeadingLevel;
   readonly cadenceMilliseconds: number | null;
   readonly testId: string;
+  readonly intervals?: readonly TimeSeriesInterval[];
+  readonly showIntervalDetails?: boolean;
 }
 
 const strokes = [
@@ -58,6 +69,12 @@ function formatMeasurement(value: number | null, unit: TimeSeriesUnit): string {
   if (unit === 'bytes') return formatBytes(value);
   if (unit === 'cores') return formatCpuCores(value);
   if (unit === 'pids') return formatPidCount(value);
+  if (unit === 'percent') {
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)}%`;
+  }
+  if (unit === 'load') {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+  }
   return new Intl.NumberFormat(undefined).format(value);
 }
 
@@ -142,6 +159,8 @@ export function TimeSeriesChart({
   headingLevel,
   cadenceMilliseconds,
   testId,
+  intervals = [],
+  showIntervalDetails = false,
 }: TimeSeriesChartProps) {
   const tableId = useId();
   const Heading = headingLevel;
@@ -170,6 +189,26 @@ export function TimeSeriesChart({
             preserveAspectRatio="none"
             viewBox={`0 0 ${viewWidth} ${viewHeight}`}
           >
+            {intervals.map((interval) => {
+              const earliest = Date.parse(timestamps[0] ?? interval.from);
+              const latest = Date.parse(timestamps.at(-1) ?? interval.to);
+              const span = Math.max(1, latest - earliest);
+              const from = Math.max(earliest, Date.parse(interval.from));
+              const to = Math.min(latest, Date.parse(interval.to));
+              if (to < from) return null;
+              const x = ((from - earliest) / span) * viewWidth;
+              const width = Math.max(1, ((to - from) / span) * viewWidth);
+              return (
+                <rect
+                  className="fill-amber-300/25 dark:fill-amber-500/20"
+                  height={viewHeight}
+                  key={interval.key}
+                  width={width}
+                  x={x}
+                  y={0}
+                />
+              );
+            })}
             {series.map((entry, index) =>
               buildSegments(entry, timestamps, minimum, maximum, cadenceMilliseconds).map(
                 (segment, segmentIndex) => (
@@ -196,6 +235,30 @@ export function TimeSeriesChart({
               </li>
             ))}
           </ul>
+          {intervals.length > 0 && showIntervalDetails ? (
+            <ul
+              aria-label={`${title} workload intervals`}
+              className="grid gap-1 text-xs text-muted-foreground"
+            >
+              {intervals.map((interval) => (
+                <li key={interval.key}>
+                  {interval.href ? (
+                    <a
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                      href={interval.href}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {interval.label}
+                    </a>
+                  ) : (
+                    <span className="font-medium">{interval.label}</span>
+                  )}{' '}
+                  · {formatTime(interval.from)} – {formatTime(interval.to)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </>
       )}
       <details className="text-xs">

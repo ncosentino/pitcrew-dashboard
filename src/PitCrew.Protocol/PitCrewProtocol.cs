@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 7;
+  public const int Version = 8;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -36,6 +36,7 @@ public static class PitCrewProtocol
 /// <param name="ImageId">Immutable local Docker image identity (<c>sha256:</c> and 64 hexadecimal characters) when reported; otherwise <see langword="null"/>.</param>
 /// <param name="LastExit">Bounded manager contract 11 exit evidence when available; otherwise <see langword="null"/>, which never means a clean exit.</param>
 /// <param name="RunnerNameHash">Manager contract 14 lowercase SHA-256 correlation key for the exact runner name when available; otherwise <see langword="null"/>.</param>
+/// <param name="CurrentJob">Manager contract 15 bounded active job context when available; otherwise <see langword="null"/>.</param>
 public sealed record ObservedSlotState(
     string Key,
     string? Repository,
@@ -51,7 +52,8 @@ public sealed record ObservedSlotState(
     string? RegistrationStatus = null,
     string? ImageId = null,
     WorkerLastExitDiagnostic? LastExit = null,
-    string? RunnerNameHash = null);
+    string? RunnerNameHash = null,
+    CurrentJobContext? CurrentJob = null);
 
 /// <summary>
 /// Describes the demand-driven scale-set projection published by one profile manager.
@@ -287,6 +289,7 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(ScaleSetStatistics))]
 [JsonSerializable(typeof(AutoscalingTargetState))]
 [JsonSerializable(typeof(HostResourceCapacity))]
+[JsonSerializable(typeof(HostPressureTelemetry))]
 [JsonSerializable(typeof(ManagerResourceTelemetry))]
 [JsonSerializable(typeof(ManagerEvent))]
 [JsonSerializable(typeof(ManagerOperationJournal))]
@@ -297,6 +300,7 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(TargetCapacityDeficitEvidence))]
 [JsonSerializable(typeof(ManagerCapacityEvidence))]
 [JsonSerializable(typeof(ObservedSlotState))]
+[JsonSerializable(typeof(CurrentJobContext))]
 [JsonSerializable(typeof(ManagerAutoscalingState))]
 [JsonSerializable(typeof(ManagerObservedState))]
 [JsonSerializable(typeof(ConnectorEnrollmentRequest))]

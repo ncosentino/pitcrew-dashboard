@@ -81,6 +81,11 @@ internal static class AlertRuleEvaluator
         continue;
       }
 
+      EvaluateHostPressure(
+          candidates,
+          suppressions,
+          node,
+          options);
       foreach (var profile in node.Profiles)
       {
         EvaluateProfile(
@@ -648,6 +653,7 @@ internal static class AlertRuleEvaluator
           "resource-cpu-pressure",
           "cpu"));
     }
+
     else if (measurements.All(sample =>
         sample.CpuCores!.Value * 100 >=
             sample.HostLogicalProcessors!.Value *
@@ -732,6 +738,151 @@ internal static class AlertRuleEvaluator
           "resource-block-io-pressure",
           "block-io"));
     }
+  }
+
+  private static void EvaluateHostPressure(
+      ICollection<AlertCandidate> candidates,
+      ICollection<AlertSuppression> suppressions,
+      AlertNodeEvidence node,
+      FleetDashboardOptions options)
+  {
+    var required = options.AlertResourcePressureSamples;
+    var measurements = node.RecentHostPressureSamples
+        .OrderBy(sample => sample.ObservedAt)
+        .TakeLast(required)
+        .ToArray();
+    if (measurements.Length != required)
+    {
+      SuppressHostPressure(suppressions, node);
+      return;
+    }
+
+    var cpuEvaluable = measurements.All(sample =>
+        sample.CpuUtilizationPercent is not null ||
+        sample.CpuPressureSomeAvg10 is not null ||
+        sample.Load1 is not null &&
+        sample.LogicalProcessorCount is > 0);
+    if (!cpuEvaluable)
+    {
+      suppressions.Add(ExactNodeSuppression(
+          node,
+          "host-cpu-pressure",
+          "cpu"));
+    }
+    else if (measurements.All(sample =>
+        sample.CpuUtilizationPercent >= options.AlertCpuPressurePercent ||
+        sample.CpuPressureSomeAvg10 >= options.AlertPressureStallPercent ||
+        sample.Load1 * 100 >=
+            sample.LogicalProcessorCount * options.AlertCpuPressurePercent))
+    {
+      var peakCpu = measurements.Max(sample =>
+          sample.CpuUtilizationPercent);
+      var peakStall = measurements.Max(sample =>
+          sample.CpuPressureSomeAvg10);
+      candidates.Add(Create(
+          node,
+          null,
+          "host-cpu-pressure",
+          "warning",
+          "cpu",
+          measurements[0].ObservedAt,
+          TimeSpan.Zero,
+          $"{node.DisplayName} has sustained Docker-host CPU pressure",
+          $"The newest {required} host samples all exceed a CPU utilization, load, or PSI threshold.",
+          "sustained-host-cpu-pressure",
+          string.Create(
+              CultureInfo.InvariantCulture,
+              $"peakCpuPercent={peakCpu?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"};peakCpuPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}")));
+    }
+
+    var memoryEvaluable = measurements.All(sample =>
+        sample.MemoryTotalBytes is > 0 &&
+        sample.MemoryAvailableBytes is not null ||
+        sample.MemoryPressureSomeAvg10 is not null);
+    if (!memoryEvaluable)
+    {
+      suppressions.Add(ExactNodeSuppression(
+          node,
+          "host-memory-pressure",
+          "memory"));
+    }
+    else if (measurements.All(sample =>
+        sample.MemoryTotalBytes is > 0 &&
+        sample.MemoryAvailableBytes is not null &&
+        (sample.MemoryTotalBytes.Value -
+            sample.MemoryAvailableBytes.Value) /
+            (double)sample.MemoryTotalBytes.Value *
+            100 >= options.AlertMemoryPressurePercent ||
+        sample.MemoryPressureSomeAvg10 >=
+            options.AlertPressureStallPercent))
+    {
+      var minimumAvailable = measurements.Min(sample =>
+          sample.MemoryAvailableBytes);
+      var peakStall = measurements.Max(sample =>
+          sample.MemoryPressureSomeAvg10);
+      candidates.Add(Create(
+          node,
+          null,
+          "host-memory-pressure",
+          "critical",
+          "memory",
+          measurements[0].ObservedAt,
+          TimeSpan.Zero,
+          $"{node.DisplayName} has sustained Docker-host memory pressure",
+          $"The newest {required} host samples all exceed a memory-use or PSI threshold.",
+          "sustained-host-memory-pressure",
+          string.Create(
+              CultureInfo.InvariantCulture,
+              $"minimumAvailableBytes={minimumAvailable?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};peakMemoryPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}")));
+    }
+
+    var ioEvaluable = measurements.All(sample =>
+        sample.IoPressureSomeAvg10 is not null);
+    if (!ioEvaluable)
+    {
+      suppressions.Add(ExactNodeSuppression(
+          node,
+          "host-io-pressure",
+          "io"));
+    }
+    else if (measurements.All(sample =>
+        sample.IoPressureSomeAvg10 >= options.AlertPressureStallPercent))
+    {
+      var peakStall = measurements.Max(sample =>
+          sample.IoPressureSomeAvg10);
+      candidates.Add(Create(
+          node,
+          null,
+          "host-io-pressure",
+          "warning",
+          "io",
+          measurements[0].ObservedAt,
+          TimeSpan.Zero,
+          $"{node.DisplayName} has sustained Docker-host I/O pressure",
+          $"The newest {required} host samples are all at or above {options.AlertPressureStallPercent}% I/O PSI.",
+          "sustained-host-io-pressure",
+          string.Create(
+              CultureInfo.InvariantCulture,
+              $"peakIoPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}")));
+    }
+  }
+
+  private static void SuppressHostPressure(
+      ICollection<AlertSuppression> suppressions,
+      AlertNodeEvidence node)
+  {
+    suppressions.Add(ExactNodeSuppression(
+        node,
+        "host-cpu-pressure",
+        "cpu"));
+    suppressions.Add(ExactNodeSuppression(
+        node,
+        "host-memory-pressure",
+        "memory"));
+    suppressions.Add(ExactNodeSuppression(
+        node,
+        "host-io-pressure",
+        "io"));
   }
 
   private static bool EvaluateRate(
@@ -872,6 +1023,16 @@ internal static class AlertRuleEvaluator
           CreateKey(node, profileId, kind, subject),
           node.NodeId,
           profileId,
+          kind);
+
+  private static AlertSuppression ExactNodeSuppression(
+      AlertNodeEvidence node,
+      string kind,
+      string subject) =>
+      new(
+          CreateKey(node, null, kind, subject),
+          node.NodeId,
+          null,
           kind);
 
   private static void SuppressManagerDiagnoses(

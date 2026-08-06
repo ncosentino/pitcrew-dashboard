@@ -61,7 +61,7 @@ public sealed class AlertRuleEvaluatorTests
     await Assert.That(evaluation.Candidates).HasSingleItem();
     await Assert.That(evaluation.Candidates[0].Kind)
         .IsEqualTo("manager-stale");
-    await Assert.That(evaluation.Suppressions.Count).IsEqualTo(15);
+    await Assert.That(evaluation.Suppressions.Count).IsEqualTo(18);
     await Assert.That(evaluation.Suppressions.Count(
         suppression => suppression.ProfileId == "default"))
         .IsEqualTo(15);

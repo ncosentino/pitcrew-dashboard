@@ -13,6 +13,8 @@ import { StatusBadge } from '@/core/ui/StatusBadge';
 import { EntitySectionNavigation } from '../components/EntitySectionNavigation';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { HostHardwareCard } from '../components/HostHardwareSummary';
+import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
+import { NodePressureCommandCenter } from '../components/NodePressureCommandCenter';
 import { renameNode, requestCredentialRotation, revokeNode } from '../fleetApi';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
 
@@ -192,6 +194,11 @@ export function NodeDetailLayout() {
           Showing stale fleet data. {error}
         </div>
       ) : null}
+      <ActiveIncidentSummary
+        incidents={fleet.activeIncidents.filter((incident) => incident.nodeId === node.nodeId)}
+        tenantId={tenantId}
+        testId={`node-active-incidents-${node.nodeId}`}
+      />
       {status === 'offline' ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
           This node is offline. Profile observations may no longer reflect current capacity.
@@ -222,6 +229,7 @@ export function NodeDetailLayout() {
 /** Renders node identity and profile triage without detailed operational evidence. */
 export function NodeOverviewPage() {
   const { tenantId, node } = useNodeDetail();
+  const { fleet } = useFleet();
   const aggregate = aggregateNode(node);
   const sortedProfiles = [...node.profiles].sort((left, right) =>
     left.profileId < right.profileId ? -1 : left.profileId > right.profileId ? 1 : 0,
@@ -262,6 +270,13 @@ export function NodeOverviewPage() {
       </Card>
 
       <HostHardwareCard hardware={node.hardware ?? null} />
+
+      <NodePressureCommandCenter
+        activeIncidents={fleet?.activeIncidents ?? []}
+        generatedAt={fleet?.generatedAt ?? node.lastSeenAt ?? node.enrolledAt}
+        node={node}
+        tenantId={tenantId}
+      />
 
       <section className="grid gap-3">
         <div>
