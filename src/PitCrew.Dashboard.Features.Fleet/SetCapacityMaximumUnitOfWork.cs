@@ -15,6 +15,7 @@ internal interface ISetCapacityMaximumUnitOfWork
       Guid nodeId,
       string profileId,
       int maximum,
+      Guid? resumeCommandId,
       CancellationToken cancellationToken);
 }
 
@@ -30,6 +31,7 @@ internal sealed class SetCapacityMaximumUnitOfWork(
       Guid nodeId,
       string profileId,
       int maximum,
+      Guid? resumeCommandId,
       CancellationToken cancellationToken)
   {
     var user = _userAccessor.GetOrNull(principal);
@@ -51,6 +53,7 @@ internal sealed class SetCapacityMaximumUnitOfWork(
             requestedAt,
             requestedAt.AddMinutes(
                 _options.Value.CapacityCommandLifetimeMinutes),
-            cancellationToken);
+            cancellationToken,
+            resumeCommandId);
   }
 }

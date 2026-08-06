@@ -394,7 +394,7 @@ public sealed class FleetCarterModule : ICarterModule
       CancellationToken cancellationToken)
   {
     if (!SyncConnectorUnitOfWork.IsValidProfileId(profileId) ||
-        request.Maximum is < 1 or > 1_000_000)
+        request.Maximum is < 0 or > 1_000_000)
     {
       return Results.BadRequest(new
       {
@@ -402,7 +402,7 @@ public sealed class FleetCarterModule : ICarterModule
         {
           code = "invalid_capacity_request",
           message =
-              "Profile ID must be valid and maximum must be between 1 and 1000000.",
+              "Profile ID must be valid and maximum must be between 0 and 1000000.",
         },
       });
     }
@@ -413,6 +413,7 @@ public sealed class FleetCarterModule : ICarterModule
         nodeId,
         profileId,
         request.Maximum,
+        request.ResumeCommandId,
         cancellationToken);
     if (result is null)
     {
@@ -450,6 +451,15 @@ public sealed class FleetCarterModule : ICarterModule
           code = "capacity_command_active",
           message =
               "Another capacity command is already active for this profile.",
+        },
+      }),
+      CapacityCommandQueueStatus.StaleResume => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "capacity_resume_stale",
+          message =
+              "The recorded pause no longer matches the current profile generation. Set an explicit positive maximum instead.",
         },
       }),
       _ => Results.Problem(

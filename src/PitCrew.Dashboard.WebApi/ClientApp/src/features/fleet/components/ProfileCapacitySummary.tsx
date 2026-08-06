@@ -46,19 +46,36 @@ function CapacityDetail({ label, value, testId }: CapacityMetricProps) {
 interface CapacityMaximumControlProps {
   readonly control: CapacityControlState;
   readonly disabled: boolean;
-  readonly onSetMaximum: (maximum: number) => Promise<void>;
+  readonly onSetMaximum: (maximum: number, resumeCommandId?: string) => Promise<void>;
 }
 
 function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMaximumControlProps) {
-  const [draft, setDraft] = useState(String(control.currentMaximum));
+  const [draft, setDraft] = useState(
+    String(control.currentMaximum === 0 ? (control.resumeMaximum ?? 1) : control.currentMaximum),
+  );
   const parsed = Number(draft);
   const active =
     control.latestCommand?.status === 'pending' || control.latestCommand?.status === 'delivered';
+  const resume =
+    control.pauseCommandId !== null && control.resumeMaximum !== null
+      ? { commandId: control.pauseCommandId, maximum: control.resumeMaximum }
+      : null;
+  const operationStatus =
+    active && control.latestCommand?.requestedMaximum === 0
+      ? 'pausing'
+      : active && control.currentMaximum === 0 && control.latestCommand?.resumesCommandId !== null
+        ? 'resuming'
+        : active
+          ? control.latestCommand?.status
+          : control.currentMaximum === 0
+            ? 'paused'
+            : control.latestCommand?.status;
   const valid =
     Number.isInteger(parsed) &&
     parsed >= 1 &&
     parsed <= control.maximumAllowed &&
-    parsed !== control.currentMaximum;
+    parsed !== control.currentMaximum &&
+    !(control.currentMaximum === 0 && resume?.maximum === parsed);
 
   return (
     <div
@@ -72,11 +89,16 @@ function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMax
             Local ceiling {control.maximumAllowed} · generation {control.generation}
           </div>
         </div>
-        {control.latestCommand ? <StatusBadge status={control.latestCommand.status} /> : null}
+        {operationStatus ? <StatusBadge status={operationStatus} /> : null}
       </div>
+      {control.currentMaximum === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          New work is paused. Busy workers continue until their current jobs finish.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-xs font-medium" htmlFor={`capacity-maximum-${control.profileId}`}>
-          Absolute maximum
+          Explicit maximum
         </label>
         <input
           id={`capacity-maximum-${control.profileId}`}
@@ -99,10 +121,37 @@ function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMax
           }
           onConfirm={() => onSetMaximum(parsed)}
         />
+        {control.supportsZeroMaximum && control.currentMaximum > 0 ? (
+          <ConfirmActionDialog
+            title="Pause new work?"
+            description={`Set ${control.profileId} capacity to zero? Busy workers continue, but no replacement or new worker will be admitted.`}
+            confirmLabel="Pause new work"
+            trigger={
+              <Button type="button" size="sm" variant="destructive" disabled={disabled || active}>
+                Pause new work
+              </Button>
+            }
+            onConfirm={() => onSetMaximum(0)}
+          />
+        ) : null}
+        {control.currentMaximum === 0 && resume !== null ? (
+          <ConfirmActionDialog
+            title={`Resume to ${resume.maximum}?`}
+            description={`Restore ${control.profileId} to its recorded pre-pause maximum of ${resume.maximum}.`}
+            confirmLabel={`Resume to ${resume.maximum}`}
+            trigger={
+              <Button type="button" size="sm" disabled={disabled || active}>
+                Resume to {resume.maximum}
+              </Button>
+            }
+            onConfirm={() => onSetMaximum(resume.maximum, resume.commandId)}
+          />
+        ) : null}
       </div>
       {control.latestCommand ? (
         <div className="text-xs text-muted-foreground">
-          Requested {control.latestCommand.requestedMaximum} ·{' '}
+          Previous {control.latestCommand.previousMaximum ?? 'unavailable'} · requested{' '}
+          {control.latestCommand.requestedMaximum} ·{' '}
           {control.latestCommand.resultMessage ?? 'Awaiting connector result.'}
         </div>
       ) : null}
@@ -115,7 +164,7 @@ interface ProfileCapacitySummaryProps {
   readonly control: CapacityControlState | null;
   readonly canAdminister: boolean;
   readonly disabled: boolean;
-  readonly onSetMaximum: (maximum: number) => Promise<void>;
+  readonly onSetMaximum: (maximum: number, resumeCommandId?: string) => Promise<void>;
 }
 
 /** Renders fixed or autoscaled profile capacity and its authorized absolute control. */

@@ -19,7 +19,8 @@ internal sealed class SqliteCapacityCommandStore(
       string requestedByGitHubUserId,
       DateTimeOffset requestedAt,
       DateTimeOffset expiresAt,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      Guid? resumeCommandId = null)
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
@@ -68,12 +69,39 @@ internal sealed class SqliteCapacityCommandStore(
           CapacityCommandQueueStatus.Unsupported,
           null);
     }
-    if (maximum < 1 ||
+    if (maximum < 0 ||
+        (maximum == 0 && !profile.SupportsZeroMaximum) ||
         maximum > profile.MaximumAllowed ||
         maximum == profile.CurrentMaximum)
     {
       return new CapacityCommandQueueResult(
           CapacityCommandQueueStatus.InvalidMaximum,
+          null);
+    }
+
+    Guid? effectiveResumeCommandId = null;
+    if (profile.CurrentMaximum == 0 && maximum > 0)
+    {
+      effectiveResumeCommandId = await FindResumeCommandIdAsync(
+          connection,
+          transaction,
+          nodeId,
+          profile,
+          maximum,
+          resumeCommandId,
+          cancellationToken);
+      if (resumeCommandId is not null &&
+          effectiveResumeCommandId is null)
+      {
+        return new CapacityCommandQueueResult(
+            CapacityCommandQueueStatus.StaleResume,
+            null);
+      }
+    }
+    else if (resumeCommandId is not null)
+    {
+      return new CapacityCommandQueueResult(
+          CapacityCommandQueueStatus.StaleResume,
           null);
     }
 
@@ -103,7 +131,9 @@ internal sealed class SqliteCapacityCommandStore(
               node_id,
               profile_id,
               expected_generation,
+              previous_maximum,
               requested_maximum,
+              resumes_command_id,
               maximum_allowed_at_request,
               status,
               requested_by_github_user_id,
@@ -114,7 +144,9 @@ internal sealed class SqliteCapacityCommandStore(
               $nodeId,
               $profileId,
               $expectedGeneration,
+              $previousMaximum,
               $requestedMaximum,
+              $resumesCommandId,
               $maximumAllowed,
               'pending',
               $requestedBy,
@@ -129,7 +161,15 @@ internal sealed class SqliteCapacityCommandStore(
       insert.Parameters.AddWithValue(
           "$expectedGeneration",
           profile.Generation);
+      insert.Parameters.AddWithValue(
+          "$previousMaximum",
+          profile.CurrentMaximum);
       insert.Parameters.AddWithValue("$requestedMaximum", maximum);
+      insert.Parameters.AddWithValue(
+          "$resumesCommandId",
+          effectiveResumeCommandId is null
+              ? DBNull.Value
+              : effectiveResumeCommandId.Value.ToString("D"));
       insert.Parameters.AddWithValue(
           "$maximumAllowed",
           profile.MaximumAllowed);
@@ -319,6 +359,9 @@ internal sealed class SqliteCapacityCommandStore(
               StringComparison.Ordinal) &&
           profile is not null &&
           profile.Generation > pending.ExpectedGeneration &&
+          (pending.Maximum != 0 ||
+              (pending.ExpectedGeneration < int.MaxValue &&
+                  profile.Generation == pending.ExpectedGeneration + 1)) &&
           profile.CurrentMaximum == pending.Maximum;
       if (inferredSuccess)
       {
@@ -351,6 +394,9 @@ internal sealed class SqliteCapacityCommandStore(
           null => "Connector no longer advertises this profile.",
           _ when profile.Generation != pending.ExpectedGeneration =>
               "Profile generation changed before command delivery.",
+          _ when pending.Maximum == 0 &&
+              !profile.SupportsZeroMaximum =>
+              "Connector no longer advertises zero-capacity support.",
           _ when pending.Maximum > profile.MaximumAllowed =>
               "Connector capacity ceiling changed before command delivery.",
           _ => null,
@@ -448,6 +494,7 @@ internal sealed class SqliteCapacityCommandStore(
     }
 
     var commands = new Dictionary<(Guid NodeId, string ProfileId), CapacityCommandState>();
+    var pauses = new Dictionary<(Guid NodeId, string ProfileId), ResumablePause>();
     await using (var commandQuery = connection.CreateCommand())
     {
       commandQuery.CommandText =
@@ -456,12 +503,15 @@ internal sealed class SqliteCapacityCommandStore(
               c.node_id,
               c.profile_id,
               c.command_id,
+              c.previous_maximum,
               c.requested_maximum,
+              c.resumes_command_id,
               c.status,
               c.requested_at,
               c.delivered_at,
               c.completed_at,
-              c.result_message
+              c.result_message,
+              c.accepted_generation
           FROM capacity_commands AS c
           INNER JOIN nodes AS n ON n.node_id = c.node_id
           WHERE n.tenant_id = $tenantId
@@ -477,35 +527,61 @@ internal sealed class SqliteCapacityCommandStore(
             CultureInfo.InvariantCulture);
         var profileId = reader.GetString(1);
         var key = (nodeId, profileId);
-        if (commands.ContainsKey(key))
+        if (!commands.ContainsKey(key))
         {
-          continue;
+          commands[key] = new CapacityCommandState(
+              Guid.Parse(
+                  reader.GetString(2),
+                  CultureInfo.InvariantCulture),
+              await reader.IsDBNullAsync(3, cancellationToken)
+                  ? null
+                  : reader.GetInt32(3),
+              reader.GetInt32(4),
+              await reader.IsDBNullAsync(5, cancellationToken)
+                  ? null
+                  : Guid.Parse(
+                      reader.GetString(5),
+                      CultureInfo.InvariantCulture),
+              reader.GetString(6),
+              DateTimeOffset.Parse(
+                  reader.GetString(7),
+                  CultureInfo.InvariantCulture,
+                  DateTimeStyles.RoundtripKind),
+              await reader.IsDBNullAsync(8, cancellationToken)
+                  ? null
+                  : DateTimeOffset.Parse(
+                      reader.GetString(8),
+                      CultureInfo.InvariantCulture,
+                      DateTimeStyles.RoundtripKind),
+              await reader.IsDBNullAsync(9, cancellationToken)
+                  ? null
+                  : DateTimeOffset.Parse(
+                      reader.GetString(9),
+                      CultureInfo.InvariantCulture,
+                      DateTimeStyles.RoundtripKind),
+              await reader.IsDBNullAsync(10, cancellationToken)
+                  ? null
+                  : reader.GetString(10));
         }
-        commands[key] = new CapacityCommandState(
-            Guid.Parse(
-                reader.GetString(2),
-                CultureInfo.InvariantCulture),
-            reader.GetInt32(3),
-            reader.GetString(4),
-            DateTimeOffset.Parse(
-                reader.GetString(5),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind),
-            await reader.IsDBNullAsync(6, cancellationToken)
-                ? null
-                : DateTimeOffset.Parse(
-                    reader.GetString(6),
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind),
-            await reader.IsDBNullAsync(7, cancellationToken)
-                ? null
-                : DateTimeOffset.Parse(
-                    reader.GetString(7),
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.RoundtripKind),
-            await reader.IsDBNullAsync(8, cancellationToken)
-                ? null
-                : reader.GetString(8));
+        if (!pauses.ContainsKey(key) &&
+            reader.GetInt32(4) == 0 &&
+            string.Equals(
+                reader.GetString(6),
+                "succeeded",
+                StringComparison.Ordinal) &&
+            !await reader.IsDBNullAsync(11, cancellationToken))
+        {
+          if (await reader.IsDBNullAsync(3, cancellationToken))
+          {
+            continue;
+          }
+          pauses[key] = new ResumablePause(
+              Guid.Parse(
+                  reader.GetString(2),
+                  CultureInfo.InvariantCulture),
+              reader.GetInt32(3),
+              reader.GetInt32(11));
+        }
       }
     }
 
@@ -520,11 +596,26 @@ internal sealed class SqliteCapacityCommandStore(
                     profile.Generation,
                     profile.CurrentMaximum,
                     profile.MaximumAllowed,
+                    profile.SupportsZeroMaximum,
                     commands.TryGetValue(
                         (pair.Key, profile.ProfileId),
                         out var command)
                         ? command
-                        : null))
+                        : null,
+                    profile.CurrentMaximum == 0 &&
+                        pauses.TryGetValue(
+                            (pair.Key, profile.ProfileId),
+                            out var pause) &&
+                        pause.AcceptedGeneration == profile.Generation
+                            ? pause.CommandId
+                            : null,
+                    profile.CurrentMaximum == 0 &&
+                        pauses.TryGetValue(
+                            (pair.Key, profile.ProfileId),
+                            out pause) &&
+                        pause.AcceptedGeneration == profile.Generation
+                            ? pause.PreviousMaximum
+                            : null))
                 .ToArray()))
         .ToArray();
   }
@@ -536,4 +627,52 @@ internal sealed class SqliteCapacityCommandStore(
       int Maximum,
       DateTimeOffset ExpiresAt,
       string Status);
+
+  private sealed record ResumablePause(
+      Guid CommandId,
+      int PreviousMaximum,
+      int AcceptedGeneration);
+
+  private static async Task<Guid?> FindResumeCommandIdAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Guid nodeId,
+      CapacityOperatorProfile profile,
+      int maximum,
+      Guid? pauseCommandId,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT command_id
+        FROM capacity_commands
+        WHERE node_id = $nodeId
+          AND profile_id = $profileId
+          AND requested_maximum = 0
+          AND status = 'succeeded'
+          AND previous_maximum = $maximum
+          AND accepted_generation = $generation
+          AND ($commandId IS NULL OR command_id = $commandId)
+        ORDER BY requested_at DESC
+        LIMIT 1;
+        """;
+    command.Parameters.AddWithValue(
+        "$commandId",
+        pauseCommandId is null
+            ? DBNull.Value
+            : pauseCommandId.Value.ToString("D"));
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$profileId", profile.ProfileId);
+    command.Parameters.AddWithValue("$maximum", maximum);
+    command.Parameters.AddWithValue("$generation", profile.Generation);
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    return await reader.ReadAsync(cancellationToken)
+        ? Guid.Parse(
+            reader.GetString(0),
+            CultureInfo.InvariantCulture)
+        : null;
+  }
 }

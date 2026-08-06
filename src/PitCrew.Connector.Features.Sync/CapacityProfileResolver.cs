@@ -23,7 +23,8 @@ internal sealed record CapacityProfileDefinition(
     string RunnerGroup,
     bool Autoscale,
     int MinimumIdle,
-    int ScaleDownDelaySeconds);
+    int ScaleDownDelaySeconds,
+    bool SupportsZeroMaximum);
 
 internal sealed record CapacityProfileResolution(
     CapacityProfileDefinition? Profile,
@@ -62,7 +63,8 @@ internal sealed partial class CapacityProfileResolver(
           resolution.Profile.ProfileId,
           resolution.Profile.Generation,
           resolution.Profile.CurrentMaximum,
-          resolution.Profile.MaximumAllowed));
+          resolution.Profile.MaximumAllowed,
+          resolution.Profile.SupportsZeroMaximum));
     }
     return new CapacityOperatorCapability(profiles);
   }
@@ -213,11 +215,14 @@ internal sealed partial class CapacityProfileResolver(
     {
       currentMaximum = desired.GetProperty("replicas").GetInt32();
     }
-    if (currentMaximum < 1)
+    var supportsZeroMaximum =
+        configuration.GetProperty("managerContractVersion").GetInt32() >= 17;
+    if (currentMaximum < 0 ||
+        (currentMaximum == 0 && !supportsZeroMaximum))
     {
       return new CapacityProfileResolution(
           null,
-          "Configured capacity maximum must be positive.");
+          "Configured capacity maximum is unsupported by this manager contract.");
     }
 
     var labels = new List<string>();
@@ -261,7 +266,8 @@ internal sealed partial class CapacityProfileResolver(
             autoscale
                 ? autoscaling.GetProperty(
                     "scaleDownDelaySeconds").GetInt32()
-                : 120),
+                : 120,
+            supportsZeroMaximum),
         null);
   }
 

@@ -78,12 +78,13 @@ export async function setCapacityMaximum(
   profileId: string,
   maximum: number,
   antiforgeryToken: string,
+  resumeCommandId: string | null = null,
 ): Promise<SetCapacityMaximumResponse> {
   return await createClient().request(
     `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profileId)}/capacity-maximum`,
     {
       method: 'POST',
-      body: { maximum },
+      body: resumeCommandId === null ? { maximum } : { maximum, resumeCommandId },
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
       schema: setCapacityMaximumResponseSchema,
     },

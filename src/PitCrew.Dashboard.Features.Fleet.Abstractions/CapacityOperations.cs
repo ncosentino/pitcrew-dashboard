@@ -31,6 +31,11 @@ public enum CapacityCommandQueueStatus
   /// Another capacity command is already active for the profile.
   /// </summary>
   Conflict,
+
+  /// <summary>
+  /// The requested resume no longer matches the acknowledged pause fence.
+  /// </summary>
+  StaleResume,
 }
 
 /// <summary>
@@ -46,7 +51,9 @@ public sealed record CapacityCommandQueueResult(
 /// Describes the latest capacity command visible for one profile.
 /// </summary>
 /// <param name="CommandId">Dashboard-assigned command identifier.</param>
+/// <param name="PreviousMaximum">Capacity maximum observed when the command was queued.</param>
 /// <param name="RequestedMaximum">Requested absolute capacity maximum.</param>
+/// <param name="ResumesCommandId">Pause command resumed by this command, when applicable.</param>
 /// <param name="Status">Current lifecycle status.</param>
 /// <param name="RequestedAt">Dashboard time when the command was queued.</param>
 /// <param name="DeliveredAt">Dashboard time when the connector claimed the command.</param>
@@ -54,7 +61,9 @@ public sealed record CapacityCommandQueueResult(
 /// <param name="ResultMessage">Bounded operator-facing result detail.</param>
 public sealed record CapacityCommandState(
     Guid CommandId,
+    int? PreviousMaximum,
     int RequestedMaximum,
+    Guid? ResumesCommandId,
     string Status,
     DateTimeOffset RequestedAt,
     DateTimeOffset? DeliveredAt,
@@ -68,13 +77,19 @@ public sealed record CapacityCommandState(
 /// <param name="Generation">Current desired-capacity generation.</param>
 /// <param name="CurrentMaximum">Current configured maximum.</param>
 /// <param name="MaximumAllowed">Local policy ceiling.</param>
+/// <param name="SupportsZeroMaximum">Whether explicit zero-capacity pause is locally supported.</param>
 /// <param name="LatestCommand">Latest command for this profile, when present.</param>
+/// <param name="PauseCommandId">Acknowledged pause that may be resumed under the current generation fence.</param>
+/// <param name="ResumeMaximum">Recorded pre-pause maximum available for fenced resume.</param>
 public sealed record CapacityControlState(
     string ProfileId,
     int Generation,
     int CurrentMaximum,
     int MaximumAllowed,
-    CapacityCommandState? LatestCommand);
+    bool SupportsZeroMaximum,
+    CapacityCommandState? LatestCommand,
+    Guid? PauseCommandId,
+    int? ResumeMaximum);
 
 /// <summary>
 /// Groups capacity controls by enrolled node.
@@ -101,6 +116,7 @@ public interface ICapacityCommandStore
   /// <param name="requestedAt">Dashboard time when the command was requested.</param>
   /// <param name="expiresAt">Time after which delivery is rejected.</param>
   /// <param name="cancellationToken">Token that cancels queueing.</param>
+  /// <param name="resumeCommandId">Acknowledged pause command to resume, when applicable.</param>
   /// <returns>The queue result.</returns>
   Task<CapacityCommandQueueResult> QueueAsync(
       string tenantId,
@@ -110,7 +126,8 @@ public interface ICapacityCommandStore
       string requestedByGitHubUserId,
       DateTimeOffset requestedAt,
       DateTimeOffset expiresAt,
-      CancellationToken cancellationToken);
+      CancellationToken cancellationToken,
+      Guid? resumeCommandId = null);
 
   /// <summary>
   /// Applies connector capability and outcome state, then claims at most one command.

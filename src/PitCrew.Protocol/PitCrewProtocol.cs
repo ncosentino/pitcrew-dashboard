@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 8;
+  public const int Version = 9;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -189,11 +189,13 @@ public sealed record ConnectorEnrollmentResponse(
 /// <param name="Generation">Current desired-capacity generation.</param>
 /// <param name="CurrentMaximum">Current configured maximum.</param>
 /// <param name="MaximumAllowed">Local policy ceiling enforced by the connector.</param>
+/// <param name="SupportsZeroMaximum">Whether the local PitCrew profile supports explicit zero-capacity pause.</param>
 public sealed record CapacityOperatorProfile(
     [property: JsonRequired] string ProfileId,
     [property: JsonRequired] int Generation,
     [property: JsonRequired] int CurrentMaximum,
-    [property: JsonRequired] int MaximumAllowed);
+    [property: JsonRequired] int MaximumAllowed,
+    bool SupportsZeroMaximum = false);
 
 /// <summary>
 /// Advertises the locally enabled capacity-operation surface.

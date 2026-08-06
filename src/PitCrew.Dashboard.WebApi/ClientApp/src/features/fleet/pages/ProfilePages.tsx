@@ -479,11 +479,18 @@ export function ProfileCapacityPage() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const recoveryActive = isRecoveryCommandActive(recoveryControl?.latestCommand ?? null);
 
-  const queueCapacityMaximum = async (maximum: number) => {
+  const queueCapacityMaximum = async (maximum: number, resumeCommandId?: string) => {
     setIsMutating(true);
     setMutationError(null);
     try {
-      await setCapacityMaximum(tenantId, node.nodeId, profile.profileId, maximum, antiforgeryToken);
+      await setCapacityMaximum(
+        tenantId,
+        node.nodeId,
+        profile.profileId,
+        maximum,
+        antiforgeryToken,
+        resumeCommandId ?? null,
+      );
       await refreshNow();
     } catch (caught) {
       setMutationError(

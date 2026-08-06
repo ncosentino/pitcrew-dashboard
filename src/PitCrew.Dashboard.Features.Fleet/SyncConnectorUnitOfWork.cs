@@ -130,6 +130,15 @@ internal sealed partial class SyncConnectorUnitOfWork(
           "Capacity operation fields require connector protocol version 3.",
           null);
     }
+    if (input.ProtocolVersion < 9 &&
+        input.CapacityOperator?.Profiles.Any(profile =>
+            profile.SupportsZeroMaximum) == true)
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Zero-capacity support requires connector protocol version 9.",
+          null);
+    }
     if (!IsValidCapacityOperator(input.CapacityOperator) ||
         !IsValidCapacityOutcome(input.CapacityCommandOutcome))
     {
@@ -286,7 +295,9 @@ internal sealed partial class SyncConnectorUnitOfWork(
       if (!IsValidProfileId(profile.ProfileId) ||
           !profileIds.Add(profile.ProfileId) ||
           profile.Generation < 1 ||
-          profile.CurrentMaximum < 1 ||
+          profile.CurrentMaximum < 0 ||
+          (profile.CurrentMaximum == 0 &&
+              !profile.SupportsZeroMaximum) ||
           profile.MaximumAllowed > 1_000_000 ||
           profile.MaximumAllowed < profile.CurrentMaximum)
       {
