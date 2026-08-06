@@ -43,6 +43,12 @@ function load(value: number | null | undefined): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
 }
 
+function sortableTimestamp(value: string | null): number {
+  if (value === null) return Number.POSITIVE_INFINITY;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp;
+}
+
 function workloadRows(node: FleetNode): readonly WorkloadRow[] {
   return node.profiles
     .flatMap((profile) =>
@@ -76,7 +82,7 @@ function workloadRows(node: FleetNode): readonly WorkloadRow[] {
       (left, right) =>
         (right.cpuCores ?? -1) - (left.cpuCores ?? -1) ||
         (right.memoryBytes ?? -1) - (left.memoryBytes ?? -1) ||
-        Date.parse(left.startedAt ?? '') - Date.parse(right.startedAt ?? ''),
+        sortableTimestamp(left.startedAt) - sortableTimestamp(right.startedAt),
     );
 }
 
@@ -129,7 +135,12 @@ export function NodePressureCommandCenter({
         );
         setIncidentError(null);
       } catch (caught) {
-        if (caught instanceof DOMException && caught.name === 'AbortError') return;
+        if (
+          controller.signal.aborted ||
+          (caught instanceof Error && caught.name === 'AbortError')
+        ) {
+          return;
+        }
         setIncidentError(
           caught instanceof Error ? caught.message : 'Recent pressure incidents are unavailable.',
         );

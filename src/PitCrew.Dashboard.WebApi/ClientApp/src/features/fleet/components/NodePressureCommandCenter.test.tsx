@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FleetNode, OperationalIncident } from '@/core/fleet';
@@ -43,6 +43,65 @@ describe('NodePressureCommandCenter', () => {
     );
     expect(screen.getByText('Zephyr has sustained Docker-host CPU pressure')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel/iu })).not.toBeInTheDocument();
+  });
+
+  it('sorts attributed workloads before otherwise-equal rows without timestamps', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          generatedAt: '2026-08-06T04:29:00+00:00',
+          incidents: [],
+          truncated: false,
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const node = createNode();
+    const source = node.profiles[0].slots[0];
+    node.profiles[0].slots = [
+      {
+        ...source,
+        key: 'slot-without-time',
+        updatedAt: null,
+        currentJob: null,
+      },
+      {
+        ...source,
+        key: 'slot-with-time',
+      },
+    ];
+
+    render(
+      <NodePressureCommandCenter
+        activeIncidents={[]}
+        generatedAt="2026-08-06T04:20:00+00:00"
+        node={node}
+        tenantId="local"
+      />,
+    );
+
+    const rows = within(
+      screen.getByRole('region', { name: 'Active workers and jobs' }),
+    ).getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('Android debug build');
+    expect(rows[2]).toHaveTextContent('Unattributed busy worker');
+  });
+
+  it('ignores non-DOM abort errors from incident polling', async () => {
+    const abortError = Object.assign(new Error('request aborted'), { name: 'AbortError' });
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortError);
+
+    render(
+      <NodePressureCommandCenter
+        activeIncidents={[]}
+        generatedAt="2026-08-06T04:20:00+00:00"
+        node={createNode()}
+        tenantId="local"
+      />,
+    );
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(screen.queryByText('request aborted')).not.toBeInTheDocument();
   });
 });
 
