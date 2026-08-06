@@ -201,6 +201,8 @@ public sealed class ObservedStateReaderTests
   [Arguments("incomplete-manager")]
   [Arguments("incomplete-autoscaling")]
   [Arguments("invalid-scale-down-at")]
+  [Arguments("missing-current-job")]
+  [Arguments("missing-host-pressure")]
   public async Task ReadAsync_Rejects_Incomplete_Or_Invalid_Additive_Objects(
       string scenario,
       CancellationToken cancellationToken)
@@ -237,6 +239,17 @@ public sealed class ObservedStateReaderTests
           break;
         case "invalid-scale-down-at":
           payload["autoscaling"]!["scaleDownAt"] = "not-a-date";
+          break;
+        case "missing-current-job":
+          payload["managerContractVersion"] = 15;
+          payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
+          payload["slots"]![0]!.AsObject().Remove("currentJob");
+          break;
+        case "missing-host-pressure":
+          payload["managerContractVersion"] = 16;
+          payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
+          payload["slots"]![0]!["currentJob"] = null;
+          payload["resourceTelemetry"]!.AsObject().Remove("hostPressure");
           break;
         default:
           throw new ArgumentOutOfRangeException(

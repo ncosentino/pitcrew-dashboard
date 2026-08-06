@@ -56,6 +56,20 @@ internal sealed partial class SqliteFleetHistoryStore(
       manager_pids,
       host_logical_processors,
       host_memory_bytes,
+      host_pressure_status,
+      host_cpu_utilization_percent,
+      host_load1,
+      host_load5,
+      host_load15,
+      host_pressure_memory_total_bytes,
+      host_memory_available_bytes,
+      host_swap_used_bytes,
+      host_cpu_pressure_some_avg10,
+      host_cpu_pressure_full_avg10,
+      host_memory_pressure_some_avg10,
+      host_memory_pressure_full_avg10,
+      host_io_pressure_some_avg10,
+      host_io_pressure_full_avg10,
       worker_cpu_cores,
       worker_memory_bytes,
       worker_pids,
@@ -551,6 +565,20 @@ internal sealed partial class SqliteFleetHistoryStore(
             $managerPids,
             $hostLogicalProcessors,
             $hostMemoryBytes,
+            $hostPressureStatus,
+            $hostCpuUtilizationPercent,
+            $hostLoad1,
+            $hostLoad5,
+            $hostLoad15,
+            $hostPressureMemoryTotalBytes,
+            $hostMemoryAvailableBytes,
+            $hostSwapUsedBytes,
+            $hostCpuPressureSomeAvg10,
+            $hostCpuPressureFullAvg10,
+            $hostMemoryPressureSomeAvg10,
+            $hostMemoryPressureFullAvg10,
+            $hostIoPressureSomeAvg10,
+            $hostIoPressureFullAvg10,
             $workerCpuCores,
             $workerMemoryBytes,
             $workerPids,
@@ -629,6 +657,48 @@ internal sealed partial class SqliteFleetHistoryStore(
         command,
         "$hostMemoryBytes",
         profile.ResourceTelemetry?.Host?.MemoryBytes);
+    var pressure = profile.ResourceTelemetry?.HostPressure;
+    AddNullable(command, "$hostPressureStatus", pressure?.Status);
+    AddNullable(
+        command,
+        "$hostCpuUtilizationPercent",
+        pressure?.CpuUtilizationPercent);
+    AddNullable(command, "$hostLoad1", pressure?.Load1);
+    AddNullable(command, "$hostLoad5", pressure?.Load5);
+    AddNullable(command, "$hostLoad15", pressure?.Load15);
+    AddNullable(
+        command,
+        "$hostPressureMemoryTotalBytes",
+        pressure?.MemoryTotalBytes);
+    AddNullable(
+        command,
+        "$hostMemoryAvailableBytes",
+        pressure?.MemoryAvailableBytes);
+    AddNullable(command, "$hostSwapUsedBytes", pressure?.SwapUsedBytes);
+    AddNullable(
+        command,
+        "$hostCpuPressureSomeAvg10",
+        pressure?.CpuPressureSomeAvg10);
+    AddNullable(
+        command,
+        "$hostCpuPressureFullAvg10",
+        pressure?.CpuPressureFullAvg10);
+    AddNullable(
+        command,
+        "$hostMemoryPressureSomeAvg10",
+        pressure?.MemoryPressureSomeAvg10);
+    AddNullable(
+        command,
+        "$hostMemoryPressureFullAvg10",
+        pressure?.MemoryPressureFullAvg10);
+    AddNullable(
+        command,
+        "$hostIoPressureSomeAvg10",
+        pressure?.IoPressureSomeAvg10);
+    AddNullable(
+        command,
+        "$hostIoPressureFullAvg10",
+        pressure?.IoPressureFullAvg10);
     AddNullable(command, "$workerCpuCores", sample.WorkerCpuCores);
     AddNullable(command, "$workerMemoryBytes", sample.WorkerMemoryBytes);
     AddNullable(command, "$workerPids", sample.WorkerPids);
@@ -692,6 +762,17 @@ internal sealed partial class SqliteFleetHistoryStore(
               slot_key,
               repository,
               target,
+              job_repository,
+              workflow_run_id,
+              job_id,
+              job_display_name,
+              job_event_name,
+              job_queued_at,
+              job_scale_set_assigned_at,
+              job_runner_assigned_at,
+              job_started_at,
+              job_finished_at,
+              job_result,
               first_observed_at,
               last_observed_at)
           VALUES (
@@ -701,6 +782,17 @@ internal sealed partial class SqliteFleetHistoryStore(
               $slotKey,
               $repository,
               $target,
+              $jobRepository,
+              $workflowRunId,
+              $jobId,
+              $jobDisplayName,
+              $jobEventName,
+              $jobQueuedAt,
+              $jobScaleSetAssignedAt,
+              $jobRunnerAssignedAt,
+              $jobStartedAt,
+              $jobFinishedAt,
+              $jobResult,
               $observedAt,
               $observedAt)
           ON CONFLICT (
@@ -710,6 +802,39 @@ internal sealed partial class SqliteFleetHistoryStore(
               slot_key = excluded.slot_key,
               repository = excluded.repository,
               target = excluded.target,
+              job_repository = COALESCE(
+                  profile_runner_assignments.job_repository,
+                  excluded.job_repository),
+              workflow_run_id = COALESCE(
+                  profile_runner_assignments.workflow_run_id,
+                  excluded.workflow_run_id),
+              job_id = COALESCE(
+                  profile_runner_assignments.job_id,
+                  excluded.job_id),
+              job_display_name = COALESCE(
+                  excluded.job_display_name,
+                  profile_runner_assignments.job_display_name),
+              job_event_name = COALESCE(
+                  excluded.job_event_name,
+                  profile_runner_assignments.job_event_name),
+              job_queued_at = COALESCE(
+                  profile_runner_assignments.job_queued_at,
+                  excluded.job_queued_at),
+              job_scale_set_assigned_at = COALESCE(
+                  profile_runner_assignments.job_scale_set_assigned_at,
+                  excluded.job_scale_set_assigned_at),
+              job_runner_assigned_at = COALESCE(
+                  profile_runner_assignments.job_runner_assigned_at,
+                  excluded.job_runner_assigned_at),
+              job_started_at = COALESCE(
+                  profile_runner_assignments.job_started_at,
+                  excluded.job_started_at),
+              job_finished_at = COALESCE(
+                  excluded.job_finished_at,
+                  profile_runner_assignments.job_finished_at),
+              job_result = COALESCE(
+                  excluded.job_result,
+                  profile_runner_assignments.job_result),
               first_observed_at = MIN(
                   profile_runner_assignments.first_observed_at,
                   excluded.first_observed_at),
@@ -717,7 +842,17 @@ internal sealed partial class SqliteFleetHistoryStore(
                   profile_runner_assignments.last_observed_at,
                   excluded.last_observed_at)
           WHERE excluded.last_observed_at >=
-              profile_runner_assignments.last_observed_at;
+              profile_runner_assignments.last_observed_at
+            AND (
+              profile_runner_assignments.job_id IS NULL
+              OR excluded.job_id IS NULL
+              OR (
+                profile_runner_assignments.job_repository =
+                    excluded.job_repository
+                AND profile_runner_assignments.workflow_run_id =
+                    excluded.workflow_run_id
+                AND profile_runner_assignments.job_id =
+                    excluded.job_id));
           """;
       command.Parameters.AddWithValue(
           "$nodeId",
@@ -731,6 +866,24 @@ internal sealed partial class SqliteFleetHistoryStore(
       command.Parameters.AddWithValue("$slotKey", slot.Key);
       AddNullable(command, "$repository", slot.Repository);
       AddNullable(command, "$target", slot.Target);
+      var job = slot.CurrentJob;
+      AddNullable(command, "$jobRepository", job?.Repository);
+      AddNullable(command, "$workflowRunId", job?.WorkflowRunId);
+      AddNullable(command, "$jobId", job?.JobId);
+      AddNullable(command, "$jobDisplayName", job?.DisplayName);
+      AddNullable(command, "$jobEventName", job?.EventName);
+      AddNullable(command, "$jobQueuedAt", job?.QueuedAt);
+      AddNullable(
+          command,
+          "$jobScaleSetAssignedAt",
+          job?.ScaleSetAssignedAt);
+      AddNullable(
+          command,
+          "$jobRunnerAssignedAt",
+          job?.RunnerAssignedAt);
+      AddNullable(command, "$jobStartedAt", job?.StartedAt);
+      AddNullable(command, "$jobFinishedAt", job?.FinishedAt);
+      AddNullable(command, "$jobResult", job?.Result);
       command.Parameters.AddWithValue(
           "$observedAt",
           Utc(receivedAt));
@@ -778,7 +931,19 @@ internal sealed partial class SqliteFleetHistoryStore(
             max_target_slots,
             max_assigned_jobs,
             max_idle_runners,
-            max_busy_runners)
+            max_busy_runners,
+            max_host_cpu_utilization_percent,
+            max_host_load1,
+            max_host_load5,
+            max_host_load15,
+            min_host_memory_available_bytes,
+            max_host_swap_used_bytes,
+            max_host_cpu_pressure_some_avg10,
+            max_host_cpu_pressure_full_avg10,
+            max_host_memory_pressure_some_avg10,
+            max_host_memory_pressure_full_avg10,
+            max_host_io_pressure_some_avg10,
+            max_host_io_pressure_full_avg10)
         VALUES (
             $nodeId,
             $profileId,
@@ -806,7 +971,19 @@ internal sealed partial class SqliteFleetHistoryStore(
             $targetSlots,
             $assignedJobs,
             $idleRunners,
-            $busyRunners)
+            $busyRunners,
+            $hostCpuUtilizationPercent,
+            $hostLoad1,
+            $hostLoad5,
+            $hostLoad15,
+            $hostMemoryAvailableBytes,
+            $hostSwapUsedBytes,
+            $hostCpuPressureSomeAvg10,
+            $hostCpuPressureFullAvg10,
+            $hostMemoryPressureSomeAvg10,
+            $hostMemoryPressureFullAvg10,
+            $hostIoPressureSomeAvg10,
+            $hostIoPressureFullAvg10)
         ON CONFLICT (node_id, profile_id, bucket_start) DO UPDATE SET
             sample_count = sample_count + 1,
             max_desired_slots = MAX(max_desired_slots, excluded.max_desired_slots),
@@ -873,7 +1050,79 @@ internal sealed partial class SqliteFleetHistoryStore(
                 COALESCE(excluded.max_idle_runners, max_idle_runners)),
             max_busy_runners = MAX(
                 COALESCE(max_busy_runners, excluded.max_busy_runners),
-                COALESCE(excluded.max_busy_runners, max_busy_runners));
+                COALESCE(excluded.max_busy_runners, max_busy_runners)),
+            max_host_cpu_utilization_percent = MAX(
+                COALESCE(
+                    max_host_cpu_utilization_percent,
+                    excluded.max_host_cpu_utilization_percent),
+                COALESCE(
+                    excluded.max_host_cpu_utilization_percent,
+                    max_host_cpu_utilization_percent)),
+            max_host_load1 = MAX(
+                COALESCE(max_host_load1, excluded.max_host_load1),
+                COALESCE(excluded.max_host_load1, max_host_load1)),
+            max_host_load5 = MAX(
+                COALESCE(max_host_load5, excluded.max_host_load5),
+                COALESCE(excluded.max_host_load5, max_host_load5)),
+            max_host_load15 = MAX(
+                COALESCE(max_host_load15, excluded.max_host_load15),
+                COALESCE(excluded.max_host_load15, max_host_load15)),
+            min_host_memory_available_bytes = MIN(
+                COALESCE(
+                    min_host_memory_available_bytes,
+                    excluded.min_host_memory_available_bytes),
+                COALESCE(
+                    excluded.min_host_memory_available_bytes,
+                    min_host_memory_available_bytes)),
+            max_host_swap_used_bytes = MAX(
+                COALESCE(
+                    max_host_swap_used_bytes,
+                    excluded.max_host_swap_used_bytes),
+                COALESCE(
+                    excluded.max_host_swap_used_bytes,
+                    max_host_swap_used_bytes)),
+            max_host_cpu_pressure_some_avg10 = MAX(
+                COALESCE(
+                    max_host_cpu_pressure_some_avg10,
+                    excluded.max_host_cpu_pressure_some_avg10),
+                COALESCE(
+                    excluded.max_host_cpu_pressure_some_avg10,
+                    max_host_cpu_pressure_some_avg10)),
+            max_host_cpu_pressure_full_avg10 = MAX(
+                COALESCE(
+                    max_host_cpu_pressure_full_avg10,
+                    excluded.max_host_cpu_pressure_full_avg10),
+                COALESCE(
+                    excluded.max_host_cpu_pressure_full_avg10,
+                    max_host_cpu_pressure_full_avg10)),
+            max_host_memory_pressure_some_avg10 = MAX(
+                COALESCE(
+                    max_host_memory_pressure_some_avg10,
+                    excluded.max_host_memory_pressure_some_avg10),
+                COALESCE(
+                    excluded.max_host_memory_pressure_some_avg10,
+                    max_host_memory_pressure_some_avg10)),
+            max_host_memory_pressure_full_avg10 = MAX(
+                COALESCE(
+                    max_host_memory_pressure_full_avg10,
+                    excluded.max_host_memory_pressure_full_avg10),
+                COALESCE(
+                    excluded.max_host_memory_pressure_full_avg10,
+                    max_host_memory_pressure_full_avg10)),
+            max_host_io_pressure_some_avg10 = MAX(
+                COALESCE(
+                    max_host_io_pressure_some_avg10,
+                    excluded.max_host_io_pressure_some_avg10),
+                COALESCE(
+                    excluded.max_host_io_pressure_some_avg10,
+                    max_host_io_pressure_some_avg10)),
+            max_host_io_pressure_full_avg10 = MAX(
+                COALESCE(
+                    max_host_io_pressure_full_avg10,
+                    excluded.max_host_io_pressure_full_avg10),
+                COALESCE(
+                    excluded.max_host_io_pressure_full_avg10,
+                    max_host_io_pressure_full_avg10));
         """;
     command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
     command.Parameters.AddWithValue("$profileId", profile.ProfileId);
@@ -920,6 +1169,43 @@ internal sealed partial class SqliteFleetHistoryStore(
     AddNullable(command, "$assignedJobs", profile.Autoscaling?.AssignedJobs);
     AddNullable(command, "$idleRunners", profile.Autoscaling?.IdleRunners);
     AddNullable(command, "$busyRunners", profile.Autoscaling?.BusyRunners);
+    var pressure = profile.ResourceTelemetry?.HostPressure;
+    AddNullable(
+        command,
+        "$hostCpuUtilizationPercent",
+        pressure?.CpuUtilizationPercent);
+    AddNullable(command, "$hostLoad1", pressure?.Load1);
+    AddNullable(command, "$hostLoad5", pressure?.Load5);
+    AddNullable(command, "$hostLoad15", pressure?.Load15);
+    AddNullable(
+        command,
+        "$hostMemoryAvailableBytes",
+        pressure?.MemoryAvailableBytes);
+    AddNullable(command, "$hostSwapUsedBytes", pressure?.SwapUsedBytes);
+    AddNullable(
+        command,
+        "$hostCpuPressureSomeAvg10",
+        pressure?.CpuPressureSomeAvg10);
+    AddNullable(
+        command,
+        "$hostCpuPressureFullAvg10",
+        pressure?.CpuPressureFullAvg10);
+    AddNullable(
+        command,
+        "$hostMemoryPressureSomeAvg10",
+        pressure?.MemoryPressureSomeAvg10);
+    AddNullable(
+        command,
+        "$hostMemoryPressureFullAvg10",
+        pressure?.MemoryPressureFullAvg10);
+    AddNullable(
+        command,
+        "$hostIoPressureSomeAvg10",
+        pressure?.IoPressureSomeAvg10);
+    AddNullable(
+        command,
+        "$hostIoPressureFullAvg10",
+        pressure?.IoPressureFullAvg10);
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 

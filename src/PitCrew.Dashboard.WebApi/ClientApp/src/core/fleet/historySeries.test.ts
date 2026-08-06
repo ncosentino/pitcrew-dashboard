@@ -44,6 +44,20 @@ function sample(overrides: Partial<ProfileTelemetrySample> = {}): ProfileTelemet
     managerPids: 12,
     hostLogicalProcessorCount: 8,
     hostMemoryBytes: 17_179_869_184,
+    hostPressureStatus: null,
+    hostCpuUtilizationPercent: null,
+    hostLoad1: null,
+    hostLoad5: null,
+    hostLoad15: null,
+    hostPressureMemoryTotalBytes: null,
+    hostMemoryAvailableBytes: null,
+    hostSwapUsedBytes: null,
+    hostCpuPressureSomeAvg10: null,
+    hostCpuPressureFullAvg10: null,
+    hostMemoryPressureSomeAvg10: null,
+    hostMemoryPressureFullAvg10: null,
+    hostIoPressureSomeAvg10: null,
+    hostIoPressureFullAvg10: null,
     workerCpuCores: 1.5,
     workerMemoryBytes: 2_147_483_648,
     workerPids: 64,
@@ -95,6 +109,18 @@ function rollup(overrides: Partial<ProfileTelemetryRollup> = {}): ProfileTelemet
     maximumAssignedJobs: 1,
     maximumIdleRunners: 1,
     maximumBusyRunners: 1,
+    maximumHostCpuUtilizationPercent: null,
+    maximumHostLoad1: null,
+    maximumHostLoad5: null,
+    maximumHostLoad15: null,
+    minimumHostMemoryAvailableBytes: null,
+    maximumHostSwapUsedBytes: null,
+    maximumHostCpuPressureSomeAvg10: null,
+    maximumHostCpuPressureFullAvg10: null,
+    maximumHostMemoryPressureSomeAvg10: null,
+    maximumHostMemoryPressureFullAvg10: null,
+    maximumHostIoPressureSomeAvg10: null,
+    maximumHostIoPressureFullAvg10: null,
     ...overrides,
   };
 }
@@ -243,11 +269,15 @@ describe('buildHistorySeries', () => {
     const groups = buildHistorySeries(history(), 'hourly');
     const network = groups.find((group) => group.key === 'network');
     const capacity = groups.find((group) => group.key === 'capacity');
+    const hostMemory = groups.find((group) => group.key === 'host-memory');
 
     expect(capacity?.series.find((series) => series.key === 'desired-slots')?.label).toBe(
       'Peak desired slots',
     );
     expect(network?.description).toContain('not per-hour usage');
+    expect(hostMemory?.series.find((series) => series.key === 'host-memory-available')?.label).toBe(
+      'Minimum available memory',
+    );
   });
 
   it('projects every hourly series the server persists rather than dropping them to unavailable', () => {
@@ -270,7 +300,11 @@ describe('buildHistorySeries', () => {
       'capacity',
       'counts',
       'cpu',
+      'host-cpu',
+      'host-load',
       'memory',
+      'host-memory',
+      'host-stalls',
       'pids',
       'network',
       'block-io',

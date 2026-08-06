@@ -28,6 +28,17 @@ validated node-level projection is the authoritative current API surface.
 The fleet overview can compare up to four selected nodes. The comparison uses
 reported values only and does not rank processors or estimate performance.
 
+## Docker-host pressure
+
+Connector protocol 8 also carries manager contract 16 pressure for the Docker
+execution domain. Node views and history show CPU utilization and load,
+available memory and swap, and optional CPU, memory, and I/O PSI averages.
+
+On native Linux the source is the Docker host kernel. On Docker Desktop or WSL
+it is the Linux VM that runs containers, not a complete measurement of every
+physical-host process. First samples and counter resets are partial; unsupported
+PSI remains unavailable without hiding otherwise complete core pressure.
+
 ## History
 
 SQLite stores one node revision per contiguous inventory episode. Identical

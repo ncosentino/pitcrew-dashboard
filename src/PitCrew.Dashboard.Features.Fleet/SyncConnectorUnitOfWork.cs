@@ -434,7 +434,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
         !IsValidWorkerUpdate(profile) ||
         !IsValidHostHardware(profile) ||
         !IsValidAutoscaling(profile) ||
-        !IsValidResourceTelemetry(profile.ResourceTelemetry) ||
+        !IsValidResourceTelemetry(profile) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
         profile.DrainingSlots != profile.Slots.Count(slot =>
             string.Equals(
@@ -492,6 +492,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
           !IsValidResourceUsage(slot.Resources) ||
           !IsValidImageId(slot.ImageId) ||
           !IsValidLastExit(slot.LastExit) ||
+          !IsValidCurrentJob(profile, slot) ||
           slot.RunnerNameHash is not null &&
           (!Regex.IsMatch(
               slot.RunnerNameHash,
@@ -539,9 +540,13 @@ internal sealed partial class SyncConnectorUnitOfWork(
   internal static bool IsValidProtocolProfileContracts(
       int protocolVersion,
       IReadOnlyList<ManagerObservedState> profiles) =>
-      protocolVersion >= 7 ||
       profiles.All(profile =>
-          profile.ManagerContractVersion < 14);
+          profile.ManagerContractVersion switch
+          {
+            >= 15 => protocolVersion >= 8,
+            >= 14 => protocolVersion >= 7,
+            _ => true,
+          });
 
   private static bool IsValidHostHardware(
       ManagerObservedState profile)
@@ -875,15 +880,164 @@ internal sealed partial class SyncConnectorUnitOfWork(
       statistics.RunningJobs <= statistics.AssignedJobs;
 
   private static bool IsValidResourceTelemetry(
-      ManagerResourceTelemetry? telemetry) =>
-      telemetry is null ||
-      telemetry.SampledAt != default &&
-      telemetry.Status is (
-          "available" or
-          "partial" or
-          "unavailable") &&
-      IsValidHostCapacity(telemetry.Host) &&
-      IsValidResourceUsage(telemetry.Manager);
+      ManagerObservedState profile)
+  {
+    var telemetry = profile.ResourceTelemetry;
+    if (telemetry is null)
+    {
+      return profile.ManagerContractVersion < 16;
+    }
+
+    if (telemetry.SampledAt == default ||
+        telemetry.SampledAt > profile.ObservedAt ||
+        telemetry.Status is not (
+            "available" or
+            "partial" or
+            "unavailable") ||
+        !IsValidHostCapacity(telemetry.Host) ||
+        !IsValidResourceUsage(telemetry.Manager))
+    {
+      return false;
+    }
+
+    return profile.ManagerContractVersion switch
+    {
+      < 16 => telemetry.HostPressure is null,
+      _ => IsValidHostPressure(telemetry.HostPressure),
+    };
+  }
+
+  private static bool IsValidCurrentJob(
+      ManagerObservedState profile,
+      ObservedSlotState slot)
+  {
+    var job = slot.CurrentJob;
+    if (profile.ManagerContractVersion < 15)
+    {
+      return job is null;
+    }
+    if (job is null)
+    {
+      return true;
+    }
+    if (!slot.ProcessRunning ||
+        slot.RunnerNameHash is null ||
+        slot.Activity is not ("busy" or "draining") ||
+        !GitHubRepositoryPattern().IsMatch(job.Repository) ||
+        job.WorkflowRunId <= 0 ||
+        !JobIdPattern().IsMatch(job.JobId) ||
+        !IsBoundedText(job.DisplayName, 256) ||
+        !IsBoundedText(job.EventName, 64) ||
+        !IsBoundedText(job.Result, 64) ||
+        job.Result is not null && job.FinishedAt is null ||
+        job.StartedAt == default ||
+        job.StartedAt > profile.ObservedAt ||
+        job.FinishedAt is { } finishedAt &&
+        (finishedAt < job.StartedAt ||
+         finishedAt > profile.ObservedAt))
+    {
+      return false;
+    }
+
+    DateTimeOffset? previous = null;
+    foreach (var timestamp in new[]
+    {
+        job.QueuedAt,
+        job.ScaleSetAssignedAt,
+        job.RunnerAssignedAt,
+        (DateTimeOffset?)job.StartedAt,
+        job.FinishedAt,
+    })
+    {
+      if (timestamp is null)
+      {
+        continue;
+      }
+      if (previous is not null && timestamp < previous)
+      {
+        return false;
+      }
+      previous = timestamp;
+    }
+    return true;
+  }
+
+  private static bool IsValidHostPressure(
+      HostPressureTelemetry? pressure)
+  {
+    if (pressure is null ||
+        pressure.Source is not "docker-host" ||
+        pressure.Status is not (
+            "available" or
+            "partial" or
+            "unavailable") ||
+        !IsPercentageOrNull(pressure.CpuUtilizationPercent) ||
+        !IsNonnegativeFiniteOrNull(pressure.Load1) ||
+        !IsNonnegativeFiniteOrNull(pressure.Load5) ||
+        !IsNonnegativeFiniteOrNull(pressure.Load15) ||
+        pressure.MemoryTotalBytes is < 1 ||
+        pressure.MemoryAvailableBytes is < 0 ||
+        pressure.SwapUsedBytes is < 0 ||
+        pressure.MemoryTotalBytes is not null &&
+        pressure.MemoryAvailableBytes > pressure.MemoryTotalBytes ||
+        !IsPercentageOrNull(pressure.CpuPressureSomeAvg10) ||
+        !IsPercentageOrNull(pressure.CpuPressureFullAvg10) ||
+        !IsPercentageOrNull(pressure.MemoryPressureSomeAvg10) ||
+        !IsPercentageOrNull(pressure.MemoryPressureFullAvg10) ||
+        !IsPercentageOrNull(pressure.IoPressureSomeAvg10) ||
+        !IsPercentageOrNull(pressure.IoPressureFullAvg10))
+    {
+      return false;
+    }
+
+    var measurements = new object?[]
+    {
+        pressure.CpuUtilizationPercent,
+        pressure.Load1,
+        pressure.Load5,
+        pressure.Load15,
+        pressure.MemoryTotalBytes,
+        pressure.MemoryAvailableBytes,
+        pressure.SwapUsedBytes,
+        pressure.CpuPressureSomeAvg10,
+        pressure.CpuPressureFullAvg10,
+        pressure.MemoryPressureSomeAvg10,
+        pressure.MemoryPressureFullAvg10,
+        pressure.IoPressureSomeAvg10,
+        pressure.IoPressureFullAvg10,
+    };
+    var coreAvailable =
+        pressure.CpuUtilizationPercent is not null &&
+        pressure.Load1 is not null &&
+        pressure.Load5 is not null &&
+        pressure.Load15 is not null &&
+        pressure.MemoryTotalBytes is not null &&
+        pressure.MemoryAvailableBytes is not null &&
+        pressure.SwapUsedBytes is not null;
+    return pressure.Status switch
+    {
+      "available" => coreAvailable,
+      "partial" => !coreAvailable &&
+          measurements.Any(measurement => measurement is not null),
+      "unavailable" => measurements.All(measurement => measurement is null),
+      _ => false,
+    };
+  }
+
+  private static bool IsBoundedText(string? value, int maximumLength) =>
+      value is null ||
+      value.Length is >= 1 &&
+      value.Length <= maximumLength &&
+      !value.Any(char.IsControl);
+
+  private static bool IsNonnegativeFiniteOrNull(double? value) =>
+      value is null ||
+      double.IsFinite(value.Value) &&
+      value.Value >= 0;
+
+  private static bool IsPercentageOrNull(double? value) =>
+      IsNonnegativeFiniteOrNull(value) &&
+      value is not > 100;
 
   private static bool IsValidHostCapacity(
       HostResourceCapacity? host) =>
@@ -1036,4 +1190,16 @@ internal sealed partial class SyncConnectorUnitOfWork(
       RegexOptions.CultureInvariant,
       matchTimeoutMilliseconds: 100)]
   private static partial Regex WorkerCpuCoresPattern();
+
+  [GeneratedRegex(
+      @"^https://github\.com/[A-Za-z0-9._-]{1,39}/[A-Za-z0-9._-]{1,100}$",
+      RegexOptions.CultureInvariant,
+      matchTimeoutMilliseconds: 100)]
+  private static partial Regex GitHubRepositoryPattern();
+
+  [GeneratedRegex(
+      @"^[1-9][0-9]{0,31}$",
+      RegexOptions.CultureInvariant,
+      matchTimeoutMilliseconds: 100)]
+  private static partial Regex JobIdPattern();
 }

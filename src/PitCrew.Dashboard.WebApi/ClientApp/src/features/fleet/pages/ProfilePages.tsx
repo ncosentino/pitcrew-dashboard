@@ -27,6 +27,7 @@ import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { EntitySectionNavigation } from '../components/EntitySectionNavigation';
+import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { ProfileCapacityEvidence } from '../components/ProfileCapacityEvidence';
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
@@ -227,6 +228,15 @@ export function ProfileDetailLayout() {
           Showing stale fleet data. {error}
         </div>
       ) : null}
+      <ActiveIncidentSummary
+        incidents={fleet.activeIncidents.filter(
+          (incident) =>
+            incident.nodeId === node.nodeId &&
+            (incident.profileId == null || incident.profileId === profile.profileId),
+        )}
+        tenantId={tenantId}
+        testId={`profile-active-incidents-${profile.profileId}`}
+      />
       {profile.managerStatus === 'stale' || profile.managerStatus === 'stopped' ? (
         <div
           className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
@@ -378,7 +388,7 @@ export function ProfileOverviewPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
-            <dl className="grid grid-cols-3 gap-4 rounded-md border bg-muted/20 px-3 py-3 text-sm">
+            <dl className="grid grid-cols-2 gap-4 rounded-md border bg-muted/20 px-3 py-3 text-sm sm:grid-cols-5">
               <div>
                 <dt className="text-xs text-muted-foreground uppercase">Workers</dt>
                 <dd className="mt-1 font-semibold tabular-nums">{profile.slots.length}</dd>
@@ -388,10 +398,49 @@ export function ProfileOverviewPage() {
                 <dd className="mt-1 font-semibold tabular-nums">{busyWorkers}</dd>
               </div>
               <div>
+                <dt className="text-xs text-muted-foreground uppercase">Running jobs</dt>
+                <dd className="mt-1 font-semibold tabular-nums">
+                  {profile.autoscaling?.runningJobs ?? 'Unknown'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">Queued</dt>
+                <dd className="mt-1 font-semibold tabular-nums">
+                  {profile.autoscaling?.availableJobs ?? 'Unknown'}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-xs text-muted-foreground uppercase">Draining</dt>
                 <dd className="mt-1 font-semibold tabular-nums">{profile.drainingSlots}</dd>
               </div>
             </dl>
+            {profile.slots.some((slot) => slot.currentJob != null) ? (
+              <ul
+                className="grid gap-2 text-sm"
+                data-testid={`profile-current-jobs-${profile.profileId}`}
+              >
+                {profile.slots.flatMap((slot) =>
+                  slot.currentJob
+                    ? [
+                        <li className="rounded border px-3 py-2" key={slot.currentJob.jobId}>
+                          <a
+                            className="font-semibold text-primary underline-offset-4 hover:underline"
+                            href={`${slot.currentJob.repository}/actions/runs/${slot.currentJob.workflowRunId}/job/${slot.currentJob.jobId}`}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {slot.currentJob.displayName ?? `GitHub job ${slot.currentJob.jobId}`}
+                          </a>
+                          <div className="text-xs text-muted-foreground">
+                            Started {formatTime(slot.currentJob.startedAt)} · open in GitHub to
+                            inspect or cancel
+                          </div>
+                        </li>,
+                      ]
+                    : [],
+                )}
+              </ul>
+            ) : null}
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-medium">Manager recovery</div>

@@ -42,4 +42,10 @@ public sealed record FleetNode(
 /// <param name="Nodes">Enrolled nodes and their latest profiles.</param>
 public sealed record FleetResponse(
     DateTimeOffset GeneratedAt,
-    IReadOnlyList<FleetNode> Nodes);
+    IReadOnlyList<FleetNode> Nodes)
+{
+  /// <summary>
+  /// Gets active warning and critical incidents visible to this tenant.
+  /// </summary>
+  public IReadOnlyList<AlertIncident> ActiveIncidents { get; init; } = [];
+}

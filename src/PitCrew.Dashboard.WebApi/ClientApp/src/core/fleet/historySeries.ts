@@ -6,7 +6,7 @@ import type {
 } from './historyApi';
 
 /** Measurement unit used to format one history series. */
-export type HistorySeriesUnit = 'count' | 'bytes' | 'cores' | 'pids';
+export type HistorySeriesUnit = 'count' | 'bytes' | 'cores' | 'pids' | 'percent' | 'load';
 
 /** One point of one history series, where `null` means unavailable rather than zero. */
 export interface HistoryPoint {
@@ -60,6 +60,8 @@ interface SeriesDefinition {
   readonly description: string;
   readonly fromSample: SampleSelector;
   readonly fromRollup: RollupSelector;
+  readonly hourlyLabel?: string;
+  readonly hourlyDescription?: string;
 }
 
 interface GroupDefinition {
@@ -69,6 +71,7 @@ interface GroupDefinition {
   readonly hourlyNote: string;
   readonly unit: HistorySeriesUnit;
   readonly series: readonly SeriesDefinition[];
+  readonly hourlyLabel?: string;
 }
 
 const peakNote =
@@ -187,6 +190,66 @@ const groupDefinitions: readonly GroupDefinition[] = [
     ],
   },
   {
+    key: 'host-cpu',
+    label: 'Docker-host CPU pressure',
+    description: 'Docker-host or VM CPU utilization and ten-second CPU pressure-stall averages.',
+    hourlyNote: peakNote,
+    unit: 'percent',
+    series: [
+      {
+        key: 'host-cpu-utilization',
+        label: 'CPU utilization',
+        description: 'Docker-host CPU utilization derived from monotonic aggregate counters.',
+        fromSample: (sample) => sample.hostCpuUtilizationPercent,
+        fromRollup: (rollup) => rollup.maximumHostCpuUtilizationPercent,
+      },
+      {
+        key: 'host-cpu-psi-some',
+        label: 'CPU PSI some',
+        description: 'Percentage of time at least one task was stalled for CPU.',
+        fromSample: (sample) => sample.hostCpuPressureSomeAvg10,
+        fromRollup: (rollup) => rollup.maximumHostCpuPressureSomeAvg10,
+      },
+      {
+        key: 'host-cpu-psi-full',
+        label: 'CPU PSI full',
+        description: 'Percentage of time all non-idle tasks were stalled for CPU.',
+        fromSample: (sample) => sample.hostCpuPressureFullAvg10,
+        fromRollup: (rollup) => rollup.maximumHostCpuPressureFullAvg10,
+      },
+    ],
+  },
+  {
+    key: 'host-load',
+    label: 'Docker-host load',
+    description: 'One-, five-, and fifteen-minute Docker-host or VM load averages.',
+    hourlyNote: peakNote,
+    unit: 'load',
+    series: [
+      {
+        key: 'host-load-1',
+        label: 'Load 1m',
+        description: 'One-minute load average.',
+        fromSample: (sample) => sample.hostLoad1,
+        fromRollup: (rollup) => rollup.maximumHostLoad1,
+      },
+      {
+        key: 'host-load-5',
+        label: 'Load 5m',
+        description: 'Five-minute load average.',
+        fromSample: (sample) => sample.hostLoad5,
+        fromRollup: (rollup) => rollup.maximumHostLoad5,
+      },
+      {
+        key: 'host-load-15',
+        label: 'Load 15m',
+        description: 'Fifteen-minute load average.',
+        fromSample: (sample) => sample.hostLoad15,
+        fromRollup: (rollup) => rollup.maximumHostLoad15,
+      },
+    ],
+  },
+  {
     key: 'memory',
     label: 'Memory',
     description: 'Manager and summed worker working-set memory sampled by the manager.',
@@ -207,6 +270,71 @@ const groupDefinitions: readonly GroupDefinition[] = [
           'Working set summed across reporting workers. Unavailable when no worker reported usage.',
         fromSample: (sample) => sample.workerMemoryBytes,
         fromRollup: (rollup) => rollup.maximumWorkerMemoryBytes,
+      },
+    ],
+  },
+  {
+    key: 'host-memory',
+    label: 'Docker-host memory headroom',
+    description: 'Available Docker-host memory and swap currently in use.',
+    hourlyNote:
+      'Hourly available-memory points are the minimum measured in the hour; swap points are peaks.',
+    hourlyLabel: 'Docker-host memory headroom extremes',
+    unit: 'bytes',
+    series: [
+      {
+        key: 'host-memory-available',
+        label: 'Available memory',
+        description: 'Memory immediately available to the Docker host or VM.',
+        fromSample: (sample) => sample.hostMemoryAvailableBytes,
+        fromRollup: (rollup) => rollup.minimumHostMemoryAvailableBytes,
+        hourlyLabel: 'Minimum available memory',
+        hourlyDescription:
+          'Lowest Docker-host or VM available-memory measurement in the whole UTC hour.',
+      },
+      {
+        key: 'host-swap-used',
+        label: 'Swap used',
+        description: 'Docker-host or VM swap currently in use.',
+        fromSample: (sample) => sample.hostSwapUsedBytes,
+        fromRollup: (rollup) => rollup.maximumHostSwapUsedBytes,
+      },
+    ],
+  },
+  {
+    key: 'host-stalls',
+    label: 'Docker-host memory and I/O pressure',
+    description: 'Ten-second memory and I/O pressure-stall averages.',
+    hourlyNote: peakNote,
+    unit: 'percent',
+    series: [
+      {
+        key: 'host-memory-psi-some',
+        label: 'Memory PSI some',
+        description: 'Percentage of time at least one task was stalled for memory.',
+        fromSample: (sample) => sample.hostMemoryPressureSomeAvg10,
+        fromRollup: (rollup) => rollup.maximumHostMemoryPressureSomeAvg10,
+      },
+      {
+        key: 'host-memory-psi-full',
+        label: 'Memory PSI full',
+        description: 'Percentage of time all non-idle tasks were stalled for memory.',
+        fromSample: (sample) => sample.hostMemoryPressureFullAvg10,
+        fromRollup: (rollup) => rollup.maximumHostMemoryPressureFullAvg10,
+      },
+      {
+        key: 'host-io-psi-some',
+        label: 'I/O PSI some',
+        description: 'Percentage of time at least one task was stalled for I/O.',
+        fromSample: (sample) => sample.hostIoPressureSomeAvg10,
+        fromRollup: (rollup) => rollup.maximumHostIoPressureSomeAvg10,
+      },
+      {
+        key: 'host-io-psi-full',
+        label: 'I/O PSI full',
+        description: 'Percentage of time all non-idle tasks were stalled for I/O.',
+        fromSample: (sample) => sample.hostIoPressureFullAvg10,
+        fromRollup: (rollup) => rollup.maximumHostIoPressureFullAvg10,
       },
     ],
   },
@@ -345,13 +473,15 @@ export function buildHistorySeries(
   const isHourly = resolution === 'hourly';
   return groupDefinitions.map((group) => ({
     key: group.key,
-    label: isHourly ? `${group.label} peaks` : group.label,
+    label: isHourly ? (group.hourlyLabel ?? `${group.label} peaks`) : group.label,
     description: isHourly ? `${group.description} ${group.hourlyNote}` : group.description,
     unit: group.unit,
     series: group.series.map((series) => ({
       key: series.key,
-      label: isHourly ? `Peak ${lowerFirst(series.label)}` : series.label,
-      description: isHourly ? `${series.description} ${group.hourlyNote}` : series.description,
+      label: isHourly ? (series.hourlyLabel ?? `Peak ${lowerFirst(series.label)}`) : series.label,
+      description: isHourly
+        ? (series.hourlyDescription ?? `${series.description} ${group.hourlyNote}`)
+        : series.description,
       unit: group.unit,
       points: isHourly
         ? history.rollups.map((rollup) => ({

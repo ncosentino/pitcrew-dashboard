@@ -68,7 +68,25 @@ public sealed record AlertNodeEvidence(
     DateTimeOffset EnrolledAt,
     DateTimeOffset? LastSeenAt,
     bool IsRevoked,
-    IReadOnlyList<AlertProfileEvidence> Profiles);
+    IReadOnlyList<AlertProfileEvidence> Profiles)
+{
+  public IReadOnlyList<AlertHostPressureSample> RecentHostPressureSamples { get; init; } = [];
+}
+
+/// <summary>
+/// Carries one deduplicated Docker-host pressure sample for node-scoped alert evaluation.
+/// </summary>
+public sealed record AlertHostPressureSample(
+    DateTimeOffset ObservedAt,
+    string Status,
+    int? LogicalProcessorCount,
+    double? CpuUtilizationPercent,
+    double? Load1,
+    long? MemoryTotalBytes,
+    long? MemoryAvailableBytes,
+    double? CpuPressureSomeAvg10,
+    double? MemoryPressureSomeAvg10,
+    double? IoPressureSomeAvg10);
 
 /// <summary>
 /// Carries current and bounded recent evidence for one profile.

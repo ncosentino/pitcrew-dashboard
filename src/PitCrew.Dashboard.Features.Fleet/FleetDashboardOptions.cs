@@ -71,6 +71,12 @@ public sealed class FleetDashboardOptions
   public int AlertMemoryPressurePercent { get; set; } = 90;
 
   /// <summary>
+  /// Gets or sets the PSI percentage that constitutes sustained CPU, memory, or I/O pressure.
+  /// </summary>
+  [Range(1, 100)]
+  public int AlertPressureStallPercent { get; set; } = 20;
+
+  /// <summary>
   /// Gets or sets the sustained aggregate worker-network rate threshold, or zero to disable that diagnosis.
   /// </summary>
   public long AlertNetworkBytesPerSecond { get; set; }

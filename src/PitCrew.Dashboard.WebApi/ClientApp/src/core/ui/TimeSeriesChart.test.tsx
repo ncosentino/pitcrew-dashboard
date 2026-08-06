@@ -242,4 +242,80 @@ describe('TimeSeriesChart', () => {
 
     expect(container.querySelectorAll('polyline')).toHaveLength(1);
   });
+
+  it('overlays workload intervals and exposes their exact GitHub links', () => {
+    const { container } = render(
+      <TimeSeriesChart
+        cadenceMilliseconds={15_000}
+        description="Worker CPU."
+        headingLevel="h3"
+        intervals={[
+          {
+            key: 'job-1',
+            label: 'Android debug build',
+            from: '2026-08-06T03:42:03+00:00',
+            to: '2026-08-06T04:25:29+00:00',
+            href: 'https://github.com/ncosentino/genesis/actions/runs/31068390178/job/92513140749',
+          },
+        ]}
+        series={[
+          {
+            key: 'worker-cpu',
+            label: 'Worker CPU',
+            description: 'Worker CPU.',
+            points: [
+              { at: '2026-08-06T03:42:03+00:00', value: 1 },
+              { at: '2026-08-06T04:25:29+00:00', value: 8 },
+            ],
+          },
+        ]}
+        showIntervalDetails
+        testId="workload-overlay"
+        title="CPU"
+        unit="cores"
+      />,
+    );
+
+    expect(container.querySelector('rect')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Android debug build' })).toHaveAttribute(
+      'href',
+      'https://github.com/ncosentino/genesis/actions/runs/31068390178/job/92513140749',
+    );
+  });
+
+  it('clips long-running workload intervals without stretching the telemetry axis', () => {
+    const { container } = render(
+      <TimeSeriesChart
+        cadenceMilliseconds={null}
+        description="Worker CPU."
+        headingLevel="h3"
+        intervals={[
+          {
+            key: 'job-1',
+            label: 'Long-running job',
+            from: '2026-08-06T09:00:00+00:00',
+            to: '2026-08-06T10:02:00+00:00',
+          },
+        ]}
+        series={[
+          {
+            key: 'worker-cpu',
+            label: 'Worker CPU',
+            description: 'Worker CPU.',
+            points: [
+              { at: '2026-08-06T10:00:00+00:00', value: 1 },
+              { at: '2026-08-06T10:05:00+00:00', value: 2 },
+            ],
+          },
+        ]}
+        testId="clipped-workload-overlay"
+        title="CPU"
+        unit="cores"
+      />,
+    );
+
+    expect(container.querySelector('polyline')?.getAttribute('points')).toBe(
+      '0.00,60.00 600.00,0.00',
+    );
+  });
 });

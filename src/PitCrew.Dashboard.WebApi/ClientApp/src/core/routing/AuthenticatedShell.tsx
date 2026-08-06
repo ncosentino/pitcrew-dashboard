@@ -20,7 +20,7 @@ import {
 } from '@/core/auth';
 import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
-import { FleetProvider } from '@/core/fleet';
+import { FleetProvider, getActiveIncidents } from '@/core/fleet';
 import { ThemeToggle } from '@/core/theme/ThemeToggle';
 
 import { Breadcrumbs } from './Breadcrumbs';
@@ -114,9 +114,19 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   const navigate = useNavigate();
   const mainContent = useRef<HTMLElement>(null);
   const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false);
+  const [incidentState, setIncidentState] = useState<{
+    readonly tenantId: string;
+    readonly count: number;
+  } | null>(null);
   const selectedTenant =
     session?.tenants.find((tenant) => tenant.tenantId === tenantId) ??
     (tenantId === undefined ? (session?.tenants[0] ?? null) : null);
+  const activeIncidentCount =
+    incidentState != null &&
+    selectedTenant != null &&
+    incidentState.tenantId === selectedTenant.tenantId
+      ? incidentState.count
+      : 0;
   const navigation = useMemo(() => {
     if (!session) return [];
 
@@ -137,8 +147,12 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
         activePaths: (item.activePathPatterns ?? [item.path]).map((path) =>
           path.replace(':tenantId', selectedTenant?.tenantId ?? ''),
         ),
+        badge:
+          activeIncidentCount > 0 && item.path.endsWith('/incidents')
+            ? new Intl.NumberFormat(undefined).format(activeIncidentCount)
+            : undefined,
       }));
-  }, [features, selectedTenant, session]);
+  }, [activeIncidentCount, features, selectedTenant, session]);
   const routePresentation = useMemo(
     () => matchRoutePresentation(features, pathname),
     [features, pathname],
@@ -150,6 +164,38 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   useEffect(() => {
     mainContent.current?.focus({ preventScroll: true });
   }, [pathname]);
+
+  useEffect(() => {
+    if (!selectedTenant) {
+      return;
+    }
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const incidents = await getActiveIncidents(selectedTenant.tenantId, controller.signal);
+        if (!controller.signal.aborted) {
+          setIncidentState({
+            tenantId: selectedTenant.tenantId,
+            count: incidents.length,
+          });
+        }
+      } catch (caught) {
+        if (caught instanceof Error && caught.name === 'AbortError') return;
+        if (!controller.signal.aborted) {
+          setIncidentState({
+            tenantId: selectedTenant.tenantId,
+            count: 0,
+          });
+        }
+      }
+    };
+    void load();
+    const timer = globalThis.setInterval(() => void load(), 30_000);
+    return () => {
+      controller.abort();
+      globalThis.clearInterval(timer);
+    };
+  }, [selectedTenant]);
 
   if (!session) return null;
 
