@@ -91,6 +91,66 @@ const hostResourceCapacitySchema = z.object({
   memoryBytes: z.number().int().positive(),
 });
 
+const hostPressureSchema = z
+  .object({
+    status: z.enum(['available', 'partial', 'unavailable']),
+    source: z.literal('docker-host'),
+    cpuUtilizationPercent: z.number().min(0).max(100).nullable(),
+    load1: z.number().nonnegative().nullable(),
+    load5: z.number().nonnegative().nullable(),
+    load15: z.number().nonnegative().nullable(),
+    memoryTotalBytes: z.number().int().positive().nullable(),
+    memoryAvailableBytes: z.number().int().nonnegative().nullable(),
+    swapUsedBytes: z.number().int().nonnegative().nullable(),
+    cpuPressureSomeAvg10: z.number().min(0).max(100).nullable(),
+    cpuPressureFullAvg10: z.number().min(0).max(100).nullable(),
+    memoryPressureSomeAvg10: z.number().min(0).max(100).nullable(),
+    memoryPressureFullAvg10: z.number().min(0).max(100).nullable(),
+    ioPressureSomeAvg10: z.number().min(0).max(100).nullable(),
+    ioPressureFullAvg10: z.number().min(0).max(100).nullable(),
+  })
+  .superRefine((pressure, context) => {
+    if (
+      pressure.memoryTotalBytes != null &&
+      pressure.memoryAvailableBytes != null &&
+      pressure.memoryAvailableBytes > pressure.memoryTotalBytes
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Available memory cannot exceed total Docker-host memory.',
+        path: ['memoryAvailableBytes'],
+      });
+    }
+    const measurements = [
+      pressure.cpuUtilizationPercent,
+      pressure.load1,
+      pressure.load5,
+      pressure.load15,
+      pressure.memoryTotalBytes,
+      pressure.memoryAvailableBytes,
+      pressure.swapUsedBytes,
+      pressure.cpuPressureSomeAvg10,
+      pressure.cpuPressureFullAvg10,
+      pressure.memoryPressureSomeAvg10,
+      pressure.memoryPressureFullAvg10,
+      pressure.ioPressureSomeAvg10,
+      pressure.ioPressureFullAvg10,
+    ];
+    const coreAvailable = measurements.slice(0, 7).every((value) => value != null);
+    if (
+      (pressure.status === 'available' && !coreAvailable) ||
+      (pressure.status === 'partial' &&
+        (coreAvailable || !measurements.some((value) => value != null))) ||
+      (pressure.status === 'unavailable' && measurements.some((value) => value != null))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Docker-host pressure status conflicts with measured fields.',
+        path: ['status'],
+      });
+    }
+  });
+
 const hardwareArchitectureSchema = z
   .string()
   .min(1)
@@ -133,6 +193,7 @@ const managerResourceTelemetrySchema = z.object({
   status: z.enum(['available', 'partial', 'unavailable']),
   host: hostResourceCapacitySchema.nullable(),
   manager: resourceUsageSchema.nullable(),
+  hostPressure: hostPressureSchema.nullable().optional(),
 });
 
 const managerAutoscalingStateSchema = z.object({
@@ -174,6 +235,22 @@ const registrationStatusSchema = z.enum([
   'unknown',
 ]);
 
+export const currentJobSchema = z.object({
+  repository: z
+    .string()
+    .regex(/^https:\/\/github\.com\/[A-Za-z0-9._-]{1,39}\/[A-Za-z0-9._-]{1,100}$/u),
+  workflowRunId: z.number().int().positive(),
+  jobId: z.string().regex(/^[1-9][0-9]{0,31}$/u),
+  displayName: z.string().min(1).max(256).nullable(),
+  eventName: z.string().min(1).max(64).nullable(),
+  queuedAt: offsetDateTimeSchema.nullable(),
+  scaleSetAssignedAt: offsetDateTimeSchema.nullable(),
+  runnerAssignedAt: offsetDateTimeSchema.nullable(),
+  startedAt: offsetDateTimeSchema,
+  finishedAt: offsetDateTimeSchema.nullable(),
+  result: z.string().min(1).max(64).nullable(),
+});
+
 const observedSlotSchema = z.object({
   key: z.string(),
   repository: z.string().nullable(),
@@ -198,6 +275,7 @@ const observedSlotSchema = z.object({
     .regex(/^[0-9a-f]{64}$/u)
     .nullable()
     .default(null),
+  currentJob: currentJobSchema.nullable().optional(),
 });
 
 const managerEventSubsystemSchema = z.enum([
@@ -456,6 +534,72 @@ const managerObservedStateSchema = z
         code: 'custom',
         message: 'Runner-name hashes require manager contract 14.',
         path: ['slots'],
+      });
+    }
+    profile.slots.forEach((slot, index) => {
+      if (profile.managerContractVersion >= 15 && slot.currentJob === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Manager contract 15 requires explicit current-job availability.',
+          path: ['slots', index, 'currentJob'],
+        });
+      }
+      if (profile.managerContractVersion < 15 && slot.currentJob != null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Current-job context requires manager contract 15.',
+          path: ['slots', index, 'currentJob'],
+        });
+      }
+      if (
+        slot.currentJob != null &&
+        (!slot.processRunning ||
+          slot.runnerNameHash == null ||
+          (slot.activity !== 'busy' && slot.activity !== 'draining') ||
+          (slot.currentJob.result != null && slot.currentJob.finishedAt == null))
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Current-job context requires one live busy or draining correlated slot.',
+          path: ['slots', index, 'currentJob'],
+        });
+      }
+      const timestamps = slot.currentJob
+        ? [
+            slot.currentJob.queuedAt,
+            slot.currentJob.scaleSetAssignedAt,
+            slot.currentJob.runnerAssignedAt,
+            slot.currentJob.startedAt,
+            slot.currentJob.finishedAt,
+          ].filter((value): value is string => value != null)
+        : [];
+      if (
+        timestamps.some(
+          (value, timestampIndex) =>
+            timestampIndex > 0 && Date.parse(value) < Date.parse(timestamps[timestampIndex - 1]),
+        ) ||
+        timestamps.some((value) => Date.parse(value) > Date.parse(profile.observedAt))
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Current-job lifecycle timestamps must be ordered within the observation.',
+          path: ['slots', index, 'currentJob'],
+        });
+      }
+    });
+    const hostPressure = profile.resourceTelemetry?.hostPressure;
+    if (profile.managerContractVersion >= 16 && hostPressure == null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Manager contract 16 requires Docker-host pressure.',
+        path: ['resourceTelemetry', 'hostPressure'],
+      });
+    }
+    if (profile.managerContractVersion < 16 && hostPressure != null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Docker-host pressure requires manager contract 16.',
+        path: ['resourceTelemetry', 'hostPressure'],
       });
     }
 
@@ -754,9 +898,33 @@ const fleetNodeSchema = z.object({
   hardware: hostHardwareInventorySchema.nullable().optional(),
 });
 
+export const operationalIncidentSchema = z.object({
+  incidentId: z.string().uuid(),
+  nodeId: z.string().uuid(),
+  profileId: z.string().min(1).max(128).nullable(),
+  kind: z.string().min(1).max(64),
+  severity: z.enum(['warning', 'critical']),
+  status: z.enum(['triggered', 'acknowledged', 'resolved']),
+  title: z.string().min(1).max(160),
+  summary: z.string().min(1).max(512),
+  reason: z.string().min(1).max(128),
+  evidence: z.string().max(512).nullable(),
+  link: z.string().min(1).max(2048),
+  firstObservedAt: offsetDateTimeSchema,
+  triggeredAt: offsetDateTimeSchema,
+  lastObservedAt: offsetDateTimeSchema,
+  acknowledgedAt: offsetDateTimeSchema.nullable(),
+  acknowledgedByGitHubUserId: z.string().min(1).nullable(),
+  resolvedAt: offsetDateTimeSchema.nullable(),
+});
+
 const fleetResponseSchema = z.object({
   generatedAt: offsetDateTimeSchema,
   nodes: z.array(fleetNodeSchema),
+  activeIncidents: z.array(operationalIncidentSchema).default([]),
+});
+const activeIncidentPageSchema = z.object({
+  incidents: z.array(operationalIncidentSchema),
 });
 
 /** Credential-free lifecycle state for one manager slot. */
@@ -801,6 +969,8 @@ export type RecoveryCommandStatus = z.infer<typeof recoveryCommandStatusSchema>;
 export type RecoveryControlState = z.infer<typeof recoveryControlStateSchema>;
 /** One enrolled server and its latest profile projections. */
 export type FleetNode = z.infer<typeof fleetNodeSchema>;
+/** One durable operational incident. */
+export type OperationalIncident = z.infer<typeof operationalIncidentSchema>;
 /** Current tenant fleet response. */
 export type FleetResponse = z.infer<typeof fleetResponseSchema>;
 
@@ -818,4 +988,20 @@ export async function getFleet(tenantId: string, signal: AbortSignal): Promise<F
       signal,
     },
   );
+}
+
+/** Loads active incidents for shell-level severity navigation. */
+export async function getActiveIncidents(
+  tenantId: string,
+  signal: AbortSignal,
+): Promise<ReadonlyArray<OperationalIncident>> {
+  const page = await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/incidents?status=active`,
+    {
+      method: 'GET',
+      schema: activeIncidentPageSchema,
+      signal,
+    },
+  );
+  return page.incidents;
 }

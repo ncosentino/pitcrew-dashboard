@@ -9,6 +9,117 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 public sealed class SqliteRunnerAssignmentTests
 {
   [Test]
+  public async Task Retains_Job_Lifecycle_And_Host_Pressure_With_Assignment(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-workload-history-{Guid.NewGuid():N}.db");
+    try
+    {
+      var connectionFactory = await CreateDatabaseAsync(
+          databasePath,
+          cancellationToken);
+      var historyStore = new SqliteFleetHistoryStore(connectionFactory);
+      var nodeId = Guid.NewGuid();
+      var baseline = new DateTimeOffset(
+          2026,
+          8,
+          6,
+          3,
+          42,
+          3,
+          TimeSpan.Zero);
+      await InsertNodeAsync(connectionFactory, nodeId, cancellationToken);
+      var runnerHash = "a" + new string('0', 63);
+      var job = new CurrentJobContext(
+          "https://github.com/ncosentino/genesis",
+          31068390178,
+          "92513140749",
+          "Android debug build",
+          "push",
+          baseline.AddMinutes(-2),
+          baseline.AddMinutes(-1),
+          baseline.AddSeconds(-30),
+          baseline,
+          null,
+          null);
+      var baseProfile = CreateProfile(
+          "default",
+          baseline,
+          ("slot-1", runnerHash));
+      var profile = baseProfile with
+      {
+        ManagerContractVersion = 16,
+        Slots =
+        [
+            baseProfile.Slots[0] with
+            {
+              CurrentJob = job,
+            },
+        ],
+        ResourceTelemetry = Telemetry(baseline),
+      };
+      await AppendAsync(
+          historyStore,
+          connectionFactory,
+          nodeId,
+          profile,
+          baseline,
+          cancellationToken);
+      var completedAt = baseline.AddMinutes(20);
+      await AppendAsync(
+          historyStore,
+          connectionFactory,
+          nodeId,
+          profile with
+          {
+            ObservedAt = completedAt,
+            Slots =
+            [
+                profile.Slots[0] with
+                {
+                  CurrentJob = job with
+                  {
+                    FinishedAt = completedAt,
+                    Result = "Cancelled",
+                  },
+                },
+            ],
+            ResourceTelemetry = Telemetry(completedAt),
+          },
+          completedAt,
+          cancellationToken);
+
+      var history = await historyStore.GetNodeHistoryAsync(
+          "tenant",
+          nodeId,
+          Window(baseline.AddMinutes(-1), completedAt.AddMinutes(1)),
+          completedAt,
+          cancellationToken);
+
+      await Assert.That(history).IsNotNull();
+      await Assert.That(history!.RunnerAssignments).HasSingleItem();
+      await Assert.That(history.RunnerAssignments[0].Job).IsNotNull();
+      await Assert.That(history.RunnerAssignments[0].Job!.Result)
+          .IsEqualTo("Cancelled");
+      await Assert.That(history.Profiles).HasSingleItem();
+      await Assert.That(history.Profiles[0].Samples).Count().IsEqualTo(2);
+      await Assert.That(
+          history.Profiles[0].Samples[1].HostCpuUtilizationPercent)
+          .IsEqualTo(97.5);
+      await Assert.That(
+          history.Profiles[0].Samples[1].HostIoPressureSomeAvg10)
+          .IsEqualTo(42);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Rejected_Observation_Does_Not_Rewrite_Current_Correlation(
       CancellationToken cancellationToken)
   {
@@ -489,6 +600,30 @@ public sealed class SqliteRunnerAssignmentTests
         null,
         slots.Length);
   }
+
+  private static ManagerResourceTelemetry Telemetry(
+      DateTimeOffset sampledAt) =>
+      new(
+          sampledAt,
+          "unavailable",
+          null,
+          null,
+          new HostPressureTelemetry(
+              "available",
+              "docker-host",
+              97.5,
+              18,
+              12,
+              8,
+              34359738368,
+              2147483648,
+              1073741824,
+              35,
+              5,
+              25,
+              3,
+              42,
+              18));
 
   private static HistoryRetentionPolicy Retention(
       int maximumDiagnostics,

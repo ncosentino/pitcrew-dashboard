@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useFleet, type FleetNode } from '@/core/fleet';
+import { useFleet, type FleetNode, type OperationalIncident } from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import {
   type NodeStatusFilter,
 } from './nodeSummary';
 import { HardwareComparison } from './components/HostHardwareSummary';
+import { ActiveIncidentSummary } from './components/ActiveIncidentSummary';
 
 type FleetDensity = 'comfortable' | 'compact';
 
@@ -53,6 +54,7 @@ interface NodeSummaryRowProps {
   readonly density: FleetDensity;
   readonly selected: boolean;
   readonly onSelectionChanged: (nodeId: string, selected: boolean) => void;
+  readonly incidents: ReadonlyArray<OperationalIncident>;
 }
 
 function NodeSummaryRow({
@@ -61,6 +63,7 @@ function NodeSummaryRow({
   density,
   selected,
   onSelectionChanged,
+  incidents,
 }: NodeSummaryRowProps) {
   const aggregate = aggregateNode(node);
   const status = getNodeStatus(node);
@@ -86,7 +89,14 @@ function NodeSummaryRow({
         <div className="mt-1 font-mono text-xs text-muted-foreground">{node.nodeId}</div>
       </td>
       <td className="px-4 py-2">
-        <StatusBadge status={status} />
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge status={status} />
+          {incidents.some((incident) => incident.severity === 'critical') ? (
+            <StatusBadge status="critical" />
+          ) : incidents.length > 0 ? (
+            <StatusBadge status="warning" />
+          ) : null}
+        </div>
       </td>
       <td className="px-4 py-2">{node.connectorVersion || 'Unknown'}</td>
       <td className="px-4 py-2">{formatTime(node.lastSeenAt)}</td>
@@ -165,6 +175,12 @@ export default function FleetOverviewPage() {
           {fleet ? `Showing stale fleet data. ${error}` : error}
         </div>
       ) : null}
+
+      <ActiveIncidentSummary
+        incidents={fleet?.activeIncidents ?? []}
+        tenantId={tenantId}
+        testId="fleet-active-incidents"
+      />
 
       {isLoading && !fleet ? <p className="text-muted-foreground">Loading fleet status…</p> : null}
 
@@ -280,6 +296,9 @@ export default function FleetOverviewPage() {
                       density={density}
                       selected={selectedNodeIds.includes(node.nodeId)}
                       onSelectionChanged={changeSelection}
+                      incidents={fleet.activeIncidents.filter(
+                        (incident) => incident.nodeId === node.nodeId,
+                      )}
                     />
                   ))}
                 </tbody>

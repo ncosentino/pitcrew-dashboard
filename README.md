@@ -144,6 +144,14 @@ Diagnostic clients hash GitHub's exact `runner_name` locally and join by exact
 equality; Dashboard never stores the raw runner name. See
 [Runner correlation assignments](docs/runner-correlation.md).
 
+Protocol 8 accepts manager contract 15 bounded active-job context and manager
+contract 16 Docker-host pressure. Node and profile views identify current
+GitHub jobs, link to the exact run/job page, surface active and recently
+resolved pressure incidents, and overlay retained job intervals on resource
+history. Dashboard stores no GitHub Actions write credential and never
+cancels or kills a busy job. CPU, load, memory, swap, and optional PSI describe
+the Docker host or VM rather than inferring physical-host truth.
+
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.

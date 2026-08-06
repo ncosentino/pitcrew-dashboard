@@ -1,5 +1,7 @@
 export { FleetProvider } from './FleetProvider';
 export { useFleet } from './useFleet';
+export { currentJobSchema, operationalIncidentSchema } from './fleetApi';
+export { getActiveIncidents } from './fleetApi';
 export { describeWorkerUpdate } from './workerUpdate';
 export {
   describeExitEvidence,
@@ -40,6 +42,7 @@ export type {
   ManagerOperationJournal,
   ManagerSubsystemHealth,
   ObservedSlot,
+  OperationalIncident,
   RecoveryCommandState,
   RecoveryCommandStatus,
   RecoveryControlState,

@@ -2,7 +2,12 @@ import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
 
-import { hostHardwareInventorySchema, managerEventSchema, offsetDateTimeSchema } from './fleetApi';
+import {
+  currentJobSchema,
+  hostHardwareInventorySchema,
+  managerEventSchema,
+  offsetDateTimeSchema,
+} from './fleetApi';
 
 const historyResolutionSchema = z.enum(['raw', 'hourly']);
 
@@ -31,6 +36,20 @@ const telemetrySampleSchema = z.object({
   managerPids: z.number().int().nonnegative().nullable(),
   hostLogicalProcessorCount: z.number().int().nonnegative().nullable(),
   hostMemoryBytes: z.number().int().nonnegative().nullable(),
+  hostPressureStatus: z.enum(['available', 'partial', 'unavailable']).nullable().default(null),
+  hostCpuUtilizationPercent: z.number().min(0).max(100).nullable().default(null),
+  hostLoad1: z.number().nonnegative().nullable().default(null),
+  hostLoad5: z.number().nonnegative().nullable().default(null),
+  hostLoad15: z.number().nonnegative().nullable().default(null),
+  hostPressureMemoryTotalBytes: z.number().int().positive().nullable().default(null),
+  hostMemoryAvailableBytes: z.number().int().nonnegative().nullable().default(null),
+  hostSwapUsedBytes: z.number().int().nonnegative().nullable().default(null),
+  hostCpuPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
+  hostCpuPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
+  hostMemoryPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
+  hostMemoryPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
+  hostIoPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
+  hostIoPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
   workerCpuCores: z.number().nonnegative().nullable(),
   workerMemoryBytes: z.number().int().nonnegative().nullable(),
   workerPids: z.number().int().nonnegative().nullable(),
@@ -87,6 +106,18 @@ const telemetryRollupSchema = z.object({
   maximumAssignedJobs: z.number().int().nonnegative().nullable(),
   maximumIdleRunners: z.number().int().nonnegative().nullable(),
   maximumBusyRunners: z.number().int().nonnegative().nullable(),
+  maximumHostCpuUtilizationPercent: z.number().min(0).max(100).nullable().default(null),
+  maximumHostLoad1: z.number().nonnegative().nullable().default(null),
+  maximumHostLoad5: z.number().nonnegative().nullable().default(null),
+  maximumHostLoad15: z.number().nonnegative().nullable().default(null),
+  minimumHostMemoryAvailableBytes: z.number().int().nonnegative().nullable().default(null),
+  maximumHostSwapUsedBytes: z.number().int().nonnegative().nullable().default(null),
+  maximumHostCpuPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
+  maximumHostCpuPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
+  maximumHostMemoryPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
+  maximumHostMemoryPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
+  maximumHostIoPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
+  maximumHostIoPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
 });
 
 const eventJournalStateSchema = z.object({
@@ -214,6 +245,7 @@ const runnerAssignmentIntervalSchema = z.object({
   slotKey: z.string().min(1).max(128),
   repository: z.string().min(1).max(2048).nullable(),
   target: z.string().min(1).max(512).nullable(),
+  job: currentJobSchema.nullable().default(null),
   firstObservedAt: offsetDateTimeSchema,
   lastObservedAt: offsetDateTimeSchema,
 });

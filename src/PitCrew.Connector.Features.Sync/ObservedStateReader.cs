@@ -109,6 +109,15 @@ internal sealed partial class ObservedStateReader(
             observedStatePath,
             _options.Value.MaximumObservedStateBytes,
             cancellationToken);
+        if (!HasRequiredContractProperties(bytes))
+        {
+          LogInvalidObservedState(observedStatePath);
+          AddCachedProfileOrMarkIncomplete(
+              profileDirectory,
+              snapshots,
+              ref complete);
+          continue;
+        }
         var profile = JsonSerializer.Deserialize(
             bytes,
             PitCrewProtocolJsonContext.Default.ManagerObservedState);
@@ -218,6 +227,48 @@ internal sealed partial class ObservedStateReader(
     var bytes = new byte[(int)stream.Length];
     await stream.ReadExactlyAsync(bytes, cancellationToken);
     return bytes;
+  }
+
+  private static bool HasRequiredContractProperties(
+      ReadOnlyMemory<byte> bytes)
+  {
+    using var document = JsonDocument.Parse(bytes);
+    var root = document.RootElement;
+    if (!root.TryGetProperty(
+            "managerContractVersion",
+            out var contractElement) ||
+        !contractElement.TryGetInt32(out var contractVersion))
+    {
+      return false;
+    }
+    if (contractVersion >= 15)
+    {
+      if (!root.TryGetProperty("slots", out var slots) ||
+          slots.ValueKind != JsonValueKind.Array)
+      {
+        return false;
+      }
+      using var slotEnumerator = slots.EnumerateArray();
+      while (slotEnumerator.MoveNext())
+      {
+        var slot = slotEnumerator.Current;
+        if (slot.ValueKind != JsonValueKind.Object ||
+            !slot.TryGetProperty("currentJob", out _))
+        {
+          return false;
+        }
+      }
+    }
+    if (contractVersion >= 16 &&
+        (!root.TryGetProperty(
+            "resourceTelemetry",
+            out var telemetry) ||
+         telemetry.ValueKind != JsonValueKind.Object ||
+         !telemetry.TryGetProperty("hostPressure", out _)))
+    {
+      return false;
+    }
+    return true;
   }
 
   private void AddCachedProfileOrMarkIncomplete(

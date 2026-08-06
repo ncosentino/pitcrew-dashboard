@@ -223,6 +223,21 @@ public sealed record ProfileTelemetrySample(
   /// Gets the rollout error observed with this sample.
   /// </summary>
   public string? WorkerUpdateError { get; init; }
+
+  public string? HostPressureStatus { get; init; }
+  public double? HostCpuUtilizationPercent { get; init; }
+  public double? HostLoad1 { get; init; }
+  public double? HostLoad5 { get; init; }
+  public double? HostLoad15 { get; init; }
+  public long? HostPressureMemoryTotalBytes { get; init; }
+  public long? HostMemoryAvailableBytes { get; init; }
+  public long? HostSwapUsedBytes { get; init; }
+  public double? HostCpuPressureSomeAvg10 { get; init; }
+  public double? HostCpuPressureFullAvg10 { get; init; }
+  public double? HostMemoryPressureSomeAvg10 { get; init; }
+  public double? HostMemoryPressureFullAvg10 { get; init; }
+  public double? HostIoPressureSomeAvg10 { get; init; }
+  public double? HostIoPressureFullAvg10 { get; init; }
 }
 
 /// <summary>
@@ -286,7 +301,21 @@ public sealed record ProfileTelemetryRollup(
     int? MaximumTargetSlots,
     int? MaximumAssignedJobs,
     int? MaximumIdleRunners,
-    int? MaximumBusyRunners);
+    int? MaximumBusyRunners)
+{
+  public double? MaximumHostCpuUtilizationPercent { get; init; }
+  public double? MaximumHostLoad1 { get; init; }
+  public double? MaximumHostLoad5 { get; init; }
+  public double? MaximumHostLoad15 { get; init; }
+  public long? MinimumHostMemoryAvailableBytes { get; init; }
+  public long? MaximumHostSwapUsedBytes { get; init; }
+  public double? MaximumHostCpuPressureSomeAvg10 { get; init; }
+  public double? MaximumHostCpuPressureFullAvg10 { get; init; }
+  public double? MaximumHostMemoryPressureSomeAvg10 { get; init; }
+  public double? MaximumHostMemoryPressureFullAvg10 { get; init; }
+  public double? MaximumHostIoPressureSomeAvg10 { get; init; }
+  public double? MaximumHostIoPressureFullAvg10 { get; init; }
+}
 
 /// <summary>
 /// Describes what the dashboard durably retained from one bounded manager journal.
@@ -487,7 +516,10 @@ public sealed record RunnerAssignmentInterval(
     string? Repository,
     string? Target,
     DateTimeOffset FirstObservedAt,
-    DateTimeOffset LastObservedAt);
+    DateTimeOffset LastObservedAt)
+{
+  public CurrentJobContext? Job { get; init; }
+}
 
 /// <summary>
 /// Returns the bounded retained history for one profile.

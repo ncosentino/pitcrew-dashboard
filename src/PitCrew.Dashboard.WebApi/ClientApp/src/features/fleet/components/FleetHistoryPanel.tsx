@@ -17,10 +17,11 @@ import {
   type HistoryAvailability,
   type NodeHistoryResponse,
   type ProfileHistory,
+  type RunnerAssignmentInterval,
 } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
-import { TimeSeriesChart } from '@/core/ui/TimeSeriesChart';
+import { TimeSeriesChart, type TimeSeriesInterval } from '@/core/ui/TimeSeriesChart';
 
 interface FleetHistoryPanelProps {
   readonly tenantId: string;
@@ -54,10 +55,12 @@ function ProfileHistorySections({
   history,
   resolution,
   expectedRawCadenceSeconds,
+  runnerAssignments,
 }: {
   readonly history: ProfileHistory;
   readonly resolution: 'raw' | 'hourly';
   readonly expectedRawCadenceSeconds: number | null;
+  readonly runnerAssignments: ReadonlyArray<RunnerAssignmentInterval>;
 }) {
   const availability = describeHistoryAvailability(history, resolution);
   const journal = describeHistoryJournal(history);
@@ -71,12 +74,68 @@ function ProfileHistorySections({
     expectedRawCadenceSeconds,
   );
   const deficits = buildDeficitReasonChanges(history);
+  const workloadIntervals = runnerAssignments.flatMap((assignment): TimeSeriesInterval[] => {
+    const job = assignment.job;
+    if (job == null) return [];
+    return [
+      {
+        key: `${assignment.runnerNameHash}:${job.jobId}`,
+        label: job.displayName ?? `GitHub job ${job.jobId}`,
+        from: job.startedAt,
+        to: job.finishedAt ?? assignment.lastObservedAt,
+        href: `${job.repository}/actions/runs/${job.workflowRunId}/job/${job.jobId}`,
+      },
+    ];
+  });
 
   return (
     <div className="grid gap-4" data-testid={`history-profile-${history.profileId}`}>
       <div className="flex flex-wrap items-center gap-2">
         <AvailabilityNote availability={availability} />
       </div>
+      {workloadIntervals.length > 0 ? (
+        <section className="grid gap-2" data-testid={`history-workloads-${history.profileId}`}>
+          <h4 className="text-sm font-semibold">Retained workload intervals</h4>
+          <div
+            aria-label={`Retained workload intervals for profile ${history.profileId}`}
+            className={scrollRegionClasses}
+            role="region"
+            tabIndex={0}
+          >
+            <table className="w-full text-left text-xs">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th scope="col">Workload</th>
+                  <th scope="col">Started</th>
+                  <th scope="col">Finished / last observed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workloadIntervals.map((interval) => (
+                  <tr className="border-t" key={interval.key}>
+                    <th className="font-normal" scope="row">
+                      {interval.href ? (
+                        <a
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                          href={interval.href}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          {interval.label}
+                        </a>
+                      ) : (
+                        interval.label
+                      )}
+                    </th>
+                    <td>{formatTime(interval.from)}</td>
+                    <td>{formatTime(interval.to)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       {availability.status === 'unavailable' ? null : (
         <div className="grid gap-6">
           {groups.map((group) => (
@@ -84,6 +143,7 @@ function ProfileHistorySections({
               cadenceMilliseconds={cadenceMilliseconds}
               description={group.description}
               headingLevel="h4"
+              intervals={workloadIntervals}
               key={group.key}
               series={group.series}
               testId={`history-chart-${history.profileId}-${group.key}`}
@@ -294,11 +354,13 @@ function ProfileHistoryDisclosure({
   resolution,
   isInitiallyOpen,
   expectedRawCadenceSeconds,
+  runnerAssignments,
 }: {
   readonly history: ProfileHistory;
   readonly resolution: 'raw' | 'hourly';
   readonly isInitiallyOpen: boolean;
   readonly expectedRawCadenceSeconds: number | null;
+  readonly runnerAssignments: ReadonlyArray<RunnerAssignmentInterval>;
 }) {
   const [isOpen, setIsOpen] = useState(isInitiallyOpen);
 
@@ -324,6 +386,7 @@ function ProfileHistoryDisclosure({
             expectedRawCadenceSeconds={expectedRawCadenceSeconds}
             history={history}
             resolution={resolution}
+            runnerAssignments={runnerAssignments}
           />
         ) : null}
       </div>
@@ -355,6 +418,9 @@ function describeResponseTruncation(history: NodeHistoryResponse | null): string
   }
   if (history.hardwareRevisionsTruncated) {
     capped.push(`hardware revisions (${history.nodeDiagnosticLimit} across the node)`);
+  }
+  if (history.runnerAssignmentsTruncated) {
+    capped.push(`runner and workload intervals (${history.nodeDiagnosticLimit} across the node)`);
   }
   if (capped.length === 0) return null;
   return `This response reached its limits for ${capped.join(', ')}. The most recent data inside the range is shown and older retained data inside the same range is hidden. Narrow the range to see the hidden observations.${hasProfileScopedTruncation ? ' Opening a single profile can also recover profile-scoped rows.' : ''}`;
@@ -565,6 +631,9 @@ export function FleetHistoryPanel({
             history={profile}
             key={profile.profileId}
             resolution={history.resolution}
+            runnerAssignments={history.runnerAssignments.filter(
+              (assignment) => assignment.profileId === profile.profileId,
+            )}
           />
         ) : (
           <ProfileHistoryDisclosure
@@ -573,6 +642,9 @@ export function FleetHistoryPanel({
             isInitiallyOpen={history.profiles.length === 1}
             key={profile.profileId}
             resolution={history.resolution}
+            runnerAssignments={history.runnerAssignments.filter(
+              (assignment) => assignment.profileId === profile.profileId,
+            )}
           />
         ),
       )}

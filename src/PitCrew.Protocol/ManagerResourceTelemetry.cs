@@ -9,8 +9,10 @@ namespace PitCrew.Protocol;
 /// <param name="Status">Sample status: available, partial, or unavailable.</param>
 /// <param name="Host">Host capacity when available; otherwise <see langword="null"/>.</param>
 /// <param name="Manager">Manager process usage when available; otherwise <see langword="null"/>.</param>
+/// <param name="HostPressure">Manager contract 16 Docker-host pressure when reported; otherwise <see langword="null"/>.</param>
 public sealed record ManagerResourceTelemetry(
     [property: JsonRequired] DateTimeOffset SampledAt,
     [property: JsonRequired] string Status,
     [property: JsonRequired] HostResourceCapacity? Host,
-    [property: JsonRequired] ResourceUsage? Manager);
+    [property: JsonRequired] ResourceUsage? Manager,
+    HostPressureTelemetry? HostPressure = null);

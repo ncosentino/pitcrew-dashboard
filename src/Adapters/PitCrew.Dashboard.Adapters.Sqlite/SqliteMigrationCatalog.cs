@@ -1163,5 +1163,91 @@ internal static class SqliteMigrationCatalog
                       last_observed_at,
                       first_observed_at);
               """),
+        new(
+              15,
+              "host-pressure-and-workload-history",
+              """
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_pressure_status TEXT NULL
+                      CHECK (host_pressure_status IS NULL
+                          OR host_pressure_status IN (
+                              'available',
+                              'partial',
+                              'unavailable'));
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_cpu_utilization_percent REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_load1 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_load5 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_load15 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_pressure_memory_total_bytes INTEGER NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_memory_available_bytes INTEGER NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_swap_used_bytes INTEGER NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_cpu_pressure_some_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_cpu_pressure_full_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_memory_pressure_some_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_memory_pressure_full_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_io_pressure_some_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_io_pressure_full_avg10 REAL NULL;
+
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_cpu_utilization_percent REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_load1 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_load5 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_load15 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN min_host_memory_available_bytes INTEGER NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_swap_used_bytes INTEGER NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_cpu_pressure_some_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_cpu_pressure_full_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_memory_pressure_some_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_memory_pressure_full_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_io_pressure_some_avg10 REAL NULL;
+              ALTER TABLE profile_telemetry_rollups
+                  ADD COLUMN max_host_io_pressure_full_avg10 REAL NULL;
+
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_repository TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN workflow_run_id INTEGER NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_id TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_display_name TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_event_name TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_queued_at TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_scale_set_assigned_at TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_runner_assigned_at TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_started_at TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_finished_at TEXT NULL;
+              ALTER TABLE profile_runner_assignments
+                  ADD COLUMN job_result TEXT NULL;
+              """),
     ];
 }

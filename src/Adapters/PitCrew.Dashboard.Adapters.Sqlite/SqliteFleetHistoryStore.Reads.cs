@@ -292,6 +292,17 @@ internal sealed partial class SqliteFleetHistoryStore
             slot_key,
             repository,
             target,
+            job_repository,
+            workflow_run_id,
+            job_id,
+            job_display_name,
+            job_event_name,
+            job_queued_at,
+            job_scale_set_assigned_at,
+            job_runner_assigned_at,
+            job_started_at,
+            job_finished_at,
+            job_result,
             first_observed_at,
             last_observed_at
         FROM profile_runner_assignments
@@ -319,6 +330,7 @@ internal sealed partial class SqliteFleetHistoryStore
     while (await reader.ReadAsync(cancellationToken))
     {
       row ??= new SqliteRowReader(reader);
+      var jobId = row.OptionalString("job_id");
       assignments.Add(new RunnerAssignmentInterval(
           row.String("runner_name_hash"),
           row.String("profile_id"),
@@ -326,7 +338,23 @@ internal sealed partial class SqliteFleetHistoryStore
           row.OptionalString("repository"),
           row.OptionalString("target"),
           row.Time("first_observed_at"),
-          row.Time("last_observed_at")));
+          row.Time("last_observed_at"))
+      {
+        Job = jobId is null
+            ? null
+            : new CurrentJobContext(
+                row.String("job_repository"),
+                row.Int64("workflow_run_id"),
+                jobId,
+                row.OptionalString("job_display_name"),
+                row.OptionalString("job_event_name"),
+                row.OptionalTime("job_queued_at"),
+                row.OptionalTime("job_scale_set_assigned_at"),
+                row.OptionalTime("job_runner_assigned_at"),
+                row.Time("job_started_at"),
+                row.OptionalTime("job_finished_at"),
+                row.OptionalString("job_result")),
+      });
     }
     var truncated = assignments.Count > limit;
     if (truncated)
@@ -641,6 +669,29 @@ internal sealed partial class SqliteFleetHistoryStore
         WorkerCurrentWorkers = row.OptionalInt32("worker_current_workers"),
         WorkerStaleWorkers = row.OptionalInt32("worker_stale_workers"),
         WorkerUpdateError = row.OptionalString("worker_update_error"),
+        HostPressureStatus = row.OptionalString("host_pressure_status"),
+        HostCpuUtilizationPercent =
+            row.OptionalDouble("host_cpu_utilization_percent"),
+        HostLoad1 = row.OptionalDouble("host_load1"),
+        HostLoad5 = row.OptionalDouble("host_load5"),
+        HostLoad15 = row.OptionalDouble("host_load15"),
+        HostPressureMemoryTotalBytes =
+            row.OptionalInt64("host_pressure_memory_total_bytes"),
+        HostMemoryAvailableBytes =
+            row.OptionalInt64("host_memory_available_bytes"),
+        HostSwapUsedBytes = row.OptionalInt64("host_swap_used_bytes"),
+        HostCpuPressureSomeAvg10 =
+            row.OptionalDouble("host_cpu_pressure_some_avg10"),
+        HostCpuPressureFullAvg10 =
+            row.OptionalDouble("host_cpu_pressure_full_avg10"),
+        HostMemoryPressureSomeAvg10 =
+            row.OptionalDouble("host_memory_pressure_some_avg10"),
+        HostMemoryPressureFullAvg10 =
+            row.OptionalDouble("host_memory_pressure_full_avg10"),
+        HostIoPressureSomeAvg10 =
+            row.OptionalDouble("host_io_pressure_some_avg10"),
+        HostIoPressureFullAvg10 =
+            row.OptionalDouble("host_io_pressure_full_avg10"),
       });
     }
 
@@ -686,7 +737,19 @@ internal sealed partial class SqliteFleetHistoryStore
             max_target_slots,
             max_assigned_jobs,
             max_idle_runners,
-            max_busy_runners
+            max_busy_runners,
+            max_host_cpu_utilization_percent,
+            max_host_load1,
+            max_host_load5,
+            max_host_load15,
+            min_host_memory_available_bytes,
+            max_host_swap_used_bytes,
+            max_host_cpu_pressure_some_avg10,
+            max_host_cpu_pressure_full_avg10,
+            max_host_memory_pressure_some_avg10,
+            max_host_memory_pressure_full_avg10,
+            max_host_io_pressure_some_avg10,
+            max_host_io_pressure_full_avg10
         FROM (
             SELECT
                 *,
@@ -746,7 +809,30 @@ internal sealed partial class SqliteFleetHistoryStore
           row.OptionalInt32("max_target_slots"),
           row.OptionalInt32("max_assigned_jobs"),
           row.OptionalInt32("max_idle_runners"),
-          row.OptionalInt32("max_busy_runners")));
+          row.OptionalInt32("max_busy_runners"))
+      {
+        MaximumHostCpuUtilizationPercent =
+            row.OptionalDouble("max_host_cpu_utilization_percent"),
+        MaximumHostLoad1 = row.OptionalDouble("max_host_load1"),
+        MaximumHostLoad5 = row.OptionalDouble("max_host_load5"),
+        MaximumHostLoad15 = row.OptionalDouble("max_host_load15"),
+        MinimumHostMemoryAvailableBytes =
+            row.OptionalInt64("min_host_memory_available_bytes"),
+        MaximumHostSwapUsedBytes =
+            row.OptionalInt64("max_host_swap_used_bytes"),
+        MaximumHostCpuPressureSomeAvg10 =
+            row.OptionalDouble("max_host_cpu_pressure_some_avg10"),
+        MaximumHostCpuPressureFullAvg10 =
+            row.OptionalDouble("max_host_cpu_pressure_full_avg10"),
+        MaximumHostMemoryPressureSomeAvg10 =
+            row.OptionalDouble("max_host_memory_pressure_some_avg10"),
+        MaximumHostMemoryPressureFullAvg10 =
+            row.OptionalDouble("max_host_memory_pressure_full_avg10"),
+        MaximumHostIoPressureSomeAvg10 =
+            row.OptionalDouble("max_host_io_pressure_some_avg10"),
+        MaximumHostIoPressureFullAvg10 =
+            row.OptionalDouble("max_host_io_pressure_full_avg10"),
+      });
     }
 
     return pages;
@@ -1642,6 +1728,30 @@ internal sealed partial class SqliteFleetHistoryStore
       WorkerCurrentWorkers = profile.Update?.CurrentWorkers,
       WorkerStaleWorkers = profile.Update?.StaleWorkers,
       WorkerUpdateError = profile.Update?.LastError,
+      HostPressureStatus = profile.ResourceTelemetry?.HostPressure?.Status,
+      HostCpuUtilizationPercent =
+          profile.ResourceTelemetry?.HostPressure?.CpuUtilizationPercent,
+      HostLoad1 = profile.ResourceTelemetry?.HostPressure?.Load1,
+      HostLoad5 = profile.ResourceTelemetry?.HostPressure?.Load5,
+      HostLoad15 = profile.ResourceTelemetry?.HostPressure?.Load15,
+      HostPressureMemoryTotalBytes =
+          profile.ResourceTelemetry?.HostPressure?.MemoryTotalBytes,
+      HostMemoryAvailableBytes =
+          profile.ResourceTelemetry?.HostPressure?.MemoryAvailableBytes,
+      HostSwapUsedBytes =
+          profile.ResourceTelemetry?.HostPressure?.SwapUsedBytes,
+      HostCpuPressureSomeAvg10 =
+          profile.ResourceTelemetry?.HostPressure?.CpuPressureSomeAvg10,
+      HostCpuPressureFullAvg10 =
+          profile.ResourceTelemetry?.HostPressure?.CpuPressureFullAvg10,
+      HostMemoryPressureSomeAvg10 =
+          profile.ResourceTelemetry?.HostPressure?.MemoryPressureSomeAvg10,
+      HostMemoryPressureFullAvg10 =
+          profile.ResourceTelemetry?.HostPressure?.MemoryPressureFullAvg10,
+      HostIoPressureSomeAvg10 =
+          profile.ResourceTelemetry?.HostPressure?.IoPressureSomeAvg10,
+      HostIoPressureFullAvg10 =
+          profile.ResourceTelemetry?.HostPressure?.IoPressureFullAvg10,
     };
   }
 
@@ -1708,6 +1818,20 @@ internal sealed partial class SqliteFleetHistoryStore
     public int? WorkerCurrentWorkers { get; init; }
     public int? WorkerStaleWorkers { get; init; }
     public string? WorkerUpdateError { get; init; }
+    public string? HostPressureStatus { get; init; }
+    public double? HostCpuUtilizationPercent { get; init; }
+    public double? HostLoad1 { get; init; }
+    public double? HostLoad5 { get; init; }
+    public double? HostLoad15 { get; init; }
+    public long? HostPressureMemoryTotalBytes { get; init; }
+    public long? HostMemoryAvailableBytes { get; init; }
+    public long? HostSwapUsedBytes { get; init; }
+    public double? HostCpuPressureSomeAvg10 { get; init; }
+    public double? HostCpuPressureFullAvg10 { get; init; }
+    public double? HostMemoryPressureSomeAvg10 { get; init; }
+    public double? HostMemoryPressureFullAvg10 { get; init; }
+    public double? HostIoPressureSomeAvg10 { get; init; }
+    public double? HostIoPressureFullAvg10 { get; init; }
   }
 
   private sealed record JournalPage(

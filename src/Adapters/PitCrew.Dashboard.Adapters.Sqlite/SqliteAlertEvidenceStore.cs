@@ -35,6 +35,13 @@ internal sealed class SqliteAlertEvidenceStore(
         resourceWindowStart,
         maximumSamplesPerProfile,
         cancellationToken);
+    await LoadHostPressureSamplesAsync(
+        connection,
+        transaction,
+        nodes,
+        resourceWindowStart,
+        maximumSamplesPerProfile,
+        cancellationToken);
     await LoadCapacityCommandsAsync(
         connection,
         transaction,
@@ -319,6 +326,96 @@ internal sealed class SqliteAlertEvidenceStore(
             null,
             row.OptionalString("result_message"));
       }
+
+    }
+  }
+
+  private static async Task LoadHostPressureSamplesAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      IReadOnlyDictionary<string, NodeBuilder> nodes,
+      DateTimeOffset resourceWindowStart,
+      int maximumSamplesPerNode,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        WITH heartbeat_samples AS (
+            SELECT
+                node_id,
+                recorded_at,
+                observed_at,
+                host_pressure_status,
+                host_logical_processors,
+                host_cpu_utilization_percent,
+                host_load1,
+                host_pressure_memory_total_bytes,
+                host_memory_available_bytes,
+                host_cpu_pressure_some_avg10,
+                host_memory_pressure_some_avg10,
+                host_io_pressure_some_avg10,
+                ROW_NUMBER() OVER (
+                    PARTITION BY node_id, recorded_at
+                    ORDER BY
+                        CASE host_pressure_status
+                            WHEN 'available' THEN 0
+                            WHEN 'partial' THEN 1
+                            ELSE 2
+                        END,
+                        observed_at DESC,
+                        profile_id) AS heartbeat_index
+            FROM profile_telemetry_samples
+            WHERE recorded_at >= $from
+              AND host_pressure_status IS NOT NULL),
+        ranked AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY node_id
+                    ORDER BY recorded_at DESC) AS rank_index
+            FROM heartbeat_samples
+            WHERE heartbeat_index = 1)
+        SELECT
+            node_id,
+            recorded_at,
+            host_pressure_status,
+            host_logical_processors,
+            host_cpu_utilization_percent,
+            host_load1,
+            host_pressure_memory_total_bytes,
+            host_memory_available_bytes,
+            host_cpu_pressure_some_avg10,
+            host_memory_pressure_some_avg10,
+            host_io_pressure_some_avg10
+        FROM ranked
+        WHERE rank_index <= $maximum
+        ORDER BY node_id, recorded_at;
+        """;
+    command.Parameters.AddWithValue("$from", Utc(resourceWindowStart));
+    command.Parameters.AddWithValue("$maximum", maximumSamplesPerNode);
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    var row = new SqliteRowReader(reader);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      var nodeId = row.String("node_id");
+      if (!nodes.TryGetValue(nodeId, out var node))
+      {
+        continue;
+      }
+      node.HostPressureSamples.Add(new AlertHostPressureSample(
+          row.Time("recorded_at"),
+          row.String("host_pressure_status"),
+          row.OptionalInt32("host_logical_processors"),
+          row.OptionalDouble("host_cpu_utilization_percent"),
+          row.OptionalDouble("host_load1"),
+          row.OptionalInt64("host_pressure_memory_total_bytes"),
+          row.OptionalInt64("host_memory_available_bytes"),
+          row.OptionalDouble("host_cpu_pressure_some_avg10"),
+          row.OptionalDouble("host_memory_pressure_some_avg10"),
+          row.OptionalDouble("host_io_pressure_some_avg10")));
     }
   }
 
@@ -433,6 +530,8 @@ internal sealed class SqliteAlertEvidenceStore(
 
     public List<ProfileBuilder> Profiles { get; } = [];
 
+    public List<AlertHostPressureSample> HostPressureSamples { get; } = [];
+
     public AlertNodeEvidence Build() =>
         new(
             TenantId,
@@ -446,7 +545,10 @@ internal sealed class SqliteAlertEvidenceStore(
                     profile => profile.Observation.ProfileId,
                     StringComparer.Ordinal)
                 .Select(profile => profile.Build())
-                .ToArray());
+                .ToArray())
+        {
+          RecentHostPressureSamples = HostPressureSamples,
+        };
   }
 
   private sealed class ProfileBuilder(
