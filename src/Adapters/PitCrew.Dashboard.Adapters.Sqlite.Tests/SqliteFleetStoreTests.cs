@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -51,6 +52,18 @@ public sealed class SqliteFleetStoreTests
           now.AddMinutes(-2),
           cancellationToken);
       await Assert.That(initialClaim).IsNull();
+
+      var unsupportedPause = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          0,
+          "1",
+          now.AddMilliseconds(500),
+          now.AddMinutes(10),
+          cancellationToken);
+      await Assert.That(unsupportedPause.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.InvalidMaximum);
 
       var queued = await store.QueueAsync(
           "tenant",
@@ -118,6 +131,509 @@ public sealed class SqliteFleetStoreTests
       await Assert.That(
               controls[0].Profiles[0].LatestCommand!.Status)
           .IsEqualTo("succeeded");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Capacity_Pause_Redelivers_And_Resumes_Only_Through_Current_Fence(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-pause-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          8,
+          6,
+          12,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken);
+      var store = new SqliteCapacityCommandStore(connectionFactory);
+      var running = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  7,
+                  30,
+                  50,
+                  SupportsZeroMaximum: true),
+          ]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now,
+          now.AddMinutes(-2),
+          cancellationToken);
+
+      var pause = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          0,
+          "1",
+          now.AddSeconds(1),
+          now.AddMinutes(10),
+          cancellationToken);
+      await Assert.That(pause.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Queued);
+
+      var deliveredPause = await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now.AddSeconds(2),
+          now.AddMinutes(-2),
+          cancellationToken);
+      var redeliveredPause = await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now.AddMinutes(3),
+          now.AddMinutes(1),
+          cancellationToken);
+      await Assert.That(deliveredPause!.CommandId)
+          .IsEqualTo(pause.CommandId!.Value);
+      await Assert.That(redeliveredPause!.CommandId)
+          .IsEqualTo(pause.CommandId.Value);
+
+      var paused = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  8,
+                  0,
+                  50,
+                  SupportsZeroMaximum: true),
+          ]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          paused,
+          null,
+          now.AddMinutes(4),
+          now.AddMinutes(3),
+          cancellationToken);
+
+      var pausedControls = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+      var pausedControl = pausedControls[0].Profiles[0];
+      await Assert.That(pausedControl.CurrentMaximum).IsEqualTo(0);
+      await Assert.That(pausedControl.SupportsZeroMaximum).IsTrue();
+      await Assert.That(pausedControl.PauseCommandId)
+          .IsEqualTo(pause.CommandId);
+      await Assert.That(pausedControl.ResumeMaximum).IsEqualTo(30);
+      await Assert.That(pausedControl.LatestCommand!.PreviousMaximum)
+          .IsEqualTo(30);
+
+      var staleResume = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          30,
+          "1",
+          now.AddMinutes(5),
+          now.AddMinutes(10),
+          cancellationToken,
+          Guid.NewGuid());
+      await Assert.That(staleResume.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.StaleResume);
+
+      var resume = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          30,
+          "1",
+          now.AddMinutes(6),
+          now.AddMinutes(10),
+          cancellationToken);
+      await Assert.That(resume.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Queued);
+      var deliveredResume = await store.ApplyConnectorSyncAsync(
+          nodeId,
+          paused,
+          null,
+          now.AddMinutes(7),
+          now.AddMinutes(5),
+          cancellationToken);
+      await Assert.That(deliveredResume!.CommandId)
+          .IsEqualTo(resume.CommandId!.Value);
+
+      var resumed = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  9,
+                  30,
+                  50,
+                  SupportsZeroMaximum: true),
+          ]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          resumed,
+          null,
+          now.AddMinutes(8),
+          now.AddMinutes(6),
+          cancellationToken);
+      var resumedControls = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+      var resumedControl = resumedControls[0].Profiles[0];
+      await Assert.That(resumedControl.CurrentMaximum).IsEqualTo(30);
+      await Assert.That(resumedControl.PauseCommandId).IsNull();
+      await Assert.That(resumedControl.ResumeMaximum).IsNull();
+      await Assert.That(resumedControl.LatestCommand!.ResumesCommandId)
+          .IsEqualTo(pause.CommandId);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Capacity_OutOfBand_Pause_Change_Requires_Explicit_Positive_Maximum(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-out-of-band-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          8,
+          6,
+          13,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken);
+      var store = new SqliteCapacityCommandStore(connectionFactory);
+      var running = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  7,
+                  30,
+                  50,
+                  SupportsZeroMaximum: true),
+          ]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now,
+          now.AddMinutes(-2),
+          cancellationToken);
+      var pause = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          0,
+          "1",
+          now.AddSeconds(1),
+          now.AddMinutes(10),
+          cancellationToken);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now.AddSeconds(2),
+          now.AddMinutes(-2),
+          cancellationToken);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                      "default",
+                      8,
+                      0,
+                      50,
+                      SupportsZeroMaximum: true),
+              ]),
+          null,
+          now.AddSeconds(3),
+          now.AddSeconds(2),
+          cancellationToken);
+
+      var outOfBand = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  9,
+                  0,
+                  50,
+                  SupportsZeroMaximum: true),
+          ]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          outOfBand,
+          null,
+          now.AddSeconds(4),
+          now.AddMinutes(-2),
+          cancellationToken);
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+      await Assert.That(controls[0].Profiles[0].PauseCommandId).IsNull();
+      await Assert.That(controls[0].Profiles[0].ResumeMaximum).IsNull();
+
+      var staleResume = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          30,
+          "1",
+          now.AddSeconds(5),
+          now.AddMinutes(10),
+          cancellationToken,
+          pause.CommandId);
+      await Assert.That(staleResume.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.StaleResume);
+
+      var explicitMaximum = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          25,
+          "1",
+          now.AddSeconds(6),
+          now.AddMinutes(10),
+          cancellationToken);
+      await Assert.That(explicitMaximum.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Queued);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Capacity_Pause_Restart_Inference_Rejects_Skipped_Generation(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-skipped-pause-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          8,
+          6,
+          13,
+          30,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken);
+      var store = new SqliteCapacityCommandStore(connectionFactory);
+      var running = new CapacityOperatorCapability(
+          [
+              new CapacityOperatorProfile(
+                  "default",
+                  7,
+                  30,
+                  50,
+                  SupportsZeroMaximum: true),
+          ]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now,
+          now.AddMinutes(-2),
+          cancellationToken);
+      var pause = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          0,
+          "1",
+          now.AddSeconds(1),
+          now.AddMinutes(10),
+          cancellationToken);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          running,
+          null,
+          now.AddSeconds(2),
+          now.AddMinutes(-2),
+          cancellationToken);
+
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                      "default",
+                      9,
+                      0,
+                      50,
+                      SupportsZeroMaximum: true),
+              ]),
+          null,
+          now.AddMinutes(3),
+          now.AddSeconds(2),
+          cancellationToken);
+
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+      await Assert.That(controls[0].Profiles[0].PauseCommandId).IsNull();
+      await Assert.That(controls[0].Profiles[0].ResumeMaximum).IsNull();
+      await Assert.That(controls[0].Profiles[0].LatestCommand!.CommandId)
+          .IsEqualTo(pause.CommandId);
+      await Assert.That(controls[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("rejected");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Capacity_Pause_Migration_Preserves_Legacy_Audit_And_Immutability(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-migration-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          8,
+          6,
+          14,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken,
+              maximumMigrationVersion: 15);
+      var commandId = Guid.NewGuid();
+      await using (var connection = await connectionFactory.OpenAsync(
+          cancellationToken))
+      {
+        await using var seed = connection.CreateCommand();
+        seed.CommandText =
+            """
+            INSERT INTO profile_active_operations (
+                node_id,
+                profile_id,
+                operation_kind,
+                command_id,
+                acquired_at)
+            VALUES (
+                $nodeId,
+                'default',
+                'capacity',
+                $commandId,
+                $requestedAt);
+
+            INSERT INTO capacity_commands (
+                command_id,
+                node_id,
+                profile_id,
+                expected_generation,
+                requested_maximum,
+                maximum_allowed_at_request,
+                status,
+                requested_by_github_user_id,
+                requested_at,
+                expires_at)
+            VALUES (
+                $commandId,
+                $nodeId,
+                'default',
+                7,
+                40,
+                50,
+                'pending',
+                '1',
+                $requestedAt,
+                $expiresAt);
+            """;
+        seed.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+        seed.Parameters.AddWithValue("$commandId", commandId.ToString("D"));
+        seed.Parameters.AddWithValue(
+            "$requestedAt",
+            now.ToString("O", CultureInfo.InvariantCulture));
+        seed.Parameters.AddWithValue(
+            "$expiresAt",
+            now.AddMinutes(10).ToString(
+                "O",
+                CultureInfo.InvariantCulture));
+        await seed.ExecuteNonQueryAsync(cancellationToken);
+      }
+
+      await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+          cancellationToken);
+
+      await using var migrated = await connectionFactory.OpenAsync(
+          cancellationToken);
+      await using (var query = migrated.CreateCommand())
+      {
+        query.CommandText =
+            """
+            SELECT previous_maximum, requested_maximum, resumes_command_id
+            FROM capacity_commands
+            WHERE command_id = $commandId;
+            """;
+        query.Parameters.AddWithValue("$commandId", commandId.ToString("D"));
+        await using var reader = await query.ExecuteReaderAsync(
+            cancellationToken);
+        await Assert.That(await reader.ReadAsync(cancellationToken)).IsTrue();
+        await Assert.That(await reader.IsDBNullAsync(0, cancellationToken))
+            .IsTrue();
+        await Assert.That(reader.GetInt32(1)).IsEqualTo(40);
+        await Assert.That(await reader.IsDBNullAsync(2, cancellationToken))
+            .IsTrue();
+      }
+
+      await using var mutate = migrated.CreateCommand();
+      mutate.CommandText =
+          """
+          UPDATE capacity_commands
+          SET requested_maximum = 41
+          WHERE command_id = $commandId;
+          """;
+      mutate.Parameters.AddWithValue("$commandId", commandId.ToString("D"));
+      await Assert.That(async () =>
+          await mutate.ExecuteNonQueryAsync(cancellationToken))
+          .Throws<SqliteException>();
     }
     finally
     {
@@ -956,15 +1472,26 @@ public sealed class SqliteFleetStoreTests
       Guid NodeId)> CreateEnrolledStoreAsync(
       string databasePath,
       DateTimeOffset now,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      int? maximumMigrationVersion = null)
   {
     var connectionFactory = new SqliteConnectionFactory(
         Options.Create(new SqliteFleetStoreOptions
         {
           DatabasePath = databasePath,
         }));
-    await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
-        cancellationToken);
+    if (maximumMigrationVersion is null)
+    {
+      await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+          cancellationToken);
+    }
+    else
+    {
+      await SqliteMigrationTestDatabase.ApplyThroughAsync(
+          connectionFactory,
+          maximumMigrationVersion.Value,
+          cancellationToken);
+    }
     var owner = new DashboardUser(
         "1",
         "owner",

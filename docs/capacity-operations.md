@@ -1,12 +1,18 @@
 # Capacity operations
 
 Protocol v3 adds one opt-in write capability: setting the absolute maximum for
-an existing PitCrew profile with one unambiguous capacity target.
+an existing PitCrew profile with one unambiguous capacity target. Protocol v9
+allows that typed operation to request zero only when the host connector
+advertises PitCrew manager contract 17 pause support.
 
 The dashboard does not receive a host path, repository URL, Docker socket, or
 GitHub runner credential. The connector resolves every argument from local state
 and invokes `Setup-Runner.ps1 -CapacityOnly`, preserving PitCrew's locking,
 generation, and acknowledgement behavior.
+
+For a zero request, the connector invokes the explicit
+`Setup-Runner.ps1 -Pause` path. The profile and manager remain present, busy
+workers drain normally, and no replacement or new worker is admitted.
 
 ## Deployment boundary
 
@@ -117,10 +123,23 @@ Delivered commands may be offered again after the configured redelivery
 interval. Re-execution is safe because the command contains an absolute value
 and PitCrew setup converges idempotently.
 
+Dashboard records the pre-pause maximum. Once zero is acknowledged, it offers
+**Resume to N** only while the recorded pause generation still matches the
+connector's current generation. An out-of-band change removes that shortcut;
+an administrator must then choose an explicit positive maximum.
+
+Pressure incidents may offer the same confirmed pause operation when the user
+is an administrator and the host connector advertises support. Read-only
+connectors show GitHub job links without pause controls, and incidents never
+pause automatically.
+
 ## Excluded operations
 
 The protocol does not support arbitrary commands, paths, profile creation or
 deletion, routing changes, autoscaling policy changes, or release updates.
+
+The dashboard also does not cancel GitHub jobs. Exact run/job links keep
+cancellation authorization and audit in GitHub.
 
 ## Manager recovery
 

@@ -1249,5 +1249,151 @@ internal static class SqliteMigrationCatalog
               ALTER TABLE profile_runner_assignments
                   ADD COLUMN job_result TEXT NULL;
               """),
+        new(
+              16,
+              "audited-capacity-pause-resume",
+              """
+              DROP TRIGGER trg_capacity_commands_require_operation_slot;
+              DROP INDEX ix_capacity_commands_profile_active;
+              DROP INDEX ix_capacity_commands_node_requested;
+              DROP INDEX ix_capacity_commands_profile_requested;
+
+              ALTER TABLE capacity_commands
+                  RENAME TO capacity_commands_legacy;
+
+              CREATE TABLE capacity_commands (
+                  command_id TEXT PRIMARY KEY,
+                  node_id TEXT NOT NULL,
+                  profile_id TEXT NOT NULL,
+                  expected_generation INTEGER NOT NULL
+                      CHECK (expected_generation >= 1),
+                  previous_maximum INTEGER NULL
+                      CHECK (previous_maximum IS NULL
+                          OR previous_maximum >= 0),
+                  requested_maximum INTEGER NOT NULL
+                      CHECK (requested_maximum >= 0),
+                  resumes_command_id TEXT NULL,
+                  maximum_allowed_at_request INTEGER NOT NULL
+                      CHECK (maximum_allowed_at_request >= requested_maximum),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'pending',
+                          'delivered',
+                          'succeeded',
+                          'rejected',
+                          'failed')),
+                  requested_by_github_user_id TEXT NOT NULL,
+                  requested_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  delivered_at TEXT NULL,
+                  delivery_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (delivery_attempts >= 0),
+                  completed_at TEXT NULL,
+                  accepted_generation INTEGER NULL,
+                  result_message TEXT NULL,
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE,
+                  FOREIGN KEY (requested_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (resumes_command_id)
+                      REFERENCES capacity_commands(command_id),
+                  CHECK (resumes_command_id IS NULL
+                      OR requested_maximum >= 1)
+              );
+
+              INSERT INTO capacity_commands (
+                  command_id,
+                  node_id,
+                  profile_id,
+                  expected_generation,
+                  previous_maximum,
+                  requested_maximum,
+                  resumes_command_id,
+                  maximum_allowed_at_request,
+                  status,
+                  requested_by_github_user_id,
+                  requested_at,
+                  expires_at,
+                  delivered_at,
+                  delivery_attempts,
+                  completed_at,
+                  accepted_generation,
+                  result_message)
+              SELECT
+                  command_id,
+                  node_id,
+                  profile_id,
+                  expected_generation,
+                  NULL,
+                  requested_maximum,
+                  NULL,
+                  maximum_allowed_at_request,
+                  status,
+                  requested_by_github_user_id,
+                  requested_at,
+                  expires_at,
+                  delivered_at,
+                  delivery_attempts,
+                  completed_at,
+                  accepted_generation,
+                  result_message
+              FROM capacity_commands_legacy;
+
+              DROP TABLE capacity_commands_legacy;
+
+              CREATE UNIQUE INDEX ix_capacity_commands_profile_active
+                  ON capacity_commands (node_id, profile_id)
+                  WHERE status IN ('pending', 'delivered');
+
+              CREATE INDEX ix_capacity_commands_node_requested
+                  ON capacity_commands (node_id, requested_at DESC);
+
+              CREATE INDEX ix_capacity_commands_profile_requested
+                  ON capacity_commands (
+                      node_id,
+                      profile_id,
+                      requested_at DESC,
+                      command_id DESC);
+
+              CREATE TRIGGER trg_capacity_commands_require_operation_slot
+              BEFORE INSERT ON capacity_commands
+              FOR EACH ROW
+              WHEN NOT EXISTS (
+                  SELECT 1
+                  FROM profile_active_operations
+                  WHERE node_id = NEW.node_id
+                    AND profile_id = NEW.profile_id
+                    AND command_id = NEW.command_id
+                    AND operation_kind = 'capacity')
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'capacity command requires an exclusive profile operation');
+              END;
+
+              CREATE TRIGGER trg_capacity_commands_audit_immutable
+              BEFORE UPDATE ON capacity_commands
+              FOR EACH ROW
+              WHEN OLD.command_id <> NEW.command_id
+                OR OLD.node_id <> NEW.node_id
+                OR OLD.profile_id <> NEW.profile_id
+                OR OLD.expected_generation <> NEW.expected_generation
+                OR IFNULL(OLD.previous_maximum, -1)
+                    <> IFNULL(NEW.previous_maximum, -1)
+                OR OLD.requested_maximum <> NEW.requested_maximum
+                OR IFNULL(OLD.resumes_command_id, '')
+                    <> IFNULL(NEW.resumes_command_id, '')
+                OR OLD.maximum_allowed_at_request
+                    <> NEW.maximum_allowed_at_request
+                OR OLD.requested_by_github_user_id
+                    <> NEW.requested_by_github_user_id
+                OR OLD.requested_at <> NEW.requested_at
+                OR OLD.expires_at <> NEW.expires_at
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'capacity command audit fields are immutable');
+              END;
+              """),
     ];
 }

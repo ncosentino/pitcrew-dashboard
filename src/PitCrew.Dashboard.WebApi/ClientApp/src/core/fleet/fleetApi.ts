@@ -824,7 +824,9 @@ const managerObservedStateSchema = z
 
 const capacityCommandStateSchema = z.object({
   commandId: z.string().uuid(),
-  requestedMaximum: z.number().int().positive(),
+  previousMaximum: z.number().int().nonnegative().nullable(),
+  requestedMaximum: z.number().int().nonnegative(),
+  resumesCommandId: z.string().uuid().nullable(),
   status: z.enum(['pending', 'delivered', 'succeeded', 'rejected', 'failed']),
   requestedAt: offsetDateTimeSchema,
   deliveredAt: offsetDateTimeSchema.nullable(),
@@ -835,9 +837,12 @@ const capacityCommandStateSchema = z.object({
 const capacityControlStateSchema = z.object({
   profileId: z.string(),
   generation: z.number().int().positive(),
-  currentMaximum: z.number().int().positive(),
+  currentMaximum: z.number().int().nonnegative(),
   maximumAllowed: z.number().int().positive(),
+  supportsZeroMaximum: z.boolean(),
   latestCommand: capacityCommandStateSchema.nullable(),
+  pauseCommandId: z.string().uuid().nullable(),
+  resumeMaximum: z.number().int().positive().nullable(),
 });
 
 const recoveryCommandStatusSchema = z.enum([

@@ -26,7 +26,8 @@ internal static class CapacityTestData
       string root,
       int generation,
       int maximum,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      int managerContractVersion = 17)
   {
     await File.WriteAllTextAsync(
         Path.Combine(root, "Setup-Runner.ps1"),
@@ -62,7 +63,7 @@ internal static class CapacityTestData
           fingerprint = new string('a', 64),
           configuration = new
           {
-            managerContractVersion = 9,
+            managerContractVersion,
             profile = "default",
             image = "example/runner:latest",
             pullImage = true,

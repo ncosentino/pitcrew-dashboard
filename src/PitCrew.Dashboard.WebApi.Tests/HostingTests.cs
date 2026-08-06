@@ -848,7 +848,8 @@ public sealed class HostingTests
                     "default",
                     3,
                     1,
-                    50),
+                    50,
+                    SupportsZeroMaximum: true),
             ]);
       await DashboardTestHelpers.SynchronizeCapacityAsync(
           client,
@@ -896,7 +897,8 @@ public sealed class HostingTests
                         "default",
                         4,
                         10,
-                        50),
+                        50,
+                        SupportsZeroMaximum: true),
               ]),
           new CapacityCommandOutcome(
               delivery.CapacityCommand.CommandId,
@@ -918,6 +920,101 @@ public sealed class HostingTests
       await Assert.That(
               fleet.Nodes[0].CapacityControls[0].LatestCommand?.Status)
           .IsEqualTo("succeeded");
+
+      using var pauseQueue = await DashboardTestHelpers.PostAuthenticatedAsync(
+          client,
+          $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/capacity-maximum",
+          session.AntiforgeryToken,
+          new SetCapacityMaximumRequest(0),
+          cancellationToken);
+      await Assert.That(pauseQueue.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+
+      var pauseDelivery = await DashboardTestHelpers.SynchronizeCapacityAsync(
+          client,
+          identity.Credential,
+          "9.0.0",
+          updatedObserved,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                      "default",
+                      4,
+                      10,
+                      50,
+                      SupportsZeroMaximum: true),
+              ]),
+          null,
+          cancellationToken);
+      await Assert.That(pauseDelivery.CapacityCommand?.Maximum)
+          .IsEqualTo(0);
+
+      var pausedObserved = updatedObserved with
+      {
+        ObservedAt = updatedObserved.ObservedAt.AddSeconds(2),
+        Generation = 5,
+        DesiredSlots = 0,
+        ConfiguredSlots = 0,
+      };
+      await DashboardTestHelpers.SynchronizeCapacityAsync(
+          client,
+          identity.Credential,
+          "9.0.0",
+          pausedObserved,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                      "default",
+                      5,
+                      0,
+                      50,
+                      SupportsZeroMaximum: true),
+              ]),
+          new CapacityCommandOutcome(
+              pauseDelivery.CapacityCommand!.CommandId,
+              "succeeded",
+              "Capacity maximum was acknowledged.",
+              5,
+              pausedObserved.ObservedAt),
+          cancellationToken);
+
+      fleet = await client.GetFromJsonAsync<FleetResponse>(
+          "/api/tenants/local/fleet/v1/nodes",
+          cancellationToken);
+      var pausedControl = fleet!.Nodes[0].CapacityControls[0];
+      await Assert.That(pausedControl.CurrentMaximum).IsEqualTo(0);
+      await Assert.That(pausedControl.ResumeMaximum).IsEqualTo(10);
+      await Assert.That(pausedControl.PauseCommandId).IsNotNull();
+
+      using var resumeQueue = await DashboardTestHelpers.PostAuthenticatedAsync(
+          client,
+          $"/api/tenants/local/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/capacity-maximum",
+          session.AntiforgeryToken,
+          new SetCapacityMaximumRequest(
+              10,
+              pausedControl.PauseCommandId),
+          cancellationToken);
+      await Assert.That(resumeQueue.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+
+      var resumeDelivery = await DashboardTestHelpers.SynchronizeCapacityAsync(
+          client,
+          identity.Credential,
+          "9.0.0",
+          pausedObserved,
+          new CapacityOperatorCapability(
+              [
+                  new CapacityOperatorProfile(
+                      "default",
+                      5,
+                      0,
+                      50,
+                      SupportsZeroMaximum: true),
+              ]),
+          null,
+          cancellationToken);
+      await Assert.That(resumeDelivery.CapacityCommand?.Maximum)
+          .IsEqualTo(10);
     }
     finally
     {

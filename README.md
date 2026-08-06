@@ -152,6 +152,15 @@ history. Dashboard stores no GitHub Actions write credential and never
 cancels or kills a busy job. CPU, load, memory, swap, and optional PSI describe
 the Docker host or VM rather than inferring physical-host truth.
 
+Protocol 9 lets an explicitly allowlisted host connector advertise PitCrew
+manager contract 17 zero-capacity pause for an existing profile. Authorized
+operators can pause new admission from profile controls or a pressure incident;
+busy workers continue and remain linked to GitHub. Dashboard records the
+pre-pause maximum and offers a generation-fenced resume to that exact value.
+Protocol 1-8 and container-mode connectors remain read-only for pause. See
+[Capacity operations](docs/capacity-operations.md) and
+[ADR-0004](docs/adr/adr-0004-audited-zero-capacity-pause.md).
+
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.

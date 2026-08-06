@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { FleetNode, OperationalIncident } from '@/core/fleet';
 import { formatBytes, formatSeconds, formatTime } from '@/core/formatting/formatters';
@@ -12,6 +14,9 @@ interface NodePressureCommandCenterProps {
   readonly node: FleetNode;
   readonly activeIncidents: ReadonlyArray<OperationalIncident>;
   readonly generatedAt: string;
+  readonly canAdminister?: boolean;
+  readonly disabled?: boolean;
+  readonly onPause?: (profileId: string) => Promise<void>;
 }
 
 interface WorkloadRow {
@@ -103,6 +108,9 @@ export function NodePressureCommandCenter({
   node,
   activeIncidents,
   generatedAt,
+  canAdminister = false,
+  disabled = false,
+  onPause,
 }: NodePressureCommandCenterProps) {
   const [recentIncident, setRecentIncident] = useState<OperationalIncident | null>(null);
   const [incidentError, setIncidentError] = useState<string | null>(null);
@@ -120,6 +128,19 @@ export function NodePressureCommandCenter({
   const pressureIncidents = activeIncidents.filter(
     (incident) => incident.nodeId === node.nodeId && pressureIncidentKinds.has(incident.kind),
   );
+  const pausableProfiles = node.capacityControls.filter((control) => {
+    const active =
+      control.latestCommand?.status === 'pending' || control.latestCommand?.status === 'delivered';
+    const recovery = node.recoveryControls.find(
+      (candidate) => candidate.profileId === control.profileId,
+    );
+    return (
+      control.supportsZeroMaximum &&
+      control.currentMaximum > 0 &&
+      !active &&
+      recovery?.operationActive !== true
+    );
+  });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -176,6 +197,24 @@ export function NodePressureCommandCenter({
             <span className="font-semibold">{incident.title}</span>
           </div>
           <p className="mt-1 text-sm">{incident.summary}</p>
+          {canAdminister && onPause && pausableProfiles.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {pausableProfiles.map((control) => (
+                <ConfirmActionDialog
+                  key={control.profileId}
+                  title={`Pause ${control.profileId} new work?`}
+                  description={`Set ${control.profileId} capacity to zero while current busy workers drain normally.`}
+                  confirmLabel="Pause new work"
+                  trigger={
+                    <Button type="button" size="sm" variant="destructive" disabled={disabled}>
+                      Pause {control.profileId} new work
+                    </Button>
+                  }
+                  onConfirm={() => onPause(control.profileId)}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       ))}
 

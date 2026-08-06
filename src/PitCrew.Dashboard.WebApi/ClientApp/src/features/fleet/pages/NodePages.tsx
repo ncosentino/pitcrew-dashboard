@@ -15,7 +15,7 @@ import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { HostHardwareCard } from '../components/HostHardwareSummary';
 import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { NodePressureCommandCenter } from '../components/NodePressureCommandCenter';
-import { renameNode, requestCredentialRotation, revokeNode } from '../fleetApi';
+import { renameNode, requestCredentialRotation, revokeNode, setCapacityMaximum } from '../fleetApi';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
 
 interface NodeDetailContext {
@@ -228,12 +228,26 @@ export function NodeDetailLayout() {
 
 /** Renders node identity and profile triage without detailed operational evidence. */
 export function NodeOverviewPage() {
-  const { tenantId, node } = useNodeDetail();
+  const { tenantId, node, canAdminister, antiforgeryToken, refreshNow } = useNodeDetail();
   const { fleet } = useFleet();
+  const [pauseProfileId, setPauseProfileId] = useState<string | null>(null);
+  const [pauseError, setPauseError] = useState<string | null>(null);
   const aggregate = aggregateNode(node);
   const sortedProfiles = [...node.profiles].sort((left, right) =>
     left.profileId < right.profileId ? -1 : left.profileId > right.profileId ? 1 : 0,
   );
+  const pauseProfile = async (profileId: string) => {
+    setPauseProfileId(profileId);
+    setPauseError(null);
+    try {
+      await setCapacityMaximum(tenantId, node.nodeId, profileId, 0, antiforgeryToken);
+      await refreshNow();
+    } catch (caught) {
+      setPauseError(caught instanceof Error ? caught.message : 'Pause could not be queued.');
+    } finally {
+      setPauseProfileId(null);
+    }
+  };
 
   return (
     <div className="grid gap-4">
@@ -273,10 +287,18 @@ export function NodeOverviewPage() {
 
       <NodePressureCommandCenter
         activeIncidents={fleet?.activeIncidents ?? []}
+        canAdminister={canAdminister}
+        disabled={pauseProfileId !== null || !node.isOnline || node.isRevoked}
         generatedAt={fleet?.generatedAt ?? node.lastSeenAt ?? node.enrolledAt}
         node={node}
+        onPause={pauseProfile}
         tenantId={tenantId}
       />
+      {pauseError ? (
+        <p className="text-sm text-red-800 dark:text-red-200" role="alert">
+          {pauseError}
+        </p>
+      ) : null}
 
       <section className="grid gap-3">
         <div>

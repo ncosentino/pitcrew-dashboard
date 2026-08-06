@@ -69,7 +69,8 @@ internal sealed partial class CapacityCommandExecutor(
           "Profile generation changed before execution.",
           _timeProvider.GetUtcNow());
     }
-    if (command.Maximum < 1 ||
+    if (command.Maximum < 0 ||
+        (command.Maximum == 0 && !profile.SupportsZeroMaximum) ||
         command.Maximum > profile.MaximumAllowed)
     {
       return Rejected(
@@ -138,6 +139,10 @@ internal sealed partial class CapacityCommandExecutor(
         cancellationToken);
     if (refreshed.Profile is null ||
         refreshed.Profile.CurrentMaximum != command.Maximum ||
+        (command.Maximum == 0 &&
+            (command.ExpectedGeneration == int.MaxValue ||
+                refreshed.Profile.Generation !=
+                    command.ExpectedGeneration + 1)) ||
         refreshed.Profile.Generation <= command.ExpectedGeneration)
     {
       LogExecutionFailed(
@@ -198,6 +203,10 @@ internal sealed partial class CapacityCommandExecutor(
     }
     arguments.Add("-Scope");
     arguments.Add(profile.Scope);
+    if (maximum == 0)
+    {
+      arguments.Add("-Pause");
+    }
     switch (profile.Scope)
     {
       case "repo":
@@ -206,23 +215,32 @@ internal sealed partial class CapacityCommandExecutor(
           throw new InvalidOperationException(
               "Repository capacity profile has no local target.");
         }
-        arguments.Add("-AddRepos");
-        arguments.Add(
-            $"{profile.RepositoryUrl}={maximum.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        if (maximum > 0)
+        {
+          arguments.Add("-AddRepos");
+          arguments.Add(
+              $"{profile.RepositoryUrl}={maximum.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        }
         break;
       case "org":
         arguments.Add("-OrgName");
         arguments.Add(profile.Organization);
-        arguments.Add("-Replicas");
-        arguments.Add(maximum.ToString(
-            System.Globalization.CultureInfo.InvariantCulture));
+        if (maximum > 0)
+        {
+          arguments.Add("-Replicas");
+          arguments.Add(maximum.ToString(
+              System.Globalization.CultureInfo.InvariantCulture));
+        }
         break;
       case "ent":
         arguments.Add("-EnterpriseName");
         arguments.Add(profile.Enterprise);
-        arguments.Add("-Replicas");
-        arguments.Add(maximum.ToString(
-            System.Globalization.CultureInfo.InvariantCulture));
+        if (maximum > 0)
+        {
+          arguments.Add("-Replicas");
+          arguments.Add(maximum.ToString(
+              System.Globalization.CultureInfo.InvariantCulture));
+        }
         break;
       default:
         throw new InvalidOperationException(

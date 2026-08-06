@@ -76,6 +76,35 @@ public sealed class SyncConnectorUnitOfWorkTests
   }
 
   [Test]
+  public async Task Capacity_Operation_Validation_Fences_Zero_To_Advertised_Support()
+  {
+    var supported = new CapacityOperatorCapability(
+        [
+            new CapacityOperatorProfile(
+                "default",
+                8,
+                0,
+                50,
+                SupportsZeroMaximum: true),
+        ]);
+    var unsupported = new CapacityOperatorCapability(
+        [
+            new CapacityOperatorProfile(
+                "default",
+                8,
+                0,
+                50),
+        ]);
+
+    await Assert.That(
+            SyncConnectorUnitOfWork.IsValidCapacityOperator(supported))
+        .IsTrue();
+    await Assert.That(
+            SyncConnectorUnitOfWork.IsValidCapacityOperator(unsupported))
+        .IsFalse();
+  }
+
+  [Test]
   public async Task IsValidProfile_Accepts_Compatible_Resource_Telemetry()
   {
     var sampledAt = new DateTimeOffset(

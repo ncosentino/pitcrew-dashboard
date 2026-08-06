@@ -35,6 +35,63 @@ public sealed class CapacityProfileResolverTests
           .IsEqualTo(30);
       await Assert.That(capability.Profiles[0].MaximumAllowed)
           .IsEqualTo(40);
+      await Assert.That(capability.Profiles[0].SupportsZeroMaximum)
+          .IsTrue();
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
+  public async Task ReadCapabilityAsync_Advertises_Paused_Profile(
+      CancellationToken cancellationToken)
+  {
+    var root = CapacityTestData.CreateTemporaryDirectory();
+    try
+    {
+      await CapacityTestData.WriteSingleRepositoryProfileAsync(
+          root,
+          8,
+          0,
+          cancellationToken);
+      var resolver = ConnectorTestFactory.CreateCapacityResolver(
+          CapacityTestData.CreateOperatorOptions(root, 40));
+
+      var capability = await resolver.ReadCapabilityAsync(cancellationToken);
+
+      await Assert.That(capability).IsNotNull();
+      await Assert.That(capability!.Profiles).HasSingleItem();
+      await Assert.That(capability.Profiles[0].CurrentMaximum).IsEqualTo(0);
+      await Assert.That(capability.Profiles[0].SupportsZeroMaximum).IsTrue();
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
+  public async Task ReadCapabilityAsync_Omits_Zero_Profile_From_Older_Manager(
+      CancellationToken cancellationToken)
+  {
+    var root = CapacityTestData.CreateTemporaryDirectory();
+    try
+    {
+      await CapacityTestData.WriteSingleRepositoryProfileAsync(
+          root,
+          8,
+          0,
+          cancellationToken,
+          managerContractVersion: 16);
+      var resolver = ConnectorTestFactory.CreateCapacityResolver(
+          CapacityTestData.CreateOperatorOptions(root));
+
+      var capability = await resolver.ReadCapabilityAsync(cancellationToken);
+
+      await Assert.That(capability).IsNotNull();
+      await Assert.That(capability!.Profiles).IsEmpty();
     }
     finally
     {

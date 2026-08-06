@@ -105,13 +105,20 @@ function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   };
 }
 
-function capacityControl(latestCommand: unknown | null = null) {
+function capacityControl(
+  latestCommand: unknown | null = null,
+  overrides: Readonly<Record<string, unknown>> = {},
+) {
   return {
     profileId: 'default',
     generation: 7,
     currentMaximum: 30,
     maximumAllowed: 50,
+    supportsZeroMaximum: true,
     latestCommand,
+    pauseCommandId: null,
+    resumeMaximum: null,
+    ...overrides,
   };
 }
 
@@ -224,7 +231,9 @@ function renderProfile(
 function command(status: 'pending' | 'delivered' | 'succeeded' | 'rejected' | 'failed') {
   return {
     commandId: '729cb29e-21d9-4510-a285-397483891dc2',
+    previousMaximum: 30,
     requestedMaximum: 40,
+    resumesCommandId: null,
     status,
     requestedAt: '2026-07-24T12:00:00+00:00',
     deliveredAt: status === 'pending' ? null : '2026-07-24T12:00:01+00:00',
@@ -566,7 +575,7 @@ describe('profile detail routes', () => {
 
     expect(await screen.findByText('Fixed capacity')).toBeInTheDocument();
     expect(screen.getByTestId('profile-capacity-configured-default')).toHaveTextContent('2');
-    expect(screen.queryByLabelText('Absolute maximum')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Explicit maximum')).not.toBeInTheDocument();
 
     await act(async () => {
       await router.navigate(profileRoute('diagnostics'));
@@ -694,7 +703,7 @@ describe('profile detail routes', () => {
   ])('disables capacity changes for %s nodes', async (_name, nodeOverrides, status) => {
     renderProfile(fleetResponse([nodeResponse(nodeOverrides)]), 'owner', profileRoute('capacity'));
 
-    const input = await screen.findByLabelText('Absolute maximum');
+    const input = await screen.findByLabelText('Explicit maximum');
     expect(input).toBeDisabled();
     expect(screen.getByTestId('profile-node-unavailable')).toHaveTextContent(status);
   });
@@ -728,8 +737,8 @@ describe('profile detail routes', () => {
 
       const control = await screen.findByTestId('profile-capacity-control-default');
       expect(control).toHaveTextContent(status);
-      expect(control).toHaveTextContent('Requested 40');
-      const input = screen.getByLabelText('Absolute maximum');
+      expect(control).toHaveTextContent('requested 40');
+      const input = screen.getByLabelText('Explicit maximum');
       if (status === 'pending' || status === 'delivered') {
         expect(input).toBeDisabled();
       } else {
@@ -752,7 +761,7 @@ describe('profile detail routes', () => {
     renderProfile(fleetResponse(), 'owner', profileRoute('capacity'), fetchMock);
     const user = userEvent.setup();
 
-    const input = await screen.findByLabelText('Absolute maximum');
+    const input = await screen.findByLabelText('Explicit maximum');
     await user.clear(input);
     await user.type(input, '40');
     await user.click(screen.getByRole('button', { name: 'Queue change' }));
@@ -782,6 +791,120 @@ describe('profile detail routes', () => {
     await waitFor(() =>
       expect(screen.queryByText('Queuing capacity change…')).not.toBeInTheDocument(),
     );
+  });
+
+  it('confirms an explicit zero-capacity pause without implying busy worker cancellation', async () => {
+    const fleet = fleetResponse([nodeResponse()]);
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).endsWith('/api/session')) return jsonResponse(session());
+      if (init?.method === 'POST') {
+        return jsonResponse({
+          commandId: '729cb29e-21d9-4510-a285-397483891dc2',
+          status: 'pending',
+        });
+      }
+      return jsonResponse(fleet);
+    });
+    renderProfile(fleet, 'owner', profileRoute('capacity'), fetchMock);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Pause new work' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText(/busy workers continue/iu)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Pause new work' }));
+
+    const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({ maximum: 0 });
+  });
+
+  it('renders paused and resuming states and resumes only to the recorded maximum', async () => {
+    const pauseCommandId = '729cb29e-21d9-4510-a285-397483891dc2';
+    const pausedCommand = {
+      ...command('succeeded'),
+      commandId: pauseCommandId,
+      previousMaximum: 30,
+      requestedMaximum: 0,
+      resultMessage: 'Capacity maximum was acknowledged.',
+    };
+    const fleet = fleetResponse([
+      nodeResponse({
+        capacityControls: [
+          capacityControl(pausedCommand, {
+            generation: 8,
+            currentMaximum: 0,
+            pauseCommandId,
+            resumeMaximum: 30,
+          }),
+        ],
+      }),
+    ]);
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).endsWith('/api/session')) return jsonResponse(session());
+      if (init?.method === 'POST') {
+        return jsonResponse({
+          commandId: 'dc8a7ac5-9e14-45d7-bcd8-33a7288bd584',
+          status: 'pending',
+        });
+      }
+      return jsonResponse(fleet);
+    });
+    renderProfile(fleet, 'owner', profileRoute('capacity'), fetchMock);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('paused')).toBeInTheDocument();
+    expect(screen.getByText(/busy workers continue/iu)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Queue change' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Resume to 30' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Resume to 30' }));
+
+    const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+      maximum: 30,
+      resumeCommandId: pauseCommandId,
+    });
+  });
+
+  it.each([
+    [
+      'pausing',
+      capacityControl({
+        ...command('pending'),
+        requestedMaximum: 0,
+      }),
+    ],
+    [
+      'resuming',
+      capacityControl(
+        {
+          ...command('delivered'),
+          previousMaximum: 0,
+          requestedMaximum: 30,
+          resumesCommandId: '729cb29e-21d9-4510-a285-397483891dc2',
+        },
+        { currentMaximum: 0 },
+      ),
+    ],
+    [
+      'pending',
+      capacityControl(
+        {
+          ...command('pending'),
+          previousMaximum: 0,
+          requestedMaximum: 25,
+          resumesCommandId: null,
+        },
+        { currentMaximum: 0, pauseCommandId: null, resumeMaximum: null },
+      ),
+    ],
+  ])('distinguishes %s from ordinary capacity changes', async (status, control) => {
+    renderProfile(
+      fleetResponse([nodeResponse({ capacityControls: [control] })]),
+      'owner',
+      profileRoute('capacity'),
+    );
+
+    expect(await screen.findByText(status)).toBeInTheDocument();
   });
 
   it('renders contract 11 policy, admission ceiling, image identity, I/O, and exit evidence', async () => {
@@ -1152,7 +1275,7 @@ describe('profile detail routes', () => {
       profileRoute('capacity'),
     );
 
-    expect(await screen.findByLabelText('Absolute maximum')).toBeDisabled();
+    expect(await screen.findByLabelText('Explicit maximum')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Queue change' })).toBeDisabled();
     await act(async () => {
       await router.navigate(profileRoute('recovery'));

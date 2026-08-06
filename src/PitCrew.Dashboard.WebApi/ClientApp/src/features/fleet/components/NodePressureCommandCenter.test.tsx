@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FleetNode, OperationalIncident } from '@/core/fleet';
@@ -43,6 +44,52 @@ describe('NodePressureCommandCenter', () => {
     );
     expect(screen.getByText('Zephyr has sustained Docker-host CPU pressure')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pause/iu })).not.toBeInTheDocument();
+  });
+
+  it('offers confirmed pause beside exact GitHub links only for authorized controls', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          generatedAt: '2026-08-06T04:29:00+00:00',
+          incidents: [],
+          truncated: false,
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const node = createNode();
+    node.capacityControls = [
+      {
+        profileId: 'genesis-ci',
+        generation: 7,
+        currentMaximum: 8,
+        maximumAllowed: 12,
+        supportsZeroMaximum: true,
+        latestCommand: null,
+        pauseCommandId: null,
+        resumeMaximum: null,
+      },
+    ];
+    const pause = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(
+      <NodePressureCommandCenter
+        activeIncidents={[createIncident(node.nodeId)]}
+        canAdminister
+        generatedAt="2026-08-06T04:20:00+00:00"
+        node={node}
+        onPause={pause}
+        tenantId="local"
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Open in GitHub' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Pause genesis-ci new work' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Pause new work' }));
+    expect(pause).toHaveBeenCalledWith('genesis-ci');
   });
 
   it('sorts attributed workloads before otherwise-equal rows without timestamps', async () => {

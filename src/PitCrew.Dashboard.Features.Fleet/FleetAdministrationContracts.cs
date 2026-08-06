@@ -27,7 +27,10 @@ public sealed record RenameNodeRequest(string DisplayName);
 /// Requests an absolute maximum for one connector-advertised profile target.
 /// </summary>
 /// <param name="Maximum">Requested absolute capacity maximum.</param>
-public sealed record SetCapacityMaximumRequest(int Maximum);
+/// <param name="ResumeCommandId">Acknowledged pause command to resume, when applicable.</param>
+public sealed record SetCapacityMaximumRequest(
+    int Maximum,
+    Guid? ResumeCommandId = null);
 
 /// <summary>
 /// Returns the queued capacity command.
