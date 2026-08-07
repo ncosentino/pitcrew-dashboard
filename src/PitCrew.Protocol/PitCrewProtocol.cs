@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 9;
+  public const int Version = 10;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -236,6 +236,286 @@ public sealed record CapacityCommandOutcome(
     [property: JsonRequired] DateTimeOffset CompletedAt);
 
 /// <summary>
+/// Reports the connector's bounded current and most recently recovered health state.
+/// </summary>
+public sealed record ConnectorHealthReplaySnapshot(
+    [property: JsonRequired] string State,
+    [property: JsonRequired] DateTimeOffset ProcessStartedAt,
+    [property: JsonRequired] DateTimeOffset UpdatedAt,
+    [property: JsonRequired] DateTimeOffset? LastAttemptAt,
+    [property: JsonRequired] DateTimeOffset? LastSuccessAt,
+    [property: JsonRequired] Guid? ActiveOutageId,
+    [property: JsonRequired] DateTimeOffset? ActiveOutageStartedAt,
+    [property: JsonRequired] DateTimeOffset? LastFailureAt,
+    [property: JsonRequired] string? LastFailureCategory,
+    [property: JsonRequired] string? LastFailureProfileId,
+    [property: JsonRequired] string? LastFailureDetail,
+    [property: JsonRequired] int ConsecutiveFailures,
+    [property: JsonRequired] DateTimeOffset? NextRetryAt,
+    [property: JsonRequired] Guid? LastRecoveredOutageId,
+    [property: JsonRequired] DateTimeOffset? LastRecoveredOutageStartedAt,
+    [property: JsonRequired] DateTimeOffset? LastRecoveredAt,
+    [property: JsonRequired] string? LastRecoveredFailureCategory);
+
+/// <summary>
+/// Reports one sanitized connector-health journal event.
+/// </summary>
+public sealed record ConnectorHealthReplayEvent(
+    [property: JsonRequired] Guid EventId,
+    [property: JsonRequired] string Kind,
+    [property: JsonRequired] DateTimeOffset OccurredAt,
+    [property: JsonRequired] string State,
+    [property: JsonRequired] Guid? OutageId,
+    [property: JsonRequired] DateTimeOffset? OutageStartedAt,
+    [property: JsonRequired] string? FailureCategory,
+    [property: JsonRequired] string? ProfileId,
+    [property: JsonRequired] int ConsecutiveFailures,
+    [property: JsonRequired] int? RetryDelaySeconds,
+    [property: JsonRequired] string? Detail);
+
+/// <summary>
+/// Carries bounded connector health evidence after the normal synchronization path recovers.
+/// </summary>
+public sealed record ConnectorHealthReplay(
+    [property: JsonRequired] ConnectorHealthReplaySnapshot Snapshot,
+    [property: JsonRequired] IReadOnlyList<ConnectorHealthReplayEvent> Events);
+
+/// <summary>
+/// Acknowledges connector-health events durably accepted by Dashboard.
+/// </summary>
+public sealed record ConnectorHealthAcknowledgement(
+    [property: JsonRequired] IReadOnlyList<Guid> EventIds);
+
+/// <summary>
+/// Validates the bounded connector-health replay contract shared by connector and Dashboard.
+/// </summary>
+public static class ConnectorHealthReplayContract
+{
+  /// <summary>
+  /// Gets the maximum event count accepted in one synchronization request.
+  /// </summary>
+  public const int MaximumEvents = 256;
+
+  /// <summary>
+  /// Validates one optional replay envelope without throwing.
+  /// </summary>
+  public static bool IsValid(
+      ConnectorHealthReplay? replay,
+      DateTimeOffset maximumTimestamp)
+  {
+    if (replay is null)
+    {
+      return true;
+    }
+    if (replay.Snapshot is null ||
+        !IsValidSnapshot(
+            replay.Snapshot,
+            maximumTimestamp) ||
+        replay.Events is null ||
+        replay.Events.Count > MaximumEvents)
+    {
+      return false;
+    }
+    var eventIds = new HashSet<Guid>();
+    return replay.Events.All(entry =>
+        entry is not null &&
+        eventIds.Add(entry.EventId) &&
+        IsValidEvent(
+            entry,
+            maximumTimestamp));
+  }
+
+  private static bool IsValidSnapshot(
+      ConnectorHealthReplaySnapshot snapshot,
+      DateTimeOffset maximumTimestamp)
+  {
+    if (!IsState(snapshot.State) ||
+        snapshot.ProcessStartedAt == default ||
+        snapshot.UpdatedAt == default ||
+        snapshot.ProcessStartedAt > snapshot.UpdatedAt ||
+        snapshot.UpdatedAt > maximumTimestamp ||
+        snapshot.ConsecutiveFailures is < 0 or > 1_000_000 ||
+        snapshot.ActiveOutageId == Guid.Empty ||
+        snapshot.LastRecoveredOutageId == Guid.Empty ||
+        !IsOptionalProfileId(snapshot.LastFailureProfileId) ||
+        !IsFailure(
+            snapshot.LastFailureCategory,
+            snapshot.LastFailureDetail) ||
+        !IsFailureCategory(
+            snapshot.LastRecoveredFailureCategory))
+    {
+      return false;
+    }
+    if ((snapshot.ActiveOutageId is null) !=
+        (snapshot.ActiveOutageStartedAt is null) ||
+        snapshot.ActiveOutageStartedAt > snapshot.UpdatedAt ||
+        snapshot.LastFailureAt > snapshot.UpdatedAt ||
+        snapshot.LastAttemptAt > snapshot.UpdatedAt ||
+        snapshot.LastSuccessAt > snapshot.UpdatedAt ||
+        snapshot.NextRetryAt < snapshot.LastFailureAt ||
+        snapshot.NextRetryAt > snapshot.UpdatedAt.AddDays(1))
+    {
+      return false;
+    }
+    if (snapshot.ActiveOutageId is not null &&
+        (snapshot.State != "degraded" ||
+         snapshot.LastFailureAt is null ||
+         snapshot.LastFailureCategory is null))
+    {
+      return false;
+    }
+    if (snapshot.State == "healthy" &&
+        (snapshot.ConsecutiveFailures != 0 ||
+         snapshot.NextRetryAt is not null))
+    {
+      return false;
+    }
+    if ((snapshot.LastRecoveredOutageId is null) !=
+        (snapshot.LastRecoveredOutageStartedAt is null) ||
+        (snapshot.LastRecoveredOutageId is null) !=
+        (snapshot.LastRecoveredAt is null))
+    {
+      return false;
+    }
+    return snapshot.LastRecoveredOutageId is null ||
+        (snapshot.LastRecoveredOutageStartedAt <=
+             snapshot.LastRecoveredAt &&
+         snapshot.LastRecoveredAt <= snapshot.UpdatedAt);
+  }
+
+  private static bool IsValidEvent(
+      ConnectorHealthReplayEvent entry,
+      DateTimeOffset maximumTimestamp)
+  {
+    if (entry.EventId == Guid.Empty ||
+        entry.OccurredAt == default ||
+        entry.OccurredAt > maximumTimestamp ||
+        !IsEventKind(entry.Kind) ||
+        !IsState(entry.State) ||
+        !IsOptionalProfileId(entry.ProfileId) ||
+        !IsFailure(
+            entry.FailureCategory,
+            entry.Detail) ||
+        entry.ConsecutiveFailures is < 0 or > 1_000_000 ||
+        entry.RetryDelaySeconds is < 0 or > 86_400 ||
+        entry.OutageId == Guid.Empty ||
+        (entry.OutageId is null) !=
+            (entry.OutageStartedAt is null) ||
+        entry.OutageStartedAt > entry.OccurredAt)
+    {
+      return false;
+    }
+    return entry.Kind is not (
+        "synchronization-failed" or
+        "observation-incomplete" or
+        "enrollment-failed" or
+        "rejected")
+        || entry.FailureCategory is not null;
+  }
+
+  private static bool IsState(string state) =>
+      state is "starting" or "healthy" or "degraded" or "stopping";
+
+  private static bool IsEventKind(string kind) =>
+      kind is
+          "process-started" or
+          "process-stopping" or
+          "synchronization-succeeded" or
+          "synchronization-failed" or
+          "observation-incomplete" or
+          "enrollment-failed" or
+          "rejected" or
+          "recovered";
+
+  private static bool IsOptionalProfileId(string? profileId) =>
+      profileId is null || PitCrewProfileId.IsValid(profileId);
+
+  private static bool IsFailure(
+      string? category,
+      string? detail)
+  {
+    if (category is null)
+    {
+      return detail is null;
+    }
+    if (!IsFailureCategory(category))
+    {
+      return false;
+    }
+    var expectedDetail = category switch
+    {
+      "state-root-missing" =>
+          "PitCrew state root is unavailable.",
+      "state-root-unreadable" =>
+          "PitCrew state root could not be enumerated.",
+      "profile-directory-unreadable" =>
+          "Profile state directory could not be inspected.",
+      "profile-state-invalid" =>
+          "Profile observed state is invalid.",
+      "profile-state-unreadable" =>
+          "Profile observed state could not be read.",
+      "synchronization-network" =>
+          "Connector synchronization could not reach Dashboard.",
+      "synchronization-timeout" =>
+          "Dashboard synchronization timed out.",
+      "synchronization-rate-limited" =>
+          "Dashboard rate-limited connector synchronization.",
+      "synchronization-server" =>
+          "Dashboard returned a transient server error during synchronization.",
+      "synchronization-io" =>
+          "Connector synchronization could not read or write local state.",
+      "payload-rejected" =>
+          "Dashboard permanently rejected the synchronization payload.",
+      "credential-rejected" =>
+          "Dashboard rejected the connector credential.",
+      "enrollment-rejected" =>
+          "Dashboard rejected connector enrollment.",
+      "enrollment-network" =>
+          "Connector enrollment could not reach Dashboard.",
+      "enrollment-timeout" =>
+          "Connector enrollment timed out.",
+      "enrollment-rate-limited" =>
+          "Dashboard rate-limited connector enrollment.",
+      "enrollment-server" =>
+          "Dashboard returned a transient server error during enrollment.",
+      "configuration-invalid" =>
+          "Connector configuration is invalid.",
+      "enrollment-configuration" =>
+          "Connector enrollment configuration is incomplete.",
+      _ => null,
+    };
+    return detail is null ||
+        string.Equals(
+            detail,
+            expectedDetail,
+            StringComparison.Ordinal);
+  }
+
+  private static bool IsFailureCategory(
+      string? category) =>
+      category is null or
+          "state-root-missing" or
+          "state-root-unreadable" or
+          "profile-directory-unreadable" or
+          "profile-state-invalid" or
+          "profile-state-unreadable" or
+          "synchronization-network" or
+          "synchronization-timeout" or
+          "synchronization-rate-limited" or
+          "synchronization-server" or
+          "synchronization-io" or
+          "payload-rejected" or
+          "credential-rejected" or
+          "enrollment-rejected" or
+          "enrollment-network" or
+          "enrollment-timeout" or
+          "enrollment-rate-limited" or
+          "enrollment-server" or
+          "configuration-invalid" or
+          "enrollment-configuration";
+}
+
+/// <summary>
 /// Sends the latest complete profile projections from one authenticated connector.
 /// </summary>
 /// <param name="ProtocolVersion">Connector synchronization protocol version.</param>
@@ -247,6 +527,7 @@ public sealed record CapacityCommandOutcome(
 /// <param name="RecoveryOperator">Locally enabled manager-recovery capability, or <see langword="null"/>.</param>
 /// <param name="RecoveryCommandProgress">Most recent unacknowledged recovery progress report, or <see langword="null"/>.</param>
 /// <param name="RecoveryCommandOutcome">Most recent unacknowledged recovery outcome, or <see langword="null"/>.</param>
+/// <param name="ConnectorHealth">Bounded local connector-health evidence, or <see langword="null"/> when unavailable.</param>
 public sealed record ConnectorSyncRequest(
     int ProtocolVersion,
     string ConnectorVersion,
@@ -256,7 +537,8 @@ public sealed record ConnectorSyncRequest(
     CapacityCommandOutcome? CapacityCommandOutcome,
     RecoveryOperatorCapability? RecoveryOperator = null,
     RecoveryCommandProgress? RecoveryCommandProgress = null,
-    RecoveryCommandOutcome? RecoveryCommandOutcome = null);
+    RecoveryCommandOutcome? RecoveryCommandOutcome = null,
+    ConnectorHealthReplay? ConnectorHealth = null);
 
 /// <summary>
 /// Delivers a staged replacement node credential to the connector.
@@ -272,12 +554,14 @@ public sealed record ConnectorCredentialRotation(string Credential);
 /// <param name="CredentialRotation">Replacement credential when rotation was staged; otherwise <see langword="null"/>.</param>
 /// <param name="CapacityCommand">Capacity command claimed for this connector, or <see langword="null"/>.</param>
 /// <param name="RecoveryCommand">Manager-recovery command claimed for this connector, or <see langword="null"/>.</param>
+/// <param name="ConnectorHealthAcknowledgement">Connector-health event identifiers durably accepted by Dashboard.</param>
 public sealed record ConnectorSyncResponse(
     DateTimeOffset AcceptedAt,
     int NextPollSeconds,
     ConnectorCredentialRotation? CredentialRotation,
     SetCapacityCommand? CapacityCommand,
-    RecoverManagerCommand? RecoveryCommand = null);
+    RecoverManagerCommand? RecoveryCommand = null,
+    ConnectorHealthAcknowledgement? ConnectorHealthAcknowledgement = null);
 
 /// <summary>
 /// Provides source-generated JSON metadata for connector and dashboard protocol messages.
@@ -316,6 +600,11 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(RecoverManagerCommand))]
 [JsonSerializable(typeof(RecoveryCommandProgress))]
 [JsonSerializable(typeof(RecoveryCommandOutcome))]
+[JsonSerializable(typeof(ConnectorHealthReplaySnapshot))]
+[JsonSerializable(typeof(ConnectorHealthReplayEvent))]
+[JsonSerializable(typeof(ConnectorHealthReplay))]
+[JsonSerializable(typeof(ConnectorHealthAcknowledgement))]
+[JsonSerializable(typeof(IReadOnlyList<ConnectorHealthReplayEvent>))]
 [JsonSerializable(typeof(ConnectorSyncRequest))]
 [JsonSerializable(typeof(ConnectorCredentialRotation))]
 [JsonSerializable(typeof(ConnectorSyncResponse))]

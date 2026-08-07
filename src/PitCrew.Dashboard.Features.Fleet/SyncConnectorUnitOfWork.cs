@@ -31,7 +31,8 @@ internal sealed record ConnectorSynchronizationInput(
     CapacityCommandOutcome? CapacityCommandOutcome,
     RecoveryOperatorCapability? RecoveryOperator,
     RecoveryCommandProgress? RecoveryCommandProgress,
-    RecoveryCommandOutcome? RecoveryCommandOutcome);
+    RecoveryCommandOutcome? RecoveryCommandOutcome,
+    ConnectorHealthReplay? ConnectorHealth = null);
 
 internal interface ISyncConnectorUnitOfWork
 {
@@ -44,6 +45,7 @@ internal interface ISyncConnectorUnitOfWork
 internal sealed partial class SyncConnectorUnitOfWork(
     IFleetStore _fleetStore,
     IFleetHistoryStore _fleetHistoryStore,
+    IConnectorHealthStore _connectorHealthStore,
     IFleetStorageTransactionFactory _transactionFactory,
     ICapacityCommandStore _capacityCommandStore,
     IRecoveryCommandStore _recoveryCommandStore,
@@ -166,8 +168,26 @@ internal sealed partial class SyncConnectorUnitOfWork(
           "Manager recovery state does not satisfy the protocol contract.",
           null);
     }
-
     var acceptedAt = _timeProvider.GetUtcNow();
+    if (input.ProtocolVersion < 10 &&
+        input.ConnectorHealth is not null)
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Connector health replay requires connector protocol version 10.",
+          null);
+    }
+    if (!IsValidConnectorHealthReplay(
+        input.ConnectorHealth,
+        acceptedAt.AddSeconds(
+            _options.Value.HistoryClockSkewToleranceSeconds)))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Connector health replay does not satisfy the protocol contract.",
+          null);
+    }
+
     var credentialUpdate = new ConnectorCredentialUpdate(
         ConnectorCredentialUpdateKind.None,
         string.Empty);
@@ -209,6 +229,19 @@ internal sealed partial class SyncConnectorUnitOfWork(
         acceptedProfileIds,
         credentialUpdate,
         cancellationToken);
+    if (input.ConnectorHealth is not null)
+    {
+      await _connectorHealthStore.ApplyAsync(
+          storageTransaction,
+          identity.NodeId,
+          input.ConnectorHealth,
+          acceptedAt,
+          new ConnectorHealthRetentionPolicy(
+              TimeSpan.FromDays(
+                  _options.Value.ConnectorHealthRetentionDays),
+              _options.Value.MaximumConnectorHealthEventsPerNode),
+          cancellationToken);
+    }
     IReadOnlyList<ManagerObservedState>? hardwareProfiles =
         input.Profiles.Count == 0
             ? []
@@ -272,8 +305,21 @@ internal sealed partial class SyncConnectorUnitOfWork(
             _options.Value.ConnectorPollSeconds,
             credentialRotation,
             capacityCommand,
-            recoveryCommand));
+            recoveryCommand,
+            input.ConnectorHealth is null
+                ? null
+                : new ConnectorHealthAcknowledgement(
+                    input.ConnectorHealth.Events
+                        .Select(entry => entry.EventId)
+                        .ToArray())));
   }
+
+  internal static bool IsValidConnectorHealthReplay(
+      ConnectorHealthReplay? replay,
+      DateTimeOffset maximumTimestamp) =>
+      ConnectorHealthReplayContract.IsValid(
+          replay,
+          maximumTimestamp);
 
   internal static bool IsValidCapacityOperator(
       CapacityOperatorCapability? capability)

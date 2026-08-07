@@ -568,4 +568,189 @@ public sealed class ProtocolCompatibilityTests
     await Assert.That(response.RecoveryCommand.ExpectedDesiredStateHash)
         .IsNull();
   }
+
+  [Test]
+  public async Task Protocol_Nine_Remains_Readable_Without_Connector_Health()
+  {
+    var request = JsonSerializer.Deserialize(
+        """
+        {
+          "protocolVersion": 9,
+          "connectorVersion": "9.0.0",
+          "sentAt": "2026-08-07T12:00:00+00:00",
+          "profiles": [],
+          "capacityOperator": null,
+          "capacityCommandOutcome": null,
+          "recoveryOperator": null,
+          "recoveryCommandProgress": null,
+          "recoveryCommandOutcome": null
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncRequest);
+    var response = JsonSerializer.Deserialize(
+        """
+        {
+          "acceptedAt": "2026-08-07T12:00:01+00:00",
+          "nextPollSeconds": 15,
+          "credentialRotation": null,
+          "capacityCommand": null,
+          "recoveryCommand": null
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncResponse);
+
+    await Assert.That(request).IsNotNull();
+    await Assert.That(request!.ConnectorHealth).IsNull();
+    await Assert.That(response).IsNotNull();
+    await Assert.That(response!.ConnectorHealthAcknowledgement).IsNull();
+  }
+
+  [Test]
+  public async Task Connector_Health_Replay_Round_Trips_On_Protocol_Ten()
+  {
+    var outageId = new Guid(
+        "11111111-1111-1111-1111-111111111111");
+    var eventId = new Guid(
+        "22222222-2222-2222-2222-222222222222");
+    var request = new ConnectorSyncRequest(
+        10,
+        "10.0.0",
+        new DateTimeOffset(
+            2026,
+            8,
+            7,
+            12,
+            0,
+            0,
+            TimeSpan.Zero),
+        [],
+        null,
+        null,
+        null,
+        null,
+        null,
+        new ConnectorHealthReplay(
+            new ConnectorHealthReplaySnapshot(
+                "degraded",
+                new DateTimeOffset(
+                    2026,
+                    8,
+                    7,
+                    11,
+                    0,
+                    0,
+                    TimeSpan.Zero),
+                new DateTimeOffset(
+                    2026,
+                    8,
+                    7,
+                    12,
+                    0,
+                    0,
+                    TimeSpan.Zero),
+                new DateTimeOffset(
+                    2026,
+                    8,
+                    7,
+                    12,
+                    0,
+                    0,
+                    TimeSpan.Zero),
+                null,
+                outageId,
+                new DateTimeOffset(
+                    2026,
+                    8,
+                    7,
+                    11,
+                    55,
+                    0,
+                    TimeSpan.Zero),
+                new DateTimeOffset(
+                    2026,
+                    8,
+                    7,
+                    12,
+                    0,
+                    0,
+                    TimeSpan.Zero),
+                "synchronization-network",
+                null,
+                "Connector synchronization could not reach Dashboard.",
+                3,
+                new DateTimeOffset(
+                    2026,
+                    8,
+                    7,
+                    12,
+                    5,
+                    0,
+                    TimeSpan.Zero),
+                null,
+                null,
+                null,
+                null),
+            [
+                new ConnectorHealthReplayEvent(
+                    eventId,
+                    "synchronization-failed",
+                    new DateTimeOffset(
+                        2026,
+                        8,
+                        7,
+                        12,
+                        0,
+                        0,
+                        TimeSpan.Zero),
+                    "degraded",
+                    outageId,
+                    new DateTimeOffset(
+                        2026,
+                        8,
+                        7,
+                        11,
+                        55,
+                        0,
+                        TimeSpan.Zero),
+                    "synchronization-network",
+                    null,
+                    3,
+                    300,
+                    "Connector synchronization could not reach Dashboard."),
+            ]));
+    var serialized = JsonSerializer.Serialize(
+        request,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncRequest);
+    var roundTripped = JsonSerializer.Deserialize(
+        serialized,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncRequest);
+    var response = new ConnectorSyncResponse(
+        request.SentAt.AddSeconds(1),
+        15,
+        null,
+        null,
+        null,
+        new ConnectorHealthAcknowledgement([eventId]));
+    var responseJson = JsonSerializer.Serialize(
+        response,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncResponse);
+    var responseRoundTrip = JsonSerializer.Deserialize(
+        responseJson,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncResponse);
+
+    await Assert.That(roundTripped).IsNotNull();
+    await Assert.That(roundTripped!.ConnectorHealth).IsNotNull();
+    await Assert.That(roundTripped.ConnectorHealth!.Events)
+        .HasSingleItem();
+    await Assert.That(
+            roundTripped.ConnectorHealth.Events[0].EventId)
+        .IsEqualTo(eventId);
+    await Assert.That(responseRoundTrip).IsNotNull();
+    await Assert.That(
+            responseRoundTrip!.ConnectorHealthAcknowledgement!.EventIds)
+        .HasSingleItem();
+    await Assert.That(
+            responseRoundTrip.ConnectorHealthAcknowledgement.EventIds[0])
+        .IsEqualTo(eventId);
+  }
 }

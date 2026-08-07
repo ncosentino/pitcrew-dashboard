@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 
+using PitCrew.Protocol;
+
 namespace PitCrew.Connector.Features.Sync;
 
 internal static class ConnectorHealthStates
@@ -83,3 +85,13 @@ internal sealed record ConnectorHealthSnapshot(
     [property: JsonRequired] DateTimeOffset? LastRecoveredOutageStartedAt,
     [property: JsonRequired] DateTimeOffset? LastRecoveredAt,
     [property: JsonRequired] string? LastRecoveredFailureCategory);
+
+internal sealed record ConnectorHealthAcknowledgementState(
+    [property: JsonRequired] int SchemaVersion,
+    [property: JsonRequired] DateTimeOffset UpdatedAt,
+    [property: JsonRequired] IReadOnlyList<Guid> EventIds);
+
+internal sealed record ConnectorHealthReplayReadResult(
+    ConnectorHealthReplay? Replay,
+    bool HasPendingEvents,
+    bool RequiresSynchronization);

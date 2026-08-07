@@ -163,8 +163,13 @@ Protocol 1-8 and container-mode connectors remain read-only for pause. See
 
 Connectors also retain a bounded local
 [health journal](docs/connector-health.md) beside their protected identity
-directory. It records sanitized synchronization failures, retry state, and
-recovery without changing the connector protocol or exposing credentials.
+directory. The local files record sanitized synchronization failures, retry
+state, and recovery without exposing credentials.
+Protocol 10 retrospectively replays that bounded evidence after the normal
+outbound channel recovers. Dashboard acknowledges event IDs idempotently and
+commits current health plus retained history in the same SQLite transaction as
+the node heartbeat. See
+[ADR-0005](docs/adr/adr-0005-retrospective-connector-health-replay.md).
 
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,

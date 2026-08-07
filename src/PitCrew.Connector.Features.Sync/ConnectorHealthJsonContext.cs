@@ -7,4 +7,5 @@ namespace PitCrew.Connector.Features.Sync;
     GenerationMode = JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(ConnectorHealthEvent))]
 [JsonSerializable(typeof(ConnectorHealthSnapshot))]
+[JsonSerializable(typeof(ConnectorHealthAcknowledgementState))]
 internal sealed partial class ConnectorHealthJsonContext : JsonSerializerContext;
