@@ -17,6 +17,7 @@ internal sealed partial class ConnectorWorker(
     ObservedStateReader _observedStateReader,
     CapacityCommandExecutor _capacityCommandExecutor,
     RecoveryCommandExecutor _recoveryCommandExecutor,
+    ConnectorHealthJournal _healthJournal,
     IOptions<ConnectorOptions> _options,
     TimeProvider _timeProvider,
     ILogger<ConnectorWorker> _logger) : BackgroundService
@@ -28,7 +29,44 @@ internal sealed partial class ConnectorWorker(
   protected override async Task ExecuteAsync(
       CancellationToken stoppingToken)
   {
-    ValidateTransport();
+    await _healthJournal.RecordProcessStartedAsync(
+        _timeProvider.GetUtcNow(),
+        stoppingToken);
+    try
+    {
+      await RunAsync(stoppingToken);
+    }
+    finally
+    {
+      if (stoppingToken.IsCancellationRequested)
+      {
+        await _healthJournal.RecordProcessStoppingAsync(
+            _timeProvider.GetUtcNow(),
+            CancellationToken.None);
+      }
+    }
+  }
+
+  private async Task RunAsync(
+      CancellationToken stoppingToken)
+  {
+    try
+    {
+      ValidateTransport();
+    }
+    catch (InvalidOperationException)
+    {
+      await _healthJournal.RecordFailureAsync(
+          ConnectorHealthEventKinds.Rejected,
+          new ConnectorHealthFailure(
+              ConnectorHealthFailureCategories.ConfigurationInvalid,
+              "Connector configuration is invalid."),
+          1,
+          null,
+          _timeProvider.GetUtcNow(),
+          stoppingToken);
+      throw;
+    }
     var identity = await EnrollWithRetryAsync(stoppingToken);
     var successfulPollDelay = TimeSpan.FromSeconds(
         _options.Value.PollSeconds);
@@ -44,6 +82,7 @@ internal sealed partial class ConnectorWorker(
 
     while (!stoppingToken.IsCancellationRequested)
     {
+      var delayIsJittered = false;
       try
       {
         var observedState = await _observedStateReader.ReadAsync(
@@ -51,7 +90,19 @@ internal sealed partial class ConnectorWorker(
         if (!observedState.IsComplete)
         {
           consecutiveFailures++;
-          nextDelay = CalculateBackoff(consecutiveFailures);
+          nextDelay = CalculateJitteredDelay(
+              CalculateBackoff(consecutiveFailures));
+          delayIsJittered = true;
+          await _healthJournal.RecordFailureAsync(
+              ConnectorHealthEventKinds.ObservationIncomplete,
+              observedState.Failure ??
+                  new ConnectorHealthFailure(
+                      ConnectorHealthFailureCategories.ProfileStateUnreadable,
+                      "Connector observation is incomplete."),
+              consecutiveFailures,
+              nextDelay,
+              _timeProvider.GetUtcNow(),
+              stoppingToken);
           LogIncompleteObservation(nextDelay);
         }
         else
@@ -81,6 +132,9 @@ internal sealed partial class ConnectorWorker(
               pendingRecoveryProgress is not null ||
               pendingRecoveryOutcome is not null)
           {
+            await _healthJournal.RecordSynchronizationAttemptAsync(
+                now,
+                stoppingToken);
             var response = await _apiClient.SyncAsync(
                 identity.Credential!,
                 new ConnectorSyncRequest(
@@ -143,6 +197,9 @@ internal sealed partial class ConnectorWorker(
             LogSynchronized(
                 observedState.Profiles.Count,
                 nextDelay);
+            await _healthJournal.RecordSynchronizationSucceededAsync(
+                _timeProvider.GetUtcNow(),
+                stoppingToken);
           }
           else
           {
@@ -155,6 +212,15 @@ internal sealed partial class ConnectorWorker(
           when (exception.StatusCode == System.Net.HttpStatusCode.Unauthorized)
       {
         LogCredentialRejected();
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.Rejected,
+            new ConnectorHealthFailure(
+                ConnectorHealthFailureCategories.CredentialRejected,
+                "Dashboard rejected the connector credential."),
+            consecutiveFailures + 1,
+            null,
+            _timeProvider.GetUtcNow(),
+            stoppingToken);
         if (string.IsNullOrWhiteSpace(
             _options.Value.EnrollmentCode))
         {
@@ -176,6 +242,15 @@ internal sealed partial class ConnectorWorker(
               exception.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
       {
         LogPayloadRejected(exception.Message);
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.Rejected,
+            new ConnectorHealthFailure(
+                ConnectorHealthFailureCategories.PayloadRejected,
+                "Dashboard permanently rejected the synchronization payload."),
+            consecutiveFailures + 1,
+            null,
+            _timeProvider.GetUtcNow(),
+            stoppingToken);
         throw new InvalidOperationException(
             "The dashboard permanently rejected the connector payload.",
             exception);
@@ -183,7 +258,18 @@ internal sealed partial class ConnectorWorker(
       catch (HttpRequestException exception)
       {
         consecutiveFailures++;
-        nextDelay = CalculateBackoff(consecutiveFailures);
+        nextDelay = CalculateJitteredDelay(
+            CalculateBackoff(consecutiveFailures));
+        delayIsJittered = true;
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.SynchronizationFailed,
+            ClassifyHttpFailure(
+                exception,
+                enrollment: false),
+            consecutiveFailures,
+            nextDelay,
+            _timeProvider.GetUtcNow(),
+            stoppingToken);
         LogSyncFailure(
             exception.Message,
             nextDelay);
@@ -191,7 +277,18 @@ internal sealed partial class ConnectorWorker(
       catch (IOException exception)
       {
         consecutiveFailures++;
-        nextDelay = CalculateBackoff(consecutiveFailures);
+        nextDelay = CalculateJitteredDelay(
+            CalculateBackoff(consecutiveFailures));
+        delayIsJittered = true;
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.SynchronizationFailed,
+            new ConnectorHealthFailure(
+                ConnectorHealthFailureCategories.SynchronizationIo,
+                "Connector synchronization could not read or write local state."),
+            consecutiveFailures,
+            nextDelay,
+            _timeProvider.GetUtcNow(),
+            stoppingToken);
         LogSyncFailure(
             exception.Message,
             nextDelay);
@@ -200,18 +297,26 @@ internal sealed partial class ConnectorWorker(
           when (!stoppingToken.IsCancellationRequested)
       {
         consecutiveFailures++;
-        nextDelay = CalculateBackoff(consecutiveFailures);
+        nextDelay = CalculateJitteredDelay(
+            CalculateBackoff(consecutiveFailures));
+        delayIsJittered = true;
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.SynchronizationFailed,
+            ClassifyTimeout(enrollment: false),
+            consecutiveFailures,
+            nextDelay,
+            _timeProvider.GetUtcNow(),
+            stoppingToken);
         LogSyncFailure(
             exception.Message,
             nextDelay);
       }
 
-      var jitterFactor = 0.8 +
-          (Random.Shared.NextDouble() * 0.4);
-      var jitteredDelay = TimeSpan.FromMilliseconds(
-          nextDelay.TotalMilliseconds * jitterFactor);
+      var effectiveDelay = delayIsJittered
+          ? nextDelay
+          : CalculateJitteredDelay(nextDelay);
       await Task.Delay(
-          jitteredDelay,
+          effectiveDelay,
           _timeProvider,
           stoppingToken);
     }
@@ -231,6 +336,15 @@ internal sealed partial class ConnectorWorker(
           when (exception.StatusCode == System.Net.HttpStatusCode.Unauthorized)
       {
         LogEnrollmentRejected();
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.Rejected,
+            new ConnectorHealthFailure(
+                ConnectorHealthFailureCategories.EnrollmentRejected,
+                "Dashboard rejected connector enrollment."),
+            failures + 1,
+            null,
+            _timeProvider.GetUtcNow(),
+            cancellationToken);
         throw new InvalidOperationException(
             "The dashboard rejected the one-time connector enrollment code.",
             exception);
@@ -241,6 +355,15 @@ internal sealed partial class ConnectorWorker(
               exception.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
       {
         LogEnrollmentRejected();
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.Rejected,
+            new ConnectorHealthFailure(
+                ConnectorHealthFailureCategories.EnrollmentRejected,
+                "Dashboard permanently rejected connector enrollment."),
+            failures + 1,
+            null,
+            _timeProvider.GetUtcNow(),
+            cancellationToken);
         throw new InvalidOperationException(
             "The dashboard permanently rejected connector enrollment.",
             exception);
@@ -249,6 +372,15 @@ internal sealed partial class ConnectorWorker(
       {
         failures++;
         var delay = CalculateBackoff(failures);
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.EnrollmentFailed,
+            ClassifyHttpFailure(
+                exception,
+                enrollment: true),
+            failures,
+            delay,
+            _timeProvider.GetUtcNow(),
+            cancellationToken);
         LogEnrollmentFailure(exception.Message, delay);
         await Task.Delay(delay, cancellationToken);
       }
@@ -257,6 +389,13 @@ internal sealed partial class ConnectorWorker(
       {
         failures++;
         var delay = CalculateBackoff(failures);
+        await _healthJournal.RecordFailureAsync(
+            ConnectorHealthEventKinds.EnrollmentFailed,
+            ClassifyTimeout(enrollment: true),
+            failures,
+            delay,
+            _timeProvider.GetUtcNow(),
+            cancellationToken);
         LogEnrollmentFailure(exception.Message, delay);
         await Task.Delay(delay, cancellationToken);
       }
@@ -275,6 +414,15 @@ internal sealed partial class ConnectorWorker(
     }
     if (string.IsNullOrWhiteSpace(_options.Value.EnrollmentCode))
     {
+      await _healthJournal.RecordFailureAsync(
+          ConnectorHealthEventKinds.Rejected,
+          new ConnectorHealthFailure(
+              ConnectorHealthFailureCategories.EnrollmentConfiguration,
+              "Connector enrollment configuration is incomplete."),
+          1,
+          null,
+          _timeProvider.GetUtcNow(),
+          cancellationToken);
       throw new InvalidOperationException(
           "Connector enrollment requires PitCrew:Connector:EnrollmentCode until an identity has been issued.");
     }
@@ -338,6 +486,14 @@ internal sealed partial class ConnectorWorker(
     }
   }
 
+  private static TimeSpan CalculateJitteredDelay(TimeSpan delay)
+  {
+    var jitterFactor = 0.8 +
+        (Random.Shared.NextDouble() * 0.4);
+    return TimeSpan.FromMilliseconds(
+        delay.TotalMilliseconds * jitterFactor);
+  }
+
   private TimeSpan CalculateBackoff(int consecutiveFailures)
   {
     var exponentialSeconds = Math.Pow(
@@ -348,6 +504,51 @@ internal sealed partial class ConnectorWorker(
             exponentialSeconds,
             _options.Value.MaximumBackoffSeconds));
   }
+
+  internal static ConnectorHealthFailure ClassifyHttpFailure(
+      HttpRequestException exception,
+      bool enrollment)
+  {
+    if (exception.StatusCode ==
+        System.Net.HttpStatusCode.TooManyRequests)
+    {
+      return new ConnectorHealthFailure(
+          enrollment
+              ? ConnectorHealthFailureCategories.EnrollmentRateLimited
+              : ConnectorHealthFailureCategories.SynchronizationRateLimited,
+          enrollment
+              ? "Dashboard rate-limited connector enrollment."
+              : "Dashboard rate-limited connector synchronization.");
+    }
+    if (exception.StatusCode is not null &&
+        (int)exception.StatusCode.Value >= 500)
+    {
+      return new ConnectorHealthFailure(
+          enrollment
+              ? ConnectorHealthFailureCategories.EnrollmentServer
+              : ConnectorHealthFailureCategories.SynchronizationServer,
+          enrollment
+              ? "Dashboard returned a transient server error during enrollment."
+              : "Dashboard returned a transient server error during synchronization.");
+    }
+    return new ConnectorHealthFailure(
+        enrollment
+            ? ConnectorHealthFailureCategories.EnrollmentNetwork
+            : ConnectorHealthFailureCategories.SynchronizationNetwork,
+        enrollment
+            ? "Connector enrollment could not reach Dashboard."
+            : "Connector synchronization could not reach Dashboard.");
+  }
+
+  internal static ConnectorHealthFailure ClassifyTimeout(
+      bool enrollment) =>
+      new(
+          enrollment
+              ? ConnectorHealthFailureCategories.EnrollmentTimeout
+              : ConnectorHealthFailureCategories.SynchronizationTimeout,
+          enrollment
+              ? "Connector enrollment timed out."
+              : "Dashboard synchronization timed out.");
 
   [LoggerMessage(
       Level = LogLevel.Information,

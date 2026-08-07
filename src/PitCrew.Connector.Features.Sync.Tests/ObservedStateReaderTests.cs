@@ -276,6 +276,12 @@ public sealed class ObservedStateReaderTests
           .IsFalse()
           .Because("present additive objects must contain complete, valid values");
       await Assert.That(result.Profiles).IsEmpty();
+      await Assert.That(result.Failure).IsNotNull();
+      await Assert.That(result.Failure!.Category)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateInvalid);
+      await Assert.That(result.Failure.ProfileId)
+          .IsEqualTo("default");
     }
     finally
     {
@@ -310,6 +316,80 @@ public sealed class ObservedStateReaderTests
 
       await Assert.That(result.IsComplete).IsFalse();
       await Assert.That(result.Profiles).IsEmpty();
+      await Assert.That(result.Failure).IsNotNull();
+      await Assert.That(result.Failure!.Category)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateInvalid);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
+  public async Task ReadAsync_Reports_Missing_State_Root_Without_Exposing_Path(
+      CancellationToken cancellationToken)
+  {
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-missing-state-{Guid.NewGuid():N}");
+    var reader = new ObservedStateReader(
+        Options.Create(
+            ConnectorTestData.CreateOptions(
+                root,
+                Path.Combine(
+                    Path.GetTempPath(),
+                    "identity.json"))),
+        NullLogger<ObservedStateReader>.Instance);
+
+    var result = await reader.ReadAsync(cancellationToken);
+
+    await Assert.That(result.IsComplete)
+        .IsFalse()
+        .Because("a missing state root prevents a complete connector snapshot");
+    await Assert.That(result.Failure).IsNotNull();
+    await Assert.That(result.Failure!.Category)
+        .IsEqualTo(
+            ConnectorHealthFailureCategories.StateRootMissing);
+    await Assert.That(result.Failure.Detail)
+        .IsEqualTo("PitCrew state root is unavailable.");
+    await Assert.That(result.Failure.Detail)
+        .DoesNotContain(root);
+  }
+
+  [Test]
+  public async Task ReadAsync_Does_Not_Treat_Unreadable_State_As_Deleted(
+      CancellationToken cancellationToken)
+  {
+    var root = CreateTemporaryDirectory();
+    try
+    {
+      var profileDirectory = Directory.CreateDirectory(
+          Path.Combine(root, "default"));
+      Directory.CreateDirectory(
+          Path.Combine(
+              profileDirectory.FullName,
+              "observed-state.json"));
+      var reader = new ObservedStateReader(
+          Options.Create(
+              ConnectorTestData.CreateOptions(
+                  root,
+                  Path.Combine(root, "identity.json"))),
+          NullLogger<ObservedStateReader>.Instance);
+
+      var result = await reader.ReadAsync(cancellationToken);
+
+      await Assert.That(result.IsComplete)
+          .IsFalse()
+          .Because("an unreadable snapshot is not evidence of profile deletion");
+      await Assert.That(result.Profiles).IsEmpty();
+      await Assert.That(result.Failure).IsNotNull();
+      await Assert.That(result.Failure!.Category)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateUnreadable);
+      await Assert.That(result.Failure.ProfileId)
+          .IsEqualTo("default");
     }
     finally
     {

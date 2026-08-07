@@ -12,7 +12,8 @@ namespace PitCrew.Connector.Features.Sync;
 internal sealed record ObservedStateReadResult(
     bool IsComplete,
     string AggregateHash,
-    IReadOnlyList<ManagerObservedState> Profiles);
+    IReadOnlyList<ManagerObservedState> Profiles,
+    ConnectorHealthFailure? Failure = null);
 
 internal sealed partial class ObservedStateReader(
     IOptions<ConnectorOptions> _options,
@@ -28,7 +29,13 @@ internal sealed partial class ObservedStateReader(
     if (!Directory.Exists(stateRoot))
     {
       LogMissingStateRoot(stateRoot);
-      return new ObservedStateReadResult(false, string.Empty, []);
+      return new ObservedStateReadResult(
+          false,
+          string.Empty,
+          [],
+          new ConnectorHealthFailure(
+              ConnectorHealthFailureCategories.StateRootMissing,
+              "PitCrew state root is unavailable."));
     }
 
     string[] profileDirectories;
@@ -42,12 +49,24 @@ internal sealed partial class ObservedStateReader(
     catch (IOException exception)
     {
       LogUnreadableStateRoot(stateRoot, exception.Message);
-      return new ObservedStateReadResult(false, string.Empty, []);
+      return new ObservedStateReadResult(
+          false,
+          string.Empty,
+          [],
+          new ConnectorHealthFailure(
+              ConnectorHealthFailureCategories.StateRootUnreadable,
+              "PitCrew state root could not be enumerated."));
     }
     catch (UnauthorizedAccessException exception)
     {
       LogUnreadableStateRoot(stateRoot, exception.Message);
-      return new ObservedStateReadResult(false, string.Empty, []);
+      return new ObservedStateReadResult(
+          false,
+          string.Empty,
+          [],
+          new ConnectorHealthFailure(
+              ConnectorHealthFailureCategories.StateRootUnreadable,
+              "PitCrew state root could not be enumerated."));
     }
 
     var activeDirectories = profileDirectories.ToHashSet(
@@ -61,6 +80,7 @@ internal sealed partial class ObservedStateReader(
 
     var snapshots = new List<CachedObservedState>();
     var complete = true;
+    ConnectorHealthFailure? failure = null;
     foreach (var profileDirectory in profileDirectories)
     {
       try
@@ -78,6 +98,10 @@ internal sealed partial class ObservedStateReader(
             profileDirectory,
             exception.Message);
         complete = false;
+        failure ??= CreateProfileFailure(
+            profileDirectory,
+            ConnectorHealthFailureCategories.ProfileDirectoryUnreadable,
+            "Profile state directory could not be inspected.");
         continue;
       }
       catch (UnauthorizedAccessException exception)
@@ -86,19 +110,65 @@ internal sealed partial class ObservedStateReader(
             profileDirectory,
             exception.Message);
         complete = false;
+        failure ??= CreateProfileFailure(
+            profileDirectory,
+            ConnectorHealthFailureCategories.ProfileDirectoryUnreadable,
+            "Profile state directory could not be inspected.");
         continue;
       }
 
       var observedStatePath = Path.Combine(
           profileDirectory,
           "observed-state.json");
-      if (!File.Exists(observedStatePath))
+      try
       {
-        if (_lastGood.TryGetValue(
+        File.GetAttributes(observedStatePath);
+      }
+      catch (FileNotFoundException)
+      {
+        AddCachedProfileIfPresent(
             profileDirectory,
-            out var cached))
+            snapshots);
+        continue;
+      }
+      catch (DirectoryNotFoundException)
+      {
+        AddCachedProfileIfPresent(
+            profileDirectory,
+            snapshots);
+        continue;
+      }
+      catch (IOException exception)
+      {
+        LogUnreadableObservedState(
+            observedStatePath,
+            exception.Message);
+        if (!AddCachedProfileOrMarkIncomplete(
+            profileDirectory,
+            snapshots,
+            ref complete))
         {
-          snapshots.Add(cached);
+          failure ??= CreateProfileFailure(
+              profileDirectory,
+              ConnectorHealthFailureCategories.ProfileStateUnreadable,
+              "Profile observed state could not be read.");
+        }
+        continue;
+      }
+      catch (UnauthorizedAccessException exception)
+      {
+        LogUnreadableObservedState(
+            observedStatePath,
+            exception.Message);
+        if (!AddCachedProfileOrMarkIncomplete(
+            profileDirectory,
+            snapshots,
+            ref complete))
+        {
+          failure ??= CreateProfileFailure(
+              profileDirectory,
+              ConnectorHealthFailureCategories.ProfileStateUnreadable,
+              "Profile observed state could not be read.");
         }
         continue;
       }
@@ -112,10 +182,16 @@ internal sealed partial class ObservedStateReader(
         if (!HasRequiredContractProperties(bytes))
         {
           LogInvalidObservedState(observedStatePath);
-          AddCachedProfileOrMarkIncomplete(
+          if (!AddCachedProfileOrMarkIncomplete(
               profileDirectory,
               snapshots,
-              ref complete);
+              ref complete))
+          {
+            failure ??= CreateProfileFailure(
+                profileDirectory,
+                ConnectorHealthFailureCategories.ProfileStateInvalid,
+                "Profile observed state is invalid.");
+          }
           continue;
         }
         var profile = JsonSerializer.Deserialize(
@@ -129,10 +205,16 @@ internal sealed partial class ObservedStateReader(
                 StringComparison.OrdinalIgnoreCase))
         {
           LogInvalidObservedState(observedStatePath);
-          AddCachedProfileOrMarkIncomplete(
+          if (!AddCachedProfileOrMarkIncomplete(
               profileDirectory,
               snapshots,
-              ref complete);
+              ref complete))
+          {
+            failure ??= CreateProfileFailure(
+                profileDirectory,
+                ConnectorHealthFailureCategories.ProfileStateInvalid,
+                "Profile observed state is invalid.");
+          }
           continue;
         }
 
@@ -147,40 +229,64 @@ internal sealed partial class ObservedStateReader(
         LogUnreadableObservedState(
             observedStatePath,
             exception.Message);
-        AddCachedProfileOrMarkIncomplete(
+        if (!AddCachedProfileOrMarkIncomplete(
             profileDirectory,
             snapshots,
-            ref complete);
+            ref complete))
+        {
+          failure ??= CreateProfileFailure(
+              profileDirectory,
+              ConnectorHealthFailureCategories.ProfileStateInvalid,
+              "Profile observed state is invalid.");
+        }
       }
       catch (InvalidDataException exception)
       {
         LogUnreadableObservedState(
             observedStatePath,
             exception.Message);
-        AddCachedProfileOrMarkIncomplete(
+        if (!AddCachedProfileOrMarkIncomplete(
             profileDirectory,
             snapshots,
-            ref complete);
+            ref complete))
+        {
+          failure ??= CreateProfileFailure(
+              profileDirectory,
+              ConnectorHealthFailureCategories.ProfileStateInvalid,
+              "Profile observed state is invalid.");
+        }
       }
       catch (IOException exception)
       {
         LogUnreadableObservedState(
             observedStatePath,
             exception.Message);
-        AddCachedProfileOrMarkIncomplete(
+        if (!AddCachedProfileOrMarkIncomplete(
             profileDirectory,
             snapshots,
-            ref complete);
+            ref complete))
+        {
+          failure ??= CreateProfileFailure(
+              profileDirectory,
+              ConnectorHealthFailureCategories.ProfileStateUnreadable,
+              "Profile observed state could not be read.");
+        }
       }
       catch (UnauthorizedAccessException exception)
       {
         LogUnreadableObservedState(
             observedStatePath,
             exception.Message);
-        AddCachedProfileOrMarkIncomplete(
+        if (!AddCachedProfileOrMarkIncomplete(
             profileDirectory,
             snapshots,
-            ref complete);
+            ref complete))
+        {
+          failure ??= CreateProfileFailure(
+              profileDirectory,
+              ConnectorHealthFailureCategories.ProfileStateUnreadable,
+              "Profile observed state could not be read.");
+        }
       }
     }
 
@@ -203,7 +309,8 @@ internal sealed partial class ObservedStateReader(
     return new ObservedStateReadResult(
         complete,
         Convert.ToHexString(aggregateHash.GetHashAndReset()),
-        sortedSnapshots.Select(snapshot => snapshot.Profile).ToArray());
+        sortedSnapshots.Select(snapshot => snapshot.Profile).ToArray(),
+        failure);
   }
 
   private static async Task<byte[]> ReadBoundedAsync(
@@ -271,7 +378,7 @@ internal sealed partial class ObservedStateReader(
     return true;
   }
 
-  private void AddCachedProfileOrMarkIncomplete(
+  private bool AddCachedProfileOrMarkIncomplete(
       string profileDirectory,
       ICollection<CachedObservedState> snapshots,
       ref bool complete)
@@ -281,11 +388,33 @@ internal sealed partial class ObservedStateReader(
         out var cached))
     {
       snapshots.Add(cached);
-      return;
+      return true;
     }
 
     complete = false;
+    return false;
   }
+
+  private void AddCachedProfileIfPresent(
+      string profileDirectory,
+      ICollection<CachedObservedState> snapshots)
+  {
+    if (_lastGood.TryGetValue(
+        profileDirectory,
+        out var cached))
+    {
+      snapshots.Add(cached);
+    }
+  }
+
+  private static ConnectorHealthFailure CreateProfileFailure(
+      string profileDirectory,
+      string category,
+      string detail) =>
+      new(
+          category,
+          detail,
+          Path.GetFileName(profileDirectory));
 
   [LoggerMessage(
       Level = LogLevel.Warning,

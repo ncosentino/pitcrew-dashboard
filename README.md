@@ -161,6 +161,11 @@ Protocol 1-8 and container-mode connectors remain read-only for pause. See
 [Capacity operations](docs/capacity-operations.md) and
 [ADR-0004](docs/adr/adr-0004-audited-zero-capacity-pause.md).
 
+Connectors also retain a bounded local
+[health journal](docs/connector-health.md) beside their protected identity
+directory. It records sanitized synchronization failures, retry state, and
+recovery without changing the connector protocol or exposing credentials.
+
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
 never trusted from synchronization payloads.

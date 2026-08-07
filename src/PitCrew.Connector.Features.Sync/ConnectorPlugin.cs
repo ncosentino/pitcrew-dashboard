@@ -29,15 +29,20 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<RecoveryProfileResolver>();
     options.Services.AddSingleton<RecoveryCommandLedger>();
     options.Services.AddSingleton<RecoveryCommandExecutor>();
+    options.Services.AddSingleton<ConnectorHealthJournal>();
     options.Services.AddHttpClient<ConnectorApiClient>(
         static (services, client) =>
         {
           var connectorOptions = services
                   .GetRequiredService<IOptions<ConnectorOptions>>()
                   .Value;
-          client.BaseAddress = new Uri(
-                  connectorOptions.DashboardUrl,
-                  UriKind.Absolute);
+          if (Uri.TryCreate(
+              connectorOptions.DashboardUrl,
+              UriKind.Absolute,
+              out var dashboardUri))
+          {
+            client.BaseAddress = dashboardUri;
+          }
           client.Timeout = TimeSpan.FromSeconds(30);
         });
     options.Services.AddHostedService<ConnectorWorker>();
