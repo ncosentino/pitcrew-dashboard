@@ -184,6 +184,18 @@ public sealed class FleetDashboardOptions
   public int DiagnosticRetentionDays { get; set; } = 30;
 
   /// <summary>
+  /// Gets or sets how long retrospectively replayed connector-health events are retained.
+  /// </summary>
+  [Range(1, 3650)]
+  public int ConnectorHealthRetentionDays { get; set; } = 30;
+
+  /// <summary>
+  /// Gets or sets the hard per-node ceiling on retained connector-health events.
+  /// </summary>
+  [Range(256, 1_000_000)]
+  public int MaximumConnectorHealthEventsPerNode { get; set; } = 2_048;
+
+  /// <summary>
   /// Gets or sets the hard per-profile ceiling on retained telemetry samples.
   /// </summary>
   [Range(100, 1_000_000)]

@@ -63,6 +63,83 @@ public sealed class RecoverManagerSyncTests
   }
 
   [Test]
+  public async Task Connector_Health_Replay_Requires_V10_And_Acknowledges_Accepted_Events()
+  {
+    var recoveryStore = _mocks.Create<IRecoveryCommandStore>();
+    recoveryStore
+        .Setup(store => store.ApplyConnectorSyncAsync(
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            null,
+            null,
+            null,
+            Now,
+            It.Is<DateTimeOffset>(value => value < Now),
+            It.IsAny<CancellationToken>()))
+        .ReturnsAsync((RecoverManagerCommand?)null);
+    var connectorHealthStore =
+        _mocks.Create<IConnectorHealthStore>();
+    var replay = CreateConnectorHealthReplay();
+    connectorHealthStore
+        .Setup(store => store.ApplyAsync(
+            It.IsNotNull<IFleetStorageTransaction>(),
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            replay,
+            Now,
+            It.Is<ConnectorHealthRetentionPolicy>(policy =>
+                policy.MaximumAge == TimeSpan.FromDays(30) &&
+                policy.MaximumEventsPerNode == 2_048),
+            It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
+    var unitOfWork = CreateUnitOfWork(
+        recoveryStore,
+        connectorHealthStore);
+
+    var rejected = await unitOfWork.SynchronizeAsync(
+        "credential",
+        CreateInput(
+            9,
+            null,
+            null,
+            null,
+            replay),
+        CancellationToken.None);
+    var accepted = await unitOfWork.SynchronizeAsync(
+        "credential",
+        CreateInput(
+            10,
+            null,
+            null,
+            null,
+            replay),
+        CancellationToken.None);
+
+    await Assert.That(rejected.Status)
+        .IsEqualTo(ConnectorSyncStatus.Invalid);
+    await Assert.That(accepted.Status)
+        .IsEqualTo(ConnectorSyncStatus.Accepted);
+    await Assert.That(
+            accepted.Response!.ConnectorHealthAcknowledgement)
+        .IsNotNull();
+    await Assert.That(
+            accepted.Response.ConnectorHealthAcknowledgement!.EventIds)
+        .HasSingleItem();
+    await Assert.That(
+            accepted.Response.ConnectorHealthAcknowledgement.EventIds[0])
+        .IsEqualTo(replay.Events[0].EventId);
+    connectorHealthStore.Verify(
+        store => store.ApplyAsync(
+            It.IsAny<IFleetStorageTransaction>(),
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            replay,
+            Now,
+            It.Is<ConnectorHealthRetentionPolicy>(policy =>
+                policy.MaximumAge == TimeSpan.FromDays(30) &&
+                policy.MaximumEventsPerNode == 2_048),
+            It.IsAny<CancellationToken>()),
+        Times.Once);
+  }
+
+  [Test]
   public async Task Version_Four_Connectors_Receive_Claimed_Recovery_Commands()
   {
     var expected = new RecoverManagerCommand(
@@ -235,7 +312,8 @@ public sealed class RecoverManagerSyncTests
       int protocolVersion,
       RecoveryOperatorCapability? capability,
       RecoveryCommandProgress? progress,
-      RecoveryCommandOutcome? outcome) =>
+      RecoveryCommandOutcome? outcome,
+      ConnectorHealthReplay? connectorHealth = null) =>
       new(
           protocolVersion,
           "2.0.0",
@@ -245,10 +323,12 @@ public sealed class RecoverManagerSyncTests
           null,
           capability,
           progress,
-          outcome);
+          outcome,
+          connectorHealth);
 
   private SyncConnectorUnitOfWork CreateUnitOfWork(
-      Mock<IRecoveryCommandStore> recoveryStore)
+      Mock<IRecoveryCommandStore> recoveryStore,
+      Mock<IConnectorHealthStore>? connectorHealthStore = null)
   {
     var fleetStore = _mocks.Create<IFleetStore>();
     fleetStore
@@ -327,15 +407,58 @@ public sealed class RecoverManagerSyncTests
     transactionFactory
         .Setup(factory => factory.BeginAsync(It.IsAny<CancellationToken>()))
         .ReturnsAsync(transaction.Object);
+    connectorHealthStore ??=
+        _mocks.Create<IConnectorHealthStore>();
     return new SyncConnectorUnitOfWork(
         fleetStore.Object,
         historyStore.Object,
+        connectorHealthStore.Object,
         transactionFactory.Object,
         capacityStore.Object,
         recoveryStore.Object,
         new ConnectorCredentialService(),
         Options.Create(new FleetDashboardOptions()),
         new FixedTimeProvider(Now));
+  }
+
+  private static ConnectorHealthReplay CreateConnectorHealthReplay()
+  {
+    var outageId = new Guid(
+        "11111111-1111-1111-1111-111111111111");
+    return new ConnectorHealthReplay(
+        new ConnectorHealthReplaySnapshot(
+            "degraded",
+            Now.AddHours(-1),
+            Now,
+            Now,
+            Now.AddMinutes(-5),
+            outageId,
+            Now.AddMinutes(-4),
+            Now,
+            "synchronization-network",
+            null,
+            "Connector synchronization could not reach Dashboard.",
+            3,
+            Now.AddMinutes(5),
+            null,
+            null,
+            null,
+            null),
+        [
+            new ConnectorHealthReplayEvent(
+                new Guid(
+                    "22222222-2222-2222-2222-222222222222"),
+                "synchronization-failed",
+                Now,
+                "degraded",
+                outageId,
+                Now.AddMinutes(-4),
+                "synchronization-network",
+                null,
+                3,
+                300,
+                "Connector synchronization could not reach Dashboard."),
+        ]);
   }
 
   private sealed class FixedTimeProvider(DateTimeOffset _now) : TimeProvider

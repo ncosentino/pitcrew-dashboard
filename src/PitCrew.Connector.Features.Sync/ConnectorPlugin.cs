@@ -30,6 +30,7 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<RecoveryCommandLedger>();
     options.Services.AddSingleton<RecoveryCommandExecutor>();
     options.Services.AddSingleton<ConnectorHealthJournal>();
+    options.Services.AddSingleton<ConnectorHealthReplayStore>();
     options.Services.AddHttpClient<ConnectorApiClient>(
         static (services, client) =>
         {

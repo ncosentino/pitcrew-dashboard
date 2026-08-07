@@ -18,6 +18,7 @@ internal sealed partial class ConnectorWorker(
     CapacityCommandExecutor _capacityCommandExecutor,
     RecoveryCommandExecutor _recoveryCommandExecutor,
     ConnectorHealthJournal _healthJournal,
+    ConnectorHealthReplayStore _healthReplayStore,
     IOptions<ConnectorOptions> _options,
     TimeProvider _timeProvider,
     ILogger<ConnectorWorker> _logger) : BackgroundService
@@ -114,6 +115,9 @@ internal sealed partial class ConnectorWorker(
           var recoveryOperator =
               await _recoveryCommandExecutor.ReadCapabilityAsync(
                   stoppingToken);
+          var healthReplay =
+              await _healthReplayStore.ReadPendingAsync(
+                  stoppingToken);
           if (pendingRecoveryOutcome is null &&
               pendingRecoveryOutcomes.Count > 0)
           {
@@ -130,8 +134,11 @@ internal sealed partial class ConnectorWorker(
               heartbeatDue ||
               pendingCapacityOutcome is not null ||
               pendingRecoveryProgress is not null ||
-              pendingRecoveryOutcome is not null)
+              pendingRecoveryOutcome is not null ||
+              healthReplay.RequiresSynchronization)
           {
+            var replayedActiveOutage =
+                healthReplay.Replay?.Snapshot.ActiveOutageId is not null;
             await _healthJournal.RecordSynchronizationAttemptAsync(
                 now,
                 stoppingToken);
@@ -146,7 +153,8 @@ internal sealed partial class ConnectorWorker(
                     pendingCapacityOutcome,
                     recoveryOperator,
                     pendingRecoveryProgress,
-                    pendingRecoveryOutcome),
+                    pendingRecoveryOutcome,
+                    healthReplay.Replay),
                 stoppingToken);
             pendingCapacityOutcome = null;
             pendingRecoveryProgress = null;
@@ -162,6 +170,13 @@ internal sealed partial class ConnectorWorker(
                   identity,
                   stoppingToken);
               LogCredentialRotated();
+            }
+            if (response.ConnectorHealthAcknowledgement?.EventIds is
+                { } acknowledgedEventIds)
+            {
+              await _healthReplayStore.AcknowledgeAsync(
+                  acknowledgedEventIds,
+                  stoppingToken);
             }
             consecutiveFailures = 0;
             lastSentHash = observedState.AggregateHash;
@@ -200,6 +215,12 @@ internal sealed partial class ConnectorWorker(
             await _healthJournal.RecordSynchronizationSucceededAsync(
                 _timeProvider.GetUtcNow(),
                 stoppingToken);
+            if (replayedActiveOutage)
+            {
+              lastSentHash = string.Empty;
+              lastSentAt = DateTimeOffset.MinValue;
+              nextDelay = TimeSpan.Zero;
+            }
           }
           else
           {

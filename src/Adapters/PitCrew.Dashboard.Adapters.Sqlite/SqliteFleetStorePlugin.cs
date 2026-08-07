@@ -14,6 +14,10 @@ internal sealed class SqliteFleetStorePlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<SqliteFleetStore>();
     options.Services.AddSingleton<IFleetStore>(
         static services => services.GetRequiredService<SqliteFleetStore>());
+    options.Services.AddSingleton<SqliteConnectorHealthStore>();
+    options.Services.AddSingleton<IConnectorHealthStore>(
+        static services =>
+            services.GetRequiredService<SqliteConnectorHealthStore>());
     options.Services.AddSingleton<SqliteCapacityCommandStore>();
     options.Services.AddSingleton<ICapacityCommandStore>(
         static services =>

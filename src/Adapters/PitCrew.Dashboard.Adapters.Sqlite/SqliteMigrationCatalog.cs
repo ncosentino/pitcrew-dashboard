@@ -1395,5 +1395,98 @@ internal static class SqliteMigrationCatalog
                       'capacity command audit fields are immutable');
               END;
               """),
+        new(
+              17,
+              "connector-health-replay",
+              """
+              CREATE TABLE connector_health_current (
+                  node_id TEXT PRIMARY KEY,
+                  state TEXT NOT NULL
+                      CHECK (state IN (
+                          'starting',
+                          'healthy',
+                          'degraded',
+                          'stopping')),
+                  process_started_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  last_attempt_at TEXT NULL,
+                  last_success_at TEXT NULL,
+                  active_outage_id TEXT NULL,
+                  active_outage_started_at TEXT NULL,
+                  last_failure_at TEXT NULL,
+                  last_failure_category TEXT NULL
+                      CHECK (last_failure_category IS NULL
+                          OR length(last_failure_category) <= 128),
+                  last_failure_profile_id TEXT NULL
+                      CHECK (last_failure_profile_id IS NULL
+                          OR length(last_failure_profile_id) <= 32),
+                  last_failure_detail TEXT NULL
+                      CHECK (last_failure_detail IS NULL
+                          OR length(last_failure_detail) <= 512),
+                  consecutive_failures INTEGER NOT NULL
+                      CHECK (consecutive_failures >= 0),
+                  next_retry_at TEXT NULL,
+                  last_recovered_outage_id TEXT NULL,
+                  last_recovered_outage_started_at TEXT NULL,
+                  last_recovered_at TEXT NULL,
+                  last_recovered_failure_category TEXT NULL
+                      CHECK (last_recovered_failure_category IS NULL
+                          OR length(last_recovered_failure_category) <= 128),
+                  received_at TEXT NOT NULL,
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE
+              );
+
+              CREATE TABLE connector_health_events (
+                  node_id TEXT NOT NULL,
+                  event_id TEXT NOT NULL,
+                  kind TEXT NOT NULL
+                      CHECK (kind IN (
+                          'process-started',
+                          'process-stopping',
+                          'synchronization-succeeded',
+                          'synchronization-failed',
+                          'observation-incomplete',
+                          'enrollment-failed',
+                          'rejected',
+                          'recovered')),
+                  occurred_at TEXT NOT NULL,
+                  state TEXT NOT NULL
+                      CHECK (state IN (
+                          'starting',
+                          'healthy',
+                          'degraded',
+                          'stopping')),
+                  outage_id TEXT NULL,
+                  outage_started_at TEXT NULL,
+                  failure_category TEXT NULL
+                      CHECK (failure_category IS NULL
+                          OR length(failure_category) <= 128),
+                  profile_id TEXT NULL
+                      CHECK (profile_id IS NULL
+                          OR length(profile_id) <= 32),
+                  consecutive_failures INTEGER NOT NULL
+                      CHECK (consecutive_failures >= 0),
+                  retry_delay_seconds INTEGER NULL
+                      CHECK (retry_delay_seconds IS NULL
+                          OR retry_delay_seconds >= 0),
+                  detail TEXT NULL
+                      CHECK (detail IS NULL
+                          OR length(detail) <= 512),
+                  received_at TEXT NOT NULL,
+                  PRIMARY KEY (node_id, event_id),
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_connector_health_events_node_occurred
+                  ON connector_health_events (
+                      node_id,
+                      occurred_at DESC,
+                      event_id DESC);
+
+              CREATE INDEX ix_connector_health_events_received
+                  ON connector_health_events (received_at);
+              """),
     ];
 }

@@ -9,7 +9,9 @@ The connector writes:
 - `health/connector-health.json` — atomic current and most recently recovered
   outage state;
 - `health/connector-events.jsonl` — rolling newest 256 lifecycle, failure, and
-  recovery events.
+  recovery events;
+- `health/connector-health-acknowledgement.json` — bounded event identifiers
+  durably accepted by Dashboard.
 
 For the Windows service installer these files are below
 `C:\ProgramData\PitCrew\Connector\health`. For systemd installations they are
@@ -76,7 +78,7 @@ machine-readable identifiers such as `profile-state-invalid`,
 
 ## Retention and durability
 
-Both files use schema version 1 and are replaced atomically. The event journal
+All three files use schema version 1 and are replaced atomically. The event journal
 retains only the newest 256 valid entries. Existing input is capped at
 1,048,832 bytes and individual lines are capped at 4,096 characters before
 deserialization. On Linux, the health directory is owner-only and files are
@@ -99,8 +101,42 @@ properties, invalid JSONL entries, overlong lines, and entries with another
 schema version. An invalid or unsupported current-health document starts a new
 version 1 projection; journal files are diagnostic state, not configuration.
 
+## Retrospective Dashboard replay
+
+Connector protocol 10 carries the current snapshot plus unacknowledged journal
+events inside the existing outbound synchronization request. There is no second
+health endpoint or inbound node channel.
+
+Dashboard validates the fixed state, event-kind, failure-category, profile-ID,
+timestamp, retry, and connector-owned detail contracts before committing the
+replay with the node heartbeat. SQLite stores one current health projection per
+node and a bounded idempotent event ledger.
+
+The synchronization response acknowledges every event ID committed in that
+transaction. The connector merges those IDs into
+`connector-health-acknowledgement.json`, intersects them with the events still
+retained locally, and suppresses them from later requests. A lost response or
+failed acknowledgement write causes harmless redelivery because Dashboard keys
+events by node and event ID.
+
+Unacknowledged failure, incomplete-observation, enrollment, and rejection
+events make the next eligible connector poll synchronize even when profile
+state is unchanged. Ordinary success and lifecycle events wait for the next
+normal heartbeat or state change so replay does not amplify steady-state
+traffic.
+
+When an accepted request carried an active outage, the connector records the
+successful synchronization locally and schedules an immediate follow-up. That
+second request replays the exact recovery event instead of leaving Dashboard on
+the pre-response degraded snapshot until the next normal heartbeat.
+
+Protocol 1 through 9 connectors remain compatible and report no retrospective
+health evidence. Protocol 10 also permits a missing replay when the local
+journal is absent or unreadable; Dashboard must describe that reason as
+unavailable rather than infer a cause.
+
 ## Current scope
 
-This contract is local-only. Connector protocol messages and Dashboard storage
-are unchanged. A later protocol version can acknowledge and replay these
-bounded events after synchronization recovers.
+The local journal remains the source of replayed evidence. Dashboard does not
+receive connector text logs, absolute host paths, credentials, connector
+identity, payloads, query strings, environment values, or stack traces.
