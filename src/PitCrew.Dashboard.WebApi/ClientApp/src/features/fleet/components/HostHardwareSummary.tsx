@@ -5,10 +5,12 @@ import { StatusBadge } from '@/core/ui/StatusBadge';
 
 interface HostHardwareCardProps {
   readonly hardware: HostHardwareInventory | null;
+  readonly isOnline: boolean;
+  readonly lastSeenAt: string | null;
 }
 
 /** Renders the latest bounded hardware inventory for one node. */
-export function HostHardwareCard({ hardware }: HostHardwareCardProps) {
+export function HostHardwareCard({ hardware, isOnline, lastSeenAt }: HostHardwareCardProps) {
   return (
     <Card data-testid="node-hardware">
       <CardHeader>
@@ -19,7 +21,7 @@ export function HostHardwareCard({ hardware }: HostHardwareCardProps) {
               Sanitized processor, memory, operating-system, and Docker runtime context.
             </CardDescription>
           </div>
-          <StatusBadge status={hardware?.status ?? 'unreported'} />
+          <StatusBadge status={hardwarePresentationStatus(hardware, isOnline)} />
         </div>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -57,6 +59,7 @@ export function HostHardwareCard({ hardware }: HostHardwareCardProps) {
               />
             </dl>
             <div className="grid gap-1 text-xs text-muted-foreground">
+              {!isOnline ? <div>Last-known node evidence from {formatTime(lastSeenAt)}</div> : null}
               <div>Collected {formatTime(hardware.collectedAt)}</div>
               <div>Last attempted {formatTime(hardware.attemptedAt)}</div>
               <div className="font-mono">
@@ -138,7 +141,16 @@ export function HardwareComparison({ nodes }: HardwareComparisonProps) {
                   .join(' / ') || 'Unavailable'}
               </td>
               <td className="px-3 py-2">
-                <StatusBadge status={node.hardware?.status ?? 'unreported'} />
+                <div className="grid gap-1">
+                  <StatusBadge
+                    status={hardwarePresentationStatus(node.hardware ?? null, node.isOnline)}
+                  />
+                  {!node.isOnline ? (
+                    <span className="text-xs text-muted-foreground">
+                      {formatTime(node.lastSeenAt)}
+                    </span>
+                  ) : null}
+                </div>
               </td>
             </tr>
           ))}
@@ -166,4 +178,13 @@ function HardwareField({
 function formatPair(left: number | null, right: number | null): string {
   if (left == null && right == null) return 'Unavailable';
   return `${left ?? 'Unknown'} / ${right ?? 'Unknown'}`;
+}
+
+function hardwarePresentationStatus(
+  hardware: HostHardwareInventory | null,
+  isOnline: boolean,
+): string {
+  if (hardware == null) return 'unreported';
+  if (!isOnline) return 'last known';
+  return hardware.status === 'current' ? 'latest reported' : hardware.status;
 }

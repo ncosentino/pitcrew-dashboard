@@ -458,11 +458,32 @@ internal sealed class SqliteFleetStore(
                 h.kernel_version,
                 h.docker_server_version,
                 h.docker_storage_driver,
-                h.docker_backing_filesystem
+                h.docker_backing_filesystem,
+                ch.state,
+                ch.process_started_at,
+                ch.updated_at,
+                ch.last_attempt_at,
+                ch.last_success_at,
+                ch.active_outage_id,
+                ch.active_outage_started_at,
+                ch.last_failure_at,
+                ch.last_failure_category,
+                ch.last_failure_profile_id,
+                ch.last_failure_detail,
+                ch.consecutive_failures,
+                ch.next_retry_at,
+                ch.last_recovered_outage_id,
+                ch.last_recovered_outage_started_at,
+                ch.last_recovered_at,
+                ch.last_recovered_failure_category,
+                ch.received_at
             FROM nodes AS n
             LEFT JOIN profiles AS p ON p.node_id = n.node_id
             LEFT JOIN node_hardware_current AS h
                 ON h.node_id = n.node_id
+            LEFT JOIN connector_health_current AS ch
+                ON ch.node_id = n.node_id
+               AND ch.received_at = n.last_seen_at
             WHERE n.tenant_id = $tenantId
             ORDER BY
                 COALESCE(
@@ -500,7 +521,10 @@ internal sealed class SqliteFleetStore(
             !await reader.IsDBNullAsync(6, cancellationToken),
             await ReadHostHardwareOrNullAsync(
                 reader,
-                cancellationToken));
+                cancellationToken),
+            ReadConnectorHealthOrNull(
+                reader,
+                nodeId));
         profilesByNode[nodeId] = [];
       }
 
@@ -538,6 +562,7 @@ internal sealed class SqliteFleetStore(
           [])
       {
         Hardware = row.Hardware,
+        ConnectorHealth = row.ConnectorHealth,
       });
     }
 
@@ -662,7 +687,53 @@ internal sealed class SqliteFleetStore(
       DateTimeOffset? LastSeenAt,
       bool IsRevoked,
       bool CredentialRotationRequested,
-      HostHardwareInventory? Hardware);
+      HostHardwareInventory? Hardware,
+      ConnectorHealthNodeCurrent? ConnectorHealth);
+
+  private static ConnectorHealthNodeCurrent?
+      ReadConnectorHealthOrNull(
+          SqliteDataReader reader,
+          Guid nodeId)
+  {
+    var row = new SqliteRowReader(reader);
+    var state = row.OptionalString("state");
+    if (state is null)
+    {
+      return null;
+    }
+    return new ConnectorHealthNodeCurrent(
+        nodeId,
+        new ConnectorHealthReplaySnapshot(
+            state,
+            row.Time("process_started_at"),
+            row.Time("updated_at"),
+            row.OptionalTime("last_attempt_at"),
+            row.OptionalTime("last_success_at"),
+            ParseOptionalGuid(
+                row.OptionalString("active_outage_id")),
+            row.OptionalTime("active_outage_started_at"),
+            row.OptionalTime("last_failure_at"),
+            row.OptionalString("last_failure_category"),
+            row.OptionalString("last_failure_profile_id"),
+            row.OptionalString("last_failure_detail"),
+            row.Int32("consecutive_failures"),
+            row.OptionalTime("next_retry_at"),
+            ParseOptionalGuid(
+                row.OptionalString("last_recovered_outage_id")),
+            row.OptionalTime(
+                "last_recovered_outage_started_at"),
+            row.OptionalTime("last_recovered_at"),
+            row.OptionalString(
+                "last_recovered_failure_category")),
+        row.Time("received_at"));
+  }
+
+  private static Guid? ParseOptionalGuid(string? value) =>
+      value is null
+          ? null
+          : Guid.Parse(
+              value,
+              CultureInfo.InvariantCulture);
 
   private sealed record CurrentHardwareState(
       string Status,

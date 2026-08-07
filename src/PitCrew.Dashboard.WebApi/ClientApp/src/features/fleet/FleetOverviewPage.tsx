@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -97,30 +97,68 @@ function NodeSummaryRow({
             <StatusBadge status="warning" />
           ) : null}
         </div>
+        {!node.isOnline ? (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {node.connectorHealth?.snapshot.lastFailureCategory
+              ? `Retained cause: ${node.connectorHealth.snapshot.lastFailureCategory}`
+              : 'Reason unavailable: no connector health replay'}
+          </div>
+        ) : null}
       </td>
-      <td className="px-4 py-2">{node.connectorVersion || 'Unknown'}</td>
+      <td className="px-4 py-2">
+        <LastKnownValue node={node}>{node.connectorVersion || 'Unknown'}</LastKnownValue>
+      </td>
       <td className="px-4 py-2">{formatTime(node.lastSeenAt)}</td>
-      <td className="px-4 py-2 text-right tabular-nums">{node.profiles.length}</td>
       <td className="px-4 py-2 text-right tabular-nums">
-        {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
-        {aggregate.eligibleSlots ?? 'Unknown'}
+        <LastKnownValue node={node}>{node.profiles.length}</LastKnownValue>
+      </td>
+      <td className="px-4 py-2 text-right tabular-nums">
+        <LastKnownValue node={node}>
+          {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
+          {aggregate.eligibleSlots ?? 'Unknown'}
+        </LastKnownValue>
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
         {resources.reportingSources > 0 ? (
-          <div className="grid justify-items-end gap-1">
-            <span>
-              {formatCpuCores(resources.cpuCores)} / {formatBytes(resources.memoryWorkingSetBytes)}
-            </span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
-              {resources.reportingSources} of {resources.totalSources} sources
-              <StatusBadge status={resources.status} />
-            </span>
-          </div>
+          <LastKnownValue node={node}>
+            <div className="grid justify-items-end gap-1">
+              <span>
+                {formatCpuCores(resources.cpuCores)} /{' '}
+                {formatBytes(resources.memoryWorkingSetBytes)}
+              </span>
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                {resources.reportingSources} of {resources.totalSources} sources
+                <StatusBadge status={resources.status} />
+              </span>
+            </div>
+          </LastKnownValue>
         ) : (
-          <span className="text-muted-foreground">Unavailable</span>
+          <div className="grid gap-1 text-muted-foreground">
+            <span>Unavailable</span>
+            {!node.isOnline ? <span className="text-xs">No last-known resource sample</span> : null}
+          </div>
         )}
       </td>
     </tr>
+  );
+}
+
+function LastKnownValue({
+  node,
+  children,
+}: {
+  readonly node: FleetNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1">
+      <div>{children}</div>
+      {!node.isOnline ? (
+        <div className="text-xs text-muted-foreground">
+          Last known {formatTime(node.lastSeenAt)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -283,7 +321,7 @@ export default function FleetOverviewPage() {
                       Configured / local / GitHub eligible
                     </th>
                     <th scope="col" className="px-4 py-3 text-right font-medium">
-                      Current CPU / memory
+                      CPU / memory evidence
                     </th>
                   </tr>
                 </thead>

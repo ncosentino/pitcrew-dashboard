@@ -274,7 +274,8 @@ export function NodePressureCommandCenter({
           <CardHeader>
             <CardTitle>GitHub demand</CardTitle>
             <CardDescription>
-              Current scale-set and local worker evidence across profiles.
+              {node.isOnline ? 'Current' : 'Last-known'} scale-set and local worker evidence across
+              profiles.
             </CardDescription>
           </CardHeader>
           <CardContent>

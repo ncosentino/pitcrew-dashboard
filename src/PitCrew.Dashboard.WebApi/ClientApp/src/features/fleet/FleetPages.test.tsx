@@ -189,6 +189,29 @@ function fleetResponse() {
           dockerStorageDriver: 'overlayfs',
           dockerBackingFilesystem: 'extfs',
         },
+        connectorHealth: {
+          nodeId: alphaId,
+          receivedAt: '2026-07-19T17:31:00+00:00',
+          snapshot: {
+            state: 'healthy',
+            processStartedAt: '2026-07-18T12:00:00+00:00',
+            updatedAt: '2026-07-19T17:31:00+00:00',
+            lastAttemptAt: '2026-07-19T17:31:00+00:00',
+            lastSuccessAt: '2026-07-19T17:31:00+00:00',
+            activeOutageId: null,
+            activeOutageStartedAt: null,
+            lastFailureAt: '2026-07-19T17:30:00+00:00',
+            lastFailureCategory: 'synchronization-network',
+            lastFailureProfileId: null,
+            lastFailureDetail: 'Connector synchronization could not reach Dashboard.',
+            consecutiveFailures: 0,
+            nextRetryAt: null,
+            lastRecoveredOutageId: 'd6235ec4-2a15-4f91-a9e0-811152869a54',
+            lastRecoveredOutageStartedAt: '2026-07-19T17:20:00+00:00',
+            lastRecoveredAt: '2026-07-19T17:31:00+00:00',
+            lastRecoveredFailureCategory: 'synchronization-network',
+          },
+        },
       },
       {
         nodeId: bravoId,
@@ -219,6 +242,29 @@ function fleetResponse() {
           dockerStorageDriver: 'overlayfs',
           dockerBackingFilesystem: 'extfs',
         },
+        connectorHealth: {
+          nodeId: bravoId,
+          receivedAt: '2026-07-19T17:31:00+00:00',
+          snapshot: {
+            state: 'healthy',
+            processStartedAt: '2026-07-18T12:00:00+00:00',
+            updatedAt: '2026-07-19T17:31:00+00:00',
+            lastAttemptAt: '2026-07-19T17:31:00+00:00',
+            lastSuccessAt: '2026-07-19T17:31:00+00:00',
+            activeOutageId: null,
+            activeOutageStartedAt: null,
+            lastFailureAt: '2026-07-19T17:30:00+00:00',
+            lastFailureCategory: 'synchronization-network',
+            lastFailureProfileId: null,
+            lastFailureDetail: 'Connector synchronization could not reach Dashboard.',
+            consecutiveFailures: 0,
+            nextRetryAt: null,
+            lastRecoveredOutageId: 'd6235ec4-2a15-4f91-a9e0-811152869a54',
+            lastRecoveredOutageStartedAt: '2026-07-19T17:20:00+00:00',
+            lastRecoveredAt: '2026-07-19T17:31:00+00:00',
+            lastRecoveredFailureCategory: 'synchronization-network',
+          },
+        },
       },
     ],
   };
@@ -243,6 +289,7 @@ function renderRoute(path: string, session: unknown = ownerSession) {
 describe('fleet overview and node detail', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders node-only summaries with honest partial aggregate telemetry', async () => {
@@ -263,6 +310,17 @@ describe('fleet overview and node detail', () => {
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
   });
 
+  it('labels every offline fleet value as last known and shows the retained cause', async () => {
+    renderRoute('/tenants/local/fleet');
+
+    const row = await screen.findByTestId(`fleet-node-${bravoId}`);
+
+    expect(row).toHaveTextContent('Retained cause: synchronization-network');
+    expect(within(row).getAllByText(/Last known/).length).toBeGreaterThanOrEqual(3);
+    expect(row).toHaveTextContent('Unavailable');
+    expect(row).toHaveTextContent('No last-known resource sample');
+  });
+
   it('compares selected node hardware without inferring unavailable fields', async () => {
     const user = userEvent.setup();
     renderRoute('/tenants/local/fleet');
@@ -280,7 +338,7 @@ describe('fleet overview and node detail', () => {
     expect(within(comparison).getByText('16 GiB')).toBeInTheDocument();
   });
 
-  it('renders current hardware context on node detail', async () => {
+  it('renders latest reported hardware without implying host liveness', async () => {
     renderRoute(`/tenants/local/nodes/${alphaId}`);
 
     const hardware = await screen.findByTestId('node-hardware');
@@ -289,7 +347,8 @@ describe('fleet overview and node detail', () => {
     expect(hardware).toHaveTextContent('10 / 20');
     expect(hardware).toHaveTextContent('Docker Desktop');
     expect(hardware).toHaveTextContent('overlayfs / extfs');
-    expect(hardware).toHaveTextContent('current');
+    expect(hardware).toHaveTextContent('latest reported');
+    expect(hardware).not.toHaveTextContent(/^current$/i);
   });
 
   it('does not infer partial node eligibility from older manager contracts', async () => {
@@ -416,13 +475,59 @@ describe('fleet overview and node detail', () => {
     await act(async () => {
       await router.navigate(`/tenants/local/nodes/${bravoId}`);
     });
-    expect(await screen.findByText(/This node is offline/)).toBeInTheDocument();
+    expect(await screen.findByText(/Every connector, profile, capacity/)).toBeInTheDocument();
     expect(screen.getByText('No profiles reported')).toBeInTheDocument();
+    expect(screen.getByTestId('node-hardware')).toHaveTextContent('last known');
+    expect(screen.getByTestId('connector-health-summary')).toHaveTextContent('Recovered outage');
+    expect(screen.getByTestId('connector-health-summary')).toHaveTextContent(
+      'synchronization-network',
+    );
 
     await act(async () => {
       await router.navigate(`/tenants/local/nodes/${charlieId}`);
     });
     expect(await screen.findByText(/This node is revoked/)).toBeInTheDocument();
+  });
+
+  it('prepares a schema-bound diagnostics context for read-only users', async () => {
+    const viewerSession = {
+      ...ownerSession,
+      tenants: [{ tenantId: 'local', displayName: 'Local', role: 'viewer' as const }],
+    };
+    const createObjectURL = vi.fn((value: Blob | MediaSource) => {
+      void value;
+      return 'blob:diagnostics-context';
+    });
+    const revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderRoute(`/tenants/local/nodes/${bravoId}`, viewerSession);
+    vi.stubGlobal('URL', {
+      createObjectURL,
+      revokeObjectURL,
+    });
+
+    await user.click(await screen.findByTestId(`prepare-diagnostics-${bravoId}`));
+
+    expect(click).toHaveBeenCalledOnce();
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    const downloadedBlob = createObjectURL.mock.calls[0]?.[0];
+    if (!(downloadedBlob instanceof Blob)) {
+      throw new Error('Diagnostics blob was not captured.');
+    }
+    const context = JSON.parse(await downloadedBlob.text()) as {
+      schemaVersion: number;
+      diagnosticMode: string;
+      dashboard: { nodeId: string; incident: string };
+    };
+    expect(context.schemaVersion).toBe(1);
+    expect(context.diagnosticMode).toBe('ConnectorOffline');
+    expect(context.dashboard.nodeId).toBe(bravoId);
+    expect(context.dashboard.incident).toBe('synchronization-network');
+    expect(await screen.findByText(/Diagnostics context downloaded/)).toHaveTextContent(
+      'Diagnostics context downloaded',
+    );
+
     expect(screen.getByText('No profiles reported')).toBeInTheDocument();
   });
 

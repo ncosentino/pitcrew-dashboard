@@ -13,8 +13,10 @@ import {
 } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
 import {
+  buildDiagnosticsContext,
   describeSubsystemHealth,
   describeWorkerUpdate,
+  serializeDiagnosticsContext,
   summarizeManagerOperations,
   useFleet,
   type CapacityControlState,
@@ -40,6 +42,7 @@ import { ProfileSubsystemHealth } from '../components/ProfileSubsystemHealth';
 import { ProfileTargetsTable } from '../components/ProfileTargetsTable';
 import { ProfileWorkerUpdateSummary } from '../components/ProfileWorkerUpdateSummary';
 import { recoverManager, setCapacityMaximum } from '../fleetApi';
+import { downloadDiagnosticsContext } from '../diagnosticsDownload';
 import { isRecoveryCommandActive, type RecoveryFences } from '../managerRecovery';
 
 interface ProfileDetailContext {
@@ -143,6 +146,7 @@ export function ProfileDetailLayout() {
   const { tenantId = '', nodeId = '', profileId = '' } = useParams();
   const { session } = useSession();
   const { fleet, error, isLoading, refreshNow } = useFleet();
+  const [diagnosticsPrepared, setDiagnosticsPrepared] = useState(false);
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAdminister = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const node = fleet?.nodes.find((candidate) => candidate.nodeId === nodeId);
@@ -214,6 +218,23 @@ export function ProfileDetailLayout() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            data-testid={`prepare-diagnostics-${node.nodeId}-${profile.profileId}`}
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const context = buildDiagnosticsContext(
+                node,
+                fleet.generatedAt,
+                fleet.activeIncidents,
+              );
+              downloadDiagnosticsContext(node.nodeId, serializeDiagnosticsContext(context));
+              setDiagnosticsPrepared(true);
+            }}
+          >
+            Prepare diagnostics
+          </Button>
           <StatusBadge status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'} />
           <StatusBadge status={profile.managerStatus} />
           <StatusBadge status={profile.desiredStateStatus} />
@@ -237,6 +258,23 @@ export function ProfileDetailLayout() {
         tenantId={tenantId}
         testId={`profile-active-incidents-${profile.profileId}`}
       />
+      {!node.isOnline ? (
+        <div
+          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          data-testid="profile-node-offline"
+          role="status"
+        >
+          This node is offline. Every profile, capacity, worker, resource, subsystem, and recovery
+          value on these pages is last-known evidence observed {formatTime(profile.observedAt)}. The
+          connector was last seen {formatTime(node.lastSeenAt)}.
+        </div>
+      ) : null}
+      {diagnosticsPrepared ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Diagnostics context downloaded. Add the exact affected GitHub run or job before host
+          collection.
+        </p>
+      ) : null}
       {profile.managerStatus === 'stale' || profile.managerStatus === 'stopped' ? (
         <div
           className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
@@ -312,7 +350,11 @@ export function ProfileOverviewPage() {
         <OverviewMetric
           label="Target"
           value={target}
-          description="Current manager activation target."
+          description={
+            node.isOnline
+              ? 'Current manager activation target.'
+              : 'Last-known manager activation target.'
+          }
           testId={`profile-overview-target-${profile.profileId}`}
         />
         <OverviewMetric
@@ -324,7 +366,11 @@ export function ProfileOverviewPage() {
         <OverviewMetric
           label="GitHub eligible"
           value={profile.eligibleSlots ?? 'Unknown'}
-          description="Current registration eligibility evidence."
+          description={
+            node.isOnline
+              ? 'Current registration eligibility evidence.'
+              : 'Last-known registration eligibility evidence.'
+          }
           testId={`profile-overview-eligible-${profile.profileId}`}
         />
       </div>
@@ -384,7 +430,8 @@ export function ProfileOverviewPage() {
           <CardHeader>
             <CardTitle>Workers and recovery</CardTitle>
             <CardDescription>
-              Current worker activity and the latest fenced manager-recovery state.
+              {node.isOnline ? 'Current' : 'Last-known'} worker activity and the latest fenced
+              manager-recovery state.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">

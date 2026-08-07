@@ -6,7 +6,13 @@ import { DisplayNameEditor } from '@/components/DisplayNameEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
-import { useFleet, type FleetNode, type ManagerObservedState } from '@/core/fleet';
+import {
+  buildDiagnosticsContext,
+  serializeDiagnosticsContext,
+  useFleet,
+  type FleetNode,
+  type ManagerObservedState,
+} from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
@@ -15,7 +21,9 @@ import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { HostHardwareCard } from '../components/HostHardwareSummary';
 import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { NodePressureCommandCenter } from '../components/NodePressureCommandCenter';
+import { ConnectorHealthSummary } from '../components/ConnectorHealthSummary';
 import { renameNode, requestCredentialRotation, revokeNode, setCapacityMaximum } from '../fleetApi';
+import { downloadDiagnosticsContext } from '../diagnosticsDownload';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
 
 interface NodeDetailContext {
@@ -30,13 +38,14 @@ interface ProfileSummaryProps {
   readonly profile: ManagerObservedState;
   readonly tenantId: string;
   readonly nodeId: string;
+  readonly nodeIsOnline: boolean;
 }
 
 function useNodeDetail(): NodeDetailContext {
   return useOutletContext<NodeDetailContext>();
 }
 
-function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
+function ProfileSummary({ profile, tenantId, nodeId, nodeIsOnline }: ProfileSummaryProps) {
   const configured =
     profile.configuredSlots ?? profile.autoscaling?.maximumSlots ?? profile.desiredSlots;
   const resources = aggregateProfileResources(profile);
@@ -55,7 +64,8 @@ function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
               </Link>
             </CardTitle>
             <CardDescription>
-              {profile.scope} scope · generation {profile.generation} · observed{' '}
+              {profile.scope} scope · generation {profile.generation} ·{' '}
+              {nodeIsOnline ? 'observed' : 'last-known observation'}{' '}
               {formatTime(profile.observedAt)}
             </CardDescription>
           </div>
@@ -69,31 +79,43 @@ function ProfileSummary({ profile, tenantId, nodeId }: ProfileSummaryProps) {
       <CardContent className="grid gap-4">
         <dl className="grid gap-3 text-sm sm:grid-cols-5">
           <div>
-            <dt className="text-xs text-muted-foreground uppercase">Configured</dt>
+            <dt className="text-xs text-muted-foreground uppercase">
+              {nodeIsOnline ? 'Configured' : 'Last known configured'}
+            </dt>
             <dd className="mt-1 font-semibold tabular-nums">{configured}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground uppercase">Desired</dt>
+            <dt className="text-xs text-muted-foreground uppercase">
+              {nodeIsOnline ? 'Desired' : 'Last known desired'}
+            </dt>
             <dd className="mt-1 font-semibold tabular-nums">{profile.desiredSlots}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground uppercase">Local slots</dt>
+            <dt className="text-xs text-muted-foreground uppercase">
+              {nodeIsOnline ? 'Local slots' : 'Last known local slots'}
+            </dt>
             <dd className="mt-1 font-semibold tabular-nums">{profile.activeSlots}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground uppercase">GitHub eligible</dt>
+            <dt className="text-xs text-muted-foreground uppercase">
+              {nodeIsOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
+            </dt>
             <dd className="mt-1 font-semibold tabular-nums">
               {profile.eligibleSlots ?? 'Unknown'}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground uppercase">Draining</dt>
+            <dt className="text-xs text-muted-foreground uppercase">
+              {nodeIsOnline ? 'Draining' : 'Last known draining'}
+            </dt>
             <dd className="mt-1 font-semibold tabular-nums">{profile.drainingSlots}</dd>
           </div>
         </dl>
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
           <div>
-            <span className="font-medium">Current CPU / memory: </span>
+            <span className="font-medium">
+              {nodeIsOnline ? 'CPU / memory: ' : 'Last known CPU / memory: '}
+            </span>
             {resources.reportingSources > 0
               ? `${formatCpuCores(resources.cpuCores)} / ${formatBytes(resources.memoryWorkingSetBytes)}`
               : 'Unavailable'}
@@ -125,6 +147,7 @@ export function NodeDetailLayout() {
   const { tenantId = '', nodeId = '' } = useParams();
   const { session } = useSession();
   const { fleet, error, isLoading, refreshNow } = useFleet();
+  const [diagnosticsPrepared, setDiagnosticsPrepared] = useState(false);
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAdminister = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const node = fleet?.nodes.find((candidate) => candidate.nodeId === nodeId);
@@ -181,6 +204,23 @@ export function NodeDetailLayout() {
           <p className="font-mono text-xs text-muted-foreground">{node.nodeId}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            data-testid={`prepare-diagnostics-${node.nodeId}`}
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const context = buildDiagnosticsContext(
+                node,
+                fleet.generatedAt,
+                fleet.activeIncidents,
+              );
+              downloadDiagnosticsContext(node.nodeId, serializeDiagnosticsContext(context));
+              setDiagnosticsPrepared(true);
+            }}
+          >
+            Prepare diagnostics
+          </Button>
           <StatusBadge status={status} />
           {node.credentialRotationRequested ? <StatusBadge status="rotation requested" /> : null}
         </div>
@@ -200,9 +240,20 @@ export function NodeDetailLayout() {
         testId={`node-active-incidents-${node.nodeId}`}
       />
       {status === 'offline' ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-          This node is offline. Profile observations may no longer reflect current capacity.
+        <div
+          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          role="status"
+        >
+          This node is offline. Every connector, profile, capacity, resource, and hardware value
+          below is last known from {formatTime(node.lastSeenAt)} unless a more specific source
+          timestamp is shown.
         </div>
+      ) : null}
+      {diagnosticsPrepared ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Diagnostics context downloaded. Add the exact affected GitHub run or job before host
+          collection.
+        </p>
       ) : null}
       {status === 'revoked' ? (
         <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
@@ -259,7 +310,9 @@ export function NodeOverviewPage() {
         <CardContent>
           <dl className="grid gap-3 text-sm sm:grid-cols-4">
             <div>
-              <dt className="text-xs text-muted-foreground uppercase">Connector</dt>
+              <dt className="text-xs text-muted-foreground uppercase">
+                {node.isOnline ? 'Connector' : 'Last known connector'}
+              </dt>
               <dd className="mt-1 font-medium">{node.connectorVersion || 'Unknown'}</dd>
             </div>
             <div>
@@ -272,7 +325,9 @@ export function NodeOverviewPage() {
             </div>
             <div>
               <dt className="text-xs text-muted-foreground uppercase">
-                Configured / local / GitHub eligible
+                {node.isOnline
+                  ? 'Configured / local / GitHub eligible'
+                  : 'Last known configured / local / GitHub eligible'}
               </dt>
               <dd className="mt-1 font-medium tabular-nums">
                 {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
@@ -283,7 +338,13 @@ export function NodeOverviewPage() {
         </CardContent>
       </Card>
 
-      <HostHardwareCard hardware={node.hardware ?? null} />
+      <HostHardwareCard
+        hardware={node.hardware ?? null}
+        isOnline={node.isOnline}
+        lastSeenAt={node.lastSeenAt}
+      />
+
+      <ConnectorHealthSummary node={node} />
 
       <NodePressureCommandCenter
         activeIncidents={fleet?.activeIncidents ?? []}
@@ -323,6 +384,7 @@ export function NodeOverviewPage() {
               profile={profile}
               tenantId={tenantId}
               nodeId={node.nodeId}
+              nodeIsOnline={node.isOnline}
             />
           ))
         )}

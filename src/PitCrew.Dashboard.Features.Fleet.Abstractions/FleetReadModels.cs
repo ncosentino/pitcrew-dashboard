@@ -33,6 +33,11 @@ public sealed record FleetNode(
   /// Gets the latest sanitized node hardware inventory when reported.
   /// </summary>
   public HostHardwareInventory? Hardware { get; init; }
+
+  /// <summary>
+  /// Gets the latest retrospectively replayed connector-health snapshot when available.
+  /// </summary>
+  public ConnectorHealthNodeCurrent? ConnectorHealth { get; init; }
 }
 
 /// <summary>

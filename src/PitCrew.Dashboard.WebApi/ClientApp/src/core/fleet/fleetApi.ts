@@ -888,20 +888,57 @@ const recoveryControlStateSchema = z.object({
   recentCommands: z.array(recoveryCommandStateSchema).default([]),
 });
 
-const fleetNodeSchema = z.object({
-  nodeId: z.string().uuid(),
-  displayName: z.string(),
-  connectorVersion: z.string(),
-  enrolledAt: offsetDateTimeSchema,
-  lastSeenAt: offsetDateTimeSchema.nullable(),
-  isOnline: z.boolean(),
-  isRevoked: z.boolean(),
-  credentialRotationRequested: z.boolean(),
-  profiles: z.array(managerObservedStateSchema),
-  capacityControls: z.array(capacityControlStateSchema).default([]),
-  recoveryControls: z.array(recoveryControlStateSchema).default([]),
-  hardware: hostHardwareInventorySchema.nullable().optional(),
+const connectorHealthSnapshotSchema = z.object({
+  state: z.enum(['starting', 'healthy', 'degraded', 'stopping']),
+  processStartedAt: offsetDateTimeSchema,
+  updatedAt: offsetDateTimeSchema,
+  lastAttemptAt: offsetDateTimeSchema.nullable(),
+  lastSuccessAt: offsetDateTimeSchema.nullable(),
+  activeOutageId: z.string().uuid().nullable(),
+  activeOutageStartedAt: offsetDateTimeSchema.nullable(),
+  lastFailureAt: offsetDateTimeSchema.nullable(),
+  lastFailureCategory: z.string().min(1).max(128).nullable(),
+  lastFailureProfileId: z.string().min(1).max(32).nullable(),
+  lastFailureDetail: z.string().min(1).max(512).nullable(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  nextRetryAt: offsetDateTimeSchema.nullable(),
+  lastRecoveredOutageId: z.string().uuid().nullable(),
+  lastRecoveredOutageStartedAt: offsetDateTimeSchema.nullable(),
+  lastRecoveredAt: offsetDateTimeSchema.nullable(),
+  lastRecoveredFailureCategory: z.string().min(1).max(128).nullable(),
 });
+
+const connectorHealthCurrentSchema = z.object({
+  nodeId: z.string().uuid(),
+  snapshot: connectorHealthSnapshotSchema,
+  receivedAt: offsetDateTimeSchema,
+});
+
+const fleetNodeSchema = z
+  .object({
+    nodeId: z.string().uuid(),
+    displayName: z.string(),
+    connectorVersion: z.string(),
+    enrolledAt: offsetDateTimeSchema,
+    lastSeenAt: offsetDateTimeSchema.nullable(),
+    isOnline: z.boolean(),
+    isRevoked: z.boolean(),
+    credentialRotationRequested: z.boolean(),
+    profiles: z.array(managerObservedStateSchema),
+    capacityControls: z.array(capacityControlStateSchema).default([]),
+    recoveryControls: z.array(recoveryControlStateSchema).default([]),
+    hardware: hostHardwareInventorySchema.nullable().optional(),
+    connectorHealth: connectorHealthCurrentSchema.nullable().optional(),
+  })
+  .superRefine((node, context) => {
+    if (node.connectorHealth != null && node.connectorHealth.nodeId !== node.nodeId) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Connector-health node identity must match the fleet node.',
+        path: ['connectorHealth', 'nodeId'],
+      });
+    }
+  });
 
 export const operationalIncidentSchema = z.object({
   incidentId: z.string().uuid(),
@@ -974,6 +1011,10 @@ export type RecoveryCommandStatus = z.infer<typeof recoveryCommandStatusSchema>;
 export type RecoveryControlState = z.infer<typeof recoveryControlStateSchema>;
 /** One enrolled server and its latest profile projections. */
 export type FleetNode = z.infer<typeof fleetNodeSchema>;
+/** Latest retrospectively replayed connector-health state for one node. */
+export type ConnectorHealthCurrent = z.infer<typeof connectorHealthCurrentSchema>;
+/** Bounded current and most recently recovered connector-health snapshot. */
+export type ConnectorHealthSnapshot = z.infer<typeof connectorHealthSnapshotSchema>;
 /** One durable operational incident. */
 export type OperationalIncident = z.infer<typeof operationalIncidentSchema>;
 /** Current tenant fleet response. */

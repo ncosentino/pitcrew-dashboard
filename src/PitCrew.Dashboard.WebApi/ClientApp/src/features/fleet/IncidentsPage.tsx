@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
+import { getFleet, type FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
@@ -20,6 +21,7 @@ interface IncidentRowProps {
   readonly canAcknowledge: boolean;
   readonly isAcknowledging: boolean;
   readonly onAcknowledge: (incident: OperationalIncident) => void;
+  readonly node: FleetNode | undefined;
 }
 
 function IncidentRow({
@@ -27,7 +29,9 @@ function IncidentRow({
   canAcknowledge,
   isAcknowledging,
   onAcknowledge,
+  node,
 }: IncidentRowProps) {
+  const health = node?.connectorHealth?.snapshot;
   return (
     <tr className="border-t align-top" data-testid={`incident-row-${incident.incidentId}`}>
       <td className="px-4 py-3">
@@ -47,6 +51,22 @@ function IncidentRow({
         {incident.evidence ? (
           <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
             Evidence: {incident.evidence}
+          </p>
+        ) : null}
+        {health && incident.kind === 'connector-offline' ? (
+          <p className="mt-2 max-w-3xl rounded border bg-muted/30 px-2 py-1 text-xs">
+            Retained connector evidence: {health.lastFailureCategory ?? 'category unavailable'};{' '}
+            {health.activeOutageId
+              ? `active since ${formatTime(health.activeOutageStartedAt)}`
+              : health.lastRecoveredOutageId
+                ? `recovered ${formatTime(health.lastRecoveredOutageStartedAt)} to ${formatTime(health.lastRecoveredAt)}`
+                : 'no outage interval retained'}
+            {health.nextRetryAt ? `; retry ${formatTime(health.nextRetryAt)}` : ''}.
+          </p>
+        ) : incident.kind === 'connector-offline' ? (
+          <p className="mt-2 max-w-3xl rounded border bg-muted/30 px-2 py-1 text-xs">
+            Reason unavailable: the unreachable connector has never replayed bounded health
+            evidence.
           </p>
         ) : null}
       </td>
@@ -89,6 +109,7 @@ function IncidentRow({
 export default function IncidentsPage() {
   const { tenantId = '' } = useParams();
   const { session } = useSession();
+  const [nodes, setNodes] = useState<ReadonlyArray<FleetNode>>([]);
   const [filter, setFilter] = useState<IncidentFilter>('active');
   const [page, setPage] = useState<IncidentPage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,10 +125,19 @@ export default function IncidentsPage() {
       const version = ++requestVersion.current;
       setIsLoading(true);
       try {
+        const requestSignal = signal ?? new AbortController().signal;
+        const fleetPromise = getFleet(tenantId, requestSignal).catch((caught: unknown) => {
+          if (caught instanceof DOMException && caught.name === 'AbortError') return null;
+          console.warn('Connector health evidence is unavailable on the incident page.', caught);
+          return null;
+        });
         const next = await getIncidents(tenantId, filter, signal);
         if (version !== requestVersion.current) return;
         setPage(next);
         setError(null);
+        void fleetPromise.then((nextFleet) => {
+          if (version === requestVersion.current) setNodes(nextFleet?.nodes ?? []);
+        });
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
         if (version !== requestVersion.current) return;
@@ -269,6 +299,7 @@ export default function IncidentsPage() {
                   canAcknowledge={canAcknowledge}
                   isAcknowledging={acknowledgingId === incident.incidentId}
                   onAcknowledge={(selected) => void acknowledge(selected)}
+                  node={nodes.find((node) => node.nodeId === incident.nodeId)}
                 />
               ))}
             </tbody>

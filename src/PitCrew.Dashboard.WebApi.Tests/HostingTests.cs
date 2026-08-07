@@ -16,6 +16,124 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 public sealed class HostingTests
 {
   [Test]
+  public async Task Connector_Health_Replay_Round_Trips_Through_Fleet(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Connector health node",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "connector-health-node",
+          "Connector Health Node",
+          code.Code,
+          cancellationToken);
+      var observedState = DashboardTestHelpers.CreateObservedState(
+          "default",
+          "https://github.com/example/project");
+      var now = observedState.ObservedAt;
+      var outageId = Guid.NewGuid();
+      var eventId = Guid.NewGuid();
+      var response = await DashboardTestHelpers.SynchronizeHealthAsync(
+          client,
+          identity.Credential,
+          "10.0.0",
+          observedState,
+          new ConnectorHealthReplay(
+              new ConnectorHealthReplaySnapshot(
+                  "degraded",
+                  now.AddHours(-1),
+                  now,
+                  now,
+                  now.AddMinutes(-5),
+                  outageId,
+                  now.AddMinutes(-4),
+                  now,
+                  "synchronization-network",
+                  null,
+                  "Connector synchronization could not reach Dashboard.",
+                  3,
+                  now.AddMinutes(5),
+                  null,
+                  null,
+                  null,
+                  null),
+              [
+                  new ConnectorHealthReplayEvent(
+                      eventId,
+                      "synchronization-failed",
+                      now,
+                      "degraded",
+                      outageId,
+                      now.AddMinutes(-4),
+                      "synchronization-network",
+                      null,
+                      3,
+                      300,
+                      "Connector synchronization could not reach Dashboard."),
+              ]),
+          cancellationToken);
+
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+
+      await Assert.That(
+              response.ConnectorHealthAcknowledgement)
+          .IsNotNull();
+      await Assert.That(
+              response.ConnectorHealthAcknowledgement!.EventIds)
+          .HasSingleItem();
+      await Assert.That(
+              response.ConnectorHealthAcknowledgement.EventIds[0])
+          .IsEqualTo(eventId);
+      await Assert.That(fleet).IsNotNull();
+      await Assert.That(fleet!.Nodes).HasSingleItem();
+      var connectorHealth = fleet.Nodes[0].ConnectorHealth ??
+          throw new InvalidOperationException(
+              "Fleet response omitted connector health.");
+      await Assert.That(
+              connectorHealth.Snapshot.ActiveOutageId)
+          .IsEqualTo(outageId);
+      await Assert.That(
+              connectorHealth.Snapshot.LastFailureCategory)
+          .IsEqualTo("synchronization-network");
+
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "9.0.0",
+          DashboardTestHelpers.CreateObservedState(
+              "default",
+              "https://github.com/example/project"),
+          cancellationToken);
+      var omitted = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+
+      await Assert.That(omitted).IsNotNull();
+      await Assert.That(omitted!.Nodes[0].ConnectorHealth).IsNull();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Contract_Thirteen_Hardware_Round_Trips_Through_Fleet_And_History(
       CancellationToken cancellationToken)
   {

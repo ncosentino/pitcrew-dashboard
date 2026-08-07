@@ -170,6 +170,9 @@ outbound channel recovers. Dashboard acknowledges event IDs idempotently and
 commits current health plus retained history in the same SQLite transaction as
 the node heartbeat. See
 [ADR-0005](docs/adr/adr-0005-retrospective-connector-health-replay.md).
+Offline fleet values are labelled as last known, retained connector outages are
+shown separately from incident acknowledgement, and read-only users can
+download a schema-bound PitCrew remote-diagnostics preflight context.
 
 One dashboard accepts independently authenticated connectors from multiple
 servers. Node and tenant identity are derived from the connector credential,
