@@ -203,6 +203,34 @@ internal static class DashboardTestHelpers
             "Synchronization response was empty.");
   }
 
+  public static async Task<ConnectorSyncResponse> SynchronizeHealthAsync(
+      HttpClient client,
+      string credential,
+      string connectorVersion,
+      ManagerObservedState observedState,
+      ConnectorHealthReplay connectorHealth,
+      CancellationToken cancellationToken)
+  {
+    using var response = await SendSynchronizationAsync(
+        client,
+        credential,
+        connectorVersion,
+        observedState,
+        null,
+        null,
+        null,
+        null,
+        null,
+        connectorHealth,
+        cancellationToken);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadFromJsonAsync<
+        ConnectorSyncResponse>(
+            cancellationToken) ??
+        throw new InvalidOperationException(
+            "Synchronization response was empty.");
+  }
+
   public static async Task<HttpResponseMessage> SendSynchronizationAsync(
       HttpClient client,
       string credential,
@@ -240,6 +268,7 @@ internal static class DashboardTestHelpers
         recoveryCapability,
         recoveryProgress,
         recoveryOutcome,
+        null,
         cancellationToken);
     response.EnsureSuccessStatusCode();
     return await response.Content.ReadFromJsonAsync<
@@ -268,6 +297,7 @@ internal static class DashboardTestHelpers
         null,
         null,
         null,
+        null,
         cancellationToken);
   }
 
@@ -281,6 +311,7 @@ internal static class DashboardTestHelpers
       RecoveryOperatorCapability? recoveryCapability,
       RecoveryCommandProgress? recoveryProgress,
       RecoveryCommandOutcome? recoveryOutcome,
+      ConnectorHealthReplay? connectorHealth,
       CancellationToken cancellationToken)
   {
     using var synchronization = new HttpRequestMessage(
@@ -296,7 +327,8 @@ internal static class DashboardTestHelpers
             outcome,
             recoveryCapability,
             recoveryProgress,
-            recoveryOutcome)),
+            recoveryOutcome,
+            connectorHealth)),
     };
     synchronization.Headers.Authorization =
         new AuthenticationHeaderValue(

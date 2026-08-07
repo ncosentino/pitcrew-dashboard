@@ -19,6 +19,14 @@ public sealed record ConnectorHealthProjection(
     bool HistoryTruncated);
 
 /// <summary>
+/// Associates one node with its latest retained connector-health snapshot.
+/// </summary>
+public sealed record ConnectorHealthNodeCurrent(
+    Guid NodeId,
+    ConnectorHealthReplaySnapshot Snapshot,
+    DateTimeOffset ReceivedAt);
+
+/// <summary>
 /// Persists and reads bounded retrospective connector-health evidence.
 /// </summary>
 public interface IConnectorHealthStore

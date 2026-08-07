@@ -1,7 +1,13 @@
 export { FleetProvider } from './FleetProvider';
 export { useFleet } from './useFleet';
 export { currentJobSchema, operationalIncidentSchema } from './fleetApi';
-export { getActiveIncidents } from './fleetApi';
+export { getActiveIncidents, getFleet } from './fleetApi';
+export {
+  buildDiagnosticsContext,
+  diagnosticsContextSchema,
+  serializeDiagnosticsContext,
+} from './diagnosticsContext';
+export type { DiagnosticsContext } from './diagnosticsContext';
 export { describeWorkerUpdate } from './workerUpdate';
 export {
   describeExitEvidence,
@@ -33,6 +39,8 @@ export type {
   CapacityCommandState,
   CapacityControlState,
   CapacityDeficitEvidence,
+  ConnectorHealthCurrent,
+  ConnectorHealthSnapshot,
   FleetNode,
   FleetResponse,
   HostHardwareInventory,

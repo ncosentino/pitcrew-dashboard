@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -95,6 +95,98 @@ describe('IncidentsPage', () => {
     ).toHaveAttribute('href', `/tenants/local/nodes/${nodeId}/profiles/default`);
     expect(screen.getByText('1', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByText(/showing only the newest incidents/i)).toBeInTheDocument();
+  });
+
+  it('renders incidents without waiting for connector-health enrichment', async () => {
+    let resolveFleet: ((response: Response) => void) | undefined;
+    const pendingFleet = new Promise<Response>((resolve) => {
+      resolveFleet = resolve;
+    });
+    renderPage(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return await pendingFleet;
+      if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    expect(await screen.findByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
+    await act(async () => {
+      resolveFleet?.(jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] }));
+    });
+  });
+
+  it('shows retained connector recovery evidence without changing acknowledgement semantics', async () => {
+    const connectorIncident = {
+      ...incident(),
+      profileId: null,
+      kind: 'connector-offline',
+      title: 'Connector is offline',
+      reason: 'connector-offline',
+      summary: 'No connector synchronization has been accepted.',
+    };
+    renderPage(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          nodes: [
+            {
+              nodeId,
+              displayName: 'Zephyr',
+              connectorVersion: '10.0.0',
+              enrolledAt: '2026-07-20T01:00:00+00:00',
+              lastSeenAt: '2026-07-28T01:00:00+00:00',
+              isOnline: false,
+              isRevoked: false,
+              credentialRotationRequested: false,
+              profiles: [],
+              capacityControls: [],
+              recoveryControls: [],
+              connectorHealth: {
+                nodeId,
+                receivedAt: '2026-07-28T01:00:00+00:00',
+                snapshot: {
+                  state: 'healthy',
+                  processStartedAt: '2026-07-27T20:00:00+00:00',
+                  updatedAt: '2026-07-28T01:00:00+00:00',
+                  lastAttemptAt: '2026-07-28T01:00:00+00:00',
+                  lastSuccessAt: '2026-07-28T01:00:00+00:00',
+                  activeOutageId: null,
+                  activeOutageStartedAt: null,
+                  lastFailureAt: '2026-07-28T00:59:00+00:00',
+                  lastFailureCategory: 'synchronization-network',
+                  lastFailureProfileId: null,
+                  lastFailureDetail: 'Connector synchronization could not reach Dashboard.',
+                  consecutiveFailures: 0,
+                  nextRetryAt: null,
+                  lastRecoveredOutageId: '44444444-4444-4444-8444-444444444444',
+                  lastRecoveredOutageStartedAt: '2026-07-28T00:55:00+00:00',
+                  lastRecoveredAt: '2026-07-28T01:00:00+00:00',
+                  lastRecoveredFailureCategory: 'synchronization-network',
+                },
+              },
+            },
+          ],
+        });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          incidents: [connectorIncident],
+          truncated: false,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+
+    expect(await within(row).findByText(/Retained connector evidence/)).toBeInTheDocument();
+    expect(row).toHaveTextContent('synchronization-network');
+    expect(row).toHaveTextContent('recovered');
+    expect(within(row).getByRole('button', { name: 'Acknowledge' })).toBeInTheDocument();
   });
 
   it('acknowledges an active incident and refreshes its lifecycle state', async () => {

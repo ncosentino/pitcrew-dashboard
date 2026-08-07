@@ -506,6 +506,7 @@ describe('profile detail routes', () => {
     await act(async () => {
       await router.navigate(profileRoute('capacity'));
     });
+
     expect(
       await screen.findByTestId('profile-capacity-target-default', {}, { timeout: 5_000 }),
     ).toHaveTextContent('3');
@@ -554,6 +555,24 @@ describe('profile detail routes', () => {
     expect(within(table).getByText('connected')).toBeInTheDocument();
     expect(within(table).getByText('online')).toBeInTheDocument();
     expect(within(table).getByText('2')).toBeInTheDocument();
+  });
+
+  it('labels every profile page value as last known for offline viewer access', async () => {
+    renderProfile(
+      fleetResponse([
+        nodeResponse({
+          isOnline: false,
+          lastSeenAt: '2026-07-19T18:25:00+00:00',
+        }),
+      ]),
+      'viewer',
+    );
+
+    const warning = await screen.findByTestId('profile-node-offline');
+    expect(warning).toHaveTextContent('Every profile, capacity, worker, resource');
+    expect(warning).toHaveTextContent('last-known evidence observed');
+    expect(screen.getByTestId(`prepare-diagnostics-${nodeId}-default`)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Administration' })).not.toBeInTheDocument();
   });
 
   it('renders fixed capacity, unavailable telemetry, no slots, and no control for viewers', async () => {
