@@ -444,7 +444,7 @@ const managerCapacityEvidenceSchema = z.object({
   targets: z.array(targetCapacityDeficitEvidenceSchema).max(64),
 });
 
-const managerObservedStateSchema = z
+export const managerObservedStateSchema = z
   .object({
     schemaVersion: z.number().int(),
     managerContractVersion: z.number().int(),
@@ -914,7 +914,7 @@ const connectorHealthCurrentSchema = z.object({
   receivedAt: offsetDateTimeSchema,
 });
 
-const fleetNodeSchema = z
+export const fleetNodeSchema = z
   .object({
     nodeId: z.string().uuid(),
     displayName: z.string(),
@@ -960,12 +960,12 @@ export const operationalIncidentSchema = z.object({
   resolvedAt: offsetDateTimeSchema.nullable(),
 });
 
-const fleetResponseSchema = z.object({
+export const fleetResponseSchema = z.object({
   generatedAt: offsetDateTimeSchema,
   nodes: z.array(fleetNodeSchema),
   activeIncidents: z.array(operationalIncidentSchema).default([]),
 });
-const activeIncidentPageSchema = z.object({
+export const activeIncidentPageSchema = z.object({
   incidents: z.array(operationalIncidentSchema),
 });
 

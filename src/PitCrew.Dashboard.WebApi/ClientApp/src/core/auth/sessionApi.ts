@@ -11,13 +11,13 @@ export const dashboardUserSchema = z.object({
   avatarUrl: z.string().nullable(),
 });
 
-const tenantAccessSchema = z.object({
+export const tenantAccessSchema = z.object({
   tenantId: z.string(),
   displayName: z.string(),
   role: tenantRoleSchema,
 });
 
-const dashboardSessionSchema = z.object({
+export const dashboardSessionSchema = z.object({
   user: dashboardUserSchema,
   isSystemAdministrator: z.boolean(),
   tenants: z.array(tenantAccessSchema),

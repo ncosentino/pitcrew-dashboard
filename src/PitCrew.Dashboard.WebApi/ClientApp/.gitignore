@@ -32,5 +32,12 @@ yarn-error.log*
 # Test / coverage output
 coverage/
 
+# Playwright browser evidence — CI artifacts only, never committed baselines.
+e2e/.artifacts/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
 # Local agent / scratch directories — operators add their own tool-specific
 # scratch paths here (e.g., .cursor/, .aider/, etc.)

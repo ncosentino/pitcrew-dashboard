@@ -236,6 +236,13 @@
         "owner": "tag:dotnet"
       },
       {
+        "path": "docs/testing/browser-ux.md",
+        "title": "Browser UX evidence harness",
+        "section": "Development",
+        "order": 455,
+        "owner": "tag:node"
+      },
+      {
         "path": "docs/development/request-validation-and-jobs.md",
         "title": "Request validation and job scheduling",
         "section": "Development",

@@ -9,19 +9,19 @@ import {
 } from '@/core/auth/sessionApi';
 
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
-const tenantMemberSchema = z.object({
+export const tenantMemberSchema = z.object({
   user: dashboardUserSchema,
   role: tenantRoleSchema,
   createdAt: offsetDateTimeSchema,
 });
-const tenantMembersSchema = z.array(tenantMemberSchema);
-const dashboardUsersSchema = z.array(dashboardUserSchema);
-const enrollmentCodeResponseSchema = z.object({
+export const tenantMembersSchema = z.array(tenantMemberSchema);
+export const dashboardUsersSchema = z.array(dashboardUserSchema);
+export const enrollmentCodeResponseSchema = z.object({
   enrollmentCodeId: z.string().uuid(),
   code: z.string(),
   expiresAt: offsetDateTimeSchema,
 });
-const diagnosticCredentialSchema = z.object({
+export const diagnosticCredentialSchema = z.object({
   credentialId: z.string().uuid(),
   label: z.string(),
   createdByGitHubUserId: z.string(),
@@ -35,8 +35,8 @@ const diagnosticCredentialSchema = z.object({
   nodeIds: z.array(z.string().uuid()),
   profileIds: z.array(z.string()),
 });
-const diagnosticCredentialsSchema = z.array(diagnosticCredentialSchema);
-const diagnosticCredentialCreatedSchema = z.object({
+export const diagnosticCredentialsSchema = z.array(diagnosticCredentialSchema);
+export const diagnosticCredentialCreatedSchema = z.object({
   credential: diagnosticCredentialSchema,
   value: z.string().min(1),
 });
