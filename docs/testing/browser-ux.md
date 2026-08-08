@@ -108,6 +108,8 @@ same `npm run test:browser` command on pull requests that touch the dashboard SP
 uploads screenshots, metrics, axe reports, and the Playwright HTML report as build
 artifacts. It also runs the Impeccable detector and uploads its JSON output; detector
 _findings_ are advisory, but the workflow fails if the detector itself cannot execute.
+Artifacts are retained for seven days. The HTML report is the canonical browser report;
+the workflow does not also generate or upload Playwright's duplicate JSON reporter.
 
 This workflow is intentionally advisory: it is not listed in
 `.github/genesis-delivery.json`'s `requiredChecks`, so it cannot block merges. Issue
