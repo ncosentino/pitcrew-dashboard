@@ -5,6 +5,21 @@ agents for designing, reviewing, documenting, and applying UI work. The payload 
 vendored by Genesis from Impeccable skill 4.0.4; scaffolding does not run Impeccable's
 network installer and does not add an application package dependency.
 
+## Repository design authority
+
+- [`PRODUCT.md`](../PRODUCT.md) owns durable users, jobs, product purpose,
+  positioning, operating constraints, evidence, and product principles.
+- [`DESIGN.md`](../DESIGN.md) and `.impeccable/design.json` own the reusable visual
+  system and its machine-readable extensions.
+- `.impeccable/surfaces/` owns focused route and workflow briefs. These briefs carry
+  task hierarchy, responsive behavior, material states, and local anti-goals without
+  duplicating global product or design truth.
+- [UX terminology and status language](ux-terminology.md) owns operator-facing words
+  whose distinctions affect evidence or action safety.
+
+When these sources disagree with shipped behavior, application code remains executable
+truth and the stale authority must be refreshed deliberately rather than ignored.
+
 ## Starting work
 
 For an established interface, run the context loader named by the skill before editing.

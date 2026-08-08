@@ -292,10 +292,64 @@ try {
         'Instruction and generated mirror counts differ.')
     Add-Check ($result.instructions -ge 120) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 37) (
-        'The documentation map does not contain the expected 37 maintained pages.')
-    Add-Check ($result.adrs -eq 6) (
-        'The ADR index does not contain six accepted records.')
+    Add-Check ($result.docs -eq 39) (
+        'The documentation map does not contain the expected 39 maintained pages.')
+    Add-Check ($result.adrs -eq 7) (
+        'The ADR index does not contain seven accepted records.')
+
+    $productPath = Join-Path $root 'PRODUCT.md'
+    $designPath = Join-Path $root 'DESIGN.md'
+    $designSidecarPath = Join-Path $root '.impeccable' 'design.json'
+    $surfaceBriefRoot = Join-Path $root '.impeccable' 'surfaces'
+    Add-Check (Test-Path -LiteralPath $productPath -PathType Leaf) (
+        'PRODUCT.md is missing.')
+    Add-Check (Test-Path -LiteralPath $designPath -PathType Leaf) (
+        'DESIGN.md is missing.')
+    Add-Check (Test-Path -LiteralPath $designSidecarPath -PathType Leaf) (
+        'The Impeccable design-system sidecar is missing.')
+    if (
+        (Test-Path -LiteralPath $productPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $designPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $designSidecarPath -PathType Leaf)
+    ) {
+        $product = Get-Content -LiteralPath $productPath -Raw
+        $design = Get-Content -LiteralPath $designPath -Raw
+        $designSidecar = Get-Content -LiteralPath $designSidecarPath -Raw |
+            ConvertFrom-Json -Depth 100
+        Add-Check ($product -match '<!-- impeccable:product-schema 1 -->') (
+            'PRODUCT.md does not declare the current Impeccable product schema.')
+        Add-Check ($product -match '(?ms)^## Platform\s+web\s*$') (
+            'PRODUCT.md does not declare the web platform.')
+        Add-Check (
+            @(
+                '## Overview',
+                '## Colors',
+                '## Typography',
+                '## Layout',
+                '## Elevation & Depth',
+                '## Shapes',
+                '## Components',
+                "## Do's and Don'ts"
+            ).Where({ $design.Contains($_) }).Count -eq 8
+        ) 'DESIGN.md does not contain every canonical design-system section.'
+        Add-Check ($designSidecar.schemaVersion -eq 2) (
+            'The Impeccable design-system sidecar does not use schema version 2.')
+    }
+
+    $surfaceBriefs = @(
+        Get-ChildItem -LiteralPath $surfaceBriefRoot -Filter '*.md' -File
+    )
+    Add-Check ($surfaceBriefs.Count -eq 5) (
+        'The expected five Impeccable surface briefs are not present.')
+    Add-Check (
+        @(
+            $surfaceBriefs |
+                Where-Object {
+                    (Get-Content -LiteralPath $_.FullName -Raw) -notmatch
+                        '(?m)^primary_target:\s*"src/'
+                }
+        ).Count -eq 0
+    ) 'One or more Impeccable surface briefs lack a source target.'
 
     $inventory = & $inventoryScript -ProjectRoot $root
     Add-Check (

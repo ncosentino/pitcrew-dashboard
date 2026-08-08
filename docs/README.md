@@ -48,5 +48,8 @@ This map is the canonical entry point for maintained Dashboard documentation.
 
 ## UX and design
 
+- [Product context](../PRODUCT.md)
+- [Dashboard design system](../DESIGN.md)
 - [UX and design resilience](ux-design.md)
+- [UX terminology and status language](ux-terminology.md)
 - [Impeccable design workflow](impeccable-design.md)

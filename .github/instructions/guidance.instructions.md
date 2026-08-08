@@ -1,11 +1,14 @@
 ---
-applyTo: "AGENTS.md,CLAUDE.md,.claude/CLAUDE.md,.github/copilot-instructions.md,.github/instructions/**,.github/agents/**,.github/skills/**,.github/genesis-guidance*.json,.claude/rules/generated/**,scripts/guidance/**,tests/Test-Guidance.ps1,docs/README.md,docs/adr/**,docs/impeccable-design.md,docs/ux-design.md"
+applyTo: "AGENTS.md,CLAUDE.md,.claude/CLAUDE.md,.github/copilot-instructions.md,.github/instructions/**,.github/agents/**,.github/skills/**,.github/genesis-guidance*.json,.claude/rules/generated/**,scripts/guidance/**,tests/Test-Guidance.ps1,PRODUCT.md,DESIGN.md,.impeccable/design.json,.impeccable/surfaces/**,docs/README.md,docs/adr/**,docs/impeccable-design.md,docs/ux-design.md,docs/ux-terminology.md"
 ---
 
 # Guidance architecture
 
 - Keep project identity and unscopable safeguards in `AGENTS.md`; move exact recurring
   rules to scoped instructions and rationale to maintained docs.
+- Keep `PRODUCT.md`, `DESIGN.md`, `.impeccable/design.json`, and focused surface
+  briefs as the durable product and design authority consumed by the project-local
+  Impeccable workflow.
 - Treat `.github/instructions/genesis/` as generated managed output. Express local
   specialization outside that subtree and refresh managed files only from the exact
   Genesis template and symbol shape.
