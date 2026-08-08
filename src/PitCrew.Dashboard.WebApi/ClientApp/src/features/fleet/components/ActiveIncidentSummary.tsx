@@ -30,7 +30,7 @@ export function ActiveIncidentSummary({ tenantId, incidents, testId }: ActiveInc
         </span>
       </div>
       <Link
-        className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
+        className="text-sm font-semibold text-link underline-offset-4 hover:underline"
         to={`/tenants/${encodeURIComponent(tenantId)}/incidents`}
       >
         View incidents

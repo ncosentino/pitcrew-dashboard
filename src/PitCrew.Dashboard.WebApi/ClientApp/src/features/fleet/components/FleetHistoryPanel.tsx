@@ -116,7 +116,7 @@ function ProfileHistorySections({
                     <th className="font-normal" scope="row">
                       {interval.href ? (
                         <a
-                          className="font-medium text-primary underline-offset-4 hover:underline"
+                          className="font-medium text-link underline-offset-4 hover:underline"
                           href={interval.href}
                           rel="noreferrer"
                           target="_blank"
@@ -653,7 +653,10 @@ export function FleetHistoryPanel({
 
   if (presentation === 'page') {
     return (
-      <section className="overflow-hidden rounded-lg border bg-card shadow-sm" data-testid={testId}>
+      <section
+        className="overflow-hidden rounded-lg border bg-card shadow-raised-surface"
+        data-testid={testId}
+      >
         <div className="px-4 py-4">
           <h2 className="font-semibold">History</h2>
           <p className="text-xs text-muted-foreground">

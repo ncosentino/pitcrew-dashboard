@@ -117,7 +117,7 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+    <section className="overflow-hidden rounded-lg border bg-card shadow-raised-surface">
       <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3">
         <div>
           <h2 className="font-semibold">Workers</h2>

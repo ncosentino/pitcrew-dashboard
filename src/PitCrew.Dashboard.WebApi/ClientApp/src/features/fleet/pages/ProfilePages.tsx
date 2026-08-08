@@ -26,9 +26,9 @@ import {
   type SubsystemHealthSummary,
 } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
+import { SectionNavigation } from '@/core/ui/SectionNavigation';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { EntitySectionNavigation } from '../components/EntitySectionNavigation';
 import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { ProfileCapacityEvidence } from '../components/ProfileCapacityEvidence';
@@ -71,10 +71,12 @@ function useProfileDetail(): ProfileDetailContext {
 
 function OverviewMetric({ label, value, description, status, testId }: OverviewMetricProps) {
   return (
-    <Card className="gap-3 py-5 shadow-xs" data-testid={testId}>
+    <Card className="gap-3 py-5 shadow-control-lift" data-testid={testId}>
       <CardHeader className="px-5">
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl font-semibold tabular-nums">{value}</CardTitle>
+        <CardTitle as="p" className="text-2xl font-semibold tabular-nums">
+          {value}
+        </CardTitle>
         {status ? (
           <CardAction>
             <StatusBadge status={status} />
@@ -285,10 +287,7 @@ export function ProfileDetailLayout() {
         </div>
       ) : null}
 
-      <EntitySectionNavigation
-        label={`${profile.profileId} profile navigation`}
-        items={navigation}
-      />
+      <SectionNavigation label={`${profile.profileId} profile navigation`} items={navigation} />
       <Outlet
         context={
           {
@@ -471,7 +470,7 @@ export function ProfileOverviewPage() {
                     ? [
                         <li className="rounded border px-3 py-2" key={slot.currentJob.jobId}>
                           <a
-                            className="font-semibold text-primary underline-offset-4 hover:underline"
+                            className="font-semibold text-link underline-offset-4 hover:underline"
                             href={`${slot.currentJob.repository}/actions/runs/${slot.currentJob.workflowRunId}/job/${slot.currentJob.jobId}`}
                             rel="noreferrer"
                             target="_blank"

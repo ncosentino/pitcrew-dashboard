@@ -14,9 +14,11 @@ import {
   type ManagerObservedState,
 } from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
+import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { EntityHeader } from '@/core/ui/EntityHeader';
+import { SectionNavigation } from '@/core/ui/SectionNavigation';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
-import { EntitySectionNavigation } from '../components/EntitySectionNavigation';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { HostHardwareCard } from '../components/HostHardwareSummary';
 import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
@@ -57,7 +59,7 @@ function ProfileSummary({ profile, tenantId, nodeId, nodeIsOnline }: ProfileSumm
           <div>
             <CardTitle>
               <Link
-                className="text-primary underline-offset-4 hover:underline"
+                className="text-link underline-offset-4 hover:underline"
                 to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profile.profileId)}`}
               >
                 {profile.profileId}
@@ -198,33 +200,33 @@ export function NodeDetailLayout() {
 
   return (
     <section className="grid gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">{node.displayName}</h2>
-          <p className="font-mono text-xs text-muted-foreground">{node.nodeId}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            data-testid={`prepare-diagnostics-${node.nodeId}`}
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              const context = buildDiagnosticsContext(
-                node,
-                fleet.generatedAt,
-                fleet.activeIncidents,
-              );
-              downloadDiagnosticsContext(node.nodeId, serializeDiagnosticsContext(context));
-              setDiagnosticsPrepared(true);
-            }}
-          >
-            Prepare diagnostics
-          </Button>
-          <StatusBadge status={status} />
-          {node.credentialRotationRequested ? <StatusBadge status="rotation requested" /> : null}
-        </div>
-      </div>
+      <EntityHeader
+        title={node.displayName}
+        identifier={node.nodeId}
+        actions={
+          <>
+            <Button
+              data-testid={`prepare-diagnostics-${node.nodeId}`}
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const context = buildDiagnosticsContext(
+                  node,
+                  fleet.generatedAt,
+                  fleet.activeIncidents,
+                );
+                downloadDiagnosticsContext(node.nodeId, serializeDiagnosticsContext(context));
+                setDiagnosticsPrepared(true);
+              }}
+            >
+              Prepare diagnostics
+            </Button>
+            <StatusBadge status={status} />
+            {node.credentialRotationRequested ? <StatusBadge status="rotation requested" /> : null}
+          </>
+        }
+      />
 
       {error ? (
         <div
@@ -261,7 +263,7 @@ export function NodeDetailLayout() {
         </div>
       ) : null}
 
-      <EntitySectionNavigation label={`${node.displayName} navigation`} items={navigation} />
+      <SectionNavigation label={`${node.displayName} navigation`} items={navigation} />
       <Outlet
         context={
           {
@@ -475,6 +477,20 @@ export function NodeAdministrationPage() {
             description={`Revoke ${node.displayName}? The connector will stop synchronizing until it re-enrolls with a new one-time code.`}
             confirmLabel="Revoke node"
             confirmVariant="destructive"
+            details={
+              <ConfirmationSummary
+                identity={[
+                  { label: 'Node', value: node.displayName },
+                  { label: 'Identifier', value: node.nodeId },
+                ]}
+                effects={[
+                  'The connector stops synchronizing with this tenant until it re-enrolls with a new one-time code.',
+                ]}
+                prohibitedEffects={[
+                  'No profile, worker, or capacity configuration on this node is changed.',
+                ]}
+              />
+            }
             trigger={
               <Button
                 type="button"

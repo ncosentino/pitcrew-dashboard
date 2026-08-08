@@ -17,7 +17,10 @@ export function ProfileEvidencePanel({
   children,
 }: ProfileEvidencePanelProps) {
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-sm" data-testid={testId}>
+    <section
+      className="overflow-hidden rounded-lg border bg-card shadow-raised-surface"
+      data-testid={testId}
+    >
       <div className="flex flex-col items-stretch gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="min-w-0">
           <h2 className="font-semibold">{title}</h2>

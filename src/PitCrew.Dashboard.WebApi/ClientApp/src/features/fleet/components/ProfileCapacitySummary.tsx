@@ -4,6 +4,7 @@ import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
 import { type CapacityControlState, type ManagerObservedState } from '@/core/fleet';
 import { formatSeconds, formatTime } from '@/core/formatting/formatters';
+import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 function formatScaleDownCountdown(value: string | null): string {
@@ -114,6 +115,33 @@ function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMax
           title="Queue capacity change?"
           description={`Set ${control.profileId} capacity maximum to ${parsed}?`}
           confirmLabel="Confirm capacity change"
+          details={
+            <ConfirmationSummary
+              identity={[
+                {
+                  label: 'Profile',
+                  value: control.profileId,
+                  testId: `profile-capacity-maximum-profile-${control.profileId}`,
+                },
+                {
+                  label: 'Current maximum',
+                  value: control.currentMaximum,
+                  testId: `profile-capacity-maximum-current-${control.profileId}`,
+                },
+                {
+                  label: 'Requested maximum',
+                  value: parsed,
+                  testId: `profile-capacity-maximum-requested-${control.profileId}`,
+                },
+              ]}
+              effects={[
+                `Local PitCrew queues a new capacity maximum of ${parsed} for profile ${control.profileId}, up to the local ceiling of ${control.maximumAllowed}.`,
+              ]}
+              prohibitedEffects={[
+                'No worker is force-stopped to reach the new maximum; existing busy workers continue until their current job finishes, and no image, routing, or manager configuration is changed.',
+              ]}
+            />
+          }
           trigger={
             <Button type="button" size="sm" disabled={disabled || active || !valid}>
               Queue change
@@ -126,6 +154,28 @@ function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMax
             title="Pause new work?"
             description={`Set ${control.profileId} capacity to zero? Busy workers continue, but no replacement or new worker will be admitted.`}
             confirmLabel="Pause new work"
+            details={
+              <ConfirmationSummary
+                identity={[
+                  {
+                    label: 'Profile',
+                    value: control.profileId,
+                    testId: `profile-capacity-pause-profile-${control.profileId}`,
+                  },
+                  {
+                    label: 'Current maximum',
+                    value: control.currentMaximum,
+                    testId: `profile-capacity-pause-current-${control.profileId}`,
+                  },
+                ]}
+                effects={[
+                  `Local PitCrew sets the capacity maximum for profile ${control.profileId} to zero: no replacement or new worker will be admitted.`,
+                ]}
+                prohibitedEffects={[
+                  'Busy workers already running continue until their current job finishes; no worker is force-stopped, and no image, routing, or manager configuration is changed.',
+                ]}
+              />
+            }
             trigger={
               <Button type="button" size="sm" variant="destructive" disabled={disabled || active}>
                 Pause new work
@@ -139,6 +189,34 @@ function CapacityMaximumControl({ control, disabled, onSetMaximum }: CapacityMax
             title={`Resume to ${resume.maximum}?`}
             description={`Restore ${control.profileId} to its recorded pre-pause maximum of ${resume.maximum}.`}
             confirmLabel={`Resume to ${resume.maximum}`}
+            details={
+              <ConfirmationSummary
+                identity={[
+                  {
+                    label: 'Profile',
+                    value: control.profileId,
+                    testId: `profile-capacity-resume-profile-${control.profileId}`,
+                  },
+                  {
+                    label: 'Current state',
+                    value: 'Paused (maximum 0)',
+                    testId: `profile-capacity-resume-current-${control.profileId}`,
+                  },
+                  {
+                    label: 'Resume maximum',
+                    value: resume.maximum,
+                    testId: `profile-capacity-resume-maximum-${control.profileId}`,
+                  },
+                ]}
+                effects={[
+                  `Local PitCrew restores the capacity maximum for profile ${control.profileId} to its recorded pre-pause value of ${resume.maximum}, allowing new work to be admitted again.`,
+                ]}
+                prohibitedEffects={[
+                  'Does not restart or cancel any job that is currently running or already queued.',
+                  'Does not recover, restart, or reconfigure the runner manager itself.',
+                ]}
+              />
+            }
             trigger={
               <Button type="button" size="sm" disabled={disabled || active}>
                 Resume to {resume.maximum}

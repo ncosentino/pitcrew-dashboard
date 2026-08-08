@@ -787,6 +787,20 @@ describe('profile detail routes', () => {
 
     const dialog = await screen.findByRole('alertdialog');
     expect(within(dialog).getByText('Set default capacity maximum to 40?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByTestId('profile-capacity-maximum-current-default'),
+    ).toHaveTextContent('30');
+    expect(
+      within(dialog).getByTestId('profile-capacity-maximum-requested-default'),
+    ).toHaveTextContent('40');
+    expect(within(dialog).getByText('What will happen')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/queues a new capacity maximum of 40 for profile default/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('What will not happen')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/existing busy workers continue until their current job finishes/),
+    ).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
     await user.click(within(dialog).getByRole('button', { name: 'Confirm capacity change' }));
 
@@ -830,6 +844,13 @@ describe('profile detail routes', () => {
     await user.click(await screen.findByRole('button', { name: 'Pause new work' }));
     const dialog = await screen.findByRole('alertdialog');
     expect(within(dialog).getByText(/busy workers continue/iu)).toBeInTheDocument();
+    expect(within(dialog).getByTestId('profile-capacity-pause-current-default')).toHaveTextContent(
+      '30',
+    );
+    expect(
+      within(dialog).getByText(/sets the capacity maximum for profile default to zero/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/no worker is force-stopped/iu)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Pause new work' }));
 
     const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
@@ -875,6 +896,24 @@ describe('profile detail routes', () => {
     expect(screen.getByRole('button', { name: 'Queue change' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Resume to 30' }));
     const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByTestId('profile-capacity-resume-profile-default')).toHaveTextContent(
+      'default',
+    );
+    expect(within(dialog).getByTestId('profile-capacity-resume-current-default')).toHaveTextContent(
+      'Paused (maximum 0)',
+    );
+    expect(within(dialog).getByTestId('profile-capacity-resume-maximum-default')).toHaveTextContent(
+      '30',
+    );
+    expect(within(dialog).getByText('What will happen')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/restores the capacity maximum for profile default/iu),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('What will not happen')).toBeInTheDocument();
+    expect(within(dialog).getByText(/does not restart or cancel any job/iu)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/does not recover, restart, or reconfigure the runner manager/iu),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Resume to 30' }));
 
     const request = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');

@@ -52,6 +52,21 @@ html[data-theme='dark'] {
   --sidebar-accent-foreground: #0b686e;
   --sidebar-border: #d8e2e5;
   --sidebar-ring: #13989f;
+
+  /*
+   * Semantic roles below are grounded in DESIGN.md's color, elevation, and
+   * typography vocabulary. They exist alongside the shadcn-style tokens
+   * above rather than replacing them, so existing bg-primary/text-primary
+   * call sites keep working while new shared primitives adopt the named
+   * roles directly.
+   */
+  --link: #071825;
+  --status-positive: oklch(95% 0.052 163.051);
+  --status-positive-foreground: oklch(43.2% 0.095 166.913);
+  --status-caution: oklch(96.2% 0.059 95.617);
+  --status-caution-foreground: oklch(47.3% 0.137 46.201);
+  --status-critical: oklch(93.6% 0.032 17.717);
+  --status-critical-foreground: oklch(44.4% 0.177 26.899);
 }
 
 .dark {
@@ -63,8 +78,17 @@ html[data-theme='dark'] {
   --card-foreground: #f8fafc;
   --popover: #0d2435;
   --popover-foreground: #f8fafc;
-  --primary: #f33919;
-  --primary-foreground: #ffffff;
+  /*
+   * DESIGN.md is explicit that dark-theme actions must not inherit the
+   * Signal Orange + white pairing used for artwork: white-on-orange
+   * measures 3.7-4.1:1, below the 4.5:1 AA threshold for normal text.
+   * Deep Instrument + Console Instrument (the same values already used
+   * for --accent below) measure 9.9:1 and are the pairing DESIGN.md
+   * names directly ("grounded in the existing deep instrument and
+   * console text roles").
+   */
+  --primary: #123c42;
+  --primary-foreground: #c9f1f2;
   --secondary: #153044;
   --secondary-foreground: #f8fafc;
   --muted: #153044;
@@ -88,6 +112,27 @@ html[data-theme='dark'] {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /*
+   * Signal Orange text on dark cards/canvas also fails AA (3.7-4.1:1),
+   * so standalone links use Bright Instrument Teal instead, which
+   * DESIGN.md names for dark-theme focus rings and chart lines and
+   * measures 6.5-7.4:1 against the dark surfaces it appears on.
+   */
+  --link: #27b7bd;
+  /*
+   * The incumbent status-badge system (.impeccable/design.json's
+   * Semantic Status Badges component) defines dedicated dark-theme
+   * pairs rather than reusing the light-theme soft/ink chips: dark
+   * surfaces get a deep tinted background with a light foreground, each
+   * measuring 11.1-12.0:1 (WCAG AA/AAA) against its own background.
+   */
+  --status-positive: oklch(26.2% 0.051 172.552);
+  --status-positive-foreground: oklch(90.5% 0.093 164.15);
+  --status-caution: oklch(27.9% 0.077 45.635);
+  --status-caution-foreground: oklch(92.4% 0.12 95.746);
+  --status-critical: oklch(25.8% 0.092 26.042);
+  --status-critical-foreground: oklch(88.5% 0.062 18.334);
 }
 
 @theme inline {
@@ -126,6 +171,52 @@ html[data-theme='dark'] {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-link: var(--link);
+  --color-status-positive: var(--status-positive);
+  --color-status-positive-foreground: var(--status-positive-foreground);
+  --color-status-caution: var(--status-caution);
+  --color-status-caution-foreground: var(--status-caution-foreground);
+  --color-status-critical: var(--status-critical);
+  --color-status-critical-foreground: var(--status-critical-foreground);
+
+  /* One system UI workhorse family (DESIGN.md typography.display/body/mono). */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+
+  /*
+   * Typography roles beyond Tailwind's defaults. Body (0.875rem/1.25rem/400)
+   * and Control (0.875rem/1.25rem/500) already match Tailwind's text-sm, so
+   * they reuse text-sm rather than adding a redundant token.
+   */
+  --text-page-title: 1.875rem;
+  --text-page-title--line-height: 2.25rem;
+  --text-page-title--font-weight: 700;
+  --text-page-title--letter-spacing: -0.025em;
+  --text-entity-title: 1.5rem;
+  --text-entity-title--line-height: 2rem;
+  --text-entity-title--font-weight: 700;
+  --text-entity-title--letter-spacing: -0.025em;
+  --text-section-heading: 1.25rem;
+  --text-section-heading--line-height: 1.75rem;
+  --text-section-heading--font-weight: 600;
+  --text-panel-title: 1rem;
+  --text-panel-title--line-height: 1;
+  --text-panel-title--font-weight: 600;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1rem;
+  --text-label--font-weight: 600;
+  --text-identifier: 0.75rem;
+  --text-identifier--line-height: 1rem;
+  --text-identifier--font-weight: 400;
+
+  /* DESIGN.md Shadow Vocabulary: tonal depth first, shadows only for earned elevation. */
+  --shadow-control-lift: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-raised-surface: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-interruptive-surface: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 }
 
 @layer base {

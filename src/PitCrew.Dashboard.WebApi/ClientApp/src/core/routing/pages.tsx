@@ -55,7 +55,7 @@ export function RouteErrorPage() {
     <main className="mx-auto flex min-h-screen max-w-xl items-center px-4" role="alert">
       <Card className="w-full">
         <CardHeader>
-          <CardTitle>Page could not be displayed{status}</CardTitle>
+          <CardTitle as="h1">Page could not be displayed{status}</CardTitle>
           <CardDescription>
             An unexpected routing error occurred. Return to the dashboard and try again.
           </CardDescription>
@@ -81,7 +81,9 @@ export function LoginPage() {
       <Card className="w-full">
         <CardHeader className="items-center text-center">
           <PitCrewBrand variant="hero" />
-          <CardTitle className="mt-2 text-2xl">Sign in to PitCrew Dashboard</CardTitle>
+          <CardTitle as="h1" className="mt-2 text-2xl">
+            Sign in to PitCrew Dashboard
+          </CardTitle>
           <CardDescription>
             Fleet data and connector administration require an authorized GitHub account.
           </CardDescription>

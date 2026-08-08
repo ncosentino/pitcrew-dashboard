@@ -85,6 +85,54 @@ describe('ProfileManagerRecovery', () => {
     vi.restoreAllMocks();
   });
 
+  it('renders the confirmation as identity, fences, effects, prohibited effects, and an acknowledgement', async () => {
+    const recover = vi.fn<(fences: unknown) => Promise<void>>(async () => undefined);
+    const user = userEvent.setup();
+    renderRecovery(control, recover);
+
+    await user.click(screen.getByTestId('profile-recovery-action-default'));
+    const dialog = await screen.findByRole('alertdialog');
+
+    expect(within(dialog).getByTestId('profile-recovery-scope-default')).toHaveTextContent(
+      'local · Resource server · default',
+    );
+    expect(within(dialog).getByTestId('profile-recovery-fences-default')).toHaveTextContent(
+      'manager-default · generation 4 · hash aaaaaaaaaaaa',
+    );
+    expect(within(dialog).getByText('Expected fences')).toBeInTheDocument();
+    expect(within(dialog).getByText('What will happen')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/restarts this one profile manager exactly once/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('What will not happen')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/No worker, Docker daemon or Desktop, host, capacity/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/can still fail or end indeterminate/)).toBeInTheDocument();
+
+    const acknowledgement = within(dialog).getByTestId('profile-recovery-acknowledgement-default');
+    expect(acknowledgement).not.toBeChecked();
+    expect(
+      within(dialog).getByRole('checkbox', {
+        name: /I confirm recovery of manager manager-default at generation 4 with desired-state hash/,
+      }),
+    ).toBe(acknowledgement);
+  });
+
+  it('gates the confirm action on the acknowledgement checkbox', async () => {
+    const recover = vi.fn<(fences: unknown) => Promise<void>>(async () => undefined);
+    const user = userEvent.setup();
+    renderRecovery(control, recover);
+
+    await user.click(screen.getByTestId('profile-recovery-action-default'));
+    const dialog = await screen.findByRole('alertdialog');
+    const confirm = within(dialog).getByRole('button', { name: 'Queue manager recovery' });
+    expect(confirm).toBeDisabled();
+
+    await user.click(within(dialog).getByTestId('profile-recovery-acknowledgement-default'));
+    expect(confirm).toBeEnabled();
+  });
+
   it('invalidates an open confirmation when the expected fences change', async () => {
     const recover = vi.fn<(fences: unknown) => Promise<void>>(async () => undefined);
     const user = userEvent.setup();
