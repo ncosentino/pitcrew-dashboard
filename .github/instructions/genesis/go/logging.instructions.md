@@ -1,5 +1,6 @@
 ---
 applyTo: "cmd/**/*.go, internal/**/*.go"
+scope: "Go logging"
 ---
 
 # Go logging

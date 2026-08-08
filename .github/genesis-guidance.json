@@ -1,0 +1,352 @@
+{
+  "$schema": "./genesis-guidance.schema.json",
+  "schemaVersion": 1,
+  "docs": {
+    "mapPath": "docs/README.md",
+    "pages": [
+      {
+        "path": "docs/architecture/decisions.md",
+        "title": "Architecture decisions",
+        "section": "Architecture",
+        "order": 10,
+        "owner": "seed:common"
+      },
+      {
+        "path": "docs/adr/README.md",
+        "title": "Architecture decision records",
+        "section": "Architecture",
+        "order": 15,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/architecture/data-access.md",
+        "title": "Data access and repositories",
+        "section": "Architecture",
+        "order": 20,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/architecture/http-clients-and-options.md",
+        "title": "HTTP clients and options",
+        "section": "Architecture",
+        "order": 30,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/architecture/project-structure.md",
+        "title": ".NET project and feature structure",
+        "section": "Architecture",
+        "order": 40,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/frontend-architecture.md",
+        "title": "Frontend architecture",
+        "section": "Architecture",
+        "order": 50,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0001-outbound-capacity-operations.md",
+        "title": "ADR-0001: Outbound connector capacity operations",
+        "section": "Architecture decisions",
+        "order": 101,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0002-typed-manager-recovery.md",
+        "title": "ADR-0002: Typed manager recovery",
+        "section": "Architecture decisions",
+        "order": 102,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0003-manager-owned-workload-attribution.md",
+        "title": "ADR-0003: Manager-owned workload attribution",
+        "section": "Architecture decisions",
+        "order": 103,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0004-audited-zero-capacity-pause.md",
+        "title": "ADR-0004: Audited zero-capacity pause",
+        "section": "Architecture decisions",
+        "order": 104,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0005-retrospective-connector-health-replay.md",
+        "title": "ADR-0005: Retrospective connector health replay",
+        "section": "Architecture decisions",
+        "order": 105,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0006-docs-first-agent-guidance.md",
+        "title": "ADR-0006: Docs-first agent guidance",
+        "section": "Architecture decisions",
+        "order": 106,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/capacity-operations.md",
+        "title": "Capacity operations",
+        "section": "Fleet operations and evidence",
+        "order": 200,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/manager-recovery.md",
+        "title": "Manager recovery",
+        "section": "Fleet operations and evidence",
+        "order": 210,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/connector-health.md",
+        "title": "Connector health journal",
+        "section": "Fleet operations and evidence",
+        "order": 220,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/hardware-inventory.md",
+        "title": "Host hardware inventory",
+        "section": "Fleet operations and evidence",
+        "order": 230,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/runner-correlation.md",
+        "title": "Runner correlation assignments",
+        "section": "Fleet operations and evidence",
+        "order": 240,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/noninteractive-diagnostics.md",
+        "title": "Noninteractive read-only diagnostics",
+        "section": "Fleet operations and evidence",
+        "order": 250,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/database-operations.md",
+        "title": "Database operations",
+        "section": "Fleet operations and evidence",
+        "order": 260,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/hosted-deployment.md",
+        "title": "Hosted deployment",
+        "section": "Deployment",
+        "order": 300,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/hosting/caddy.md",
+        "title": "Caddy ingress",
+        "section": "Deployment",
+        "order": 310,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/hosting/cloudflare-tunnel.md",
+        "title": "Cloudflare Tunnel ingress",
+        "section": "Deployment",
+        "order": 320,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/hosting/custom-ingress.md",
+        "title": "Custom ingress contract",
+        "section": "Deployment",
+        "order": 330,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/container/README.md",
+        "title": "Container packaging",
+        "section": "Deployment",
+        "order": 340,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/container/aspnet.md",
+        "title": "ASP.NET Core container",
+        "section": "Deployment",
+        "order": 350,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/container/ghcr.md",
+        "title": "Publishing to GitHub Container Registry",
+        "section": "Deployment",
+        "order": 360,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/development/dotnet-engineering.md",
+        "title": ".NET engineering conventions",
+        "section": "Development",
+        "order": 400,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/development/node-dependencies.md",
+        "title": "Node dependency installation",
+        "section": "Development",
+        "order": 410,
+        "owner": "tag:node"
+      },
+      {
+        "path": "docs/performance/dotnet-performance.md",
+        "title": ".NET performance",
+        "section": "Development",
+        "order": 420,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/testing.md",
+        "title": "Testing strategy",
+        "section": "Development",
+        "order": 430,
+        "owner": "template:aspnet-webapi"
+      },
+      {
+        "path": "docs/development/roslyn-analyzers.md",
+        "title": "Roslyn analyzers",
+        "section": "Development",
+        "order": 440,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/testing/evaluations-and-benchmarks.md",
+        "title": "Evaluations and benchmarks",
+        "section": "Development",
+        "order": 450,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/development/request-validation-and-jobs.md",
+        "title": "Request validation and job scheduling",
+        "section": "Development",
+        "order": 460,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/ui/blazor-extensibility.md",
+        "title": "Blazor extensibility",
+        "section": "Development",
+        "order": 470,
+        "owner": "tag:dotnet"
+      },
+      {
+        "path": "docs/ux-design.md",
+        "title": "UX and design resilience",
+        "section": "UX and design",
+        "order": 500,
+        "owner": "component:guidance-web-ux"
+      },
+      {
+        "path": "docs/impeccable-design.md",
+        "title": "Impeccable design workflow",
+        "section": "UX and design",
+        "order": 510,
+        "owner": "component:impeccable-design"
+      }
+    ]
+  },
+  "agents": {
+    "path": "AGENTS.md",
+    "maxLines": 60,
+    "maxBytes": 3072,
+    "redirects": {
+      "claude": "CLAUDE.md",
+      "copilot": ".github/copilot-instructions.md"
+    }
+  },
+  "instructions": {
+    "managedRoot": ".github/instructions/genesis",
+    "individualReviewThreshold": {
+      "lines": 100,
+      "bytes": 8192
+    },
+    "matchedContext": {
+      "targetLines": 300,
+      "targetBytes": 16384,
+      "maxLines": 600,
+      "maxBytes": 32768
+    },
+    "representativePaths": [
+      ".container/image.json",
+      ".github/instructions/guidance.instructions.md",
+      ".github/skills/impeccable/SKILL.md",
+      ".github/workflows/ci.yml",
+      ".github/workflows/container-ci.yml",
+      "AGENTS.md",
+      "Directory.Build.props",
+      "Directory.Packages.props",
+      "docker-compose.hosted.yml",
+      "Dockerfile",
+      "docs/README.md",
+      "docs/adr/adr-0006-docs-first-agent-guidance.md",
+      "docs/frontend-architecture.md",
+      "PitCrew.Dashboard.slnx",
+      "README.md",
+      "src/Adapters/PitCrew.Dashboard.Adapters.Sqlite.Tests/FleetStorageTestTransactions.cs",
+      "src/Adapters/PitCrew.Dashboard.Adapters.Sqlite.Tests/PitCrew.Dashboard.Adapters.Sqlite.Tests.csproj",
+      "src/Adapters/PitCrew.Dashboard.Adapters.Sqlite/SqliteConnectionFactory.cs",
+      "src/PitCrew.Connector.Features.Sync/ConnectorHealthJournal.cs",
+      "src/PitCrew.Dashboard.Features.Fleet/AlertRuleEvaluator.cs",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/eslint.config.js",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/package.json",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/api/httpClient.test.ts",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/api/httpClient.ts",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetOverviewPage.tsx",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetPages.test.tsx",
+      "src/PitCrew.Protocol/CurrentJobContext.cs"
+    ]
+  },
+  "review": {
+    "skillPath": ".github/skills/review-changes/SKILL.md",
+    "instructionResolver": "scripts/guidance/Get-ApplicableInstructions.ps1",
+    "validationInventory": "scripts/guidance/Get-ValidationInventory.ps1",
+    "validationScope": "scripts/guidance/Resolve-ValidationScope.ps1",
+    "contractValidator": "scripts/guidance/Test-GuidanceContract.ps1",
+    "contractTest": "tests/Test-Guidance.ps1"
+  },
+  "generatedMirrors": [
+    {
+      "path": ".claude/rules",
+      "command": "Use genesis:copilot-to-claude-compiler with -SourceRoot . -OutputDir .claude/rules -Clean, then regenerate"
+    }
+  ],
+  "contextExceptions": [
+    {
+      "pattern": "src/**/*Tests/**/*.cs",
+      "maxLines": 600,
+      "maxBytes": 32768,
+      "phase": "migration",
+      "owner": "ADR-0006 and ncosentino/genesis#408",
+      "reason": "The refreshed Genesis test stack is below the hard ceiling but still exceeds the preferred target."
+    },
+    {
+      "pattern": "src/**/*.cs",
+      "maxLines": 575,
+      "maxBytes": 28672,
+      "phase": "migration",
+      "owner": "ADR-0006 and ncosentino/genesis#408",
+      "reason": "The refreshed common .NET stack still exceeds the preferred target for some production files."
+    },
+    {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/**/*.tsx",
+      "maxLines": 400,
+      "maxBytes": 20480,
+      "phase": "migration",
+      "owner": "ADR-0006 and ncosentino/genesis#408",
+      "reason": "Feature components compose React, accessibility, resilience, and project architecture guidance."
+    }
+  ]
+}

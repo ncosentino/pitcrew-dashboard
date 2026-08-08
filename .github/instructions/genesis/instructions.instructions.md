@@ -12,8 +12,8 @@ Do NOT link to, mention, or cross-reference other `.instructions.md` files by na
 
 ```
 // ❌ WRONG
-See also: `tests-common.instructions.md` for general rules.
-The general mock init principles are defined in `tests-common.instructions.md`.
+General test and mock-initialization rules apply alongside these harness-specific
+rules.
 For full examples, see `tests-repository-and-service.instructions.md`.
 
 // ✅ ACCEPTABLE
@@ -55,6 +55,14 @@ a suffix union for a family of similar roles (`**/*Service.cs,**/*Repository.cs,
 a blanket extension match only when genuinely true for every file of that kind. Too
 broad injects irrelevant guidance; too narrow misses files the rule should cover and
 creates false confidence it's handled.
+
+## Keep guidance durable
+
+Write durable contracts and failure-prevention rules, not snapshots of fast-moving
+technology. Do not hardcode model IDs, pricing, provider quotas, preview API shapes,
+or similar volatile facts in general instructions. Keep exact values in the
+configuration or manifests that own them, and verify current vendor documentation
+when implementation depends on a version-sensitive capability.
 
 ## Be concise
 

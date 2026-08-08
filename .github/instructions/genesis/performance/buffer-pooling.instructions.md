@@ -2,60 +2,22 @@
 applyTo: "**/*Service.cs,**/*Repository.cs,**/*Worker.cs,**/*Job.cs,**/*Consumer.cs,**/*CarterModule.cs,**/*Client.cs,**/*Handler.cs,**/*UnitOfWork.cs,**/*Parser.cs,**/*Serializer.cs,**/*Reader.cs,**/*Writer.cs,**/*Stream.cs,**/*Buffer.cs"
 ---
 
-# Buffer & Object Pooling
+# Buffer and object pooling
 
-Rent reusable buffers instead of allocating fresh ones in any code path that runs repeatedly
-(per-request, per-item, per-message).
-
-## ArrayPool<T>
-
-- Use `pool.RentMemory(n)`/`pool.RentSpan(n)` (`NexusLabs.Framework.Buffers`) instead of manual
-  `Rent`/`try`/`finally`/`Return`. Both return a disposable handle — bind to a single `using` and
-  the array returns to the pool on every exit path.
-- Use `RentSpan` for synchronous code — zero-allocation, and the compiler blocks it from ever
-  escaping to the heap. Use `RentMemory` when the buffer must cross an `await` or be stored — one
-  small heap allocation for the owner, but copies share that owner, so the array returns exactly
-  once no matter how many copies exist.
-- MUST NOT copy or pass a `RentSpan` handle by value — it creates a second owner of the same array,
-  and disposing both returns it twice. The compiler does not catch this; the NLF0024 analyzer does.
-- `RentMemory(n)`/`RentSpan(n)` return an array **at least** `n` long, never exactly `n` — read
-  `Capacity` for the granted size, never assume it equals what was requested.
-- MUST NOT hand a rented buffer's contents to another thread without external synchronization —
-  the handle's ownership/disposal is safe to copy or share, but the underlying array is still
-  shared mutable memory.
-- Pass `clearOnReturn: true` for sensitive data — but know a full pool silently **drops** the array
-  without clearing it. Zero sensitive contents yourself first if they must never survive.
-- Prefer a dedicated pool (`ArrayPool<T>.Create(...)`) over `Shared` for very large buffers,
-  secret-bearing buffers, or buffers whose retention policy must stay isolated from unrelated
-  callers.
-- Only fall back to raw `ArrayPool<T>.Rent`/`Return` when the `NexusLabs.Framework` dependency is
-  unavailable — MUST still return via `try`/`finally` there, and MUST NOT return an array that
-  wasn't obtained from that same pool (`Return` throws on a size mismatch).
-
-## MemoryPool<T> / IMemoryOwner<T>
-
-- Prefer `pool.RentMemory(n)` (see above) over `MemoryPool<T>.Shared.Rent(n)` — the same
-  `IMemoryOwner<T>` shape, but with a copy-safe disposal guarantee. Reach for `MemoryPool<T>.Shared`
-  only in code that cannot take the `NexusLabs.Framework` dependency.
-- MUST scope any `IMemoryOwner<T>` with `using`. The `Memory<T>` is valid only while the owner is
-  alive — never store `.Memory` past `Dispose()`.
-
-## ObjectPool<T> (Microsoft.Extensions.ObjectPool)
-
-- Use for pooling non-array reusable objects (`StringBuilder`, parser/serializer scratch state),
-  not just arrays.
-- MUST NOT assume an object handed back by `Get()` is fully reset — that is the pool policy's
-  `Return` responsibility. Verify (or write) the policy so it fully clears state before an object
-  re-enters the pool.
-- Treat a leased object as single-threaded for the duration of the lease; MUST NOT use it after
-  calling `Return`.
-
-## RecyclableMemoryStream
-
-- Use `Microsoft.IO.RecyclableMemoryStream` instead of `new MemoryStream()` for streams that are
-  large (>85 KB) or frequently created — plain `MemoryStream` backs onto the Large Object Heap past
-  that size and fragments it over time.
-- MUST NOT call `.ToArray()` on a recyclable stream — it always allocates a fresh copy and defeats
-  the pooling. Use `GetReadOnlySequence()` to read instead.
-- MUST bound `MaximumFreeSmallPoolBytes`/`MaximumFreeLargePoolBytes` — an unbounded pool is an
-  unbounded memory leak under a load spike.
+- Repeated/hot paths rent reusable buffers instead of allocating per operation.
+- Prefer `RentSpan` for synchronous stack-bound work and `RentMemory` across `await`;
+  dispose the one owner exactly once.
+- Do not copy/pass a `RentSpan` owner, use a rented buffer after disposal, assume the
+  returned capacity equals the request, or share mutable contents without
+  synchronization. `NLF0024` rejects double-owner patterns.
+- Read the granted capacity from the owner; rent size is a minimum, not an exact
+  allocation.
+- Sensitive contents are zeroed before return; `clearOnReturn` alone is insufficient
+  when a full pool drops an array.
+- Use a dedicated pool for very large or secret-bearing buffers when retention must be
+  isolated from unrelated callers.
+- Raw `ArrayPool<T>` requires `try/finally` and return to the same pool.
+- Scope `IMemoryOwner<T>` with `using`; its memory cannot outlive the owner.
+- Object-pool policies reset all state before reuse, and leases are single-threaded.
+- Use `RecyclableMemoryStream` for large/frequent streams; avoid `ToArray()` and bound
+  retained pool bytes.

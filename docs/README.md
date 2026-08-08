@@ -1,0 +1,52 @@
+# PitCrew Dashboard documentation
+
+This map is the canonical entry point for maintained Dashboard documentation.
+
+## Overview
+
+- [Project overview and quick start](../README.md)
+
+## Architecture
+
+- [Architecture decision process](architecture/decisions.md)
+- [Architecture decision records](adr/README.md)
+- [.NET project and feature structure](architecture/project-structure.md)
+- [Data access and repositories](architecture/data-access.md)
+- [HTTP clients and options](architecture/http-clients-and-options.md)
+- [Frontend architecture](frontend-architecture.md)
+
+## Fleet operations and evidence
+
+- [Capacity operations](capacity-operations.md)
+- [Manager recovery](manager-recovery.md)
+- [Connector health journal](connector-health.md)
+- [Host hardware inventory](hardware-inventory.md)
+- [Runner correlation assignments](runner-correlation.md)
+- [Noninteractive read-only diagnostics](noninteractive-diagnostics.md)
+- [Database operations](database-operations.md)
+
+## Deployment
+
+- [Hosted deployment](hosted-deployment.md)
+- [Caddy ingress](hosting/caddy.md)
+- [Cloudflare Tunnel ingress](hosting/cloudflare-tunnel.md)
+- [Custom ingress contract](hosting/custom-ingress.md)
+- [Container packaging](container/README.md)
+- [ASP.NET Core container](container/aspnet.md)
+- [Publishing to GitHub Container Registry](container/ghcr.md)
+
+## Development
+
+- [.NET engineering conventions](development/dotnet-engineering.md)
+- [Node dependency installation](development/node-dependencies.md)
+- [.NET performance](performance/dotnet-performance.md)
+- [Testing strategy](testing.md)
+- [Roslyn analyzers](development/roslyn-analyzers.md)
+- [Evaluations and benchmarks](testing/evaluations-and-benchmarks.md)
+- [Request validation and job scheduling](development/request-validation-and-jobs.md)
+- [Blazor extensibility](ui/blazor-extensibility.md)
+
+## UX and design
+
+- [UX and design resilience](ux-design.md)
+- [Impeccable design workflow](impeccable-design.md)

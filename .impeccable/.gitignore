@@ -1,0 +1,6 @@
+audit/
+config.local.json
+hook-audit.ndjson
+hook.cache.json
+hook.pending.json
+live/
