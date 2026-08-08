@@ -1,0 +1,394 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-08T19:04:07.881Z",
+  "title": "Design System: PitCrew Dashboard",
+  "extensions": {
+    "colorMeta": {
+      "pit-navy": {
+        "role": "primary",
+        "displayName": "Pit Navy",
+        "canonical": "#071825",
+        "tonalRamp": [
+          "#071825",
+          "#0d2435",
+          "#153044",
+          "#536673",
+          "#a8bac4",
+          "#d8e2e5",
+          "#eef4f5",
+          "#f7fafb"
+        ]
+      },
+      "signal-orange": {
+        "role": "secondary",
+        "displayName": "Signal Orange",
+        "canonical": "#f33919",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(57.7% 0.245 27.325)",
+          "#f33919",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)"
+        ]
+      },
+      "instrument-teal": {
+        "role": "tertiary",
+        "displayName": "Instrument Teal",
+        "canonical": "#13989f",
+        "tonalRamp": [
+          "#123c42",
+          "oklch(43.7% 0.078 188.216)",
+          "#0b686e",
+          "#13989f",
+          "#27b7bd",
+          "oklch(91% 0.096 180.426)",
+          "#c9f1f2",
+          "#e4f5f6"
+        ]
+      },
+      "cool-canvas": {
+        "role": "neutral",
+        "displayName": "Cool Canvas",
+        "canonical": "#f7fafb",
+        "tonalRamp": [
+          "#071825",
+          "#0d2435",
+          "#153044",
+          "#536673",
+          "#a8bac4",
+          "#d8e2e5",
+          "#eef4f5",
+          "#f7fafb"
+        ]
+      },
+      "deep-console": {
+        "role": "neutral",
+        "displayName": "Deep Console",
+        "canonical": "#0d2435",
+        "tonalRamp": [
+          "#071825",
+          "#0d2435",
+          "#153044",
+          "#536673",
+          "#a8bac4",
+          "#d8e2e5",
+          "#eef4f5",
+          "#f8fafc"
+        ]
+      },
+      "positive-soft": {
+        "role": "tertiary",
+        "displayName": "Positive Evidence",
+        "canonical": "oklch(95% 0.052 163.051)",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(59.6% 0.145 163.225)",
+          "oklch(76.5% 0.177 163.223)",
+          "oklch(90.5% 0.093 164.15)",
+          "oklch(95% 0.052 163.051)"
+        ]
+      },
+      "caution-soft": {
+        "role": "tertiary",
+        "displayName": "Caution Evidence",
+        "canonical": "oklch(96.2% 0.059 95.617)",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "critical-soft": {
+        "role": "tertiary",
+        "displayName": "Critical Evidence",
+        "canonical": "oklch(93.6% 0.032 17.717)",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(57.7% 0.245 27.325)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Page Title",
+        "purpose": "The single visible route title."
+      },
+      "headline": {
+        "displayName": "Section Headline",
+        "purpose": "Major route-local sections that do not repeat the page title."
+      },
+      "title": {
+        "displayName": "Focused Title",
+        "purpose": "Focused subsections and operational groups."
+      },
+      "panel-title": {
+        "displayName": "Panel Title",
+        "purpose": "Cards, evidence panels, and table regions."
+      },
+      "body": {
+        "displayName": "Operational Body",
+        "purpose": "Default reading text throughout Operate mode."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Buttons, navigation, fields, and selects."
+      },
+      "label": {
+        "displayName": "Scan Label",
+        "purpose": "Status chips, metadata, metrics, and table headings."
+      },
+      "mono": {
+        "displayName": "Machine Evidence",
+        "purpose": "Identifiers, revisions, operation names, and compact machine evidence."
+      }
+    },
+    "shadows": [
+      {
+        "name": "control-lift",
+        "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        "purpose": "Compact buttons and outlined controls."
+      },
+      {
+        "name": "raised-surface",
+        "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        "purpose": "Cards and evidence panels that materially sit above the canvas."
+      },
+      {
+        "name": "interruptive-surface",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "purpose": "Sheets and confirmation dialogs above a modal overlay."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-standard",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Default hover, focus, and color-state transition."
+      },
+      {
+        "name": "layer-short",
+        "value": "200ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Short dialog and navigation layer transitions."
+      },
+      {
+        "name": "reduced-state",
+        "value": "0ms",
+        "purpose": "Reduced-motion state changes retain visibility without spatial travel."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "40rem"
+      },
+      {
+        "name": "md",
+        "value": "48rem"
+      },
+      {
+        "name": "lg",
+        "value": "64rem"
+      },
+      {
+        "name": "xl",
+        "value": "80rem"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The accessible high-emphasis action used for a clear primary operation.",
+      "html": "<button class='ds-btn-primary' type='button'>Refresh fleet</button>",
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; justify-content:center; gap:0.5rem; height:2.25rem; padding:0.5rem 1rem; border:1px solid transparent; border-radius:0.5rem; background:var(--brand-navy, #071825); color:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; font-size:0.875rem; font-weight:500; line-height:1.25rem; box-shadow:0 1px 2px 0 rgb(0 0 0 / 0.05); transition:background-color 150ms cubic-bezier(0.4,0,0.2,1),border-color 150ms cubic-bezier(0.4,0,0.2,1),box-shadow 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background:rgb(7 24 37 / 90%); } .ds-btn-primary:focus-visible { outline:none; border-color:var(--ring, #13989f); box-shadow:0 0 0 3px rgb(19 152 159 / 50%),0 1px 2px 0 rgb(0 0 0 / 0.05); } .ds-btn-primary:disabled { pointer-events:none; opacity:0.5; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "A compact secondary action that stays quiet until hover or focus.",
+      "html": "<button class='ds-btn-outline' type='button'>Prepare diagnostics</button>",
+      "css": ".ds-btn-outline { display:inline-flex; align-items:center; justify-content:center; gap:0.5rem; height:2.25rem; padding:0.5rem 1rem; border:1px solid var(--border, #d8e2e5); border-radius:0.5rem; background:var(--background, #f7fafb); color:var(--foreground, #071825); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; font-size:0.875rem; font-weight:500; line-height:1.25rem; box-shadow:0 1px 2px 0 rgb(0 0 0 / 0.05); transition:background-color 150ms cubic-bezier(0.4,0,0.2,1),color 150ms cubic-bezier(0.4,0,0.2,1),box-shadow 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-outline:hover { background:var(--accent, #e4f5f6); color:var(--accent-foreground, #0b686e); } .ds-btn-outline:focus-visible { outline:none; border-color:var(--ring, #13989f); box-shadow:0 0 0 3px rgb(19 152 159 / 50%),0 1px 2px 0 rgb(0 0 0 / 0.05); } .ds-btn-outline:disabled { pointer-events:none; opacity:0.5; }"
+    },
+    {
+      "name": "Labeled Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The persistent-label field used for operator input, constraints, and format guidance.",
+      "html": "<label class='ds-field' for='ds-field-input'><span>Credential label</span><input id='ds-field-input' type='text' value='Performance diagnostics'><small>Use a recognizable purpose; raw credential values are shown once.</small></label>",
+      "css": ".ds-field { display:grid; gap:0.375rem; color:var(--foreground, #071825); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; font-size:0.875rem; font-weight:500; line-height:1.25rem; } .ds-field input { min-width:0; height:2.25rem; padding:0 0.75rem; border:1px solid var(--input, #d8e2e5); border-radius:0.5rem; background:var(--background, #f7fafb); color:var(--foreground, #071825); font:400 0.875rem/1.25rem -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; } .ds-field input:focus-visible { outline:none; border-color:var(--ring, #13989f); box-shadow:0 0 0 3px rgb(19 152 159 / 50%); } .ds-field input:disabled { opacity:0.5; } .ds-field small { color:var(--muted-foreground, #536673); font-size:0.75rem; font-weight:400; line-height:1rem; }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "The explicit destructive action used only with named consequences.",
+      "html": "<button class='ds-btn-destructive' type='button'>Revoke node</button>",
+      "css": ".ds-btn-destructive { display:inline-flex; align-items:center; justify-content:center; gap:0.5rem; height:2.25rem; padding:0.5rem 1rem; border:1px solid transparent; border-radius:0.5rem; background:var(--destructive, oklch(57.7% 0.245 27.325)); color:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; font-size:0.875rem; font-weight:500; line-height:1.25rem; box-shadow:0 1px 2px 0 rgb(0 0 0 / 0.05); transition:background-color 150ms cubic-bezier(0.4,0,0.2,1),box-shadow 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-destructive:hover { background:color-mix(in oklab,var(--destructive, oklch(57.7% 0.245 27.325)) 90%,transparent); } .ds-btn-destructive:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in oklab,var(--destructive, oklch(57.7% 0.245 27.325)) 20%,transparent),0 1px 2px 0 rgb(0 0 0 / 0.05); } .ds-btn-destructive:disabled { pointer-events:none; opacity:0.5; }"
+    },
+    {
+      "name": "Raised Evidence Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "One coherent evidence group that is materially raised above the canvas.",
+      "html": "<article class='ds-card'><header class='ds-card-header'><h3 class='ds-card-title'>Connector outage evidence</h3><p class='ds-card-description'>Last-known delivery state and retained retry evidence.</p></header><div class='ds-card-content'><strong>Current</strong><span>Observed 2 minutes ago</span></div></article>",
+      "css": ".ds-card { display:flex; flex-direction:column; gap:1.5rem; padding:1.5rem; border:1px solid var(--border, #d8e2e5); border-radius:0.875rem; background:var(--card, #fff); color:var(--card-foreground, #071825); box-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1),0 1px 2px -1px rgb(0 0 0 / 0.1); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; } .ds-card-header { display:grid; gap:0.375rem; } .ds-card-title { margin:0; font-size:1rem; font-weight:600; line-height:1; } .ds-card-description { margin:0; color:var(--muted-foreground, #536673); font-size:0.875rem; line-height:1.25rem; } .ds-card-content { display:flex; align-items:center; justify-content:space-between; gap:1rem; font-size:0.875rem; } .ds-card-content span { color:var(--muted-foreground, #536673); font-size:0.75rem; }"
+    },
+    {
+      "name": "Semantic Status Badges",
+      "kind": "chip",
+      "refersTo": "status-positive",
+      "description": "The compact text-first status family for positive, caution, critical, and neutral evidence.",
+      "html": "<div class='ds-status-row'><span class='ds-status ds-status-positive'>healthy</span><span class='ds-status ds-status-caution'>stale</span><span class='ds-status ds-status-critical'>unavailable</span><span class='ds-status ds-status-neutral'>unknown</span></div>",
+      "css": ".ds-status-row { display:flex; flex-wrap:wrap; gap:0.5rem; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; } .ds-status { display:inline-flex; align-items:center; min-height:1.5rem; padding:0.25rem 0.5rem; border-radius:9999px; font-size:0.75rem; font-weight:600; line-height:1rem; text-transform:capitalize; } .ds-status-positive { background:oklch(95% 0.052 163.051); color:oklch(43.2% 0.095 166.913); } .ds-status-caution { background:oklch(96.2% 0.059 95.617); color:oklch(47.3% 0.137 46.201); } .ds-status-critical { background:oklch(93.6% 0.032 17.717); color:oklch(44.4% 0.177 26.899); } .ds-status-neutral { background:var(--muted, #eef4f5); color:var(--muted-foreground, #536673); } :host-context(.dark) .ds-status-positive { background:oklch(26.2% 0.051 172.552); color:oklch(90.5% 0.093 164.15); } :host-context(.dark) .ds-status-caution { background:oklch(27.9% 0.077 45.635); color:oklch(92.4% 0.12 95.746); } :host-context(.dark) .ds-status-critical { background:oklch(25.8% 0.092 26.042); color:oklch(88.5% 0.062 18.334); }"
+    },
+    {
+      "name": "Shell Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-item-active",
+      "description": "The compact primary navigation with tonal hover, active, focus, and incident-count states.",
+      "html": "<nav class='ds-shell-nav' aria-label='Primary navigation'><ul><li><a class='ds-nav-item ds-nav-active' href='#'>Fleet</a></li><li><a class='ds-nav-item' href='#'>Incidents <span class='ds-nav-badge'>3</span></a></li><li><a class='ds-nav-item' href='#'>Settings</a></li></ul></nav>",
+      "css": ".ds-shell-nav { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; } .ds-shell-nav ul { display:grid; gap:0.25rem; margin:0; padding:0; list-style:none; } .ds-nav-item { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.5rem 0.75rem; border-radius:0.5rem; color:var(--sidebar-foreground, #071825); font-size:0.875rem; font-weight:500; line-height:1.25rem; text-decoration:none; transition:background-color 150ms cubic-bezier(0.4,0,0.2,1),color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-nav-item:hover,.ds-nav-active { background:var(--sidebar-accent, #e4f5f6); color:var(--sidebar-accent-foreground, #0b686e); } .ds-nav-item:focus-visible { outline:none; box-shadow:0 0 0 2px var(--sidebar-ring, #13989f); } .ds-nav-badge { min-width:1.25rem; padding:0.125rem 0.5rem; border-radius:9999px; background:oklch(57.7% 0.245 27.325); color:#fff; font-size:0.75rem; line-height:1rem; text-align:center; }"
+    },
+    {
+      "name": "Confirmation Dialog",
+      "kind": "custom",
+      "refersTo": "alert-dialog",
+      "description": "The interruptive confirmation surface for one explicit consequential action.",
+      "html": "<div class='ds-dialog-stage'><div class='ds-dialog-overlay'></div><section class='ds-dialog' role='alertdialog' aria-labelledby='ds-dialog-title' aria-describedby='ds-dialog-description'><header><h3 id='ds-dialog-title'>Revoke this node?</h3><p id='ds-dialog-description'>The connector will stop synchronizing until it re-enrolls.</p></header><footer><button class='ds-dialog-cancel' type='button'>Cancel</button><button class='ds-dialog-confirm' type='button'>Revoke node</button></footer></section></div>",
+      "css": ".ds-dialog-stage { position:relative; min-height:20rem; overflow:hidden; border-radius:0.625rem; background:var(--background, #f7fafb); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; } .ds-dialog-overlay { position:absolute; inset:0; background:rgb(0 0 0 / 50%); animation:ds-dialog-fade 200ms cubic-bezier(0.4,0,0.2,1); } .ds-dialog { position:absolute; top:50%; left:50%; display:grid; width:min(32rem,calc(100% - 2rem)); gap:1rem; padding:1.5rem; border:1px solid var(--border, #d8e2e5); border-radius:0.625rem; background:var(--background, #f7fafb); color:var(--foreground, #071825); box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1),0 4px 6px -4px rgb(0 0 0 / 0.1); transform:translate(-50%,-50%); animation:ds-dialog-in 200ms cubic-bezier(0.4,0,0.2,1); } .ds-dialog h3 { margin:0; font-size:1.125rem; font-weight:600; line-height:1.75rem; } .ds-dialog p { margin:0.5rem 0 0; color:var(--muted-foreground, #536673); font-size:0.875rem; line-height:1.25rem; } .ds-dialog footer { display:flex; justify-content:flex-end; gap:0.5rem; } .ds-dialog button { height:2.25rem; padding:0.5rem 1rem; border-radius:0.5rem; font:500 0.875rem/1.25rem -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; transition:background-color 150ms cubic-bezier(0.4,0,0.2,1),color 150ms cubic-bezier(0.4,0,0.2,1),box-shadow 150ms cubic-bezier(0.4,0,0.2,1); } .ds-dialog-cancel { border:1px solid var(--border, #d8e2e5); background:var(--background, #f7fafb); color:var(--foreground, #071825); } .ds-dialog-cancel:hover { background:var(--accent, #e4f5f6); color:var(--accent-foreground, #0b686e); } .ds-dialog-confirm { border:1px solid transparent; background:var(--destructive, oklch(57.7% 0.245 27.325)); color:#fff; } .ds-dialog-confirm:hover { background:color-mix(in oklab,var(--destructive, oklch(57.7% 0.245 27.325)) 90%,transparent); } .ds-dialog button:focus-visible { outline:none; box-shadow:0 0 0 3px rgb(19 152 159 / 50%); } @keyframes ds-dialog-fade { from { opacity:0; } to { opacity:1; } } @keyframes ds-dialog-in { from { opacity:0; transform:translate(-50%,-50%) scale(0.95); } to { opacity:1; transform:translate(-50%,-50%) scale(1); } } @media (prefers-reduced-motion: reduce) { .ds-dialog-overlay,.ds-dialog { animation:none; } }"
+    },
+    {
+      "name": "Navigation Sheet",
+      "kind": "custom",
+      "refersTo": "sheet",
+      "description": "The bounded mobile shell layer that preserves identity, tenant context, and authorized destinations.",
+      "html": "<div class='ds-sheet-stage'><div class='ds-sheet-overlay'></div><aside class='ds-sheet' aria-label='Mobile navigation'><button class='ds-sheet-close' type='button' aria-label='Close navigation'><svg aria-hidden='true' viewBox='0 0 24 24' fill='none' stroke='currentColor'><path d='M18 6 6 18M6 6l12 12'></path></svg></button><strong>PitCrew</strong><label for='ds-tenant'>Tenant</label><select id='ds-tenant'><option>Operations · owner</option></select><nav><a class='ds-sheet-link ds-sheet-active' href='#'>Fleet</a><a class='ds-sheet-link' href='#'>Incidents</a><a class='ds-sheet-link' href='#'>Settings</a></nav></aside></div>",
+      "css": ".ds-sheet-stage { position:relative; min-height:24rem; overflow:hidden; border-radius:0.625rem; background:var(--background, #f7fafb); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; } .ds-sheet-overlay { position:absolute; inset:0; background:rgb(0 0 0 / 50%); } .ds-sheet { position:absolute; inset-block:0; left:0; display:flex; width:min(20rem,85%); flex-direction:column; gap:1rem; padding:1.25rem; border-right:1px solid var(--border, #d8e2e5); background:var(--background, #f7fafb); color:var(--foreground, #071825); box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1),0 4px 6px -4px rgb(0 0 0 / 0.1); animation:ds-sheet-in 200ms cubic-bezier(0.4,0,0.2,1); } .ds-sheet-close { position:absolute; top:1rem; right:1rem; display:grid; width:2rem; height:2rem; place-items:center; border:0; border-radius:0.125rem; background:transparent; color:inherit; opacity:0.7; } .ds-sheet-close svg { width:1rem; height:1rem; stroke-width:2; } .ds-sheet-close:hover { opacity:1; } .ds-sheet-close:focus-visible { outline:none; box-shadow:0 0 0 2px var(--ring, #13989f); } .ds-sheet label { font-size:0.875rem; font-weight:500; } .ds-sheet select { height:2.25rem; padding:0 0.75rem; border:1px solid var(--border, #d8e2e5); border-radius:0.5rem; background:var(--background, #f7fafb); color:inherit; font-size:0.875rem; } .ds-sheet nav { display:grid; gap:0.25rem; } .ds-sheet-link { padding:0.5rem 0.75rem; border-radius:0.5rem; color:inherit; font-size:0.875rem; font-weight:500; text-decoration:none; transition:background-color 150ms cubic-bezier(0.4,0,0.2,1),color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-sheet-link:hover,.ds-sheet-active { background:var(--accent, #e4f5f6); color:var(--accent-foreground, #0b686e); } .ds-sheet-link:focus-visible { outline:none; box-shadow:0 0 0 2px var(--ring, #13989f); } @keyframes ds-sheet-in { from { transform:translateX(-100%); } to { transform:translateX(0); } } @media (prefers-reduced-motion: reduce) { .ds-sheet { animation:none; } }"
+    },
+    {
+      "name": "Time-Series Evidence Chart",
+      "kind": "custom",
+      "description": "The accessible evidence chart whose gaps remain unavailable and whose values remain available as a table.",
+      "html": "<section class='ds-chart'><header><h3>CPU pressure</h3><p>Unavailable observations break the series rather than becoming zero.</p></header><svg aria-hidden='true' viewBox='0 0 600 120' preserveAspectRatio='none'><polyline class='ds-chart-primary' points='0,94 110,76 220,82'></polyline><polyline class='ds-chart-primary' points='360,58 480,44 600,48'></polyline><polyline class='ds-chart-secondary' points='0,104 120,96 240,88 360,80 480,74 600,68'></polyline></svg><ul><li><span class='ds-swatch ds-swatch-primary'></span>Host CPU</li><li><span class='ds-swatch ds-swatch-secondary'></span>Workers</li></ul><details><summary>Show CPU pressure measurements as a table</summary><div class='ds-chart-table-region' tabindex='0'><table><thead><tr><th>Observed at</th><th>Host CPU</th><th>Workers</th></tr></thead><tbody><tr><td>12:00</td><td>62%</td><td>41%</td></tr><tr><td>12:05</td><td>Unavailable</td><td>47%</td></tr></tbody></table></div></details></section>",
+      "css": ".ds-chart { display:grid; gap:0.5rem; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; color:var(--foreground, #071825); } .ds-chart h3 { margin:0; font-size:0.875rem; font-weight:600; line-height:1.25rem; } .ds-chart p { margin:0; color:var(--muted-foreground, #536673); font-size:0.75rem; line-height:1rem; } .ds-chart svg { width:100%; height:7rem; } .ds-chart polyline { fill:none; stroke-width:2; vector-effect:non-scaling-stroke; } .ds-chart-primary { stroke:var(--chart-1, #f33919); } .ds-chart-secondary { stroke:var(--chart-2, #13989f); } .ds-chart ul { display:flex; flex-wrap:wrap; gap:0.75rem; margin:0; padding:0; color:var(--muted-foreground, #536673); font-size:0.75rem; list-style:none; } .ds-chart li { display:flex; align-items:center; gap:0.375rem; } .ds-swatch { width:0.5rem; height:0.5rem; border-radius:9999px; } .ds-swatch-primary { background:var(--chart-1, #f33919); } .ds-swatch-secondary { background:var(--chart-2, #13989f); } .ds-chart summary { cursor:pointer; color:var(--muted-foreground, #536673); font-size:0.75rem; } .ds-chart summary:hover { color:var(--foreground, #071825); } .ds-chart summary:focus-visible,.ds-chart-table-region:focus-visible { outline:2px solid var(--ring, #13989f); outline-offset:2px; } .ds-chart-table-region { max-height:8rem; margin-top:0.5rem; overflow:auto; } .ds-chart table { width:100%; border-collapse:collapse; font-size:0.75rem; text-align:left; } .ds-chart th,.ds-chart td { padding:0.5rem; border-top:1px solid var(--border, #d8e2e5); } .ds-chart th { color:var(--muted-foreground, #536673); font-weight:600; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Pit Wall",
+    "overview": "The Pit Wall turns live runner-fleet evidence into a calm, exception-first operating view. It is precise and calm, compact but breathable, and familiar enough to use under time pressure. Hierarchy, evidence state, and safe action order provide the personality; ornament does not.\n\nPit Navy, Signal Orange, and Instrument Teal preserve the established mascot and product identity. Cool Canvas and Deep Console create light and dark operating environments through tonal surfaces, precise borders, and restrained ambient color. Brand colors remain distinct from semantic text and action roles so artwork can stay recognizable without weakening WCAG 2.2 AA.\n\nThe interface uses one workhorse system UI family, compact controls, explicit status language, and data typography that separates human-readable identity from machine evidence. Operational surfaces lead with material exceptions and focused evidence, then expose inventory and dense tables inside deliberate containment.",
+    "keyCharacteristics": [
+      "Precise, calm, exception-first hierarchy.",
+      "Compact controls with a breathable 4px-based spacing rhythm.",
+      "Restrained navy, orange, and teal identity separated from semantic status roles.",
+      "Light and dark tonal layers with precise borders and earned soft elevation.",
+      "Familiar controls, explicit evidence states, and narrowly safe actions.",
+      "One system UI workhorse family with monospaced identifiers and tabular numbers."
+    ],
+    "rules": [
+      {
+        "name": "The Brand Is Not Semantics Rule",
+        "body": "Pit Navy, Signal Orange, and Instrument Teal may remain normative for artwork, charts, and large accents; normal text and controls must use role pairings that meet WCAG 2.2 AA.",
+        "section": "colors"
+      },
+      {
+        "name": "The Exception Color Rule",
+        "body": "Emerald, amber, and red are reserved for evidence state and consequence. Always pair color with explicit text.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Workhorse Rule",
+        "body": "The single system UI family is intentional in this Operate system. Do not add a display family merely to create variety.",
+        "section": "typography"
+      },
+      {
+        "name": "The Human Name First Rule",
+        "body": "Human-readable task and entity names own hierarchy; stable identifiers are secondary monospaced evidence.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Page Title Rule",
+        "body": "Every route has one visible H1. Do not repeat it immediately as a second H2.",
+        "section": "typography"
+      },
+      {
+        "name": "The Exception-First Rule",
+        "body": "Lead with a human-readable entity or task title and material exceptions, then focused evidence and safe actions; inventory follows rather than leads.",
+        "section": "layout"
+      },
+      {
+        "name": "The Containment Rule",
+        "body": "At narrow widths and 200% zoom, long identifiers, tables, code values, and secondary navigation scroll or wrap inside their own region. The document itself must not overflow horizontally.",
+        "section": "layout"
+      },
+      {
+        "name": "The Not a Card Wall Rule",
+        "body": "Use grids only when comparison is the task. Do not turn unrelated metrics or sections into an equal-weight card field.",
+        "section": "layout"
+      },
+      {
+        "name": "The Earned Elevation Rule",
+        "body": "Borders and tonal changes carry ordinary grouping. A shadow must indicate a real layer or interruption, never decoration.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Familiar Geometry Rule",
+        "body": "Keep controls conventional and decisive. Reserve full pills for status, and do not introduce hard offset shadows, novelty silhouettes, or decorative clipping.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Evidence Has a State Rule",
+        "body": "Never render missing evidence as zero or let color imply certainty that the text does not state.",
+        "section": "components"
+      },
+      {
+        "name": "The Confirm Consequence Rule",
+        "body": "Credential rotation, revocation, and other consequential mutations require an explicit confirmation surface before execution.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "**Do** lead every operational route with one human-readable title, material exceptions, and the freshest trustworthy evidence.",
+      "**Do** preserve the mascot and navy/orange/teal identity while separating artwork colors from semantic text and action roles.",
+      "**Do** state whether evidence is current, stale, retained, unavailable, missing, inferred, or measured zero.",
+      "**Do** use the 4px spacing base, 2.25rem controls, and 1rem to 2rem section rhythm to stay compact but breathable.",
+      "**Do** keep identifiers secondary, monospaced, selectable, and safely wrappable.",
+      "**Do** contain table, code, and secondary-navigation overflow inside the owning component.",
+      "**Do** provide visible labels, keyboard focus, text equivalents for charts, and AA contrast in light and dark themes.",
+      "**Do** provide a reduced-motion alternative that preserves layer and state feedback.",
+      "**Do** confirm consequential credential and enrollment actions before execution."
+    ],
+    "donts": [
+      "**Don't** build generic equal-weight card grids, raw-data walls, neon operations theater, or decorative glass and blur.",
+      "**Don't** use brand color alone to communicate health, severity, certainty, or action safety.",
+      "**Don't** use hard offset shadows, ornamental motion, or novelty controls outside the familiar Operate vocabulary.",
+      "**Don't** inherit small Instrument Teal text below AA contrast on light surfaces.",
+      "**Don't** inherit white normal text on Signal Orange or Signal Orange normal text on dark cards when either pairing is below AA.",
+      "**Don't** use raw UUIDs as page titles or repeat the shell H1 as a duplicate H2.",
+      "**Don't** allow document-level horizontal overflow, a page-sized main focus outline, or raw browser scrollbars on secondary navigation.",
+      "**Don't** use placeholder-only visible labels.",
+      "**Don't** perform consequential credential actions without confirmation.",
+      "**Don't** inherit the current 500ms navigation-sheet transition or motion without an intentional reduced-motion alternative.",
+      "**Don't** hardcode unrelated chart hues when an established semantic chart role can carry the series."
+    ]
+  }
+}

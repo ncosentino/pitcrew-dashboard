@@ -11,3 +11,4 @@ and explicit supersession links.
 | [ADR-0004](adr-0004-audited-zero-capacity-pause.md) | Accepted | Permit generation-fenced zero-capacity admission pause without preemption. |
 | [ADR-0005](adr-0005-retrospective-connector-health-replay.md) | Accepted | Replay bounded connector health evidence after outbound synchronization recovers. |
 | [ADR-0006](adr-0006-docs-first-agent-guidance.md) | Accepted | Use docs-first guidance with a Genesis-managed base, project-owned specialization, Impeccable design support, and generated Claude mirrors. |
+| [ADR-0007](adr-0007-browser-ux-evidence-and-design-authority.md) | Accepted | Use durable product/design authority and deterministic browser UX evidence while keeping subjective design findings advisory. |
