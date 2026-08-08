@@ -22,11 +22,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   // Bounded worker count keeps mocked-network runs deterministic locally and in CI.
   workers: process.env.CI ? 2 : undefined,
-  reporter: [
-    ['list'],
-    ['html', { outputFolder: './e2e/.artifacts/html-report', open: 'never' }],
-    ['json', { outputFile: './e2e/.artifacts/results.json' }],
-  ],
+  reporter: [['list'], ['html', { outputFolder: './e2e/.artifacts/html-report', open: 'never' }]],
   use: {
     baseURL,
     trace: 'retain-on-failure',

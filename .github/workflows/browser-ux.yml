@@ -76,10 +76,9 @@ jobs:
           name: browser-ux-evidence
           path: |
             src/PitCrew.Dashboard.WebApi/ClientApp/e2e/.artifacts/html-report
-            src/PitCrew.Dashboard.WebApi/ClientApp/e2e/.artifacts/results.json
             src/PitCrew.Dashboard.WebApi/ClientApp/e2e/.artifacts/axe
             src/PitCrew.Dashboard.WebApi/ClientApp/e2e/.artifacts/metrics
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: warn
 
       # `test-results` (playwright.config.ts's `outputDir`) holds per-test
@@ -95,7 +94,7 @@ jobs:
         with:
           name: browser-ux-failure-diagnostics
           path: src/PitCrew.Dashboard.WebApi/ClientApp/e2e/.artifacts/test-results
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
 
       - name: Run Impeccable detector
@@ -131,5 +130,5 @@ jobs:
         with:
           name: impeccable-detector-report
           path: impeccable-report.json
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: warn
