@@ -1,5 +1,6 @@
 ---
 applyTo: "main.go, cmd/**/*.go"
+scope: "Go CLI source"
 ---
 
 # Go CLI architecture

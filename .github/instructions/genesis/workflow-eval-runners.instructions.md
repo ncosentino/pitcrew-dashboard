@@ -7,6 +7,23 @@ applyTo: "**/*.Tests.Eval/**/*Runner.cs,**/*.Tests.Eval/**/*Harness.cs,**/*.Test
 Runners and harnesses turn production workflow executions into complete, repeatable
 evaluation evidence.
 
+## Enforce the suite success contract
+
+- Consume the repository's established success criteria: dimensions, metrics, targets,
+  denominators, aggregation, and hard-gate versus diagnostic policy. Do not invent a new
+  configuration format.
+- Protect held-out cases from prompt, rubric, and policy tuning. Development and final
+  validation results must remain distinguishable in reports.
+- Aggregate per dimension and per slice before applying policy. Do not let a global average
+  hide a failed safety, difficulty, or population slice.
+- Compare candidates and baselines on identical cases and report task quality alongside
+  latency, token usage, and cost when those dimensions are relevant.
+- Run judge-calibration cases separately from subject capability trials. Report per-dimension
+  false-pass, false-fail, agreement, ranking, and grader-infrastructure metrics before
+  allowing a semantic score to affect policy.
+- Preserve isolated-grader and bundled-scorecard results as distinct evidence so cost
+  optimizations cannot silently replace the calibrated measurement.
+
 ## Invoke production behavior
 
 - Run the production workflow or pipeline through its real public seam.
@@ -36,3 +53,5 @@ evaluation evidence.
 - Do not let one crash abort or erase the remaining trials; record it as a failed or
   infrastructure outcome and finish the batch.
 - Make insufficient statistical evidence Inconclusive rather than forcing pass or fail.
+- Classify malformed grader results as grader or infrastructure failures and preserve them
+  separately from subject-quality failures.

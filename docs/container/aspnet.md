@@ -3,13 +3,13 @@
 Build the image locally:
 
 ```powershell
-docker buildx build --platform linux/amd64 --load --tag templateproject:local .
+docker buildx build --platform linux/amd64 --load --tag pitcrew-dashboard:local .
 ```
 
 Run the API and optional SPA from one origin:
 
 ```powershell
-docker run --rm --publish 8080:8080 templateproject:local
+docker run --rm --publish 8080:8080 pitcrew-dashboard:local
 ```
 
 The image exposes port `8080`, maps `/health`, and declares an image health check.

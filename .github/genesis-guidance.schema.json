@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ncosentino/pitcrew-dashboard/schemas/genesis-guidance.schema.json",
+  "title": "PitCrew Dashboard guidance contract",
+  "type": "object",
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "docs",
+    "agents",
+    "instructions",
+    "review",
+    "generatedMirrors"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./genesis-guidance.schema.json"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "docs": {
+      "type": "object",
+      "required": ["mapPath", "pages"],
+      "properties": {
+        "mapPath": {
+          "const": "docs/README.md"
+        },
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["path", "title", "section", "order", "owner"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^docs/.+\\.md$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "section": {
+                "type": "string",
+                "minLength": 1
+              },
+              "order": {
+                "type": "integer"
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "object",
+      "required": ["path", "maxLines", "maxBytes", "redirects"],
+      "properties": {
+        "path": {
+          "const": "AGENTS.md"
+        },
+        "maxLines": {
+          "const": 60
+        },
+        "maxBytes": {
+          "const": 3072
+        },
+        "redirects": {
+          "type": "object",
+          "required": ["claude", "copilot"],
+          "properties": {
+            "claude": {
+              "const": "CLAUDE.md"
+            },
+            "copilot": {
+              "const": ".github/copilot-instructions.md"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "instructions": {
+      "type": "object",
+      "required": [
+        "managedRoot",
+        "individualReviewThreshold",
+        "matchedContext",
+        "representativePaths"
+      ],
+      "properties": {
+        "managedRoot": {
+          "const": ".github/instructions/genesis"
+        },
+        "individualReviewThreshold": {
+          "type": "object",
+          "required": ["lines", "bytes"],
+          "properties": {
+            "lines": {
+              "const": 100
+            },
+            "bytes": {
+              "const": 8192
+            }
+          },
+          "additionalProperties": false
+        },
+        "matchedContext": {
+          "type": "object",
+          "required": ["targetLines", "targetBytes", "maxLines", "maxBytes"],
+          "properties": {
+            "targetLines": {
+              "const": 300
+            },
+            "targetBytes": {
+              "const": 16384
+            },
+            "maxLines": {
+              "const": 600
+            },
+            "maxBytes": {
+              "const": 32768
+            }
+          },
+          "additionalProperties": false
+        },
+        "representativePaths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "skillPath",
+        "instructionResolver",
+        "validationInventory",
+        "validationScope",
+        "contractValidator",
+        "contractTest"
+      ],
+      "properties": {
+        "skillPath": {
+          "const": ".github/skills/review-changes/SKILL.md"
+        },
+        "instructionResolver": {
+          "const": "scripts/guidance/Get-ApplicableInstructions.ps1"
+        },
+        "validationInventory": {
+          "const": "scripts/guidance/Get-ValidationInventory.ps1"
+        },
+        "validationScope": {
+          "const": "scripts/guidance/Resolve-ValidationScope.ps1"
+        },
+        "contractValidator": {
+          "const": "scripts/guidance/Test-GuidanceContract.ps1"
+        },
+        "contractTest": {
+          "const": "tests/Test-Guidance.ps1"
+        }
+      },
+      "additionalProperties": false
+    },
+    "generatedMirrors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "command"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "contextExceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pattern", "maxLines", "maxBytes", "phase", "owner", "reason"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "minLength": 1
+          },
+          "maxLines": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxBytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase": {
+            "const": "migration"
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

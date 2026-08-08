@@ -129,6 +129,10 @@ jobs:
               exit 1
           }
 
+      - name: Validate guidance contract
+        shell: pwsh
+        run: ./tests/Test-Guidance.ps1
+
       - name: NuGet cache
         uses: actions/cache@v6
         with:

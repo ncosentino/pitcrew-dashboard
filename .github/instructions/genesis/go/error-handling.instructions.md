@@ -1,5 +1,6 @@
 ---
 applyTo: "cmd/**/*.go, internal/**/*.go"
+scope: "Go error handling"
 ---
 
 # Go error handling

@@ -524,6 +524,12 @@ release, upload `assets/pitcrew-social-preview.png` under **Settings > General >
 Social preview**; GitHub does not expose that repository setting through its
 public APIs.
 
+## Documentation
+
+Start with the [documentation map](docs/README.md) for architecture decisions,
+operations, deployment, development, and the project-local Impeccable design
+workflow.
+
 ## Development
 
 Requirements:
