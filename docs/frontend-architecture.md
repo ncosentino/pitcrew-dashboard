@@ -43,6 +43,77 @@ import a sibling feature.
 that may import feature internals. The registry is the composition boundary
 consumed by the core router and shell.
 
+## Shared UI primitives
+
+PitCrew-specific operational patterns live in `src/core/ui/` and compose the
+generic shadcn/Radix primitives in `src/components/ui/`. Reach for these
+instead of re-deriving the same markup in a feature:
+
+| Primitive             | Use it for                                                                                        | Prefer proximity/dividers instead when…                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `PageHeader`           | The route's single H1, breadcrumbs, description, and page-level actions.                          | Never duplicate it; a route has exactly one (DESIGN.md "The One Page Title Rule").                  |
+| `EntityHeader`         | An entity's human-readable name, its secondary identifier, and entity-level actions (h2/h3).       | The name is only decorative metadata with no identifier or actions — a plain heading suffices.       |
+| `SectionNavigation`    | A horizontal, ARIA-labeled route-strip between an entity's own sub-views.                          | There is only one sub-view; a tab strip with a single destination adds noise, not orientation.       |
+| `FormField`            | Any labeled input/select in a filter, settings, or mutation form.                                  | —                                                                                                    |
+| `FilterToolbar`        | A responsive grid of `FormField`s that filter or sort a collection.                                | Only one filter control exists; inline it beside the collection instead of a bordered panel.         |
+| `StateBanner`          | A named positive/caution/critical condition the operator must notice (stale data, recovered fault). | The condition is evidence already legible on a value (a status badge, a "last known" caption) — an additional banner would restate it. |
+| `EmptyState`           | A collection is legitimately empty and the absence is itself a state worth announcing.             | A single missing optional field; omit it or explain it inline instead of a dedicated card.            |
+| `LoadingState`         | An in-progress fetch with nothing to show yet.                                                     | Content is already rendered and refreshing; prefer a subtle inline indicator over replacing the view. |
+| `OperationalTable` + `ScrollableRegion` | Any dense tabular collection that can exceed the viewport width.                  | A handful of rows fit comfortably; a plain list or `dl` avoids table semantics for non-tabular data.  |
+| `ConfirmationSummary`  | The identity, effects, prohibited effects, evidence fences, and acknowledgement of a consequential mutation, composed into `ConfirmActionDialog`'s `details` slot. | The action is reversible and low-consequence; a plain description is enough (DESIGN.md "The Confirm Consequence Rule" only requires this for consequential mutations). |
+
+**Reach for another Card only when a new grouping is a materially distinct
+task or evidence set.** DESIGN.md's "Cards group one coherent task or
+evidence set. They are not the default page layout" and "The Not a Card Wall
+Rule" (don't turn unrelated metrics or sections into an equal-weight card
+field) both argue for a heading, spacing, or a one-pixel divider between
+closely related content inside one card before reaching for a second card.
+
+`CardTitle` accepts an `as` prop (`'h1'`–`'h6'` or `'p'`, default `'div'`) so a
+card can declare the correct heading level for its position in the page
+outline. It defaults to a non-heading `div` to preserve every pre-existing
+call site's behavior: adding an implicit `h3` would have silently changed 28
+existing cards' outline position, creating skipped or duplicate heading
+levels. New call sites that need a real heading must pass `as` explicitly.
+`EmptyState` is the one shared primitive that always renders a real heading —
+its own `headingLevel` prop (`'h2' | 'h3'`, default `'h3'`) sets `CardTitle`'s
+`as` for its title regardless of `CardTitle`'s own default, so an empty
+collection's title still participates correctly in the page outline.
+
+`FormField` associates its visible `<label>` with the control via `htmlFor`/
+`id` (generating a stable ID when the control doesn't already have one)
+rather than by wrapping the control, so hint and error text can sit beside
+the control without being folded into its accessible *name* — the HTML
+label-name algorithm includes all of a wrapping label's text, which would
+otherwise announce the hint/error as part of the field's name instead of its
+description. Hint and error text get their own generated IDs, are wired to
+the control through a merged `aria-describedby` (preserving any
+`aria-describedby` the caller already set on the control), and an error
+additionally forces `aria-invalid="true"` on the control.
+
+`ScrollableRegion` requires a `label` naming what it contains (e.g. "Fleet
+nodes for the active tenant") and renders `role="region"` plus
+`tabIndex={0}` so the region is independently reachable and scrollable by
+keyboard, not just a pointer. `min-w-0 max-w-full` keep the region itself
+from stretching a flex/grid ancestor to the width of its wider content — the
+failure mode that otherwise still lets an overflow wrapper widen the
+document — while `overflow-x-auto`/`overscroll-x-contain` scope scrolling to
+the region. `OperationalTable` reuses its own `caption` (a required `string`,
+rendered as the table's visible `<caption>`) as the wrapping region's
+`label`, so the table and its region are named consistently from one prop.
+
+`SectionNavigation` hides its scrollbar (`scrollbar-width: none` /
+`::-webkit-scrollbar { display: none }`) while native touch, wheel, and
+keyboard scrolling (via the tabbable route links) keep working, and adds
+`overflow-y-hidden`/`overscroll-x-contain` so the route strip never opens a
+vertical scrollbar or bubbles an at-the-edge scroll to the page.
+
+`FilterToolbar` renders a plain, unlabeled `div` by default — an unlabeled
+`<section>` is an unannounced landmark. Pass its optional `label` prop only
+when the toolbar's purpose isn't already conveyed by a preceding heading or
+`PageHeader`/`EntityHeader`; supplying it renders a labeled `<section>`
+landmark instead.
+
 ## Data flow
 
 `FleetProvider` owns one five-second polling loop for the active tenant and is

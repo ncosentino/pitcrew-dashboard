@@ -11,6 +11,7 @@ import {
   type RecoveryControlState,
 } from '@/core/fleet';
 import { formatCounter, formatTime } from '@/core/formatting/formatters';
+import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { cn } from '@/lib/utils';
 
@@ -270,39 +271,30 @@ export function ProfileManagerRecovery({
   const fences = availability.fences;
 
   const details = (
-    <div className="grid gap-3 text-sm">
-      <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-2">
-        <EvidenceRow
-          label="Scope"
-          value={`${tenantId} · ${node.displayName} · ${profileId}`}
-          testId={`profile-recovery-scope-${profileId}`}
-        />
-        <EvidenceRow
-          label="Observed manager"
-          value={`${profile.managerInstanceId} · generation ${profile.generation}`}
-          testId={`profile-recovery-observed-${profileId}`}
-        />
-        <EvidenceRow
-          label="Expected fences"
-          value={
-            fences === null
-              ? 'Unavailable'
-              : `${fences.expectedManagerInstanceId} · generation ${fences.expectedGeneration} · hash ${shortHash(fences.expectedDesiredStateHash)}`
-          }
-          testId={`profile-recovery-fences-${profileId}`}
-        />
-        <EvidenceRow
-          label="Counts"
-          value={`configured ${formatCounter(profile.configuredSlots ?? profile.desiredSlots)} · target ${formatCounter(
+    <ConfirmationSummary
+      identity={[
+        {
+          label: 'Scope',
+          value: `${tenantId} · ${node.displayName} · ${profileId}`,
+          testId: `profile-recovery-scope-${profileId}`,
+        },
+        {
+          label: 'Observed manager',
+          value: `${profile.managerInstanceId} · generation ${profile.generation}`,
+          testId: `profile-recovery-observed-${profileId}`,
+        },
+        {
+          label: 'Counts',
+          value: `configured ${formatCounter(profile.configuredSlots ?? profile.desiredSlots)} · target ${formatCounter(
             autoscaling?.targetSlots ?? profile.desiredSlots,
           )} · local ${formatCounter(profile.activeSlots)} · GitHub eligible ${formatCounter(
             profile.eligibleSlots,
-          )}`}
-          testId={`profile-recovery-counts-${profileId}`}
-        />
-        <EvidenceRow
-          label="Degraded evidence"
-          value={
+          )}`,
+          testId: `profile-recovery-counts-${profileId}`,
+        },
+        {
+          label: 'Degraded evidence',
+          value: (
             <>
               <span>Manager status {profile.managerStatus}</span>
               {autoscaling === null ? null : (
@@ -315,40 +307,40 @@ export function ProfileManagerRecovery({
                 </>
               )}
             </>
-          }
-          testId={`profile-recovery-degraded-${profileId}`}
-        />
-      </dl>
-      <div className="grid gap-1">
-        <p className="font-medium">What will happen</p>
-        <p className="text-muted-foreground">
-          Local PitCrew restarts this one profile manager exactly once, using only the expected
-          fences shown above.
-        </p>
-        <p className="font-medium">What will not happen</p>
-        <p className="text-muted-foreground">
-          No worker, Docker daemon or Desktop, host, capacity, image, release, routing, or
-          configuration change is made, and no stopped manager or profile is started.
-        </p>
-        <p className="text-muted-foreground">
-          Recovery can still fail or end indeterminate. An indeterminate outcome is never retried
-          automatically and requires local investigation on the host.
-        </p>
-      </div>
-      <label className="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="mt-1"
-          checked={isAcknowledged}
-          onChange={(event) => setIsAcknowledged(event.target.checked)}
-        />
-        <span>
-          I confirm recovery of manager {fences?.expectedManagerInstanceId ?? 'unavailable'} at
-          generation {fences?.expectedGeneration ?? 'unavailable'} with desired-state hash{' '}
-          {shortHash(fences?.expectedDesiredStateHash ?? null)}.
-        </span>
-      </label>
-    </div>
+          ),
+          testId: `profile-recovery-degraded-${profileId}`,
+        },
+      ]}
+      fences={[
+        {
+          label: 'Manager instance, generation, and hash',
+          value:
+            fences === null
+              ? 'Unavailable'
+              : `${fences.expectedManagerInstanceId} · generation ${fences.expectedGeneration} · hash ${shortHash(fences.expectedDesiredStateHash)}`,
+          testId: `profile-recovery-fences-${profileId}`,
+        },
+      ]}
+      effects={[
+        'Local PitCrew restarts this one profile manager exactly once, using only the expected fences shown above.',
+      ]}
+      prohibitedEffects={[
+        'No worker, Docker daemon or Desktop, host, capacity, image, release, routing, or configuration change is made, and no stopped manager or profile is started.',
+        'Recovery can still fail or end indeterminate. An indeterminate outcome is never retried automatically and requires local investigation on the host.',
+      ]}
+      acknowledgement={{
+        label: (
+          <>
+            I confirm recovery of manager {fences?.expectedManagerInstanceId ?? 'unavailable'} at
+            generation {fences?.expectedGeneration ?? 'unavailable'} with desired-state hash{' '}
+            {shortHash(fences?.expectedDesiredStateHash ?? null)}.
+          </>
+        ),
+        checked: isAcknowledged,
+        onCheckedChange: setIsAcknowledged,
+        testId: `profile-recovery-acknowledgement-${profileId}`,
+      }}
+    />
   );
 
   return (

@@ -1,10 +1,16 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useFleet, type FleetNode, type OperationalIncident } from '@/core/fleet';
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
+import { EmptyState } from '@/core/ui/EmptyState';
+import { FilterToolbar } from '@/core/ui/FilterToolbar';
+import { FormField } from '@/core/ui/FormField';
+import { LoadingState } from '@/core/ui/LoadingState';
+import { OperationalTable } from '@/core/ui/OperationalTable';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { typography } from '@/core/ui/typography';
 import { cn } from '@/lib/utils';
 
 import {
@@ -81,7 +87,7 @@ function NodeSummaryRow({
           Compare hardware
         </label>
         <Link
-          className="font-semibold text-primary underline-offset-4 hover:underline"
+          className="font-semibold text-link underline-offset-4 hover:underline"
           to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
         >
           {node.displayName}
@@ -191,27 +197,20 @@ export default function FleetOverviewPage() {
 
   return (
     <>
-      <section className="grid gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Fleet status</h2>
-            <p className="text-sm text-muted-foreground">
-              Node-level capacity and health across this tenant.
-            </p>
-          </div>
-          <div className="text-right text-sm text-muted-foreground">
-            {fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}
-          </div>
+      <section className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className={typography.sectionHeading}>Fleet status</h2>
+          <p className={typography.metadata}>Node-level capacity and health across this tenant.</p>
+        </div>
+        <div className={cn('text-right', typography.metadata)}>
+          {fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}
         </div>
       </section>
 
       {error ? (
-        <div
-          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          role={fleet ? 'status' : 'alert'}
-        >
+        <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
           {fleet ? `Showing stale fleet data. ${error}` : error}
-        </div>
+        </StateBanner>
       ) : null}
 
       <ActiveIncidentSummary
@@ -220,33 +219,27 @@ export default function FleetOverviewPage() {
         testId="fleet-active-incidents"
       />
 
-      {isLoading && !fleet ? <p className="text-muted-foreground">Loading fleet status…</p> : null}
+      {isLoading && !fleet ? <LoadingState label="Loading fleet status…" /> : null}
 
       {!isLoading && fleet?.nodes.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No servers enrolled</CardTitle>
-            <CardDescription>
-              Create a one-time code, configure it on a connector, and start the connector.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState
+          description="Create a one-time code, configure it on a connector, and start the connector."
+          title="No servers enrolled"
+        />
       ) : null}
 
       {fleet && fleet.nodes.length > 0 ? (
         <>
-          <section className="grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4">
-            <label className="grid gap-1 text-sm font-medium">
-              Search nodes
+          <FilterToolbar>
+            <FormField label="Search nodes">
               <input
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Status
+            </FormField>
+            <FormField label="Status">
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={status}
@@ -257,9 +250,8 @@ export default function FleetOverviewPage() {
                 <option value="offline">Offline</option>
                 <option value="revoked">Revoked</option>
               </select>
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Sort by
+            </FormField>
+            <FormField label="Sort by">
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={sort}
@@ -269,9 +261,8 @@ export default function FleetOverviewPage() {
                 <option value="status">Status</option>
                 <option value="lastSeen">Last seen</option>
               </select>
-            </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Density
+            </FormField>
+            <FormField label="Density">
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={density}
@@ -280,68 +271,43 @@ export default function FleetOverviewPage() {
                 <option value="comfortable">Comfortable</option>
                 <option value="compact">Compact</option>
               </select>
-            </label>
-          </section>
+            </FormField>
+          </FilterToolbar>
 
           <HardwareComparison nodes={selectedNodes} />
 
           {nodes.length === 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>No matching nodes</CardTitle>
-                <CardDescription>
-                  Adjust the status or text filter to see more nodes.
-                </CardDescription>
-              </CardHeader>
-            </Card>
+            <EmptyState
+              description="Adjust the status or text filter to see more nodes."
+              title="No matching nodes"
+            />
           ) : (
-            <section className="overflow-x-auto rounded-lg border bg-card">
-              <table className="w-full min-w-5xl text-left text-sm">
-                <caption className="p-3 text-left text-sm font-semibold">
-                  Fleet nodes for the active tenant
-                </caption>
-                <thead className="bg-muted/50 text-xs text-muted-foreground uppercase">
-                  <tr>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Node
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      State
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Connector
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Last seen
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-right font-medium">
-                      Profiles
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-right font-medium">
-                      Configured / local / GitHub eligible
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-right font-medium">
-                      CPU / memory evidence
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nodes.map((node) => (
-                    <NodeSummaryRow
-                      key={node.nodeId}
-                      node={node}
-                      tenantId={tenantId}
-                      density={density}
-                      selected={selectedNodeIds.includes(node.nodeId)}
-                      onSelectionChanged={changeSelection}
-                      incidents={fleet.activeIncidents.filter(
-                        (incident) => incident.nodeId === node.nodeId,
-                      )}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </section>
+            <OperationalTable
+              caption="Fleet nodes for the active tenant"
+              columns={[
+                { key: 'node', header: 'Node' },
+                { key: 'state', header: 'State' },
+                { key: 'connector', header: 'Connector' },
+                { key: 'lastSeen', header: 'Last seen' },
+                { key: 'profiles', header: 'Profiles', align: 'right' },
+                { key: 'slots', header: 'Configured / local / GitHub eligible', align: 'right' },
+                { key: 'resources', header: 'CPU / memory evidence', align: 'right' },
+              ]}
+            >
+              {nodes.map((node) => (
+                <NodeSummaryRow
+                  key={node.nodeId}
+                  node={node}
+                  tenantId={tenantId}
+                  density={density}
+                  selected={selectedNodeIds.includes(node.nodeId)}
+                  onSelectionChanged={changeSelection}
+                  incidents={fleet.activeIncidents.filter(
+                    (incident) => incident.nodeId === node.nodeId,
+                  )}
+                />
+              ))}
+            </OperationalTable>
           )}
         </>
       ) : null}

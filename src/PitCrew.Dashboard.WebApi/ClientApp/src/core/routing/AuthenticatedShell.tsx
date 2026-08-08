@@ -22,6 +22,7 @@ import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
 import { FleetProvider, getActiveIncidents } from '@/core/fleet';
 import { ThemeToggle } from '@/core/theme/ThemeToggle';
+import { PageHeader } from '@/core/ui/PageHeader';
 
 import { Breadcrumbs } from './Breadcrumbs';
 import { formatRouteLabel, matchRoutePresentation } from './routePresentation';
@@ -259,12 +260,10 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           className="mx-auto grid min-w-0 max-w-7xl gap-6 px-4 py-6 sm:px-8 sm:py-8"
           tabIndex={-1}
         >
-          <div className="grid gap-2">
-            <Breadcrumbs match={routePresentation} />
-            <h1 className="text-3xl font-bold tracking-tight">
-              {formatRouteLabel(routePresentation.presentation.title, routePresentation.params)}
-            </h1>
-          </div>
+          <PageHeader
+            breadcrumbs={<Breadcrumbs match={routePresentation} />}
+            title={formatRouteLabel(routePresentation.presentation.title, routePresentation.params)}
+          />
           {usesFleetData ? (
             <FleetProvider tenantId={selectedTenant.tenantId}>
               <Outlet />

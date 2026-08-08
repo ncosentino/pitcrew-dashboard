@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { FleetNode, OperationalIncident } from '@/core/fleet';
 import { formatBytes, formatSeconds, formatTime } from '@/core/formatting/formatters';
+import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { getIncidents } from '../incidentsApi';
@@ -205,6 +206,33 @@ export function NodePressureCommandCenter({
                   title={`Pause ${control.profileId} new work?`}
                   description={`Set ${control.profileId} capacity to zero while current busy workers drain normally.`}
                   confirmLabel="Pause new work"
+                  details={
+                    <ConfirmationSummary
+                      identity={[
+                        {
+                          label: 'Node',
+                          value: node.displayName,
+                          testId: `node-pressure-pause-node-${control.profileId}`,
+                        },
+                        {
+                          label: 'Profile',
+                          value: control.profileId,
+                          testId: `node-pressure-pause-profile-${control.profileId}`,
+                        },
+                        {
+                          label: 'Current maximum',
+                          value: control.currentMaximum,
+                          testId: `node-pressure-pause-current-${control.profileId}`,
+                        },
+                      ]}
+                      effects={[
+                        `Local PitCrew sets the capacity maximum for profile ${control.profileId} on ${node.displayName} to zero while its host pressure incident is active: no replacement or new worker will be admitted.`,
+                      ]}
+                      prohibitedEffects={[
+                        'Busy workers already running continue until their current job finishes; no worker is force-stopped, and no image, routing, or manager configuration is changed.',
+                      ]}
+                    />
+                  }
                   trigger={
                     <Button type="button" size="sm" variant="destructive" disabled={disabled}>
                       Pause {control.profileId} new work
@@ -362,7 +390,7 @@ export function NodePressureCommandCenter({
                       <td className="px-3 py-2">
                         {workload.href ? (
                           <a
-                            className="font-medium text-primary underline-offset-4 hover:underline"
+                            className="font-medium text-link underline-offset-4 hover:underline"
                             href={workload.href}
                             rel="noreferrer"
                             target="_blank"

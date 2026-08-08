@@ -88,6 +88,20 @@ describe('NodePressureCommandCenter', () => {
     expect(screen.getByRole('link', { name: 'Open in GitHub' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Pause genesis-ci new work' }));
     const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByTestId('node-pressure-pause-node-genesis-ci')).toHaveTextContent(
+      'Zephyr',
+    );
+    expect(within(dialog).getByTestId('node-pressure-pause-current-genesis-ci')).toHaveTextContent(
+      '8',
+    );
+    expect(within(dialog).getByText('What will happen')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        /sets the capacity maximum for profile genesis-ci on Zephyr to zero/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('What will not happen')).toBeInTheDocument();
+    expect(within(dialog).getByText(/no worker is force-stopped/iu)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Pause new work' }));
     expect(pause).toHaveBeenCalledWith('genesis-ci');
   });

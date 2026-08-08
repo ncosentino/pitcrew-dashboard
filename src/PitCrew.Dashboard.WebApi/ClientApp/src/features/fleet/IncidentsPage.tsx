@@ -42,7 +42,7 @@ function IncidentRow({
       </td>
       <td className="px-4 py-3">
         <Link
-          className="font-semibold text-primary underline-offset-4 hover:underline"
+          className="font-semibold text-link underline-offset-4 hover:underline"
           to={incident.link}
         >
           {incident.title}
