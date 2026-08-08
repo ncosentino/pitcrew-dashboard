@@ -71,3 +71,11 @@ equivalent mutants and intentional exclusions are understood.
 
 Complete suites and mutation runs belong to configured CI/PitCrew capacity. Local
 iteration stays targeted.
+
+## Browser UX evidence
+
+Route-level UX regressions (document overflow, accessibility, heading structure,
+focus, and dialog keyboard behavior) are covered by a dedicated Playwright + axe-core
+harness against sanitized fixtures, not by component tests. See
+[Browser UX evidence harness](testing/browser-ux.md) for the one local command and
+what it asserts.

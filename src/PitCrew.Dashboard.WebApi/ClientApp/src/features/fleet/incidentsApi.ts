@@ -4,7 +4,7 @@ import { HttpClient } from '@/core/api/httpClient';
 import { operationalIncidentSchema, type OperationalIncident } from '@/core/fleet';
 
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
-const incidentPageSchema = z.object({
+export const incidentPageSchema = z.object({
   generatedAt: offsetDateTimeSchema,
   incidents: z.array(operationalIncidentSchema),
   truncated: z.boolean(),

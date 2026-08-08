@@ -43,6 +43,7 @@ This map is the canonical entry point for maintained Dashboard documentation.
 - [Testing strategy](testing.md)
 - [Roslyn analyzers](development/roslyn-analyzers.md)
 - [Evaluations and benchmarks](testing/evaluations-and-benchmarks.md)
+- [Browser UX evidence harness](testing/browser-ux.md)
 - [Request validation and job scheduling](development/request-validation-and-jobs.md)
 - [Blazor extensibility](ui/blazor-extensibility.md)
 
