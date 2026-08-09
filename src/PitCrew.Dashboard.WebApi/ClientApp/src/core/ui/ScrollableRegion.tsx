@@ -35,7 +35,7 @@ export function ScrollableRegion({ children, className, label }: ScrollableRegio
     <div
       aria-label={label}
       className={cn(
-        'min-w-0 max-w-full overflow-x-auto overscroll-x-contain',
+        'relative min-w-0 max-w-full overflow-x-auto overscroll-x-contain',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         className,
       )}

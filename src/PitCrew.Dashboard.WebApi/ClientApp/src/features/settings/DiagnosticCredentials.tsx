@@ -176,7 +176,7 @@ export function DiagnosticCredentials({ tenantId, antiforgeryToken }: Diagnostic
             </div>
           </div>
         ) : null}
-        <div className="overflow-x-auto">
+        <div className="min-w-0 overflow-x-auto">
           <table className="w-full min-w-3xl text-left text-sm">
             <caption className="px-2 py-2 text-left font-semibold">
               Issued diagnostic credentials

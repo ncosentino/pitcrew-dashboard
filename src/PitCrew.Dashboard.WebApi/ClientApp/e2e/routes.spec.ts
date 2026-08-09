@@ -57,26 +57,14 @@ const viewportEntries = Object.entries(viewports) as ReadonlyArray<
   [ViewportName, (typeof viewports)[ViewportName]]
 >;
 
-// ADR-0007 baseline: `RunnersPage.tsx` and `IncidentsPage.tsx` each wrap a
-// `<table className="w-full min-w-6xl ...">` in an `overflow-x-auto`
-// container, but that container is a direct child of `<main className="...
-// grid ...">` in `AuthenticatedShell.tsx`. `main` is a CSS grid container
-// without explicit column tracks, and grid items default to
-// `min-width: auto`, so the table's ~1152px intrinsic min-content width
-// pushes the grid track (and therefore the document) wider than the
-// viewport instead of staying confined to its own horizontal scrollbar.
-// Runners overflows at every captured viewport; Incidents only overflows at
-// the intermediate (768px) viewport, where the layout's fixed-width chrome
-// leaves less than 1152px for the table. This is empirically observed,
-// pre-existing product behavior (not a harness bug), tracked for a real fix
-// in #87. It is recorded as baseline evidence below rather than
-// hard-failing the advisory harness; every other route/viewport combination
-// still hard-fails on any nonzero overflow so this allowlist cannot mask a
-// new regression.
-const KNOWN_BASELINE_OVERFLOW_ROUTES: Readonly<Record<string, ReadonlySet<ViewportName>>> = {
-  runners: new Set<ViewportName>(['desktop', 'intermediate', 'mobile']),
-  incidents: new Set<ViewportName>(['intermediate']),
-};
+// ADR-0007 baseline: Previously, `RunnersPage.tsx` and `IncidentsPage.tsx`
+// each wrapped tables in raw `overflow-x-auto` containers that, as grid
+// children with `min-width: auto`, pushed the document wider than the
+// viewport. Issue #87 replaced those with ScrollableRegion (which applies
+// `min-w-0 max-w-full overflow-x-auto`) and added mobile summary cards at
+// narrow viewports, eliminating document-level overflow. The allowlist is
+// now empty; all route/viewport combinations hard-fail on nonzero overflow.
+const KNOWN_BASELINE_OVERFLOW_ROUTES: Readonly<Record<string, ReadonlySet<ViewportName>>> = {};
 
 const REQUIRED_BASELINE_AXE_EVIDENCE: Readonly<Record<string, string>> = {};
 

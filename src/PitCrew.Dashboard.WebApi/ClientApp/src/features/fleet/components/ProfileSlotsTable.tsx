@@ -5,6 +5,7 @@ import {
   formatOptionalBytes,
   formatPids,
 } from '@/core/formatting/formatters';
+import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
@@ -117,7 +118,7 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-raised-surface">
+    <section className="min-w-0 overflow-hidden rounded-lg border bg-card shadow-raised-surface">
       <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3">
         <div>
           <h2 className="font-semibold">Workers</h2>
@@ -127,11 +128,30 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
           </p>
         </div>
       </div>
-      <div
-        className="max-h-[70vh] overflow-auto border-t focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
-        role="region"
-        aria-label={`Scrollable worker slots for profile ${profile.profileId}`}
-        tabIndex={0}
+      <div className="grid gap-3 border-t p-3 lg:hidden" data-testid="workers-mobile-summary">
+        {profile.slots.map((slot) => (
+          <div className="grid gap-2 rounded-lg border bg-card p-4" key={slot.key}>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="min-w-0 break-all font-mono text-xs">{slot.key}</span>
+              <StatusBadge status={slot.state} />
+              {slot.activity ? <StatusBadge status={slot.activity} /> : null}
+            </div>
+            <div className="break-words text-xs text-muted-foreground">
+              {slot.repository ?? 'Shared scope'} · {slot.target ?? 'Target unavailable'}
+            </div>
+            <div className="text-xs tabular-nums">
+              {slot.resources
+                ? `${formatCpuCores(slot.resources.cpuCores)} · ${formatBytes(slot.resources.memoryWorkingSetBytes)} · ${formatPids(slot.resources.pids)}`
+                : 'Worker resources unavailable'}
+            </div>
+            <WorkerExitEvidence lastExit={slot.lastExit} />
+            <WorkerImageIdentity imageId={slot.imageId} />
+          </div>
+        ))}
+      </div>
+      <ScrollableRegion
+        className="hidden max-h-[70vh] overflow-y-auto border-t lg:block"
+        label={`Scrollable worker slots for profile ${profile.profileId}`}
       >
         <table
           aria-label={`Slots for profile ${profile.profileId}`}
@@ -175,7 +195,7 @@ export function ProfileSlotsTable({ profile }: { readonly profile: ManagerObserv
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollableRegion>
     </section>
   );
 }

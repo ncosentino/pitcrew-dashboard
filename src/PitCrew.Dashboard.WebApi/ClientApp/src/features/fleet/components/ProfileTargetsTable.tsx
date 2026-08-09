@@ -145,7 +145,7 @@ export function ProfileTargetsTable({ profile }: { readonly profile: ManagerObse
       }
       testId={`profile-targets-${profile.profileId}`}
     >
-      <div className="overflow-x-auto">
+      <div className="min-w-0 overflow-x-auto">
         <table className="w-full min-w-4xl text-left text-sm">
           <caption className="sr-only">
             Scale-set targets for profile {profile.profileId}. Local Docker worker counts and GitHub

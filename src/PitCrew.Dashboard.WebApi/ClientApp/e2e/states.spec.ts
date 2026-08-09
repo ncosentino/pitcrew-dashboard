@@ -68,7 +68,7 @@ test('active incident: an active incident is surfaced on the incidents page', as
   await setUpPage(page, activeIncidentScenario(), 'light');
   await page.goto(`/tenants/${tenantId}/incidents`);
 
-  await expect(page.getByText('Sustained capacity deficit')).toBeVisible();
+  await expect(page.getByText('Sustained capacity deficit').last()).toBeVisible();
   await expectStateEvidence(page, testInfo, 'active-incident');
 });
 
@@ -78,8 +78,8 @@ test('offline/stale: an offline node with stale hardware is visible', async ({
   await setUpPage(page, offlineStaleScenario(), 'light');
   await page.goto(fleetPath);
 
-  await expect(page.getByText('Bravo')).toBeVisible();
-  await expect(page.getByText('Retained cause: synchronization-network')).toBeVisible();
+  await expect(page.getByText('Bravo').last()).toBeVisible();
+  await expect(page.getByText('Retained cause: synchronization-network').first()).toBeVisible();
   await expectStateEvidence(page, testInfo, 'offline-stale');
 });
 

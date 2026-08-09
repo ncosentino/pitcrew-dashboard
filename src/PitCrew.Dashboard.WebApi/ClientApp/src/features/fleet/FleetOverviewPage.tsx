@@ -282,32 +282,75 @@ export default function FleetOverviewPage() {
               title="No matching nodes"
             />
           ) : (
-            <OperationalTable
-              caption="Fleet nodes for the active tenant"
-              columns={[
-                { key: 'node', header: 'Node' },
-                { key: 'state', header: 'State' },
-                { key: 'connector', header: 'Connector' },
-                { key: 'lastSeen', header: 'Last seen' },
-                { key: 'profiles', header: 'Profiles', align: 'right' },
-                { key: 'slots', header: 'Configured / local / GitHub eligible', align: 'right' },
-                { key: 'resources', header: 'CPU / memory evidence', align: 'right' },
-              ]}
-            >
-              {nodes.map((node) => (
-                <NodeSummaryRow
-                  key={node.nodeId}
-                  node={node}
-                  tenantId={tenantId}
-                  density={density}
-                  selected={selectedNodeIds.includes(node.nodeId)}
-                  onSelectionChanged={changeSelection}
-                  incidents={fleet.activeIncidents.filter(
-                    (incident) => incident.nodeId === node.nodeId,
-                  )}
-                />
-              ))}
-            </OperationalTable>
+            <>
+              {/* Mobile summary cards */}
+              <div className="grid gap-3 lg:hidden" data-testid="fleet-mobile-summary">
+                {nodes.map((node) => {
+                  const aggregate = aggregateNode(node);
+                  const nodeStatus = getNodeStatus(node);
+                  return (
+                    <div
+                      key={node.nodeId}
+                      className="grid gap-2 rounded-lg border bg-card p-4"
+                      data-testid={`fleet-node-card-${node.nodeId}`}
+                    >
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <StatusBadge status={nodeStatus} />
+                        <Link
+                          className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
+                          to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
+                        >
+                          {node.displayName}
+                        </Link>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                        <span>Profiles: {node.profiles.length}</span>
+                        <span>
+                          Slots: {aggregate.configuredSlots} / {aggregate.activeSlots}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Last seen {formatTime(node.lastSeenAt)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop full evidence table */}
+              <div className="hidden min-w-0 lg:block">
+                <OperationalTable
+                  caption="Fleet nodes for the active tenant"
+                  columns={[
+                    { key: 'node', header: 'Node' },
+                    { key: 'state', header: 'State' },
+                    { key: 'connector', header: 'Connector' },
+                    { key: 'lastSeen', header: 'Last seen' },
+                    { key: 'profiles', header: 'Profiles', align: 'right' },
+                    {
+                      key: 'slots',
+                      header: 'Configured / local / GitHub eligible',
+                      align: 'right',
+                    },
+                    { key: 'resources', header: 'CPU / memory evidence', align: 'right' },
+                  ]}
+                >
+                  {nodes.map((node) => (
+                    <NodeSummaryRow
+                      key={node.nodeId}
+                      node={node}
+                      tenantId={tenantId}
+                      density={density}
+                      selected={selectedNodeIds.includes(node.nodeId)}
+                      onSelectionChanged={changeSelection}
+                      incidents={fleet.activeIncidents.filter(
+                        (incident) => incident.nodeId === node.nodeId,
+                      )}
+                    />
+                  ))}
+                </OperationalTable>
+              </div>
+            </>
           )}
         </>
       ) : null}

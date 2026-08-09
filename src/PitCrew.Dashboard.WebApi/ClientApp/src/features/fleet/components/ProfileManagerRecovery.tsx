@@ -126,7 +126,7 @@ function RecoveryHistory({ commands, profileId }: RecoveryHistoryProps) {
 
   return (
     <div
-      className="overflow-x-auto rounded-md border"
+      className="min-w-0 overflow-x-auto rounded-md border"
       data-testid={`profile-recovery-history-${profileId}`}
     >
       <table className="w-full text-left text-sm">

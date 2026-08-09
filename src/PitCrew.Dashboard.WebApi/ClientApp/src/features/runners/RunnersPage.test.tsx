@@ -444,7 +444,7 @@ describe('runners feature', () => {
     expect(
       screen.getByText(/1 displayed slot is from offline nodes and may be stale/),
     ).toBeInTheDocument();
-    expect(screen.getByText('offline')).toBeInTheDocument();
+    expect(screen.getAllByText('offline').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows an unavailable state when the fleet resource cannot be loaded', async () => {

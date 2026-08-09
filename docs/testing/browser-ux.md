@@ -26,8 +26,14 @@ GitHub OAuth credential is required or contacted.
 
 - **Route matrix**: Fleet Overview, Incidents, Node Overview, Node Administration,
   Profile Overview, Runners, Settings (General, Enrollment), and an unknown route
-  (404), each rendered at desktop (1440×900) light/dark, an intermediate viewport
-  (768×1024), and strict mobile (390×844) — 54 combinations.
+  (404), each rendered in light/dark at desktop (1440×900), wide (1280×800),
+  intermediate (768×1024), strict mobile (390×844), and narrow (320×568) sizes —
+  90 combinations.
+- **Responsive foundation** (`e2e/responsive.spec.ts`): zero document overflow at
+  320, 390, 768, 1280, and 1440 pixels; prioritized Fleet, Incidents, Active Jobs,
+  Runners, and Profile Workers summaries; keyboard-operable table regions; 44-pixel
+  touch targets; 200% zoom-equivalent reflow; long identifiers; and 40% text
+  expansion.
 - **Named states** (`e2e/states.spec.ts`): healthy, active incident, offline/stale
   hardware, unavailable (network failure), empty (no enrolled nodes),
   permission-limited (viewer denied an owner-only route), and failed mutation
@@ -52,30 +58,21 @@ that are validated with `.parse()` against the same Zod schemas the production A
 clients use — the mock layer cannot silently drift from the real contract. All
 identifiers, hostnames, and credentials in fixtures are synthetic.
 
-## Baseline exceptions (advisory, not hidden)
+## Baseline exceptions
 
-Issue **#86** resolved the four pre-existing defects that previously formed the
-contrast/heading/motion baseline. The allowlist sets
+Issues **#86** and **#87** resolved the pre-existing contrast, heading, motion, and
+document-overflow defects that formed the initial ADR-0007 baseline. The allowlist sets
 (`KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML` and
 `KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS` in
 [`e2e/support/axe.ts`](../../src/PitCrew.Dashboard.WebApi/ClientApp/e2e/support/axe.ts))
 are now empty. Classification still uses the same narrow machinery so that any future
 pre-existing defect can be recorded without hiding new regressions.
 
-Remaining baseline exception:
-
-- **Document overflow on Runners (all viewports) and Incidents (intermediate only)**
-  (tracked in **#87**): both pages wrap a `min-w-6xl` data table in an
-  `overflow-x-auto` container that is a direct grid-item child of
-  `AuthenticatedShell`'s `<main>`; CSS grid items default to `min-width: auto`, so the
-  table's intrinsic width still escapes to the document instead of staying confined
-  to its own scrollbar. See `KNOWN_BASELINE_OVERFLOW_ROUTES` in
-  [`e2e/routes.spec.ts`](../../src/PitCrew.Dashboard.WebApi/ClientApp/e2e/routes.spec.ts).
-
-Every allowlist above is narrow, named, and commented at the point of use. Every
-route/viewport/rule/node combination _not_ on an allowlist still hard-fails on any
-regression. Turning the remaining overflow baseline into a required, zero-tolerance
-gate is tracked in issue **#87**; this harness does not decide that timeline.
+There are currently no accepted browser baseline exceptions. Every route, viewport,
+rule, and node hard-fails on serious/critical axe findings, a non-sequential heading
+outline, or document-level horizontal overflow. Issue **#91** owns promoting this
+zero-tolerance evidence from advisory to required CI after the remaining hardening
+work is complete.
 
 ## CI
 

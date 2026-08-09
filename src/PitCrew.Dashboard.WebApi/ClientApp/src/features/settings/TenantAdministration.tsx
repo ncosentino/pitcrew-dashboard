@@ -91,7 +91,7 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
       </CardHeader>
       <CardContent className="grid gap-4">
         {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
-        <div className="overflow-x-auto">
+        <div className="min-w-0 overflow-x-auto">
           <table className="w-full min-w-xl text-left text-sm">
             <caption className="px-2 py-2 text-left font-semibold">Tenant members</caption>
             <thead className="text-xs text-muted-foreground uppercase">

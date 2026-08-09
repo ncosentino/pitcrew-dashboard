@@ -7,11 +7,15 @@ const baseURL = `http://127.0.0.1:${port}`;
  * Desktop uses a 1440x900 viewport, mobile is pinned to the issue's explicit
  * 390px width, and the intermediate viewport uses Tailwind's `md` breakpoint
  * (768px) so the three sizes exercise distinct responsive layout branches.
+ * The narrow (320px) viewport validates extreme small-screen containment,
+ * and wide (1280px) validates the lg breakpoint transition.
  */
 export const viewports = {
   desktop: { width: 1440, height: 900 },
+  wide: { width: 1280, height: 800 },
   intermediate: { width: 768, height: 1024 },
   mobile: { width: 390, height: 844 },
+  narrow: { width: 320, height: 568 },
 } as const;
 
 export default defineConfig({
