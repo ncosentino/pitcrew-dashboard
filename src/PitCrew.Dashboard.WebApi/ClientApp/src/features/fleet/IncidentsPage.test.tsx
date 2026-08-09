@@ -213,6 +213,11 @@ describe('IncidentsPage', () => {
     await user.click(within(row).getByRole('button', { name: 'Acknowledge' }));
 
     expect(await within(row).findByText(/^acknowledged$/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Acknowledged default capacity is below target. The incident remains active.',
+      ),
+    ).toBeInTheDocument();
     const request = fetchMock.mock.calls.find(
       ([input, init]) =>
         String(input).endsWith(`/incidents/${incidentId}/acknowledge`) && init?.method === 'POST',
@@ -220,5 +225,98 @@ describe('IncidentsPage', () => {
     expect(new Headers(request?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
       'test-antiforgery-token',
     );
+  });
+
+  it('unacknowledges an acknowledged incident and refreshes its lifecycle state', async () => {
+    let unacknowledged = false;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.endsWith(`/incidents/${incidentId}/unacknowledge`) && init?.method === 'POST') {
+        unacknowledged = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse(page(unacknowledged ? 'triggered' : 'acknowledged'));
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderPage(fetchMock);
+    const user = userEvent.setup();
+    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+
+    await user.click(within(row).getByRole('button', { name: 'Unacknowledge' }));
+
+    expect(await within(row).findByText(/^triggered$/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Unacknowledged default capacity is below target. The incident returned to triggered.',
+      ),
+    ).toBeInTheDocument();
+    const request = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).endsWith(`/incidents/${incidentId}/unacknowledge`) && init?.method === 'POST',
+    );
+    expect(new Headers(request?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
+      'test-antiforgery-token',
+    );
+  });
+
+  it('announces an error when unacknowledge fails', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.endsWith(`/incidents/${incidentId}/unacknowledge`) && init?.method === 'POST') {
+        return jsonResponse(
+          { error: { code: 'incident_resolved', message: 'The incident resolved.' } },
+          409,
+        );
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse(page('acknowledged'));
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderPage(fetchMock);
+    const user = userEvent.setup();
+    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+
+    await user.click(within(row).getByRole('button', { name: 'Unacknowledge' }));
+
+    await expect(screen.findByRole('alert')).resolves.toBeInTheDocument();
+  });
+
+  it('does not show acknowledgement as resolved after unacknowledge', async () => {
+    let unacknowledged = false;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.endsWith(`/incidents/${incidentId}/unacknowledge`) && init?.method === 'POST') {
+        unacknowledged = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse(page(unacknowledged ? 'triggered' : 'acknowledged'));
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderPage(fetchMock);
+    const user = userEvent.setup();
+    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+
+    await user.click(within(row).getByRole('button', { name: 'Unacknowledge' }));
+
+    await within(row).findByText(/^triggered$/i);
+    expect(within(row).queryByText(/^resolved$/i)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/^acknowledged$/i)).not.toBeInTheDocument();
   });
 });

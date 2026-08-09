@@ -1,10 +1,9 @@
 /**
  * Login and error-route coverage.
  *
- * The login route now selects an explicit H1 through `CardTitle.as`. The
- * session-error route still renders its `CardTitle` with the non-heading
- * default, so that narrower pre-existing defect remains baseline evidence
- * for issue #86.
+ * Both pre-authentication routes select an explicit H1 through
+ * `CardTitle.as`, preserving the same heading contract as authenticated
+ * routes without depending on `AuthenticatedShell`.
  */
 import { test, expect } from '@playwright/test';
 
@@ -16,7 +15,11 @@ import {
   KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML,
 } from './support/axe';
 import { measureDocumentOverflow } from './support/overflow';
-import { expectMainLandmark, expectSingleDescriptiveH1 } from './support/landmarks';
+import {
+  expectMainLandmark,
+  expectSequentialHeadingOutline,
+  expectSingleDescriptiveH1,
+} from './support/landmarks';
 
 test.describe('login page', () => {
   test('renders a sign-in main landmark with no document overflow', async ({ page }, testInfo) => {
@@ -42,6 +45,7 @@ test.describe('login page', () => {
     await page.goto('/');
 
     await expectSingleDescriptiveH1(page);
+    await expectSequentialHeadingOutline(page);
 
     const axeResult = await runAxeCheck(page, testInfo, 'login');
     const foundModerateHeadingFinding = axeResult.all.some(
@@ -76,10 +80,8 @@ test.describe('session bootstrap failure (error route)', () => {
     await expect(retryButton).toBeEnabled();
 
     await expectMainLandmark(page);
-
-    // This route still uses CardTitle's non-heading default and is tracked in #86.
-    const headingCount = await page.locator('h1').count();
-    expect(headingCount, 'session-error route has zero <h1> elements today (#86 baseline)').toBe(0);
+    await expectSingleDescriptiveH1(page);
+    await expectSequentialHeadingOutline(page);
 
     const overflow = await measureDocumentOverflow(page);
     expect(overflow.overflowPx, 'session-error route document overflow').toBe(0);
@@ -100,18 +102,11 @@ test.describe('session bootstrap failure (error route)', () => {
 });
 
 test.describe('sanity for baseline allowlist itself', () => {
-  test('the color-contrast node-html allowlist stays a narrow, named set of exact nodes', () => {
-    expect(KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML.size).toBeGreaterThan(0);
-    for (const html of KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML) {
-      expect(html).toContain('Dashboard');
-      expect(html).toContain('brand-teal');
-    }
+  test('the color-contrast node-html allowlist is empty after issue #86 contrast repairs', () => {
+    expect(KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML.size).toBe(0);
   });
 
-  test('the color-contrast color-pair allowlist stays a narrow, named set of exact hex pairs', () => {
-    expect(KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS.size).toBeGreaterThan(0);
-    for (const pair of KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS) {
-      expect(pair).toMatch(/^#[0-9a-f]{6}\|#[0-9a-f]{6}$/);
-    }
+  test('the color-contrast color-pair allowlist is empty after issue #86 contrast repairs', () => {
+    expect(KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS.size).toBe(0);
   });
 });

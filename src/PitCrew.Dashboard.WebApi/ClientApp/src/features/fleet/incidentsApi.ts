@@ -51,3 +51,18 @@ export async function acknowledgeIncident(
     },
   );
 }
+
+/** Reverses acknowledgement, returning the incident to the triggered state. */
+export async function unacknowledgeIncident(
+  tenantId: string,
+  incidentId: string,
+  antiforgeryToken: string,
+): Promise<void> {
+  await createClient().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/incidents/${encodeURIComponent(incidentId)}/unacknowledge`,
+    {
+      method: 'POST',
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+    },
+  );
+}

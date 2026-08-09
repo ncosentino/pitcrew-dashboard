@@ -77,6 +77,12 @@ public sealed class FleetCarterModule : ICarterModule
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .RequireAuthorization(
             AccessPolicies.TenantAdministrator);
+    fleet.MapPost(
+            "/incidents/{incidentId:guid}/unacknowledge",
+            UnacknowledgeIncidentAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .RequireAuthorization(
+            AccessPolicies.TenantAdministrator);
   }
 
   private static async Task<IResult> EnrollAsync(
@@ -382,6 +388,38 @@ public sealed class FleetCarterModule : ICarterModule
       _ => Results.Problem(
           statusCode: StatusCodes.Status500InternalServerError,
           title: "Unsupported incident acknowledgement result."),
+    };
+  }
+
+  private static async Task<IResult> UnacknowledgeIncidentAsync(
+      HttpContext context,
+      string tenantId,
+      Guid incidentId,
+      IUnacknowledgeAlertUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var status = await unitOfWork.UnacknowledgeOrNullAsync(
+        context.User,
+        tenantId,
+        incidentId,
+        cancellationToken);
+    return status switch
+    {
+      null => Results.Unauthorized(),
+      AlertUnacknowledgeStatus.Succeeded => Results.NoContent(),
+      AlertUnacknowledgeStatus.AlreadyTriggered => Results.NoContent(),
+      AlertUnacknowledgeStatus.NotFound => Results.NotFound(),
+      AlertUnacknowledgeStatus.Resolved => Results.Conflict(new
+      {
+        error = new
+        {
+          code = "incident_resolved",
+          message = "The incident resolved before it could be unacknowledged.",
+        },
+      }),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported incident unacknowledgement result."),
     };
   }
 

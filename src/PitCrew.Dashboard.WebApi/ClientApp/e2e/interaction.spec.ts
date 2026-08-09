@@ -95,7 +95,7 @@ test.describe('reduced motion', () => {
     await expect(dialog).toBeHidden();
   });
 
-  test('the dialog has no computed open-animation, measured directly under prefers-reduced-motion (#86 baseline)', async ({
+  test('the dialog has instant transitions under prefers-reduced-motion (issue #86 fix)', async ({
     page,
   }, testInfo) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -115,25 +115,14 @@ test.describe('reduced motion', () => {
       };
     });
 
-    await testInfo.attach('reduced-motion-baseline-computed-style', {
+    await testInfo.attach('reduced-motion-computed-style', {
       body: JSON.stringify(computedMotion, null, 2),
       contentType: 'application/json',
     });
 
-    // `animate-in`/`fade-in-0`/`zoom-in-95` in alert-dialog.tsx have no
-    // registered Tailwind utility behind them in this project (no
-    // `tailwindcss-animate`/`tw-animate-css` dependency), so no keyframe
-    // animation actually runs — with or without `prefers-reduced-motion`.
-    // This measures that ground truth rather than assuming the dialog's
-    // open animation is "active"; the underlying gap (unwired dialog
-    // motion, independent of the reduce preference) is tracked to #86.
-    expect(
-      computedMotion.animationName,
-      'expected no keyframe animation to be computed on the dialog today (#86 baseline)',
-    ).toBe('none');
     expect(
       computedMotion.animationDuration,
-      'expected zero computed animation-duration on the dialog today (#86 baseline)',
-    ).toBe('0s');
+      'expected zero or near-zero animation-duration under prefers-reduced-motion',
+    ).toMatch(/^0s|0\.01ms$/);
   });
 });

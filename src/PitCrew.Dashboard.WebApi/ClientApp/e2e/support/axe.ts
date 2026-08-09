@@ -23,34 +23,23 @@ const artifactRoot = path.join(process.cwd(), 'e2e', '.artifacts', 'axe');
 
 /**
  * Exact outerHTML of the only two markup variants (compact sidebar lockup
- * and hero/login lockup — see `PitCrewBrand.tsx`) that render the brand
- * teal "Dashboard" label, one of the nodes observed to trip
- * `color-contrast` across every authenticated and unauthenticated route in
- * this run. This is a pre-existing, already-tracked theme-contrast defect
- * (ADR-0007; tracked for a future required gate in issue #86) — not
- * something this harness can fix. Matching by exact node HTML (rather than
- * the rule ID) means a *different* color-contrast violation, anywhere, is
- * never silently tolerated; see `e2e/axe-classification.spec.ts` for a
- * synthetic proof.
+ * and hero/login lockup — see `PitCrewBrand.tsx`) that previously rendered the
+ * brand teal "Dashboard" label. Issue #86 repaired the contrast by switching
+ * to `--brand-teal-accessible`. The baseline set is empty until the next
+ * pre-existing defect is observed and classified.
  */
-export const KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML: ReadonlySet<string> = new Set([
-  '<div class="mt-1 text-xs font-bold tracking-[0.24em] text-[var(--brand-teal)] uppercase">Dashboard</div>',
-  '<div class="text-sm font-bold tracking-[0.32em] text-[var(--brand-teal)] uppercase">Dashboard</div>',
-]);
+export const KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML: ReadonlySet<string> = new Set([]);
 
 /**
  * Exact known `background-color`/`foreground-color` hex pairs (as reported
- * by axe's own contrast check `data.bgColor`/`data.fgColor`) for the
- * remaining dark-theme token baseline. The destructive surface resolves to
- * `#ff6467` with white text, below the WCAG AA 4.5:1 threshold. Because the
- * same token can render different action labels, classification matches the
- * exact reported color pair rather than outerHTML. Issue #86 tracks the fix.
+ * by axe's own contrast check `data.bgColor`/`data.fgColor`) for previously
+ * failing dark-theme token pairs. Issue #86 corrected the dark-theme
+ * `--destructive` value to pass AA with white text. The baseline set is
+ * empty until a new pre-existing defect is observed.
  * Format: `${bgColor}|${fgColor}` (both lowercase hex, exactly as axe
  * reports them).
  */
-export const KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS: ReadonlySet<string> = new Set([
-  '#ff6467|#ffffff', // dark theme `--destructive` button token (e.g. the Revoke dialog trigger)
-]);
+export const KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS: ReadonlySet<string> = new Set([]);
 
 export interface AxeCheckResult {
   readonly all: Result[];

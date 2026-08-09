@@ -19,7 +19,7 @@ export function NoAccessPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>No tenant access</CardTitle>
+        <CardTitle as="h2">No tenant access</CardTitle>
         <CardDescription>
           Ask a tenant owner to add your GitHub user after this first sign-in.
         </CardDescription>
@@ -33,7 +33,7 @@ export function NotFoundPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Page not found</CardTitle>
+        <CardTitle as="h2">Page not found</CardTitle>
         <CardDescription>
           This dashboard route does not exist or is no longer available.
         </CardDescription>
@@ -52,10 +52,13 @@ export function RouteErrorPage() {
   const error = useRouteError();
   const status = isRouteErrorResponse(error) ? ` (${error.status})` : '';
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl items-center px-4" role="alert">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle as="h1">Page could not be displayed{status}</CardTitle>
+    <main className="mx-auto flex min-h-screen max-w-xl items-center px-4">
+      <Card className="w-full" role="alert">
+        <CardHeader className="items-center text-center">
+          <PitCrewBrand variant="hero" />
+          <CardTitle as="h1" className="mt-2 text-2xl">
+            Page could not be displayed{status}
+          </CardTitle>
           <CardDescription>
             An unexpected routing error occurred. Return to the dashboard and try again.
           </CardDescription>

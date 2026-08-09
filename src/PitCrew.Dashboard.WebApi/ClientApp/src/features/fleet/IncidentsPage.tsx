@@ -6,11 +6,14 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { useSession } from '@/core/auth';
 import { getFleet, type FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
+import { LoadingState } from '@/core/ui/LoadingState';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { typography } from '@/core/ui/typography';
 
 import {
   acknowledgeIncident,
   getIncidents,
+  unacknowledgeIncident,
   type IncidentFilter,
   type IncidentPage,
   type OperationalIncident,
@@ -21,6 +24,7 @@ interface IncidentRowProps {
   readonly canAcknowledge: boolean;
   readonly isAcknowledging: boolean;
   readonly onAcknowledge: (incident: OperationalIncident) => void;
+  readonly onUnacknowledge: (incident: OperationalIncident) => void;
   readonly node: FleetNode | undefined;
 }
 
@@ -29,6 +33,7 @@ function IncidentRow({
   canAcknowledge,
   isAcknowledging,
   onAcknowledge,
+  onUnacknowledge,
   node,
 }: IncidentRowProps) {
   const health = node?.connectorHealth?.snapshot;
@@ -84,15 +89,38 @@ function IncidentRow({
       </td>
       <td className="px-4 py-3">
         {canAcknowledge && incident.status === 'triggered' ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={isAcknowledging}
-            onClick={() => onAcknowledge(incident)}
-          >
-            {isAcknowledging ? 'Acknowledging…' : 'Acknowledge'}
-          </Button>
+          <div className="grid gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isAcknowledging}
+              onClick={() => onAcknowledge(incident)}
+            >
+              {isAcknowledging ? 'Acknowledging…' : 'Acknowledge'}
+            </Button>
+            <span className="max-w-48 text-xs text-muted-foreground">
+              Records operator ownership without resolving the condition. Reversible while active.
+            </span>
+          </div>
+        ) : canAcknowledge && incident.status === 'acknowledged' ? (
+          <div className="grid gap-1">
+            <span className="text-xs text-muted-foreground">
+              Acknowledged {formatTime(incident.acknowledgedAt)}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={isAcknowledging}
+              onClick={() => onUnacknowledge(incident)}
+            >
+              {isAcknowledging ? 'Reverting…' : 'Unacknowledge'}
+            </Button>
+            <span className="max-w-48 text-xs text-muted-foreground">
+              Returns this active incident to triggered.
+            </span>
+          </div>
         ) : incident.status === 'acknowledged' ? (
           <span className="text-xs text-muted-foreground">
             Acknowledged {formatTime(incident.acknowledgedAt)}
@@ -113,6 +141,7 @@ export default function IncidentsPage() {
   const [filter, setFilter] = useState<IncidentFilter>('active');
   const [page, setPage] = useState<IncidentPage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
   const requestVersion = useRef(0);
@@ -175,12 +204,31 @@ export default function IncidentsPage() {
   const acknowledge = async (incident: OperationalIncident) => {
     setAcknowledgingId(incident.incidentId);
     setError(null);
+    setNotice(null);
     try {
       await acknowledgeIncident(tenantId, incident.incidentId, antiforgeryToken);
       await load();
+      setNotice(`Acknowledged ${incident.title}. The incident remains active.`);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : 'The incident could not be acknowledged.',
+      );
+    } finally {
+      setAcknowledgingId(null);
+    }
+  };
+
+  const unacknowledge = async (incident: OperationalIncident) => {
+    setAcknowledgingId(incident.incidentId);
+    setError(null);
+    setNotice(null);
+    try {
+      await unacknowledgeIncident(tenantId, incident.incidentId, antiforgeryToken);
+      await load();
+      setNotice(`Unacknowledged ${incident.title}. The incident returned to triggered.`);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'The incident could not be unacknowledged.',
       );
     } finally {
       setAcknowledgingId(null);
@@ -192,7 +240,7 @@ export default function IncidentsPage() {
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Operational incidents</h2>
+            <h2 className={typography.sectionHeading}>Operational incidents</h2>
             <p className="text-sm text-muted-foreground">
               Debounced conditions and bounded resolved history from manager-owned evidence.
             </p>
@@ -237,26 +285,28 @@ export default function IncidentsPage() {
 
       <div
         className={
-          error ? 'rounded-lg border border-red-300 bg-red-50 p-4 text-red-900' : 'sr-only'
+          error
+            ? 'rounded-lg border border-status-critical-foreground/30 bg-status-critical p-4 text-status-critical-foreground'
+            : 'sr-only'
         }
         role={error ? 'alert' : 'status'}
         aria-live="polite"
       >
-        {error ?? (isLoading ? 'Loading operational incidents.' : '')}
+        {error ?? (isLoading ? 'Loading operational incidents.' : (notice ?? ''))}
       </div>
 
       {page?.truncated ? (
-        <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+        <p className="rounded-lg border border-status-caution-foreground/30 bg-status-caution px-3 py-2 text-sm text-status-caution-foreground">
           Showing only the newest incidents allowed by the server response limit.
         </p>
       ) : null}
 
-      {isLoading && !page ? <p className="text-muted-foreground">Loading incidents…</p> : null}
+      {isLoading && !page ? <LoadingState label="Loading operational incidents…" /> : null}
 
       {!isLoading && page?.incidents.length === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>No {filter === 'all' ? '' : `${filter} `}incidents</CardTitle>
+            <CardTitle as="h3">No {filter === 'all' ? '' : `${filter} `}incidents</CardTitle>
             <CardDescription>
               Brief conditions remain hidden unless they cross their debounce boundary.
             </CardDescription>
@@ -299,6 +349,7 @@ export default function IncidentsPage() {
                   canAcknowledge={canAcknowledge}
                   isAcknowledging={acknowledgingId === incident.incidentId}
                   onAcknowledge={(selected) => void acknowledge(selected)}
+                  onUnacknowledge={(selected) => void unacknowledge(selected)}
                   node={nodes.find((node) => node.nodeId === incident.nodeId)}
                 />
               ))}

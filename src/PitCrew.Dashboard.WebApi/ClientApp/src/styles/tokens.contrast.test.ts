@@ -11,11 +11,13 @@ import { describe, expect, it } from 'vitest';
  * sRGB-to-linear step is needed.
  */
 function relativeLuminanceFromOklch(oklch: string): number {
-  const match = /oklch\(\s*([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s*\)/.exec(oklch);
+  const matchPercent = /oklch\(\s*([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s*\)/.exec(oklch);
+  const matchDecimal = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)/.exec(oklch);
+  const match = matchPercent ?? matchDecimal;
   if (!match) {
     throw new Error(`Not a recognized oklch() token: ${oklch}`);
   }
-  const l = Number(match[1]) / 100;
+  const l = matchPercent ? Number(match[1]) / 100 : Number(match[1]);
   const c = Number(match[2]);
   const hueDegrees = Number(match[3]);
   const hueRadians = (hueDegrees * Math.PI) / 180;
@@ -200,5 +202,46 @@ describe('link token contrast against actual surfaces', () => {
     const surface = extractDeclaration(globalsCss, block, surfaceVar);
 
     expect(contrastRatio(link, surface)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('brand accessible token contrast', () => {
+  it.each([
+    ['light', ':root {', '--brand-teal-accessible', '--background'],
+    ['light', ':root {', '--brand-teal-accessible', '--card'],
+    ['dark', '.dark {', '--brand-teal-accessible', '--background'],
+    ['dark', '.dark {', '--brand-teal-accessible', '--card'],
+  ])(
+    'meets AA (>= 4.5:1) for --brand-teal-accessible against %s-theme %s',
+    (_name, block, tokenVar, surfaceVar) => {
+      const token = extractDeclaration(globalsCss, block, tokenVar);
+      const surface = extractDeclaration(globalsCss, block, surfaceVar);
+
+      expect(contrastRatio(token, surface)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it.each([
+    ['light', ':root {', '--brand-orange-accessible', '--background'],
+    ['light', ':root {', '--brand-orange-accessible', '--card'],
+    ['dark', '.dark {', '--brand-orange-accessible', '--background'],
+    ['dark', '.dark {', '--brand-orange-accessible', '--card'],
+  ])(
+    'meets AA (>= 4.5:1) for --brand-orange-accessible against %s-theme %s',
+    (_name, block, tokenVar, surfaceVar) => {
+      const token = extractDeclaration(globalsCss, block, tokenVar);
+      const surface = extractDeclaration(globalsCss, block, surfaceVar);
+
+      expect(contrastRatio(token, surface)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it.each([
+    ['light', ':root {'],
+    ['dark', '.dark {'],
+  ])('meets AA (>= 4.5:1) for --destructive/white in the %s theme', (_name, block) => {
+    const destructive = extractDeclaration(globalsCss, block, '--destructive');
+
+    expect(contrastRatio(destructive, '#ffffff')).toBeGreaterThanOrEqual(4.5);
   });
 });
