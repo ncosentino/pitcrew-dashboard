@@ -30,7 +30,7 @@ on:
         required: false
         default: 'full'
         type: choice
-        options: [full, subset]
+        options: [full, subset, guidance-only]
 
 permissions:
   contents: read
@@ -47,31 +47,114 @@ jobs:
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
     steps:
-      - name: Resolve validation scope
-        id: scope
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine changed paths
+        id: paths
         env:
           EVENT_NAME: ${{ github.event_name }}
-          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          REQUESTED_SCOPE: ${{ inputs.validation_scope || '' }}
-          DRAFT_MODE: ${{ vars.CI_DRAFT_MODE || 'subset' }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
         run: |
-          scope=full
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            scope="$REQUESTED_SCOPE"
-          elif [ "$EVENT_NAME" = "pull_request" ] && [ "$IS_DRAFT" = "true" ]; then
-            scope="$DRAFT_MODE"
+          changed_files=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -n "$PR_BASE_SHA" ]; then
+              changed_files=$(git diff --name-only "$PR_BASE_SHA"...HEAD 2>/dev/null || echo "")
+            fi
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+              changed_files=$(git diff --name-only "$PUSH_BEFORE"..HEAD 2>/dev/null || echo "")
+            fi
           fi
 
-          case "$scope" in
-            full|subset|ready-only) ;;
-            *)
-              echo "::error::Unsupported validation scope '$scope'."
-              exit 1
-              ;;
-          esac
+          if [ -z "$changed_files" ]; then
+            echo "files=" >> "$GITHUB_OUTPUT"
+            echo "No changed files detected — will fall back to full."
+          else
+            # Newline-delimited to comma-delimited
+            csv=$(echo "$changed_files" | tr '\n' ',' | sed 's/,$//')
+            echo "files=$csv" >> "$GITHUB_OUTPUT"
+            echo "Detected $(echo "$changed_files" | wc -l) changed files."
+          fi
 
-          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+      - name: Resolve validation scope
+        id: scope
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || 'false' }}
+          REQUESTED_SCOPE: ${{ inputs.validation_scope || '' }}
+          DRAFT_MODE: ${{ vars.CI_DRAFT_MODE || 'subset' }}
+          CHANGED_FILES_CSV: ${{ steps.paths.outputs.files }}
+        run: |
+          $changedFiles = @()
+          if ($env:CHANGED_FILES_CSV) {
+              $changedFiles = $env:CHANGED_FILES_CSV -split ','
+          }
+
+          $scope = & ./scripts/guidance/Resolve-ValidationScope.ps1 `
+              -EventName $env:EVENT_NAME `
+              -RequestedScope $env:REQUESTED_SCOPE `
+              -IsDraft ([bool]::Parse($env:IS_DRAFT)) `
+              -DraftMode $env:DRAFT_MODE `
+              -ChangedFiles $changedFiles
+
+          echo "scope=$scope" >> $env:GITHUB_OUTPUT
           echo "Validation scope: $scope"
+
+          # Job summary
+          $summary = @"
+          ## Validation Plan
+
+          | Property | Value |
+          |---|---|
+          | Event | $env:EVENT_NAME |
+          | Scope | ``$scope`` |
+          | Changed files | $($changedFiles.Count) |
+          "@
+          $summary >> $env:GITHUB_STEP_SUMMARY
+
+  # Guidance-only gate — lightweight validation for documentation/design/instruction
+  # changes that don't affect runtime, frontend, or deployment.
+  guidance:
+    name: Guidance gate
+    needs: validation-plan
+    if: needs.validation-plan.outputs.scope == 'guidance-only'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = @(
+            Get-ChildItem -Recurse -File -Filter '*.ps1' |
+              ForEach-Object {
+                $tokens = $null
+                $parseErrors = $null
+                [void][Management.Automation.Language.Parser]::ParseFile(
+                    $_.FullName,
+                    [ref]$tokens,
+                    [ref]$parseErrors)
+                $parseErrors
+              }
+          )
+          if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Host "::error::$($_.Message)" }
+              exit 1
+          }
+
+      - name: Validate guidance contract
+        shell: pwsh
+        run: ./tests/Test-Guidance.ps1
+
+      - name: Validate path-aware scope resolution
+        shell: pwsh
+        run: ./tests/Test-ValidationScope.ps1
 
   # Frontend quality gate — runs the bundled SPA's OWN complete pipeline (build +
   # lint + format:check + tsc + tests) in its own Node toolchain, exactly as the
@@ -132,6 +215,10 @@ jobs:
       - name: Validate guidance contract
         shell: pwsh
         run: ./tests/Test-Guidance.ps1
+
+      - name: Validate path-aware scope resolution
+        shell: pwsh
+        run: ./tests/Test-ValidationScope.ps1
 
       - name: NuGet cache
         uses: actions/cache@v6
@@ -519,13 +606,14 @@ jobs:
     name: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'Draft CI' || 'CI' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validation-plan, frontend, build, test, linux-installer, windows-installer]
+    needs: [validation-plan, guidance, frontend, build, test, linux-installer, windows-installer]
     if: always()
     steps:
       - name: Check validation results
         env:
           SCOPE: ${{ needs.validation-plan.outputs.scope }}
           PLAN_RESULT: ${{ needs.validation-plan.result }}
+          GUIDANCE_RESULT: ${{ needs.guidance.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           TEST_RESULT: ${{ needs.test.result }}
@@ -538,6 +626,7 @@ jobs:
           fi
 
           for result in \
+            "$GUIDANCE_RESULT" \
             "$FRONTEND_RESULT" \
             "$BUILD_RESULT" \
             "$TEST_RESULT" \
@@ -577,6 +666,20 @@ jobs:
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
                  [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
                 echo "::error::Ready-only draft validation ran unexpected jobs."
+                exit 1
+              fi
+              ;;
+            guidance-only)
+              if [ "$GUIDANCE_RESULT" != "success" ]; then
+                echo "::error::Guidance gate did not succeed for guidance-only scope."
+                exit 1
+              fi
+              if [ "$FRONTEND_RESULT" != "skipped" ] ||
+                 [ "$BUILD_RESULT" != "skipped" ] ||
+                 [ "$TEST_RESULT" != "skipped" ] ||
+                 [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
+                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
+                echo "::error::Guidance-only validation ran unexpected expensive jobs."
                 exit 1
               fi
               ;;
