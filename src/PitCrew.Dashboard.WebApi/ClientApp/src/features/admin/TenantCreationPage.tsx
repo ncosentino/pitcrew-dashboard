@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
+import { FormField } from '@/core/ui/FormField';
+import { StateBanner } from '@/core/ui/StateBanner';
 
 interface TenantCreationPageProps {
   readonly createTenant: (
@@ -39,34 +41,42 @@ export default function TenantCreationPage({ createTenant }: TenantCreationPageP
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create tenant</CardTitle>
+        <CardTitle as="h2">Create tenant</CardTitle>
         <CardDescription>
           Tenant IDs are stable lowercase route identifiers. You become the initial owner.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-        <input
-          aria-label="Tenant ID"
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-          placeholder="tenant-id"
-          value={tenantId}
-          onChange={(event) => setTenantId(event.target.value)}
-        />
-        <input
-          aria-label="Tenant display name"
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-          placeholder="Display name"
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-        />
-        <Button
-          type="button"
-          disabled={tenantId.trim().length === 0 || displayName.trim().length === 0}
-          onClick={() => void create()}
-        >
-          Create
-        </Button>
-        {error ? <p role="alert">{error}</p> : null}
+        <FormField label="Tenant ID" hint="Stable lowercase route identifier.">
+          <input
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+            placeholder="tenant-id"
+            value={tenantId}
+            onChange={(event) => setTenantId(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Tenant display name" hint="Human-readable name shown to operators.">
+          <input
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+            placeholder="Display name"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+          />
+        </FormField>
+        <div className="flex items-end">
+          <Button
+            type="button"
+            disabled={tenantId.trim().length === 0 || displayName.trim().length === 0}
+            onClick={() => void create()}
+          >
+            Create tenant
+          </Button>
+        </div>
+        {error ? (
+          <StateBanner className="sm:col-span-3" tone="critical">
+            {error}
+          </StateBanner>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -25,6 +25,18 @@ paths:
   implementation requirements.
 - Preserve the complete frontend gate owned by `package.json`: build, lint,
   formatting, feature-boundary checks, and tests.
+- Run Impeccable context loader before editing established UI surfaces; use `shape` for new surfaces or materially changed flows.
+- Use only approved shared primitives and design tokens.
+- Cover all relevant states and viewports (320, 390, 768, 1280, 1440 CSS px).
+- Never use a raw identifier as a title when a human-readable display name exists.
+- Never introduce a new table without a documented narrow-screen strategy.
+- Never add a consequential action without confirmation or approved reversibility.
+- Primary workflows must work with keyboard only, at 200% zoom, under forced-colors,
+  and with `prefers-reduced-motion`. Long content (40% expansion), CJK, emoji, and
+  RTL must not break containment.
+- Performance budget: DOMContentLoaded <=1500ms, load <=3000ms, and production
+  JavaScript transfer <=550KB (the measured 501,736-byte baseline plus headroom).
+  Paginate or virtualize above 100 fleet nodes.
 
 See [Frontend architecture](https://github.com/ncosentino/pitcrew-dashboard/blob/main/docs/frontend-architecture.md)
 and [Impeccable design workflow](https://github.com/ncosentino/pitcrew-dashboard/blob/main/docs/impeccable-design.md).

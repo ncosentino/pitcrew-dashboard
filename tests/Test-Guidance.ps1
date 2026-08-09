@@ -292,8 +292,8 @@ try {
         'Instruction and generated mirror counts differ.')
     Add-Check ($result.instructions -ge 120) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 41) (
-        'The documentation map does not contain the expected 41 maintained pages.')
+    Add-Check ($result.docs -eq 42) (
+        'The documentation map does not contain the expected 42 maintained pages.')
     Add-Check ($result.adrs -eq 7) (
         'The ADR index does not contain seven accepted records.')
 
@@ -558,6 +558,53 @@ try {
                 Where-Object { $_ -match 'Foreign' }
         ).Count -eq 0
     ) 'Validation inventory included a nested Git repository.'
+
+    # --- Issue #91: PRODUCT/DESIGN authority checks ---
+    $frontendInstruction = Join-Path $root '.github' 'instructions' `
+        'frontend-architecture.instructions.md'
+    $frontendContent = Get-Content -LiteralPath $frontendInstruction -Raw
+    Add-Check ($frontendContent -match 'Impeccable context loader') (
+        'Frontend instruction does not require Impeccable context before UI edits.')
+    Add-Check ($frontendContent -match '(?i)shape.*new surfaces') (
+        'Frontend instruction does not require shape for new surfaces.')
+    Add-Check ($frontendContent -match 'approved shared primitives') (
+        'Frontend instruction does not require approved shared primitives.')
+    Add-Check ($frontendContent -match 'all relevant states') (
+        'Frontend instruction does not require all relevant states and viewports.')
+    Add-Check ($frontendContent -match 'raw identifier.*display name') (
+        'Frontend instruction does not prohibit raw IDs when display names exist.')
+    Add-Check ($frontendContent -match 'new table.*narrow-screen strategy') (
+        'Frontend instruction does not require narrow-screen strategy for tables.')
+    Add-Check ($frontendContent -match 'consequential action.*confirmation') (
+        'Frontend instruction does not require confirmation for consequential actions.')
+
+    # --- Issue #91: review-changes evidence requirements ---
+    $reviewSkill = Join-Path $root '.github' 'skills' 'review-changes' 'SKILL.md'
+    $reviewContent = Get-Content -LiteralPath $reviewSkill -Raw
+    Add-Check ($reviewContent -match 'Affected routes and states') (
+        'review-changes does not require affected-route/state evidence.')
+    Add-Check ($reviewContent -match 'Browser results') (
+        'review-changes does not require browser results reference.')
+    Add-Check ($reviewContent -match 'Keyboard and zoom disclosure') (
+        'review-changes does not require keyboard/zoom disclosure.')
+    Add-Check ($reviewContent -match 'Localization disclosure') (
+        'review-changes does not require localization disclosure.')
+    Add-Check ($reviewContent -match 'Finish-reviewer output') (
+        'review-changes does not require finish-reviewer output.')
+    Add-Check ($reviewContent -match 'Generated mirrors') (
+        'review-changes does not require generated mirror evidence.')
+
+    # --- Issue #91: delivery contract includes Browser UX ---
+    $deliveryPath = Join-Path $root '.github' 'genesis-delivery.json'
+    $delivery = Get-Content -LiteralPath $deliveryPath -Raw |
+        ConvertFrom-Json -Depth 20
+    Add-Check ($delivery.requiredChecks -contains 'Browser UX') (
+        'genesis-delivery.json does not include Browser UX as a required check.')
+    $browserWorkflow = $delivery.componentWorkflows |
+        Where-Object { $_.path -eq '.github/workflows/browser-ux.yml' }
+    Add-Check ($null -ne $browserWorkflow) (
+        'genesis-delivery.json does not reference the browser-ux workflow.')
+
 } finally {
     if (Test-Path -LiteralPath $temporaryRoot) {
         Remove-Item -LiteralPath $temporaryRoot -Recurse -Force

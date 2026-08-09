@@ -8,7 +8,8 @@
     "CI",
     "PR title",
     "Review policy",
-    "Container image"
+    "Container image",
+    "Browser UX"
   ],
   "validationScopes": [
     {
@@ -47,6 +48,18 @@
   },
   "runnerProfiles": [],
   "componentWorkflows": [
+    {
+      "source": "repository",
+      "path": ".github/workflows/browser-ux.yml",
+      "roles": [
+        "merge-gate",
+        "draft-optional"
+      ],
+      "draftBehavior": "ready-only",
+      "requiredChecks": [
+        "Browser UX"
+      ]
+    },
     {
       "source": "repository",
       "path": ".github/workflows/container-ci.yml",

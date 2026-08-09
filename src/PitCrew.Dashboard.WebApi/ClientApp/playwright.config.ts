@@ -24,8 +24,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  // Bounded worker count keeps mocked-network runs deterministic locally and in CI.
-  workers: process.env.CI ? 2 : undefined,
+  // Bounded worker counts keep the full axe/screenshot matrix stable on developer
+  // workstations and hosted runners without serializing the suite.
+  workers: process.env.CI ? 2 : 4,
   reporter: [['list'], ['html', { outputFolder: './e2e/.artifacts/html-report', open: 'never' }]],
   use: {
     baseURL,
@@ -43,7 +44,7 @@ export default defineConfig({
     // `--host 127.0.0.1` pins IPv4 loopback: some environments resolve Vite's
     // default `localhost` bind to IPv6-only (`::1`), which then never answers
     // Playwright's IPv4 `baseURL` health check and times out.
-    command: `npm run dev -- --port ${port} --strictPort --host 127.0.0.1`,
+    command: `npm run build && npm run preview -- --port ${port} --strictPort --host 127.0.0.1`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

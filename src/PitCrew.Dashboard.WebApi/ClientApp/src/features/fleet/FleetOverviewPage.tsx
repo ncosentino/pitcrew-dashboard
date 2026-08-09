@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { Button } from '@/components/ui/button';
 import {
   summarizeNodeHostAdmission,
   useFleet,
@@ -37,6 +38,8 @@ type FleetDensity = 'comfortable' | 'compact';
 
 /** Browser storage key for the fleet overview density preference. */
 export const fleetDensityStorageKey = 'pitcrew-dashboard-fleet-density';
+/** Maximum fleet nodes rendered before the operator deliberately reveals another page. */
+export const fleetPageSize = 100;
 
 function readDensity(): FleetDensity {
   try {
@@ -211,8 +214,10 @@ export default function FleetOverviewPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<NodeSort>('name');
   const [density, setDensity] = useState<FleetDensity>(readDensity);
+  const [visibleLimit, setVisibleLimit] = useState(fleetPageSize);
   const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([]);
   const nodes = selectNodes(fleet?.nodes ?? [], status, query, sort);
+  const visibleNodes = nodes.slice(0, visibleLimit);
   const selectedNodes = (fleet?.nodes ?? []).filter((node) =>
     selectedNodeIds.includes(node.nodeId),
   );
@@ -241,6 +246,40 @@ export default function FleetOverviewPage() {
           {fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}
         </div>
       </section>
+
+      <details className="rounded-lg border bg-card px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          How to read fleet evidence
+        </summary>
+        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+          <div>
+            <dt className="font-medium">Current</dt>
+            <dd className="text-muted-foreground">Reported by the latest accepted observation.</dd>
+          </div>
+          <div>
+            <dt className="font-medium">Last known</dt>
+            <dd className="text-muted-foreground">
+              Retained evidence from before a node went offline.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium">Stale</dt>
+            <dd className="text-muted-foreground">
+              Available evidence that exceeded its freshness boundary.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium">Unavailable</dt>
+            <dd className="text-muted-foreground">No trustworthy measurement was reported.</dd>
+          </div>
+          <div>
+            <dt className="font-medium">Acknowledged</dt>
+            <dd className="text-muted-foreground">
+              An operator owns the incident; the condition is not resolved.
+            </dd>
+          </div>
+        </dl>
+      </details>
 
       {error ? (
         <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
@@ -271,14 +310,20 @@ export default function FleetOverviewPage() {
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setVisibleLimit(fleetPageSize);
+                }}
               />
             </FormField>
             <FormField label="Status">
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={status}
-                onChange={(event) => setStatus(event.target.value as NodeStatusFilter)}
+                onChange={(event) => {
+                  setStatus(event.target.value as NodeStatusFilter);
+                  setVisibleLimit(fleetPageSize);
+                }}
               >
                 <option value="all">All states</option>
                 <option value="online">Online</option>
@@ -290,7 +335,10 @@ export default function FleetOverviewPage() {
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={sort}
-                onChange={(event) => setSort(event.target.value as NodeSort)}
+                onChange={(event) => {
+                  setSort(event.target.value as NodeSort);
+                  setVisibleLimit(fleetPageSize);
+                }}
               >
                 <option value="name">Display name</option>
                 <option value="status">Status</option>
@@ -320,7 +368,7 @@ export default function FleetOverviewPage() {
             <>
               {/* Mobile summary cards */}
               <div className="grid gap-3 lg:hidden" data-testid="fleet-mobile-summary">
-                {nodes.map((node) => {
+                {visibleNodes.map((node) => {
                   const aggregate = aggregateNode(node);
                   const nodeStatus = getNodeStatus(node);
                   const admission = summarizeNodeHostAdmission(node.profiles);
@@ -383,7 +431,7 @@ export default function FleetOverviewPage() {
                     { key: 'resources', header: 'CPU / memory evidence', align: 'right' },
                   ]}
                 >
-                  {nodes.map((node) => (
+                  {visibleNodes.map((node) => (
                     <NodeSummaryRow
                       key={node.nodeId}
                       node={node}
@@ -397,6 +445,21 @@ export default function FleetOverviewPage() {
                     />
                   ))}
                 </OperationalTable>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                <span role="status">
+                  Showing {visibleNodes.length} of {nodes.length}{' '}
+                  {nodes.length === 1 ? 'node' : 'nodes'}
+                </span>
+                {visibleNodes.length < nodes.length ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setVisibleLimit((current) => current + fleetPageSize)}
+                  >
+                    Show next {Math.min(fleetPageSize, nodes.length - visibleNodes.length)}
+                  </Button>
+                ) : null}
               </div>
             </>
           )}

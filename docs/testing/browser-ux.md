@@ -16,8 +16,8 @@ npm run test:browser           # runs the full harness
 npm run test:browser:report    # opens the last HTML report
 ```
 
-`npm run test:browser` builds nothing extra: it starts the Vite dev server itself
-(`playwright.config.ts`'s `webServer`), serves every route against
+`npm run test:browser` builds the production SPA and starts Vite preview through
+`playwright.config.ts`'s `webServer`, serves every route against
 [`e2e/mocks/fixtures.ts`](../../src/PitCrew.Dashboard.WebApi/ClientApp/e2e/mocks/fixtures.ts)
 fixtures, and tears the server down afterward. No live connector, database, or
 GitHub OAuth credential is required or contacted.
@@ -63,6 +63,12 @@ GitHub OAuth credential is required or contacted.
 - **Fixture schema validation** (`e2e/fixture-validation.spec.ts`): proves the fixture
   builders actually enforce the production Zod schemas (a malformed override is
   rejected, not silently cast through).
+- **Production hardening** (`e2e/hardening.spec.ts`): keyboard-only primary tasks,
+  200% zoom-equivalent reflow, forced colors, reduced motion, long and expanded text,
+  CJK/emoji/RTL content, one-item and large datasets, slow responses, and aborted
+  requests.
+- **Performance budgets** (`e2e/performance-budget.spec.ts`): navigation timing,
+  production JavaScript transfer size, and the enforced 100-node pagination threshold.
 
 Every scenario is built from sanitized fixture builders in
 [`e2e/mocks/fixtures.ts`](../../src/PitCrew.Dashboard.WebApi/ClientApp/e2e/mocks/fixtures.ts)
@@ -82,22 +88,17 @@ pre-existing defect can be recorded without hiding new regressions.
 
 There are currently no accepted browser baseline exceptions. Every route, viewport,
 rule, and node hard-fails on serious/critical axe findings, a non-sequential heading
-outline, or document-level horizontal overflow. Issue **#91** owns promoting this
-zero-tolerance evidence from advisory to required CI after the remaining hardening
-work is complete.
+outline, or document-level horizontal overflow.
 
 ## CI
 
-[`.github/workflows/browser-ux.yml`](../../.github/workflows/browser-ux.yml) runs the
-same `npm run test:browser` command on pull requests that touch the dashboard SPA, and
-uploads screenshots, metrics, axe reports, and the Playwright HTML report as build
-artifacts. It also runs the Impeccable detector and uploads its JSON output; detector
-_findings_ are advisory, but the workflow fails if the detector itself cannot execute.
-Artifacts are retained for seven days. The HTML report is the canonical browser report;
-the workflow does not also generate or upload Playwright's duplicate JSON reporter.
+[`.github/workflows/browser-ux.yml`](../../.github/workflows/browser-ux.yml) owns the
+required `Browser UX` check. Runtime and UI pull requests run the same
+`npm run test:browser` command and upload screenshots, metrics, axe reports, and the
+Playwright HTML report. Guidance-only pull requests run the shared path resolver and
+return the required check without installing browsers or generating artifacts.
 
-This workflow is intentionally advisory: it is not listed in
-`.github/genesis-delivery.json`'s `requiredChecks`, so it cannot block merges. Issue
-#91 owns promoting the deterministic browser evidence to required CI after the
-remaining baseline defects and hardening work are complete,
-independently of this workflow's name or job structure.
+The Impeccable detector runs in the required workflow, but its findings remain advisory
+judgment evidence; detector execution failure still fails the check. Artifacts are
+retained for seven days. The HTML report is canonical, and the duplicate Playwright
+JSON reporter is not generated.

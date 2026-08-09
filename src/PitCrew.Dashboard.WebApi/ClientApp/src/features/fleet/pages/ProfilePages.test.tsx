@@ -1585,16 +1585,16 @@ describe('profile detail routes', () => {
     );
     expect(
       screen.getByTestId('profile-operation-outcome-default-41').firstElementChild,
-    ).toHaveClass('bg-red-100');
+    ).toHaveClass('bg-status-critical');
     expect(
       screen.getByTestId('profile-operation-outcome-default-40').firstElementChild,
-    ).toHaveClass('bg-red-100');
+    ).toHaveClass('bg-status-critical');
     expect(
       screen.getByTestId('profile-operation-outcome-default-39').firstElementChild,
-    ).toHaveClass('bg-emerald-100');
+    ).toHaveClass('bg-status-positive');
     expect(
       screen.getByTestId('profile-subsystem-summary-docker-default').lastElementChild,
-    ).toHaveClass('bg-red-100');
+    ).toHaveClass('bg-status-critical');
     expect(screen.getByTestId('profile-subsystem-summary-docker-default')).toHaveTextContent(
       'degraded',
     );

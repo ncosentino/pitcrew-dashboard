@@ -19,7 +19,7 @@ export function TenantRouteGuard({ minimumRole, children }: TenantRouteGuardProp
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Tenant unavailable</CardTitle>
+          <CardTitle as="h2">Tenant unavailable</CardTitle>
           <CardDescription>
             This tenant does not exist or your account is not authorized to access it.
           </CardDescription>
@@ -32,7 +32,7 @@ export function TenantRouteGuard({ minimumRole, children }: TenantRouteGuardProp
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Insufficient tenant role</CardTitle>
+          <CardTitle as="h2">Insufficient tenant role</CardTitle>
           <CardDescription>
             This page requires the {minimumRole} role. The API remains the final authorization
             authority.

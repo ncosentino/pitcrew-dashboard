@@ -129,6 +129,23 @@ Open with:
 - `Validation:` observed, passed, failed, and not-run evidence
 - `Guidance reflection:` `no change warranted` or one evidence-backed candidate
 
+## 7. UI change evidence (when frontend paths are in scope)
+
+When any file under `src/PitCrew.Dashboard.WebApi/ClientApp/src/` is changed:
+
+- **Affected routes and states:** list every route and named state the change touches.
+- **Browser results:** reference the latest `Browser UX` CI run or local
+  `npm run test:browser` output. State which routes/viewports passed.
+- **Keyboard and zoom disclosure:** confirm keyboard walkthrough of affected routes,
+  or disclose which flows were not keyboard-tested and which viewports were not
+  zoom-verified.
+- **Localization disclosure:** confirm long-content, 40% expansion, CJK, emoji, and
+  RTL containment, or disclose which cases were not exercised.
+- **Finish-reviewer output:** when the change is a substantial UI surface or polish
+  pass, include or reference the Impeccable finish-reviewer verdict.
+- **Generated mirrors:** confirm `.claude/rules/generated/` mirrors match current
+  instructions via the copilot-to-claude-compiler, or flag drift.
+
 Group introduced findings by severity:
 
 - **Blocker** - broken behavior, security or destructive risk, failing required
