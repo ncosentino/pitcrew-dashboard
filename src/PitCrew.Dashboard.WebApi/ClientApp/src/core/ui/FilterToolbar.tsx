@@ -29,7 +29,7 @@ export function FilterToolbar({ children, className, label }: FilterToolbarProps
     <Container
       aria-label={label}
       className={cn(
-        'grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4',
+        'grid min-w-0 gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4',
         className,
       )}
     >

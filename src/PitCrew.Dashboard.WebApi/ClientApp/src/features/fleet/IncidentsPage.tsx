@@ -7,6 +7,7 @@ import { useSession } from '@/core/auth';
 import { getFleet, type FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { LoadingState } from '@/core/ui/LoadingState';
+import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { typography } from '@/core/ui/typography';
 
@@ -251,7 +252,7 @@ export default function IncidentsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-4">
+      <section className="grid min-w-0 gap-3 rounded-lg border bg-card p-4 sm:grid-cols-4">
         <label className="grid gap-1 text-sm font-medium">
           Lifecycle
           <select
@@ -315,47 +316,116 @@ export default function IncidentsPage() {
       ) : null}
 
       {page && page.incidents.length > 0 ? (
-        <section className="overflow-x-auto rounded-lg border bg-card">
-          <table className="w-full min-w-6xl text-left text-sm">
-            <caption className="p-3 text-left text-sm font-semibold">
-              {filter === 'active'
-                ? 'Active operational incidents'
-                : 'Operational incident history'}
-            </caption>
-            <thead className="bg-muted/50 text-xs text-muted-foreground uppercase">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">
-                  State
-                </th>
-                <th scope="col" className="px-4 py-3 font-medium">
-                  Incident
-                </th>
-                <th scope="col" className="px-4 py-3 font-medium">
-                  Reason
-                </th>
-                <th scope="col" className="px-4 py-3 font-medium">
-                  Timeline
-                </th>
-                <th scope="col" className="px-4 py-3 font-medium">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {page.incidents.map((incident) => (
-                <IncidentRow
-                  key={incident.incidentId}
-                  incident={incident}
-                  canAcknowledge={canAcknowledge}
-                  isAcknowledging={acknowledgingId === incident.incidentId}
-                  onAcknowledge={(selected) => void acknowledge(selected)}
-                  onUnacknowledge={(selected) => void unacknowledge(selected)}
-                  node={nodes.find((node) => node.nodeId === incident.nodeId)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </section>
+        <>
+          <div className="grid gap-3 lg:hidden" data-testid="incidents-mobile-summary">
+            {page.incidents.map((incident) => (
+              <div
+                key={incident.incidentId}
+                className="grid gap-2 rounded-lg border bg-card p-4"
+                data-testid={`incident-card-${incident.incidentId}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={incident.severity} />
+                  <StatusBadge status={incident.status} />
+                </div>
+                <Link
+                  className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
+                  to={incident.link}
+                >
+                  {incident.title}
+                </Link>
+                <p className="text-xs text-muted-foreground">{incident.summary}</p>
+                <div className="text-xs text-muted-foreground">
+                  Triggered {formatTime(incident.triggeredAt)}
+                </div>
+                {canAcknowledge && incident.status === 'triggered' ? (
+                  <div className="grid gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="min-h-11 justify-self-start"
+                      disabled={acknowledgingId === incident.incidentId}
+                      onClick={() => void acknowledge(incident)}
+                    >
+                      {acknowledgingId === incident.incidentId ? 'Acknowledging…' : 'Acknowledge'}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Records operator ownership without resolving the condition. Reversible while
+                      active.
+                    </span>
+                  </div>
+                ) : canAcknowledge && incident.status === 'acknowledged' ? (
+                  <div className="grid gap-1">
+                    <span className="text-xs text-muted-foreground">
+                      Acknowledged {formatTime(incident.acknowledgedAt)}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="min-h-11 justify-self-start"
+                      disabled={acknowledgingId === incident.incidentId}
+                      onClick={() => void unacknowledge(incident)}
+                    >
+                      {acknowledgingId === incident.incidentId ? 'Reverting…' : 'Unacknowledge'}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Returns this active incident to triggered.
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          <ScrollableRegion
+            className="hidden rounded-lg border bg-card lg:block"
+            label={
+              filter === 'active' ? 'Active operational incidents' : 'Operational incident history'
+            }
+          >
+            <table className="w-full min-w-5xl text-left text-sm">
+              <caption className="p-3 text-left text-sm font-semibold">
+                {filter === 'active'
+                  ? 'Active operational incidents'
+                  : 'Operational incident history'}
+              </caption>
+              <thead className="bg-muted/50 text-xs text-muted-foreground uppercase">
+                <tr>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    State
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Incident
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Reason
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Timeline
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {page.incidents.map((incident) => (
+                  <IncidentRow
+                    key={incident.incidentId}
+                    incident={incident}
+                    canAcknowledge={canAcknowledge}
+                    isAcknowledging={acknowledgingId === incident.incidentId}
+                    onAcknowledge={(selected) => void acknowledge(selected)}
+                    onUnacknowledge={(selected) => void unacknowledge(selected)}
+                    node={nodes.find((node) => node.nodeId === incident.nodeId)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </ScrollableRegion>
+        </>
       ) : null}
     </>
   );

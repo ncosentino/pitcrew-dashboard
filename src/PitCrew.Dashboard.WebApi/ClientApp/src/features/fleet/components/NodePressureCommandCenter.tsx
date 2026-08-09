@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import type { FleetNode, OperationalIncident } from '@/core/fleet';
 import { formatBytes, formatSeconds, formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { getIncidents } from '../incidentsApi';
@@ -249,7 +250,7 @@ export function NodePressureCommandCenter({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Docker-host pressure</CardTitle>
+            <CardTitle as="h4">Docker-host pressure</CardTitle>
             <CardDescription>
               {pressure
                 ? `Sampled ${formatTime(pressure.sampledAt)}.`
@@ -300,7 +301,7 @@ export function NodePressureCommandCenter({
 
         <Card>
           <CardHeader>
-            <CardTitle>GitHub demand</CardTitle>
+            <CardTitle as="h4">GitHub demand</CardTitle>
             <CardDescription>
               {node.isOnline ? 'Current' : 'Last-known'} scale-set and local worker evidence across
               profiles.
@@ -326,7 +327,7 @@ export function NodePressureCommandCenter({
 
       <Card>
         <CardHeader>
-          <CardTitle>Active workers and jobs</CardTitle>
+          <CardTitle as="h4">Active workers and jobs</CardTitle>
           <CardDescription>
             Highest current worker CPU first. Cancellation remains in GitHub; Dashboard stores no
             Actions write credential.
@@ -336,78 +337,122 @@ export function NodePressureCommandCenter({
           {workloads.length === 0 ? (
             <p className="text-sm text-muted-foreground">No busy or draining worker is reported.</p>
           ) : (
-            <div
-              aria-label="Active workers and jobs"
-              className="max-h-80 overflow-auto rounded border"
-              role="region"
-              tabIndex={0}
-            >
-              <table className="w-full text-left text-sm">
-                <thead className="text-xs text-muted-foreground uppercase">
-                  <tr>
-                    <th className="px-3 py-2" scope="col">
-                      Workload
-                    </th>
-                    <th className="px-3 py-2" scope="col">
-                      Profile
-                    </th>
-                    <th className="px-3 py-2" scope="col">
-                      Elapsed
-                    </th>
-                    <th className="px-3 py-2" scope="col">
-                      CPU / memory / PIDs
-                    </th>
-                    <th className="px-3 py-2" scope="col">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workloads.map((workload) => (
-                    <tr className="border-t align-top" key={workload.key}>
-                      <th className="px-3 py-2 font-medium" scope="row">
-                        {workload.label}
-                        <div className="text-xs font-normal text-muted-foreground">
-                          {workload.repository ?? 'Repository unavailable'} · {workload.activity}
-                        </div>
+            <>
+              <div className="grid gap-3 lg:hidden" data-testid="active-workloads-mobile-summary">
+                {workloads.map((workload) => (
+                  <div
+                    className="grid gap-2 rounded-lg border bg-card p-4"
+                    data-testid={`active-workload-card-${workload.key}`}
+                    key={workload.key}
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="min-w-0 break-words font-semibold">{workload.label}</span>
+                      <StatusBadge status={workload.activity} />
+                    </div>
+                    <div className="break-words text-xs text-muted-foreground">
+                      {workload.repository ?? 'Repository unavailable'} · {workload.profileId}
+                    </div>
+                    <div className="text-xs tabular-nums">
+                      {workload.startedAt
+                        ? formatSeconds(
+                            Math.max(
+                              0,
+                              (Date.parse(generatedAt) - Date.parse(workload.startedAt)) / 1000,
+                            ),
+                          )
+                        : 'Elapsed time unavailable'}
+                      {' · '}
+                      {workload.cpuCores?.toFixed(2) ?? '—'} CPU
+                      {' · '}
+                      {workload.memoryBytes == null ? '—' : formatBytes(workload.memoryBytes)}
+                    </div>
+                    {workload.href ? (
+                      <a
+                        className="min-h-11 inline-flex items-center justify-self-start rounded-md border px-3 text-sm font-medium text-link hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        href={workload.href}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Open in GitHub
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Job link unavailable</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <ScrollableRegion
+                className="hidden max-h-80 rounded border lg:block"
+                label="Active workers and jobs"
+              >
+                <table className="w-full min-w-4xl text-left text-sm">
+                  <thead className="text-xs text-muted-foreground uppercase">
+                    <tr>
+                      <th className="px-3 py-2" scope="col">
+                        Workload
                       </th>
-                      <td className="px-3 py-2">{workload.profileId}</td>
-                      <td className="px-3 py-2 tabular-nums">
-                        {workload.startedAt
-                          ? formatSeconds(
-                              Math.max(
-                                0,
-                                (Date.parse(generatedAt) - Date.parse(workload.startedAt)) / 1000,
-                              ),
-                            )
-                          : 'Unavailable'}
-                      </td>
-                      <td className="px-3 py-2 tabular-nums">
-                        {workload.cpuCores?.toFixed(2) ?? '—'} /{' '}
-                        {workload.memoryBytes == null ? '—' : formatBytes(workload.memoryBytes)} /{' '}
-                        {workload.pids ?? '—'}
-                      </td>
-                      <td className="px-3 py-2">
-                        {workload.href ? (
-                          <a
-                            className="font-medium text-link underline-offset-4 hover:underline"
-                            href={workload.href}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            Open in GitHub
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            Job link unavailable
-                          </span>
-                        )}
-                      </td>
+                      <th className="px-3 py-2" scope="col">
+                        Profile
+                      </th>
+                      <th className="px-3 py-2" scope="col">
+                        Elapsed
+                      </th>
+                      <th className="px-3 py-2" scope="col">
+                        CPU / memory / PIDs
+                      </th>
+                      <th className="px-3 py-2" scope="col">
+                        Action
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {workloads.map((workload) => (
+                      <tr className="border-t align-top" key={workload.key}>
+                        <th className="px-3 py-2 font-medium" scope="row">
+                          {workload.label}
+                          <div className="text-xs font-normal text-muted-foreground">
+                            {workload.repository ?? 'Repository unavailable'} · {workload.activity}
+                          </div>
+                        </th>
+                        <td className="px-3 py-2">{workload.profileId}</td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {workload.startedAt
+                            ? formatSeconds(
+                                Math.max(
+                                  0,
+                                  (Date.parse(generatedAt) - Date.parse(workload.startedAt)) / 1000,
+                                ),
+                              )
+                            : 'Unavailable'}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {workload.cpuCores?.toFixed(2) ?? '—'} /{' '}
+                          {workload.memoryBytes == null ? '—' : formatBytes(workload.memoryBytes)} /{' '}
+                          {workload.pids ?? '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          {workload.href ? (
+                            <a
+                              className="font-medium text-link underline-offset-4 hover:underline"
+                              href={workload.href}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              Open in GitHub
+                            </a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              Job link unavailable
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </ScrollableRegion>
+            </>
           )}
         </CardContent>
       </Card>

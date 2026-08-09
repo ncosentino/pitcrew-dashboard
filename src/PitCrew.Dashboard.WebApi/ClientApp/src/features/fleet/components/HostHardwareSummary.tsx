@@ -86,7 +86,7 @@ interface HardwareComparisonProps {
 export function HardwareComparison({ nodes }: HardwareComparisonProps) {
   if (nodes.length === 0) return null;
   return (
-    <section className="overflow-x-auto rounded-lg border bg-card">
+    <section className="min-w-0 overflow-x-auto rounded-lg border bg-card">
       <table className="w-full min-w-4xl text-left text-sm" data-testid="hardware-comparison">
         <caption className="p-3 text-left text-sm font-semibold">
           Hardware comparison for selected nodes

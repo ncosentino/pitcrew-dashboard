@@ -228,11 +228,17 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
       </aside>
 
       <div className="min-w-0">
-        <header className="flex h-16 items-center justify-between gap-3 border-b bg-background/95 px-4 backdrop-blur md:hidden">
+        <header className="flex h-16 items-center justify-between gap-3 border-b bg-background/95 px-4 pt-[env(safe-area-inset-top,0px)] backdrop-blur md:hidden">
           <PitCrewBrand variant="compact" />
           <Sheet open={isMobileNavigationOpen} onOpenChange={setIsMobileNavigationOpen}>
             <SheetTrigger asChild>
-              <Button type="button" variant="outline" size="icon" aria-label="Open navigation">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-11"
+                aria-label="Open navigation"
+              >
                 <MenuIcon aria-hidden="true" />
               </Button>
             </SheetTrigger>

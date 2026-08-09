@@ -36,12 +36,15 @@ describe('NodePressureCommandCenter', () => {
     );
 
     expect(screen.getByText('97.5%')).toBeInTheDocument();
-    expect(screen.getByText('Android debug build')).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: 'Open in GitHub' });
-    expect(link).toHaveAttribute(
-      'href',
-      'https://github.com/ncosentino/genesis/actions/runs/31068390178/job/92513140749',
-    );
+    expect(screen.getAllByText('Android debug build')).toHaveLength(2);
+    const links = screen.getAllByRole('link', { name: 'Open in GitHub' });
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect(link).toHaveAttribute(
+        'href',
+        'https://github.com/example/project/actions/runs/31068390178/job/92513140749',
+      );
+    }
     expect(screen.getByText('Zephyr has sustained Docker-host CPU pressure')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel/iu })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /pause/iu })).not.toBeInTheDocument();
@@ -61,7 +64,7 @@ describe('NodePressureCommandCenter', () => {
     const node = createNode();
     node.capacityControls = [
       {
-        profileId: 'genesis-ci',
+        profileId: 'build-ci',
         generation: 7,
         currentMaximum: 8,
         maximumAllowed: 12,
@@ -85,25 +88,23 @@ describe('NodePressureCommandCenter', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: 'Open in GitHub' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Pause genesis-ci new work' }));
+    expect(screen.getAllByRole('link', { name: 'Open in GitHub' })).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Pause build-ci new work' }));
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByTestId('node-pressure-pause-node-genesis-ci')).toHaveTextContent(
+    expect(within(dialog).getByTestId('node-pressure-pause-node-build-ci')).toHaveTextContent(
       'Zephyr',
     );
-    expect(within(dialog).getByTestId('node-pressure-pause-current-genesis-ci')).toHaveTextContent(
+    expect(within(dialog).getByTestId('node-pressure-pause-current-build-ci')).toHaveTextContent(
       '8',
     );
     expect(within(dialog).getByText('What will happen')).toBeInTheDocument();
     expect(
-      within(dialog).getByText(
-        /sets the capacity maximum for profile genesis-ci on Zephyr to zero/,
-      ),
+      within(dialog).getByText(/sets the capacity maximum for profile build-ci on Zephyr to zero/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText('What will not happen')).toBeInTheDocument();
     expect(within(dialog).getByText(/no worker is force-stopped/iu)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Pause new work' }));
-    expect(pause).toHaveBeenCalledWith('genesis-ci');
+    expect(pause).toHaveBeenCalledWith('build-ci');
   });
 
   it('sorts attributed workloads before otherwise-equal rows without timestamps', async () => {
@@ -182,7 +183,7 @@ function createNode(): FleetNode {
       {
         schemaVersion: 1,
         managerContractVersion: 16,
-        profileId: 'genesis-ci',
+        profileId: 'build-ci',
         managerInstanceId: 'manager-1',
         managerStatus: 'running',
         observedAt: '2026-08-06T04:20:00+00:00',
@@ -256,7 +257,7 @@ function createNode(): FleetNode {
         slots: [
           {
             key: 'slot-1',
-            repository: 'https://github.com/ncosentino/genesis',
+            repository: 'https://github.com/example/project',
             desired: true,
             processRunning: true,
             state: 'online',
@@ -264,7 +265,7 @@ function createNode(): FleetNode {
             backoffSeconds: 0,
             updatedAt: '2026-08-06T03:42:03+00:00',
             activity: 'busy',
-            target: 'repo:genesis',
+            target: 'repo:project',
             registrationStatus: 'connected',
             imageId: null,
             lastExit: null,
@@ -279,7 +280,7 @@ function createNode(): FleetNode {
               blockWriteBytes: null,
             },
             currentJob: {
-              repository: 'https://github.com/ncosentino/genesis',
+              repository: 'https://github.com/example/project',
               workflowRunId: 31_068_390_178,
               jobId: '92513140749',
               displayName: 'Android debug build',

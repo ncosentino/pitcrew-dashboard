@@ -8,6 +8,7 @@ import {
   formatOptionalBytes,
   formatPids,
 } from '@/core/formatting/formatters';
+import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
@@ -251,7 +252,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
   const offlineCount = rows.filter((row) => !row.nodeOnline).length;
 
   return (
-    <section className="grid gap-4">
+    <section className="grid min-w-0 max-w-full gap-4">
       <div>
         <h2 className="text-2xl font-bold tracking-tight">Runners and slots</h2>
         <p className="text-sm text-muted-foreground">
@@ -273,7 +274,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
 
       {fleet ? (
         <>
-          <fieldset className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <fieldset className="grid min-w-0 gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-4">
             <legend className="px-1 text-sm font-semibold">Runner filters and sorting</legend>
             <label className="grid gap-1 text-sm" htmlFor="runners-node-filter">
               Node
@@ -441,7 +442,52 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 </p>
               ) : null}
               <ResourceNotice rows={rows} />
-              <div className="overflow-x-auto rounded-lg border">
+
+              {/* Mobile summary cards */}
+              <div className="grid gap-3 lg:hidden" data-testid="runners-mobile-summary">
+                {rows.slice(0, 50).map((row) => (
+                  <div
+                    key={`${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    className="grid gap-1.5 rounded-lg border bg-card p-4"
+                    data-testid={`runner-card-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="min-w-0 break-words font-medium">{row.nodeName}</span>
+                      {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+                      <StatusBadge status={row.slot.state} />
+                    </div>
+                    <div className="min-w-0 break-all font-mono text-xs text-muted-foreground">
+                      {row.profileId} / {row.slot.key}
+                    </div>
+                    {row.slot.activity ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Activity:</span>
+                        <StatusBadge status={row.slot.activity} />
+                      </div>
+                    ) : null}
+                    {row.slot.repository ? (
+                      <div className="min-w-0 break-words text-xs">{row.slot.repository}</div>
+                    ) : null}
+                    <Link
+                      className="min-h-11 inline-flex items-center justify-self-start rounded-md border px-3 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                      to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
+                    >
+                      View profile
+                    </Link>
+                  </div>
+                ))}
+                {rows.length > 50 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Showing 50 of {rows.length} slots. Use filters to narrow results.
+                  </p>
+                ) : null}
+              </div>
+
+              {/* Desktop full evidence table */}
+              <ScrollableRegion
+                className="hidden rounded-lg border lg:block"
+                label="Runner slots for the active tenant"
+              >
                 <table className="w-full min-w-6xl text-left text-sm">
                   <caption className="p-3 text-left text-sm font-semibold">
                     Runner slots for the active tenant
@@ -584,7 +630,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </ScrollableRegion>
             </>
           ) : null}
           {hasFilters ? (

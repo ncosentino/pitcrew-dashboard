@@ -229,7 +229,9 @@ html[data-theme='dark'] {
   }
   body {
     @apply bg-background text-foreground;
-    min-height: 100vh;
+    min-height: 100dvh;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+      env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     background-image:
       radial-gradient(circle at top left, var(--brand-teal-glow), transparent 32rem),
       radial-gradient(circle at top right, var(--brand-orange-glow), transparent 28rem);
@@ -238,6 +240,20 @@ html[data-theme='dark'] {
 
   #main-content:focus {
     outline: none;
+  }
+
+  #main-content :where(a, code, p, span, td, th) {
+    overflow-wrap: anywhere;
+  }
+
+  #main-content :where(input, select, textarea) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #main-content > *,
+  #main-content :where(section, div, article, fieldset)[class*='grid'] > * {
+    min-width: 0;
   }
 }
 
@@ -248,5 +264,12 @@ html[data-theme='dark'] {
   [data-slot='alert-dialog-content'] {
     animation: none !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (pointer: coarse) {
+  [data-slot='button'] {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 }
