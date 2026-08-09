@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
 import { getFleet, type FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
+import { EmptyState } from '@/core/ui/EmptyState';
+import { FilterToolbar } from '@/core/ui/FilterToolbar';
+import { FormField } from '@/core/ui/FormField';
 import { LoadingState } from '@/core/ui/LoadingState';
 import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { typography } from '@/core/ui/typography';
 
@@ -252,9 +255,8 @@ export default function IncidentsPage() {
         </div>
       </section>
 
-      <section className="grid min-w-0 gap-3 rounded-lg border bg-card p-4 sm:grid-cols-4">
-        <label className="grid gap-1 text-sm font-medium">
-          Lifecycle
+      <FilterToolbar label="Incident filters and summary">
+        <FormField label="Lifecycle">
           <select
             className="h-9 rounded-md border bg-background px-3 text-sm"
             value={filter}
@@ -264,55 +266,55 @@ export default function IncidentsPage() {
             <option value="resolved">Resolved</option>
             <option value="all">All history</option>
           </select>
-        </label>
+        </FormField>
         <div className="grid content-center gap-1 text-sm">
-          <span className="text-xs text-muted-foreground uppercase">Critical</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase">Critical</span>
           <strong className="tabular-nums">{counts.critical}</strong>
         </div>
         <div className="grid content-center gap-1 text-sm">
-          <span className="text-xs text-muted-foreground uppercase">Warning</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase">Warning</span>
           <strong className="tabular-nums">{counts.warning}</strong>
         </div>
         <div className="flex items-end justify-between gap-3">
           <div className="grid gap-1 text-sm">
-            <span className="text-xs text-muted-foreground uppercase">Acknowledged</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase">
+              Acknowledged
+            </span>
             <strong className="tabular-nums">{counts.acknowledged}</strong>
           </div>
           <Button type="button" size="sm" variant="outline" onClick={() => void load()}>
             Refresh
           </Button>
         </div>
-      </section>
+      </FilterToolbar>
 
-      <div
-        className={
-          error
-            ? 'rounded-lg border border-status-critical-foreground/30 bg-status-critical p-4 text-status-critical-foreground'
-            : 'sr-only'
-        }
-        role={error ? 'alert' : 'status'}
-        aria-live="polite"
-      >
-        {error ?? (isLoading ? 'Loading operational incidents.' : (notice ?? ''))}
-      </div>
+      {error ? (
+        <StateBanner tone="critical" role="alert">
+          {error}
+        </StateBanner>
+      ) : notice ? (
+        <StateBanner tone="positive" role="status">
+          {notice}
+        </StateBanner>
+      ) : isLoading ? (
+        <div className="sr-only" role="status" aria-live="polite">
+          Loading operational incidents.
+        </div>
+      ) : null}
 
       {page?.truncated ? (
-        <p className="rounded-lg border border-status-caution-foreground/30 bg-status-caution px-3 py-2 text-sm text-status-caution-foreground">
+        <StateBanner tone="caution" role="status">
           Showing only the newest incidents allowed by the server response limit.
-        </p>
+        </StateBanner>
       ) : null}
 
       {isLoading && !page ? <LoadingState label="Loading operational incidents…" /> : null}
 
       {!isLoading && page?.incidents.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle as="h3">No {filter === 'all' ? '' : `${filter} `}incidents</CardTitle>
-            <CardDescription>
-              Brief conditions remain hidden unless they cross their debounce boundary.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <EmptyState
+          title={`No ${filter === 'all' ? '' : `${filter} `}incidents`}
+          description="Brief conditions remain hidden unless they cross their debounce boundary. This does not prove the fleet is healthy — only that no qualifying condition is visible."
+        />
       ) : null}
 
       {page && page.incidents.length > 0 ? (

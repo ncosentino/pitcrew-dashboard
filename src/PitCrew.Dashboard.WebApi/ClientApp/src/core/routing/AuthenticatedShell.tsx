@@ -118,6 +118,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   const [incidentState, setIncidentState] = useState<{
     readonly tenantId: string;
     readonly count: number;
+    readonly highestSeverity: 'critical' | 'warning' | null;
   } | null>(null);
   const selectedTenant =
     session?.tenants.find((tenant) => tenant.tenantId === tenantId) ??
@@ -150,10 +151,17 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
         ),
         badge:
           activeIncidentCount > 0 && item.path.endsWith('/incidents')
-            ? new Intl.NumberFormat(undefined).format(activeIncidentCount)
+            ? {
+                label: new Intl.NumberFormat(undefined).format(activeIncidentCount),
+                accessibleLabel: `${activeIncidentCount} active ${activeIncidentCount === 1 ? 'incident' : 'incidents'}; highest severity ${incidentState?.highestSeverity ?? 'warning'}`,
+                tone:
+                  incidentState?.highestSeverity === 'critical'
+                    ? ('critical' as const)
+                    : ('caution' as const),
+              }
             : undefined,
       }));
-  }, [activeIncidentCount, features, selectedTenant, session]);
+  }, [activeIncidentCount, features, incidentState, selectedTenant, session]);
   const routePresentation = useMemo(
     () => matchRoutePresentation(features, pathname),
     [features, pathname],
@@ -187,6 +195,11 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           setIncidentState({
             tenantId: selectedTenant.tenantId,
             count: incidents.length,
+            highestSeverity: incidents.some((incident) => incident.severity === 'critical')
+              ? 'critical'
+              : incidents.length > 0
+                ? 'warning'
+                : null,
           });
         }
       } catch (caught) {
@@ -195,6 +208,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           setIncidentState({
             tenantId: selectedTenant.tenantId,
             count: 0,
+            highestSeverity: null,
           });
         }
       }
