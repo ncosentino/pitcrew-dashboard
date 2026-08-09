@@ -402,6 +402,9 @@ const managerSubsystemHealthSchema = z.object({
 const capacityDeficitReasonSchema = z.enum([
   'none',
   'admission-ceiling',
+  'host-admission-withheld',
+  'host-admission-degraded',
+  'host-admission-unavailable',
   'launch-pending',
   'docker-unavailable',
   'docker-failed',
@@ -444,6 +447,167 @@ const managerCapacityEvidenceSchema = z.object({
   targets: z.array(targetCapacityDeficitEvidenceSchema).max(64),
 });
 
+const policyFingerprintSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+const hostAdmissionAccountingSchema = z
+  .object({
+    unitCost: z.number().int().positive(),
+    reservedUnits: z.number().int().nonnegative(),
+    borrowable: z.boolean(),
+    profilePolicyFingerprint: policyFingerprintSchema.nullable(),
+    activeUnits: z.number().int().nonnegative(),
+    provisionalUnits: z.number().int().nonnegative(),
+    heldUnits: z.number().int().nonnegative(),
+    borrowedUnits: z.number().int().nonnegative(),
+    pendingUnits: z.number().int().nonnegative().nullable(),
+    withheldUnits: z.number().int().nonnegative().nullable(),
+  })
+  .superRefine((accounting, context) => {
+    if (accounting.heldUnits !== accounting.activeUnits + accounting.provisionalUnits) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Held units must equal active plus provisional units.',
+        path: ['heldUnits'],
+      });
+    }
+    if (accounting.borrowedUnits !== Math.max(accounting.heldUnits - accounting.reservedUnits, 0)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Borrowed units must equal held units beyond the profile reservation.',
+        path: ['borrowedUnits'],
+      });
+    }
+    if (
+      (accounting.pendingUnits == null) !== (accounting.withheldUnits == null) ||
+      (accounting.pendingUnits != null && accounting.withheldUnits !== accounting.pendingUnits)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Pending and withheld units are available together and must match.',
+        path: ['withheldUnits'],
+      });
+    }
+  });
+
+const hostAdmissionDecisionSchema = z.object({
+  sequence: z.number().int().nonnegative(),
+  command: z.enum(['acquire', 'renew', 'activate', 'release', 'reconcile']),
+  granted: z.boolean(),
+  failureCategory: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/)
+    .nullable(),
+  decidedAtUnixNano: z.number().nonnegative(),
+});
+
+const hostAdmissionStateSchema = z
+  .object({
+    status: z.enum(['disabled', 'available', 'degraded', 'unavailable']),
+    namespace: z
+      .string()
+      .min(1)
+      .max(32)
+      .regex(/^[a-z][a-z0-9-]*$/)
+      .nullable(),
+    epoch: z.number().int().nonnegative().nullable(),
+    decisionSequence: z.number().int().nonnegative().nullable(),
+    capacityUnits: z.number().int().positive().nullable(),
+    safetyMarginUnits: z.number().int().nonnegative().nullable(),
+    effectiveTotalUnits: z.number().int().positive().nullable(),
+    availableUnits: z.number().int().nonnegative().nullable(),
+    hostPolicyFingerprint: policyFingerprintSchema.nullable(),
+    accounting: hostAdmissionAccountingSchema.nullable(),
+    lastDecision: hostAdmissionDecisionSchema.nullable(),
+  })
+  .superRefine((state, context) => {
+    const measured = [
+      state.epoch,
+      state.decisionSequence,
+      state.capacityUnits,
+      state.safetyMarginUnits,
+      state.effectiveTotalUnits,
+      state.availableUnits,
+      state.hostPolicyFingerprint,
+      state.accounting,
+      state.lastDecision,
+    ];
+    if (state.status === 'disabled') {
+      if (state.namespace != null || measured.some((value) => value != null)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Disabled host admission cannot retain measured values.',
+          path: ['status'],
+        });
+      }
+      return;
+    }
+    if (state.status === 'unavailable') {
+      if (state.namespace == null || measured.some((value) => value != null)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Unavailable host admission retains only its configured namespace.',
+          path: ['status'],
+        });
+      }
+      return;
+    }
+    if (
+      state.namespace == null ||
+      state.epoch == null ||
+      state.decisionSequence == null ||
+      state.effectiveTotalUnits == null ||
+      state.availableUnits == null
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Measured host admission requires namespace, epoch, budget, and availability.',
+        path: ['status'],
+      });
+    }
+    if (state.availableUnits != null && state.effectiveTotalUnits != null) {
+      if (state.availableUnits > state.effectiveTotalUnits) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Available units cannot exceed the effective host budget.',
+          path: ['availableUnits'],
+        });
+      }
+    }
+    if (
+      state.capacityUnits != null &&
+      state.safetyMarginUnits != null &&
+      state.effectiveTotalUnits != null &&
+      state.capacityUnits - state.safetyMarginUnits !== state.effectiveTotalUnits
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Effective units must equal capacity minus the safety margin.',
+        path: ['effectiveTotalUnits'],
+      });
+    }
+    if (
+      state.status === 'available' &&
+      (state.capacityUnits == null ||
+        state.safetyMarginUnits == null ||
+        state.hostPolicyFingerprint == null ||
+        state.accounting?.profilePolicyFingerprint == null ||
+        state.accounting.pendingUnits == null ||
+        state.accounting.withheldUnits == null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Available host admission requires complete policy and demand accounting.',
+        path: ['status'],
+      });
+    }
+  });
+
 export const managerObservedStateSchema = z
   .object({
     schemaVersion: z.number().int(),
@@ -470,6 +634,7 @@ export const managerObservedStateSchema = z
     capacityEvidence: managerCapacityEvidenceSchema.nullable().default(null),
     update: managerWorkerUpdateStateSchema.nullable().default(null),
     host: observedHostSchema.nullable().optional(),
+    hostAdmission: hostAdmissionStateSchema.nullable().optional(),
   })
   .superRefine((profile, context) => {
     const hardware = profile.host?.hardware;
@@ -759,6 +924,13 @@ export const managerObservedStateSchema = z
         });
       }
     }
+    if (profile.managerContractVersion >= 18 && profile.hostAdmission == null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Manager contract 18 requires explicit host-admission evidence.',
+        path: ['hostAdmission'],
+      });
+    }
 
     const journal = profile.operationJournal;
     if (journal != null) {
@@ -995,6 +1167,12 @@ export type CapacityDeficitEvidence = z.infer<typeof capacityDeficitEvidenceSche
 export type TargetCapacityDeficitEvidence = z.infer<typeof targetCapacityDeficitEvidenceSchema>;
 /** Fixed or per-target manager contract 12 capacity-deficit evidence. */
 export type ManagerCapacityEvidence = z.infer<typeof managerCapacityEvidenceSchema>;
+/** Profile-scoped manager contract 18 host-admission accounting. */
+export type HostAdmissionAccounting = z.infer<typeof hostAdmissionAccountingSchema>;
+/** Latest bounded manager contract 18 host-admission decision. */
+export type HostAdmissionDecision = z.infer<typeof hostAdmissionDecisionSchema>;
+/** Profile-scoped manager contract 18 host-admission evidence. */
+export type HostAdmissionState = z.infer<typeof hostAdmissionStateSchema>;
 /** Sanitized manager contract 13 node hardware inventory. */
 export type HostHardwareInventory = z.infer<typeof hostHardwareInventorySchema>;
 /** Credential-free projection published by one PitCrew manager. */

@@ -692,6 +692,42 @@ internal sealed partial class SqliteFleetHistoryStore
             row.OptionalDouble("host_io_pressure_some_avg10"),
         HostIoPressureFullAvg10 =
             row.OptionalDouble("host_io_pressure_full_avg10"),
+        HostAdmissionStatus =
+            row.OptionalString("host_admission_status"),
+        HostAdmissionNamespace =
+            row.OptionalString("host_admission_namespace"),
+        HostAdmissionEpoch =
+            row.OptionalInt64("host_admission_epoch"),
+        HostAdmissionDecisionSequence =
+            row.OptionalInt64("host_admission_decision_sequence"),
+        HostAdmissionCapacityUnits =
+            row.OptionalInt32("host_admission_capacity_units"),
+        HostAdmissionSafetyMarginUnits =
+            row.OptionalInt32("host_admission_safety_margin_units"),
+        HostAdmissionEffectiveTotalUnits =
+            row.OptionalInt32("host_admission_effective_total_units"),
+        HostAdmissionAvailableUnits =
+            row.OptionalInt32("host_admission_available_units"),
+        HostAdmissionUnitCost =
+            row.OptionalInt32("host_admission_unit_cost"),
+        HostAdmissionReservedUnits =
+            row.OptionalInt32("host_admission_reserved_units"),
+        HostAdmissionBorrowable =
+            row.OptionalInt32("host_admission_borrowable") is { } borrowable
+                ? borrowable == 1
+                : null,
+        HostAdmissionActiveUnits =
+            row.OptionalInt32("host_admission_active_units"),
+        HostAdmissionProvisionalUnits =
+            row.OptionalInt32("host_admission_provisional_units"),
+        HostAdmissionHeldUnits =
+            row.OptionalInt32("host_admission_held_units"),
+        HostAdmissionBorrowedUnits =
+            row.OptionalInt32("host_admission_borrowed_units"),
+        HostAdmissionPendingUnits =
+            row.OptionalInt32("host_admission_pending_units"),
+        HostAdmissionWithheldUnits =
+            row.OptionalInt32("host_admission_withheld_units"),
       });
     }
 
@@ -1695,6 +1731,8 @@ internal sealed partial class SqliteFleetHistoryStore
     }
 
     var deficit = SelectDeficit(profile.CapacityEvidence);
+    var hostAdmission = profile.HostAdmission;
+    var hostAdmissionAccounting = hostAdmission?.Accounting;
     return new ProjectedSample(
         Utc(profile.ObservedAt),
         profile.ResourceTelemetry is null
@@ -1752,6 +1790,24 @@ internal sealed partial class SqliteFleetHistoryStore
           profile.ResourceTelemetry?.HostPressure?.IoPressureSomeAvg10,
       HostIoPressureFullAvg10 =
           profile.ResourceTelemetry?.HostPressure?.IoPressureFullAvg10,
+      HostAdmissionStatus = hostAdmission?.Status,
+      HostAdmissionNamespace = hostAdmission?.Namespace,
+      HostAdmissionEpoch = hostAdmission?.Epoch,
+      HostAdmissionDecisionSequence = hostAdmission?.DecisionSequence,
+      HostAdmissionCapacityUnits = hostAdmission?.CapacityUnits,
+      HostAdmissionSafetyMarginUnits = hostAdmission?.SafetyMarginUnits,
+      HostAdmissionEffectiveTotalUnits = hostAdmission?.EffectiveTotalUnits,
+      HostAdmissionAvailableUnits = hostAdmission?.AvailableUnits,
+      HostAdmissionUnitCost = hostAdmissionAccounting?.UnitCost,
+      HostAdmissionReservedUnits = hostAdmissionAccounting?.ReservedUnits,
+      HostAdmissionBorrowable = hostAdmissionAccounting?.Borrowable,
+      HostAdmissionActiveUnits = hostAdmissionAccounting?.ActiveUnits,
+      HostAdmissionProvisionalUnits =
+          hostAdmissionAccounting?.ProvisionalUnits,
+      HostAdmissionHeldUnits = hostAdmissionAccounting?.HeldUnits,
+      HostAdmissionBorrowedUnits = hostAdmissionAccounting?.BorrowedUnits,
+      HostAdmissionPendingUnits = hostAdmissionAccounting?.PendingUnits,
+      HostAdmissionWithheldUnits = hostAdmissionAccounting?.WithheldUnits,
     };
   }
 
@@ -1832,6 +1888,23 @@ internal sealed partial class SqliteFleetHistoryStore
     public double? HostMemoryPressureFullAvg10 { get; init; }
     public double? HostIoPressureSomeAvg10 { get; init; }
     public double? HostIoPressureFullAvg10 { get; init; }
+    public string? HostAdmissionStatus { get; init; }
+    public string? HostAdmissionNamespace { get; init; }
+    public long? HostAdmissionEpoch { get; init; }
+    public long? HostAdmissionDecisionSequence { get; init; }
+    public int? HostAdmissionCapacityUnits { get; init; }
+    public int? HostAdmissionSafetyMarginUnits { get; init; }
+    public int? HostAdmissionEffectiveTotalUnits { get; init; }
+    public int? HostAdmissionAvailableUnits { get; init; }
+    public int? HostAdmissionUnitCost { get; init; }
+    public int? HostAdmissionReservedUnits { get; init; }
+    public bool? HostAdmissionBorrowable { get; init; }
+    public int? HostAdmissionActiveUnits { get; init; }
+    public int? HostAdmissionProvisionalUnits { get; init; }
+    public int? HostAdmissionHeldUnits { get; init; }
+    public int? HostAdmissionBorrowedUnits { get; init; }
+    public int? HostAdmissionPendingUnits { get; init; }
+    public int? HostAdmissionWithheldUnits { get; init; }
   }
 
   private sealed record JournalPage(

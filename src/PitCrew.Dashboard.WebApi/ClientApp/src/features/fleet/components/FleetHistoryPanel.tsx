@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import {
   buildDeficitReasonChanges,
+  buildHostAdmissionChanges,
   buildHistoryPresets,
   buildHistorySeries,
   describeDeficitEvidence,
@@ -19,7 +20,7 @@ import {
   type ProfileHistory,
   type RunnerAssignmentInterval,
 } from '@/core/fleet';
-import { formatTime } from '@/core/formatting/formatters';
+import { formatCounter, formatTime } from '@/core/formatting/formatters';
 import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { TimeSeriesChart, type TimeSeriesInterval } from '@/core/ui/TimeSeriesChart';
@@ -75,6 +76,7 @@ function ProfileHistorySections({
     expectedRawCadenceSeconds,
   );
   const deficits = buildDeficitReasonChanges(history);
+  const hostAdmissionChanges = buildHostAdmissionChanges(history);
   const workloadIntervals = runnerAssignments.flatMap((assignment): TimeSeriesInterval[] => {
     const job = assignment.job;
     if (job == null) return [];
@@ -154,6 +156,80 @@ function ProfileHistorySections({
           ))}
         </div>
       )}
+
+      <section className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold">Host admission changes</h4>
+          {resolution === 'hourly' ? <StatusBadge status="unavailable" /> : null}
+        </div>
+        {resolution === 'hourly' ? (
+          <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
+            Host-admission status and reservation policy are categorical evidence and are not
+            synthesized into hourly extrema. Select raw resolution to inspect retained changes.
+          </p>
+        ) : hostAdmissionChanges.length === 0 ? (
+          <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
+            No host-admission evidence was retained in this range. Older manager observations remain
+            readable, and missing evidence is unavailable rather than zero.
+          </p>
+        ) : (
+          <div
+            aria-label={`Host admission changes for profile ${history.profileId}`}
+            className={scrollRegionClasses}
+            role="region"
+            tabIndex={0}
+          >
+            <table
+              className="w-full text-left text-xs"
+              data-testid={`history-host-admission-${history.profileId}`}
+            >
+              <caption className="sr-only">
+                Raw retained host-admission changes for profile {history.profileId}.
+              </caption>
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th scope="col">Observed at</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Available</th>
+                  <th scope="col">Held</th>
+                  <th scope="col">Reserved</th>
+                  <th scope="col">Borrowed</th>
+                  <th scope="col">Withheld</th>
+                  <th scope="col">Reservation</th>
+                  <th scope="col">Epoch / sequence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hostAdmissionChanges.map((change) => (
+                  <tr key={`${change.observedAt}-${change.epoch}-${change.decisionSequence}`}>
+                    <th className="font-normal" scope="row">
+                      {formatTime(change.observedAt)}
+                    </th>
+                    <td>
+                      <StatusBadge status={change.status} />
+                    </td>
+                    <td>{formatCounter(change.availableUnits)}</td>
+                    <td>{formatCounter(change.heldUnits)}</td>
+                    <td>{formatCounter(change.reservedUnits)}</td>
+                    <td>{formatCounter(change.borrowedUnits)}</td>
+                    <td>{formatCounter(change.withheldUnits)}</td>
+                    <td>
+                      {change.borrowable == null
+                        ? 'Unavailable'
+                        : change.borrowable
+                          ? 'Borrowable'
+                          : 'Protected'}
+                    </td>
+                    <td className="tabular-nums">
+                      {formatCounter(change.epoch)} / {formatCounter(change.decisionSequence)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">

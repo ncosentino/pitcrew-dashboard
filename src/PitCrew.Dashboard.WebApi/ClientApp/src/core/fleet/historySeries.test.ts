@@ -9,6 +9,7 @@ import type {
 import {
   buildDeficitReasonChanges,
   buildHistorySeries,
+  buildHostAdmissionChanges,
   describeDeficitEvidence,
   describeHistoryAvailability,
   describeHistoryJournal,
@@ -58,6 +59,23 @@ function sample(overrides: Partial<ProfileTelemetrySample> = {}): ProfileTelemet
     hostMemoryPressureFullAvg10: null,
     hostIoPressureSomeAvg10: null,
     hostIoPressureFullAvg10: null,
+    hostAdmissionStatus: null,
+    hostAdmissionNamespace: null,
+    hostAdmissionEpoch: null,
+    hostAdmissionDecisionSequence: null,
+    hostAdmissionCapacityUnits: null,
+    hostAdmissionSafetyMarginUnits: null,
+    hostAdmissionEffectiveTotalUnits: null,
+    hostAdmissionAvailableUnits: null,
+    hostAdmissionUnitCost: null,
+    hostAdmissionReservedUnits: null,
+    hostAdmissionBorrowable: null,
+    hostAdmissionActiveUnits: null,
+    hostAdmissionProvisionalUnits: null,
+    hostAdmissionHeldUnits: null,
+    hostAdmissionBorrowedUnits: null,
+    hostAdmissionPendingUnits: null,
+    hostAdmissionWithheldUnits: null,
     workerCpuCores: 1.5,
     workerMemoryBytes: 2_147_483_648,
     workerPids: 64,
@@ -353,6 +371,119 @@ describe('buildDeficitReasonChanges', () => {
 
     expect(buildDeficitReasonChanges(hourly)).toHaveLength(1);
     expect(describeDeficitEvidence(hourly).status).toBe('available');
+  });
+});
+
+describe('buildHostAdmissionChanges', () => {
+  it('deduplicates unchanged raw observations and preserves null demand', () => {
+    const changes = buildHostAdmissionChanges(
+      history({
+        samples: [
+          sample({
+            observedAt: '2026-07-26T12:00:00+00:00',
+            hostAdmissionStatus: 'degraded',
+            hostAdmissionNamespace: 'primary',
+            hostAdmissionEpoch: 3,
+            hostAdmissionDecisionSequence: 41,
+            hostAdmissionEffectiveTotalUnits: 10,
+            hostAdmissionAvailableUnits: 4,
+            hostAdmissionReservedUnits: 4,
+            hostAdmissionBorrowable: false,
+            hostAdmissionHeldUnits: 5,
+            hostAdmissionBorrowedUnits: 1,
+            hostAdmissionPendingUnits: null,
+            hostAdmissionWithheldUnits: null,
+          }),
+          sample({
+            observedAt: '2026-07-26T12:05:00+00:00',
+            hostAdmissionStatus: 'degraded',
+            hostAdmissionNamespace: 'primary',
+            hostAdmissionEpoch: 3,
+            hostAdmissionDecisionSequence: 41,
+            hostAdmissionEffectiveTotalUnits: 10,
+            hostAdmissionAvailableUnits: 4,
+            hostAdmissionReservedUnits: 4,
+            hostAdmissionBorrowable: false,
+            hostAdmissionHeldUnits: 5,
+            hostAdmissionBorrowedUnits: 1,
+            hostAdmissionPendingUnits: null,
+            hostAdmissionWithheldUnits: null,
+          }),
+          sample({
+            observedAt: '2026-07-26T12:10:00+00:00',
+            hostAdmissionStatus: 'available',
+            hostAdmissionNamespace: 'primary',
+            hostAdmissionEpoch: 3,
+            hostAdmissionDecisionSequence: 42,
+            hostAdmissionEffectiveTotalUnits: 10,
+            hostAdmissionAvailableUnits: 2,
+            hostAdmissionReservedUnits: 4,
+            hostAdmissionBorrowable: false,
+            hostAdmissionHeldUnits: 7,
+            hostAdmissionBorrowedUnits: 3,
+            hostAdmissionPendingUnits: 2,
+            hostAdmissionWithheldUnits: 2,
+          }),
+        ],
+      }),
+    );
+
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toMatchObject({
+      status: 'available',
+      withheldUnits: 2,
+      borrowedUnits: 3,
+    });
+    expect(changes[1]).toMatchObject({
+      status: 'degraded',
+      pendingUnits: null,
+      withheldUnits: null,
+    });
+  });
+
+  it('preserves a missing-evidence gap between identical available observations', () => {
+    const available = {
+      hostAdmissionStatus: 'available' as const,
+      hostAdmissionNamespace: 'primary',
+      hostAdmissionEpoch: 3,
+      hostAdmissionDecisionSequence: 42,
+      hostAdmissionEffectiveTotalUnits: 10,
+      hostAdmissionAvailableUnits: 4,
+      hostAdmissionReservedUnits: 4,
+      hostAdmissionBorrowable: false,
+      hostAdmissionHeldUnits: 5,
+      hostAdmissionBorrowedUnits: 1,
+      hostAdmissionPendingUnits: 4,
+      hostAdmissionWithheldUnits: 4,
+    };
+    const changes = buildHostAdmissionChanges(
+      history({
+        samples: [
+          sample({
+            observedAt: '2026-07-26T12:00:00+00:00',
+            ...available,
+          }),
+          sample({
+            observedAt: '2026-07-26T12:05:00+00:00',
+          }),
+          sample({
+            observedAt: '2026-07-26T12:10:00+00:00',
+            ...available,
+          }),
+        ],
+      }),
+    );
+
+    expect(changes.map((change) => change.status)).toEqual([
+      'available',
+      'unavailable',
+      'available',
+    ]);
+    expect(changes[1]).toMatchObject({
+      namespace: null,
+      heldUnits: null,
+      withheldUnits: null,
+    });
   });
 });
 

@@ -144,6 +144,34 @@ function profileResponse(overrides: Readonly<Record<string, unknown>> = {}) {
   };
 }
 
+function hostAdmissionResponse(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    status: 'available',
+    namespace: 'primary',
+    epoch: 3,
+    decisionSequence: 42,
+    capacityUnits: 12,
+    safetyMarginUnits: 2,
+    effectiveTotalUnits: 10,
+    availableUnits: 4,
+    hostPolicyFingerprint: 'host-policy',
+    accounting: {
+      unitCost: 2,
+      reservedUnits: 4,
+      borrowable: false,
+      profilePolicyFingerprint: 'profile-policy',
+      activeUnits: 5,
+      provisionalUnits: 0,
+      heldUnits: 5,
+      borrowedUnits: 1,
+      pendingUnits: 4,
+      withheldUnits: 4,
+    },
+    lastDecision: null,
+    ...overrides,
+  };
+}
+
 function fleetResponse() {
   return {
     generatedAt: '2026-07-19T18:30:05+00:00',
@@ -310,6 +338,44 @@ describe('fleet overview and node detail', () => {
     expect(row).toHaveTextContent('partial');
     expect(screen.queryByText('Absolute maximum')).not.toBeInTheDocument();
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
+  });
+
+  it('summarizes host admission without duplicating host-wide capacity', async () => {
+    const response = fleetResponse();
+    response.nodes[1].profiles = [
+      profileResponse({ hostAdmission: hostAdmissionResponse() }),
+      profileResponse({
+        profileId: 'analysis',
+        managerInstanceId: 'manager-analysis',
+        hostAdmission: hostAdmissionResponse({
+          accounting: {
+            ...hostAdmissionResponse().accounting,
+            activeUnits: 6,
+            heldUnits: 6,
+            borrowedUnits: 2,
+            pendingUnits: 0,
+            withheldUnits: 0,
+          },
+        }),
+      }),
+    ];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <RouterProvider router={createTestRouter(features, ['/tenants/local/fleet'])} />
+      </SessionProvider>,
+    );
+
+    const row = await screen.findByTestId(`fleet-node-${alphaId}`);
+    expect(row).toHaveTextContent('available');
+    expect(row).toHaveTextContent('4 withheld');
+    expect(row).toHaveTextContent('3 borrowed');
+    expect(row).not.toHaveTextContent('20 withheld');
   });
 
   it('labels every offline fleet value as last known and shows the retained cause', async () => {
