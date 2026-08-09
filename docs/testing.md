@@ -79,3 +79,11 @@ focus, and dialog keyboard behavior) are covered by a dedicated Playwright + axe
 harness against sanitized fixtures, not by component tests. See
 [Browser UX evidence harness](testing/browser-ux.md) for the one local command and
 what it asserts.
+
+## Guidance-only validation
+
+Documentation, design authority, instructions, ADRs, generated guidance mirrors, and
+guidance-contract-only changes use the path-aware `guidance-only` scope. Required CI
+and container summary checks remain present while runtime, frontend, installer, and
+image jobs are skipped. Missing, mixed, or unknown path evidence falls back to full
+validation. The scope is reported in the workflow summary for auditability.
