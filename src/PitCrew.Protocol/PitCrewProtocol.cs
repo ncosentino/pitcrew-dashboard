@@ -138,6 +138,7 @@ public sealed record ManagerWorkerUpdateState(
 /// <param name="CapacityEvidence">Manager contract 12 fixed or per-target capacity-deficit evidence when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Update">Worker-image convergence evidence when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Host">Manager contract 13 sanitized node hardware inventory when reported.</param>
+/// <param name="HostAdmission">Manager contract 18 host-local admission evidence when reported.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -162,7 +163,8 @@ public sealed record ManagerObservedState(
     ManagerSubsystemHealth? SubsystemHealth = null,
     ManagerCapacityEvidence? CapacityEvidence = null,
     ManagerWorkerUpdateState? Update = null,
-    ObservedHost? Host = null);
+    ObservedHost? Host = null,
+    HostAdmissionState? HostAdmission = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.
@@ -585,6 +587,9 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(CapacityDeficitEvidence))]
 [JsonSerializable(typeof(TargetCapacityDeficitEvidence))]
 [JsonSerializable(typeof(ManagerCapacityEvidence))]
+[JsonSerializable(typeof(HostAdmissionAccounting))]
+[JsonSerializable(typeof(HostAdmissionDecision))]
+[JsonSerializable(typeof(HostAdmissionState))]
 [JsonSerializable(typeof(ObservedSlotState))]
 [JsonSerializable(typeof(CurrentJobContext))]
 [JsonSerializable(typeof(ManagerAutoscalingState))]

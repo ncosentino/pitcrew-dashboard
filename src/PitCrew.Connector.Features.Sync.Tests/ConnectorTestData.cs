@@ -1,9 +1,39 @@
+using System.Text.Json.Nodes;
+
 using PitCrew.Protocol;
 
 namespace PitCrew.Connector.Features.Sync.Tests;
 
 internal static class ConnectorTestData
 {
+  public static JsonObject CreateHostAdmissionPayload() =>
+      new()
+      {
+        ["status"] = "available",
+        ["namespace"] = "primary",
+        ["epoch"] = 3,
+        ["decisionSequence"] = 42,
+        ["capacityUnits"] = 12,
+        ["safetyMarginUnits"] = 2,
+        ["effectiveTotalUnits"] = 10,
+        ["availableUnits"] = 4,
+        ["hostPolicyFingerprint"] = new string('a', 64),
+        ["accounting"] = new JsonObject
+        {
+          ["unitCost"] = 2,
+          ["reservedUnits"] = 4,
+          ["borrowable"] = false,
+          ["profilePolicyFingerprint"] = new string('b', 64),
+          ["activeUnits"] = 2,
+          ["provisionalUnits"] = 0,
+          ["heldUnits"] = 2,
+          ["borrowedUnits"] = 0,
+          ["pendingUnits"] = 4,
+          ["withheldUnits"] = 4,
+        },
+        ["lastDecision"] = null,
+      };
+
   public static ManagerObservedState CreateObservedState(
       string profileId,
       DateTimeOffset observedAt) =>

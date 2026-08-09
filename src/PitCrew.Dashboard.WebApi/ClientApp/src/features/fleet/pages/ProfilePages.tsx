@@ -18,6 +18,7 @@ import {
   describeWorkerUpdate,
   serializeDiagnosticsContext,
   summarizeManagerOperations,
+  describeHostAdmission,
   useFleet,
   type CapacityControlState,
   type FleetNode,
@@ -33,6 +34,7 @@ import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { ProfileCapacityEvidence } from '../components/ProfileCapacityEvidence';
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
+import { ProfileHostAdmission } from '../components/ProfileHostAdmission';
 import { ProfileManagerRecovery } from '../components/ProfileManagerRecovery';
 import { ProfileOperationJournal } from '../components/ProfileOperationJournal';
 import { ProfileResourcePolicy } from '../components/ProfileResourcePolicy';
@@ -329,6 +331,7 @@ export function ProfileOverviewPage() {
   const telemetryDescription = profile.resourceTelemetry
     ? `Sampled ${formatTime(profile.resourceTelemetry.sampledAt)}.`
     : 'No resource sample was reported.';
+  const hostAdmission = describeHostAdmission(profile.hostAdmission);
 
   return (
     <section className="grid gap-4" aria-labelledby="profile-overview-heading">
@@ -400,6 +403,12 @@ export function ProfileOverviewPage() {
               description={telemetryDescription}
               status={telemetryStatus}
               testId={`profile-overview-resources-${profile.profileId}`}
+            />
+            <HealthSummaryRow
+              label="Host admission"
+              description={hostAdmission.description}
+              status={hostAdmission.status}
+              testId={`profile-overview-host-admission-${profile.profileId}`}
             />
             <HealthSummaryRow
               label="Worker image rollout"
@@ -569,6 +578,7 @@ export function ProfileCapacityPage() {
         disabled={isMutating || recoveryActive || !node.isOnline || node.isRevoked}
         onSetMaximum={queueCapacityMaximum}
       />
+      <ProfileHostAdmission profile={profile} />
       <ProfileCapacityEvidence profile={profile} />
       <ProfileTargetsTable profile={profile} />
     </section>

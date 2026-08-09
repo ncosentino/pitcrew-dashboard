@@ -753,4 +753,86 @@ public sealed class ProtocolCompatibilityTests
             responseRoundTrip.ConnectorHealthAcknowledgement.EventIds[0])
         .IsEqualTo(eventId);
   }
+
+  [Test]
+  public async Task Contract_Seventeen_Remains_Readable_Without_Host_Admission()
+  {
+    var profile = ConnectorTestData.CreateObservedState(
+        "legacy",
+        new DateTimeOffset(
+            2026,
+            8,
+            9,
+            6,
+            0,
+            0,
+            TimeSpan.Zero)) with
+    {
+      ManagerContractVersion = 17,
+    };
+    var roundTripped = JsonSerializer.Deserialize(
+        JsonSerializer.Serialize(
+            profile,
+            PitCrewProtocolJsonContext.Default.ManagerObservedState),
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(roundTripped).IsNotNull();
+    await Assert.That(roundTripped!.HostAdmission).IsNull();
+  }
+
+  [Test]
+  public async Task Contract_Eighteen_Host_Admission_Round_Trips()
+  {
+    var profile = ConnectorTestData.CreateObservedState(
+        "admission",
+        new DateTimeOffset(
+            2026,
+            8,
+            9,
+            6,
+            5,
+            0,
+            TimeSpan.Zero)) with
+    {
+      ManagerContractVersion = 18,
+      HostAdmission = new HostAdmissionState(
+          "available",
+          "primary",
+          3,
+          42,
+          12,
+          2,
+          10,
+          4,
+          new string('a', 64),
+          new HostAdmissionAccounting(
+              2,
+              4,
+              false,
+              new string('b', 64),
+              2,
+              0,
+              2,
+              0,
+              4,
+              4),
+          new HostAdmissionDecision(
+              42,
+              "acquire",
+              false,
+              "budget-exceeded",
+              1_754_719_500_000_000_000)),
+    };
+    var roundTripped = JsonSerializer.Deserialize(
+        JsonSerializer.Serialize(
+            profile,
+            PitCrewProtocolJsonContext.Default.ManagerObservedState),
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(roundTripped).IsNotNull();
+    await Assert.That(roundTripped!.HostAdmission)
+        .IsEqualTo(profile.HostAdmission);
+    await Assert.That(roundTripped.HostAdmission!.Accounting!.WithheldUnits)
+        .IsEqualTo(4);
+  }
 }

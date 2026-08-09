@@ -238,6 +238,91 @@ public sealed record ProfileTelemetrySample(
   public double? HostMemoryPressureFullAvg10 { get; init; }
   public double? HostIoPressureSomeAvg10 { get; init; }
   public double? HostIoPressureFullAvg10 { get; init; }
+
+  /// <summary>
+  /// Gets the host-admission evidence status, or <see langword="null"/> for legacy managers.
+  /// </summary>
+  public string? HostAdmissionStatus { get; init; }
+
+  /// <summary>
+  /// Gets the configured host-admission namespace when reported.
+  /// </summary>
+  public string? HostAdmissionNamespace { get; init; }
+
+  /// <summary>
+  /// Gets the coordinator policy epoch when measured.
+  /// </summary>
+  public long? HostAdmissionEpoch { get; init; }
+
+  /// <summary>
+  /// Gets the latest coordinator decision sequence when measured.
+  /// </summary>
+  public long? HostAdmissionDecisionSequence { get; init; }
+
+  /// <summary>
+  /// Gets the configured host capacity before the safety margin.
+  /// </summary>
+  public int? HostAdmissionCapacityUnits { get; init; }
+
+  /// <summary>
+  /// Gets the configured units withheld as a safety margin.
+  /// </summary>
+  public int? HostAdmissionSafetyMarginUnits { get; init; }
+
+  /// <summary>
+  /// Gets the effective host-admission budget when measured.
+  /// </summary>
+  public int? HostAdmissionEffectiveTotalUnits { get; init; }
+
+  /// <summary>
+  /// Gets the host-wide units not currently held when measured.
+  /// </summary>
+  public int? HostAdmissionAvailableUnits { get; init; }
+
+  /// <summary>
+  /// Gets the policy units consumed by one admitted worker.
+  /// </summary>
+  public int? HostAdmissionUnitCost { get; init; }
+
+  /// <summary>
+  /// Gets the policy units reserved for this profile.
+  /// </summary>
+  public int? HostAdmissionReservedUnits { get; init; }
+
+  /// <summary>
+  /// Gets whether other profiles may borrow unused reserved units.
+  /// </summary>
+  public bool? HostAdmissionBorrowable { get; init; }
+
+  /// <summary>
+  /// Gets the units held by active leases.
+  /// </summary>
+  public int? HostAdmissionActiveUnits { get; init; }
+
+  /// <summary>
+  /// Gets the units held by provisional leases.
+  /// </summary>
+  public int? HostAdmissionProvisionalUnits { get; init; }
+
+  /// <summary>
+  /// Gets the combined active and provisional units.
+  /// </summary>
+  public int? HostAdmissionHeldUnits { get; init; }
+
+  /// <summary>
+  /// Gets the held units beyond this profile's reservation.
+  /// </summary>
+  public int? HostAdmissionBorrowedUnits { get; init; }
+
+  /// <summary>
+  /// Gets outstanding demand in policy units, or <see langword="null"/> when unknown.
+  /// </summary>
+  public int? HostAdmissionPendingUnits { get; init; }
+
+  /// <summary>
+  /// Gets outstanding ungranted units, or <see langword="null"/> when unknown.
+  /// </summary>
+  public int? HostAdmissionWithheldUnits { get; init; }
 }
 
 /// <summary>

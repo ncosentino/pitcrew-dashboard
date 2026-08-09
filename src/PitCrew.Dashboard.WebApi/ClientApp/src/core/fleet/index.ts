@@ -9,6 +9,8 @@ export {
 } from './diagnosticsContext';
 export type { DiagnosticsContext } from './diagnosticsContext';
 export { describeWorkerUpdate } from './workerUpdate';
+export { describeHostAdmission, summarizeNodeHostAdmission } from './hostAdmission';
+export type { HostAdmissionSummary, NodeHostAdmissionSummary } from './hostAdmission';
 export {
   describeExitEvidence,
   describeResourcePolicy,
@@ -43,6 +45,9 @@ export type {
   ConnectorHealthSnapshot,
   FleetNode,
   FleetResponse,
+  HostAdmissionAccounting,
+  HostAdmissionDecision,
+  HostAdmissionState,
   HostHardwareInventory,
   ManagerCapacityEvidence,
   ManagerEvent,
@@ -88,6 +93,7 @@ export type {
 } from './historyApi';
 export {
   buildDeficitReasonChanges,
+  buildHostAdmissionChanges,
   buildHistorySeries,
   describeDeficitEvidence,
   describeHistoryAvailability,
@@ -99,6 +105,7 @@ export {
 } from './historySeries';
 export type {
   DeficitReasonChange,
+  HostAdmissionHistoryChange,
   HistoryAvailability,
   HistoryPoint,
   HistorySeries,
