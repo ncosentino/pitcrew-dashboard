@@ -10,6 +10,33 @@
     "Review policy",
     "Container image"
   ],
+  "validationScopes": [
+    {
+      "id": "full",
+      "description": "Complete runtime, installer, and container validation."
+    },
+    {
+      "id": "subset",
+      "description": "Frontend gate and analyzed build for draft pull requests."
+    },
+    {
+      "id": "ready-only",
+      "description": "Skip all validation for draft pull requests."
+    },
+    {
+      "id": "guidance-only",
+      "description": "Documentation, design authority, instructions, ADRs, and guidance contract validation only. Skips frontend, .NET build/test, installers, and container images.",
+      "skippedJobs": [
+        "frontend",
+        "build",
+        "test",
+        "linux-installer",
+        "windows-installer",
+        "deployment-config",
+        "container-validate"
+      ]
+    }
+  ],
   "draftValidation": {
     "hostedDefault": "subset",
     "pitcrewDefault": "subset",

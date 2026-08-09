@@ -16,8 +16,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  container-plan:
+    name: Container plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.plan.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine container scope
+        id: plan
+        shell: pwsh
+        run: |
+          $eventName = '${{ github.event_name }}'
+          $isDraft = '${{ github.event.pull_request.draft }}' -eq 'true'
+          if ($eventName -eq 'pull_request' -and $isDraft) {
+              "scope=skip" >> $env:GITHUB_OUTPUT
+              "Draft PR - container validation skipped."
+              exit 0
+          }
+
+          $changedFiles = @()
+          if ($eventName -eq 'pull_request') {
+              $base = '${{ github.event.pull_request.base.sha }}'
+              if ($base) {
+                  $changedFiles = @(git diff --name-only "$base...HEAD")
+                  if ($LASTEXITCODE -ne 0) {
+                      Write-Warning 'Changed-path detection failed; falling back to full validation.'
+                      $changedFiles = @()
+                  }
+              }
+          }
+          elseif ($eventName -eq 'push') {
+              $before = '${{ github.event.before }}'
+              if ($before -and $before -ne ('0' * 40)) {
+                  $changedFiles = @(git diff --name-only "$before..HEAD")
+                  if ($LASTEXITCODE -ne 0) {
+                      Write-Warning 'Changed-path detection failed; falling back to full validation.'
+                      $changedFiles = @()
+                  }
+              }
+          }
+
+          $scope = & ./scripts/guidance/Resolve-ValidationScope.ps1 `
+              -EventName $eventName `
+              -ChangedFiles $changedFiles
+          $containerScope = if ($scope -eq 'guidance-only') { 'skip' } else { 'full' }
+          "scope=$containerScope" >> $env:GITHUB_OUTPUT
+          "Validation scope '$scope' maps to container scope '$containerScope'."
+
   deployment-config:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: container-plan
+    if: needs.container-plan.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -131,7 +184,8 @@ jobs:
           docker run --rm cloudflare/cloudflared:2026.7.2 tunnel ready --help >/dev/null
 
   validate:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: container-plan
+    if: needs.container-plan.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -172,17 +226,23 @@ jobs:
 
   summary:
     name: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'Draft container' || 'Container image' }}
-    needs: [deployment-config, validate]
+    needs: [container-plan, deployment-config, validate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft || false }}
+      CONTAINER_SCOPE: ${{ needs.container-plan.outputs.scope }}
+      PLAN_RESULT: ${{ needs.container-plan.result }}
       DEPLOYMENT_CONFIG_RESULT: ${{ needs.deployment-config.result }}
       VALIDATE_RESULT: ${{ needs.validate.result }}
     steps:
       - name: Check container validation results
         run: |
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::Container plan failed."
+            exit 1
+          fi
+
           for result in "$DEPLOYMENT_CONFIG_RESULT" "$VALIDATE_RESULT"; do
            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
              echo "::error::A container validation job failed or was cancelled."
@@ -190,14 +250,18 @@ jobs:
            fi
           done
 
-          if [ "$IS_DRAFT" = "true" ]; then
-           if [ "$DEPLOYMENT_CONFIG_RESULT" != "skipped" ] ||
-              [ "$VALIDATE_RESULT" != "skipped" ]; then
-             echo "::error::Draft container validation ran expensive jobs."
-             exit 1
-           fi
-          elif [ "$DEPLOYMENT_CONFIG_RESULT" != "success" ] ||
-              [ "$VALIDATE_RESULT" != "success" ]; then
-           echo "::error::Container validation did not complete successfully."
-           exit 1
+          if [ "$CONTAINER_SCOPE" = "skip" ]; then
+            if [ "$DEPLOYMENT_CONFIG_RESULT" != "skipped" ] ||
+               [ "$VALIDATE_RESULT" != "skipped" ]; then
+              echo "::error::Skipped container scope ran expensive jobs."
+              exit 1
+            fi
+            echo "Container validation intentionally skipped — no relevant paths changed."
+            exit 0
+          fi
+
+          if [ "$DEPLOYMENT_CONFIG_RESULT" != "success" ] ||
+             [ "$VALIDATE_RESULT" != "success" ]; then
+            echo "::error::Container validation did not complete successfully."
+            exit 1
           fi

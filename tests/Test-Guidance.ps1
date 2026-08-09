@@ -386,6 +386,22 @@ try {
             -IsDraft $false `
             -DraftMode subset) -ceq 'full'
     ) 'Ready pull requests do not resolve to full validation.'
+    Add-Check (
+        (& $scopeResolver `
+            -EventName pull_request `
+            -IsDraft $false `
+            -ChangedFiles 'docs/README.md','AGENTS.md') -ceq 'guidance-only'
+    ) 'Guidance-only paths do not resolve to guidance-only scope.'
+    Add-Check (
+        (& $scopeResolver `
+            -EventName push `
+            -ChangedFiles 'docs/README.md') -ceq 'guidance-only'
+    ) 'Push with guidance-only paths does not resolve to guidance-only.'
+    Add-Check (
+        (& $scopeResolver `
+            -EventName pull_request `
+            -ChangedFiles 'docs/README.md','src/App.cs') -ceq 'full'
+    ) 'Mixed guidance and runtime paths do not resolve to full.'
 
     $base = Join-Path $temporaryRoot 'base'
     New-GuidanceFixture -Path $base
