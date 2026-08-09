@@ -203,6 +203,9 @@ public sealed class ObservedStateReaderTests
   [Arguments("invalid-scale-down-at")]
   [Arguments("missing-current-job")]
   [Arguments("missing-host-pressure")]
+  [Arguments("missing-host-admission")]
+  [Arguments("null-host-admission")]
+  [Arguments("incomplete-host-admission")]
   public async Task ReadAsync_Rejects_Incomplete_Or_Invalid_Additive_Objects(
       string scenario,
       CancellationToken cancellationToken)
@@ -250,6 +253,26 @@ public sealed class ObservedStateReaderTests
           payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
           payload["slots"]![0]!["currentJob"] = null;
           payload["resourceTelemetry"]!.AsObject().Remove("hostPressure");
+          break;
+        case "missing-host-admission":
+          payload["managerContractVersion"] = 18;
+          payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
+          payload["slots"]![0]!["currentJob"] = null;
+          payload["hostAdmission"] = ConnectorTestData.CreateHostAdmissionPayload();
+          payload.AsObject().Remove("hostAdmission");
+          break;
+        case "null-host-admission":
+          payload["managerContractVersion"] = 18;
+          payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
+          payload["slots"]![0]!["currentJob"] = null;
+          payload["hostAdmission"] = null;
+          break;
+        case "incomplete-host-admission":
+          payload["managerContractVersion"] = 18;
+          payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
+          payload["slots"]![0]!["currentJob"] = null;
+          payload["hostAdmission"] = ConnectorTestData.CreateHostAdmissionPayload();
+          payload["hostAdmission"]!.AsObject().Remove("availableUnits");
           break;
         default:
           throw new ArgumentOutOfRangeException(
@@ -405,4 +428,5 @@ public sealed class ObservedStateReaderTests
     Directory.CreateDirectory(path);
     return path;
   }
+
 }

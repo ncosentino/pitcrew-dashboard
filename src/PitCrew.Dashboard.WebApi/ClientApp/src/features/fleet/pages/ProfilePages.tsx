@@ -4,7 +4,6 @@ import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
@@ -18,6 +17,7 @@ import {
   describeWorkerUpdate,
   serializeDiagnosticsContext,
   summarizeManagerOperations,
+  describeHostAdmission,
   useFleet,
   type CapacityControlState,
   type FleetNode,
@@ -26,13 +26,17 @@ import {
   type SubsystemHealthSummary,
 } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
+import { CopyableId } from '@/core/ui/CopyableId';
+import { EntityHeader } from '@/core/ui/EntityHeader';
 import { SectionNavigation } from '@/core/ui/SectionNavigation';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { ProfileCapacityEvidence } from '../components/ProfileCapacityEvidence';
 import { ProfileCapacitySummary } from '../components/ProfileCapacitySummary';
+import { ProfileHostAdmission } from '../components/ProfileHostAdmission';
 import { ProfileManagerRecovery } from '../components/ProfileManagerRecovery';
 import { ProfileOperationJournal } from '../components/ProfileOperationJournal';
 import { ProfileResourcePolicy } from '../components/ProfileResourcePolicy';
@@ -69,22 +73,22 @@ function useProfileDetail(): ProfileDetailContext {
   return useOutletContext<ProfileDetailContext>();
 }
 
+function formatProfileDisplayName(profileId: string): string {
+  const words = profileId
+    .split(/[-_]+/u)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1));
+  return words.length > 0 ? words.join(' ') : profileId;
+}
+
 function OverviewMetric({ label, value, description, status, testId }: OverviewMetricProps) {
   return (
-    <Card className="gap-3 py-5 shadow-control-lift" data-testid={testId}>
-      <CardHeader className="px-5">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle as="p" className="text-2xl font-semibold tabular-nums">
-          {value}
-        </CardTitle>
-        {status ? (
-          <CardAction>
-            <StatusBadge status={status} />
-          </CardAction>
-        ) : null}
-      </CardHeader>
-      <CardContent className="px-5 text-xs text-muted-foreground">{description}</CardContent>
-    </Card>
+    <div className="grid content-start gap-2" data-testid={testId}>
+      <span className="text-xs font-semibold text-muted-foreground uppercase">{label}</span>
+      <strong className="text-xl font-semibold tabular-nums">{value}</strong>
+      {status ? <StatusBadge status={status} /> : null}
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
   );
 }
 
@@ -126,14 +130,7 @@ function MutationMessage({
 }) {
   return (
     <>
-      {error ? (
-        <div
-          className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
-          role="alert"
-        >
-          {error}
-        </div>
-      ) : null}
+      {error ? <StateBanner tone="critical">{error}</StateBanner> : null}
       {busyMessage ? (
         <p role="status" className="text-sm text-muted-foreground">
           {busyMessage}
@@ -161,21 +158,14 @@ export function ProfileDetailLayout() {
   if (isLoading && !fleet) return <p className="text-muted-foreground">Loading profile status…</p>;
 
   if (!fleet) {
-    return (
-      <div
-        className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
-        role="alert"
-      >
-        {error ?? 'Profile status is unavailable.'}
-      </div>
-    );
+    return <StateBanner tone="critical">{error ?? 'Profile status is unavailable.'}</StateBanner>;
   }
 
   if (!node) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Node not found</CardTitle>
+          <CardTitle as="h2">Node not found</CardTitle>
           <CardDescription>
             Node {nodeId} is not present in this tenant&apos;s current fleet.
           </CardDescription>
@@ -188,7 +178,7 @@ export function ProfileDetailLayout() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Profile not found</CardTitle>
+          <CardTitle as="h2">Profile not found</CardTitle>
           <CardDescription>
             Profile {profileId} has not been reported by {node.displayName}.
           </CardDescription>
@@ -209,48 +199,64 @@ export function ProfileDetailLayout() {
 
   return (
     <section className="grid gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium">
-            {node.displayName} · <span className="font-mono text-xs">{node.nodeId}</span>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {profile.scope} scope · generation {profile.generation} · manager contract{' '}
-            {profile.managerContractVersion} · observed {formatTime(profile.observedAt)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            data-testid={`prepare-diagnostics-${node.nodeId}-${profile.profileId}`}
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              const context = buildDiagnosticsContext(
-                node,
-                fleet.generatedAt,
-                fleet.activeIncidents,
-              );
-              downloadDiagnosticsContext(node.nodeId, serializeDiagnosticsContext(context));
-              setDiagnosticsPrepared(true);
-            }}
+      <EntityHeader
+        title={formatProfileDisplayName(profile.profileId)}
+        identifier={
+          <CopyableId
+            label={`${profile.profileId} profile ID`}
+            prefix="Profile ID"
+            value={profile.profileId}
+          />
+        }
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              data-testid={`prepare-diagnostics-${node.nodeId}-${profile.profileId}`}
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const context = buildDiagnosticsContext(
+                  node,
+                  fleet.generatedAt,
+                  fleet.activeIncidents,
+                );
+                downloadDiagnosticsContext(node.nodeId, serializeDiagnosticsContext(context));
+                setDiagnosticsPrepared(true);
+              }}
+            >
+              Prepare diagnostics
+            </Button>
+            <StatusBadge
+              status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
+            />
+            <StatusBadge status={profile.managerStatus} />
+            <StatusBadge status={profile.desiredStateStatus} />
+          </div>
+        }
+      />
+      <div className="grid gap-1 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>Node</span>
+          <Link
+            className="text-link underline-offset-4 hover:underline"
+            to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
           >
-            Prepare diagnostics
-          </Button>
-          <StatusBadge status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'} />
-          <StatusBadge status={profile.managerStatus} />
-          <StatusBadge status={profile.desiredStateStatus} />
+            {node.displayName}
+          </Link>
+          <CopyableId label={`${node.displayName} node ID`} value={node.nodeId} />
         </div>
+        <span>
+          {profile.scope} scope · generation {profile.generation} · manager contract{' '}
+          {profile.managerContractVersion} · observed {formatTime(profile.observedAt)}
+        </span>
+        <span>
+          {node.isOnline ? 'Current' : 'Last-known'} capacity, worker, diagnostics, and recovery
+          evidence for this profile.
+        </span>
       </div>
 
-      {error ? (
-        <div
-          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          role="status"
-        >
-          Showing stale fleet data. {error}
-        </div>
-      ) : null}
+      {error ? <StateBanner tone="caution">Showing stale fleet data. {error}</StateBanner> : null}
       <ActiveIncidentSummary
         incidents={fleet.activeIncidents.filter(
           (incident) =>
@@ -261,15 +267,11 @@ export function ProfileDetailLayout() {
         testId={`profile-active-incidents-${profile.profileId}`}
       />
       {!node.isOnline ? (
-        <div
-          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          data-testid="profile-node-offline"
-          role="status"
-        >
+        <StateBanner className="py-4" data-testid="profile-node-offline" tone="caution">
           This node is offline. Every profile, capacity, worker, resource, subsystem, and recovery
           value on these pages is last-known evidence observed {formatTime(profile.observedAt)}. The
           connector was last seen {formatTime(node.lastSeenAt)}.
-        </div>
+        </StateBanner>
       ) : null}
       {diagnosticsPrepared ? (
         <p className="text-sm text-muted-foreground" role="status">
@@ -278,13 +280,10 @@ export function ProfileDetailLayout() {
         </p>
       ) : null}
       {profile.managerStatus === 'stale' || profile.managerStatus === 'stopped' ? (
-        <div
-          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          data-testid="profile-manager-unavailable"
-        >
+        <StateBanner data-testid="profile-manager-unavailable" tone="caution">
           The profile manager is {profile.managerStatus}; observations and slot state may not be
           current.
-        </div>
+        </StateBanner>
       ) : null}
 
       <SectionNavigation label={`${profile.profileId} profile navigation`} items={navigation} />
@@ -329,6 +328,7 @@ export function ProfileOverviewPage() {
   const telemetryDescription = profile.resourceTelemetry
     ? `Sampled ${formatTime(profile.resourceTelemetry.sampledAt)}.`
     : 'No resource sample was reported.';
+  const hostAdmission = describeHostAdmission(profile.hostAdmission);
 
   return (
     <section className="grid gap-4" aria-labelledby="profile-overview-heading">
@@ -336,7 +336,10 @@ export function ProfileOverviewPage() {
         Profile overview
       </h2>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section
+        aria-label="Profile capacity summary"
+        className="grid gap-5 rounded-lg border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
         <OverviewMetric
           label="Maximum"
           value={configured}
@@ -372,12 +375,12 @@ export function ProfileOverviewPage() {
           }
           testId={`profile-overview-eligible-${profile.profileId}`}
         />
-      </div>
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="gap-0">
           <CardHeader>
-            <CardTitle>Operational health</CardTitle>
+            <CardTitle as="h3">Operational health</CardTitle>
             <CardDescription>
               Latest manager-reported subsystem, resource, and operation evidence.
             </CardDescription>
@@ -400,6 +403,12 @@ export function ProfileOverviewPage() {
               description={telemetryDescription}
               status={telemetryStatus}
               testId={`profile-overview-resources-${profile.profileId}`}
+            />
+            <HealthSummaryRow
+              label="Host admission"
+              description={hostAdmission.description}
+              status={hostAdmission.status}
+              testId={`profile-overview-host-admission-${profile.profileId}`}
             />
             <HealthSummaryRow
               label="Worker image rollout"
@@ -427,7 +436,7 @@ export function ProfileOverviewPage() {
 
         <Card className="gap-0">
           <CardHeader>
-            <CardTitle>Workers and recovery</CardTitle>
+            <CardTitle as="h3">Workers and recovery</CardTitle>
             <CardDescription>
               {node.isOnline ? 'Current' : 'Last-known'} worker activity and the latest fenced
               manager-recovery state.
@@ -550,13 +559,10 @@ export function ProfileCapacityPage() {
   return (
     <section className="grid gap-4">
       {!node.isOnline || node.isRevoked ? (
-        <div
-          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          data-testid="profile-node-unavailable"
-        >
+        <StateBanner data-testid="profile-node-unavailable" tone="caution">
           Capacity changes are unavailable while this node is{' '}
           {node.isRevoked ? 'revoked' : 'offline'}.
-        </div>
+        </StateBanner>
       ) : null}
       <MutationMessage
         error={mutationError}
@@ -569,6 +575,7 @@ export function ProfileCapacityPage() {
         disabled={isMutating || recoveryActive || !node.isOnline || node.isRevoked}
         onSetMaximum={queueCapacityMaximum}
       />
+      <ProfileHostAdmission profile={profile} />
       <ProfileCapacityEvidence profile={profile} />
       <ProfileTargetsTable profile={profile} />
     </section>

@@ -1,11 +1,12 @@
-import { type ReactNode, useState } from 'react';
-import { NavLink, useParams } from 'react-router-dom';
+import { type ReactNode, useMemo, useState } from 'react';
+import { useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useSession } from '@/core/auth';
+import { hasMinimumTenantRole, useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
 import { FormField } from '@/core/ui/FormField';
+import { SectionNavigation, type SectionNavigationItem } from '@/core/ui/SectionNavigation';
 
 import { createEnrollmentCode, type EnrollmentCodeResponse } from './settingsApi';
 import { DiagnosticCredentials } from './DiagnosticCredentials';
@@ -27,31 +28,29 @@ interface SettingsPageProps {
 
 function SettingsPage({ children }: SettingsPageProps) {
   const { tenantId, tenant } = useCurrentTenant();
-  if (!tenant) return null;
   const settingsPath = `/tenants/${tenantId}/settings`;
+
+  const items = useMemo(() => {
+    if (!tenant) return [];
+    const navItems: SectionNavigationItem[] = [];
+    if (hasMinimumTenantRole(tenant.role, 'owner')) {
+      navItems.push(
+        { label: 'General', path: `${settingsPath}/general` },
+        { label: 'Access', path: `${settingsPath}/access` },
+      );
+    }
+    navItems.push({ label: 'Enrollment', path: `${settingsPath}/enrollment` });
+    if (hasMinimumTenantRole(tenant.role, 'administrator')) {
+      navItems.push({ label: 'Diagnostics', path: `${settingsPath}/diagnostics` });
+    }
+    return navItems;
+  }, [settingsPath, tenant]);
+
+  if (!tenant) return null;
 
   return (
     <section className="grid gap-4">
-      <nav aria-label="Tenant settings" className="flex flex-wrap gap-2">
-        {tenant.role === 'owner' ? (
-          <>
-            <Button asChild variant="outline" size="sm">
-              <NavLink to={`${settingsPath}/general`}>General</NavLink>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <NavLink to={`${settingsPath}/access`}>Access</NavLink>
-            </Button>
-          </>
-        ) : null}
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={`${settingsPath}/enrollment`}>Enrollment</NavLink>
-        </Button>
-        {tenant.role === 'administrator' || tenant.role === 'owner' ? (
-          <Button asChild variant="outline" size="sm">
-            <NavLink to={`${settingsPath}/diagnostics`}>Diagnostics</NavLink>
-          </Button>
-        ) : null}
-      </nav>
+      <SectionNavigation label="Tenant settings" items={items} />
       {children}
     </section>
   );

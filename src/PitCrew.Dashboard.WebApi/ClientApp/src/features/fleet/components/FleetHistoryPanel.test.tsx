@@ -35,6 +35,23 @@ function profile(profileId: string, observedAt: string) {
         managerPids: 12,
         hostLogicalProcessorCount: 8,
         hostMemoryBytes: 17179869184,
+        hostAdmissionStatus: 'available',
+        hostAdmissionNamespace: 'primary',
+        hostAdmissionEpoch: 3,
+        hostAdmissionDecisionSequence: 42,
+        hostAdmissionCapacityUnits: 12,
+        hostAdmissionSafetyMarginUnits: 2,
+        hostAdmissionEffectiveTotalUnits: 10,
+        hostAdmissionAvailableUnits: 4,
+        hostAdmissionUnitCost: 2,
+        hostAdmissionReservedUnits: 4,
+        hostAdmissionBorrowable: false,
+        hostAdmissionActiveUnits: 5,
+        hostAdmissionProvisionalUnits: 0,
+        hostAdmissionHeldUnits: 5,
+        hostAdmissionBorrowedUnits: 1,
+        hostAdmissionPendingUnits: 4,
+        hostAdmissionWithheldUnits: 4,
         workerCpuCores: 1.5,
         workerMemoryBytes: 2147483648,
         workerPids: 64,
@@ -329,6 +346,10 @@ describe('FleetHistoryPanel', () => {
 
     await waitFor(() => expect(historyUrls(fetchMock)).toHaveLength(1));
     expect(await screen.findByTestId('history-profile-default')).toBeInTheDocument();
+    const admission = screen.getByTestId('history-host-admission-default');
+    expect(admission).toHaveTextContent('available');
+    expect(admission).toHaveTextContent('Protected');
+    expect(admission).toHaveTextContent('4');
     expect(screen.getByTestId('history').tagName).toBe('SECTION');
     expect(screen.queryByTestId('history-disclosure-default')).not.toBeInTheDocument();
   });

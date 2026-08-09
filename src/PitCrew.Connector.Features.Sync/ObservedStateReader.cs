@@ -375,6 +375,14 @@ internal sealed partial class ObservedStateReader(
     {
       return false;
     }
+    if (contractVersion >= 18 &&
+        (!root.TryGetProperty(
+            "hostAdmission",
+            out var hostAdmission) ||
+         hostAdmission.ValueKind != JsonValueKind.Object))
+    {
+      return false;
+    }
     return true;
   }
 

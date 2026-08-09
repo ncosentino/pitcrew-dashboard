@@ -490,6 +490,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
         !IsValidResourcePolicy(profile.ResourcePolicy) ||
         !IsValidWorkerUpdate(profile) ||
         !IsValidHostHardware(profile) ||
+        !IsValidHostAdmission(profile) ||
         !IsValidAutoscaling(profile) ||
         !IsValidResourceTelemetry(profile) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
@@ -593,6 +594,157 @@ internal sealed partial class SyncConnectorUnitOfWork(
     return IsConsistentResourceTelemetry(profile) &&
         ManagerDiagnosticsValidator.IsValid(profile);
   }
+
+  private static bool IsValidHostAdmission(
+      ManagerObservedState profile)
+  {
+    var admission = profile.HostAdmission;
+    if (admission is null)
+    {
+      return profile.ManagerContractVersion < 18;
+    }
+    if (admission.Status is not (
+            "disabled" or
+            "available" or
+            "degraded" or
+            "unavailable") ||
+        !IsHostAdmissionNamespace(admission.Namespace) ||
+        admission.Epoch is < 0 ||
+        admission.DecisionSequence is < 0 ||
+        admission.CapacityUnits is <= 0 ||
+        admission.SafetyMarginUnits is < 0 ||
+        admission.EffectiveTotalUnits is <= 0 ||
+        admission.AvailableUnits is < 0 ||
+        admission.AvailableUnits > admission.EffectiveTotalUnits ||
+        !IsHostAdmissionToken(admission.HostPolicyFingerprint) ||
+        !IsValidHostAdmissionAccounting(admission.Accounting) ||
+        !IsValidHostAdmissionDecision(admission.LastDecision))
+    {
+      return false;
+    }
+    if (admission.CapacityUnits is { } capacity &&
+        admission.SafetyMarginUnits is { } margin &&
+        admission.EffectiveTotalUnits != capacity - margin)
+    {
+      return false;
+    }
+
+    return admission.Status switch
+    {
+      "disabled" =>
+          admission.Namespace is null &&
+          admission.Epoch is null &&
+          admission.DecisionSequence is null &&
+          admission.CapacityUnits is null &&
+          admission.SafetyMarginUnits is null &&
+          admission.EffectiveTotalUnits is null &&
+          admission.AvailableUnits is null &&
+          admission.HostPolicyFingerprint is null &&
+          admission.Accounting is null &&
+          admission.LastDecision is null,
+      "unavailable" =>
+          admission.Namespace is not null &&
+          admission.Epoch is null &&
+          admission.DecisionSequence is null &&
+          admission.CapacityUnits is null &&
+          admission.SafetyMarginUnits is null &&
+          admission.EffectiveTotalUnits is null &&
+          admission.AvailableUnits is null &&
+          admission.HostPolicyFingerprint is null &&
+          admission.Accounting is null &&
+          admission.LastDecision is null,
+      "available" =>
+          admission.Namespace is not null &&
+          admission.Epoch is not null &&
+          admission.DecisionSequence is not null &&
+          admission.CapacityUnits is not null &&
+          admission.SafetyMarginUnits is not null &&
+          admission.EffectiveTotalUnits is not null &&
+          admission.AvailableUnits is not null &&
+          admission.HostPolicyFingerprint is not null &&
+          admission.Accounting is
+          {
+            ProfilePolicyFingerprint: not null,
+            PendingUnits: not null,
+            WithheldUnits: not null,
+          },
+      _ =>
+          admission.Namespace is not null &&
+          admission.Epoch is not null &&
+          admission.DecisionSequence is not null &&
+          admission.EffectiveTotalUnits is not null &&
+          admission.AvailableUnits is not null,
+    };
+  }
+
+  private static bool IsValidHostAdmissionAccounting(
+      HostAdmissionAccounting? accounting)
+  {
+    if (accounting is null)
+    {
+      return true;
+    }
+
+    return accounting.UnitCost > 0 &&
+        accounting.ReservedUnits >= 0 &&
+        IsHostAdmissionToken(accounting.ProfilePolicyFingerprint) &&
+        accounting.ActiveUnits >= 0 &&
+        accounting.ProvisionalUnits >= 0 &&
+        accounting.HeldUnits ==
+            accounting.ActiveUnits + accounting.ProvisionalUnits &&
+        accounting.BorrowedUnits ==
+            Math.Max(accounting.HeldUnits - accounting.ReservedUnits, 0) &&
+        (accounting.PendingUnits is null &&
+         accounting.WithheldUnits is null ||
+         accounting.PendingUnits is >= 0 &&
+         accounting.WithheldUnits == accounting.PendingUnits);
+  }
+
+  private static bool IsValidHostAdmissionDecision(
+      HostAdmissionDecision? decision) =>
+      decision is null ||
+      decision.Sequence >= 0 &&
+      decision.Command is (
+          "acquire" or
+          "renew" or
+          "activate" or
+          "release" or
+          "reconcile") &&
+      (decision.FailureCategory is null ||
+       IsLowerKebabCode(decision.FailureCategory, 64)) &&
+      decision.DecidedAtUnixNano >= 0;
+
+  private static bool IsHostAdmissionNamespace(string? value) =>
+      value is null ||
+      value.Length is >= 1 and <= 32 &&
+      value[0] is >= 'a' and <= 'z' &&
+      value.All(character =>
+          character is >= 'a' and <= 'z' or
+              >= '0' and <= '9' or
+              '-');
+
+  private static bool IsHostAdmissionToken(string? value) =>
+      value is null ||
+      value.Length is >= 1 and <= 128 &&
+      value.All(character =>
+          character is >= 'a' and <= 'z' or
+              >= 'A' and <= 'Z' or
+              >= '0' and <= '9' or
+              '_' or
+              '-');
+
+  private static bool IsLowerKebabCode(
+      string value,
+      int maximumLength) =>
+      value.Length is >= 1 &&
+      value.Length <= maximumLength &&
+      value[0] is >= 'a' and <= 'z' &&
+      value[^1] != '-' &&
+      value.All(character =>
+          character is >= 'a' and <= 'z' or
+              >= '0' and <= '9' or
+              '-') &&
+      !value.Contains("--", StringComparison.Ordinal);
 
   internal static bool IsValidProtocolProfileContracts(
       int protocolVersion,

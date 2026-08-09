@@ -1,8 +1,18 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
-import { useFleet, type FleetNode, type OperationalIncident } from '@/core/fleet';
-import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
+import {
+  summarizeNodeHostAdmission,
+  useFleet,
+  type FleetNode,
+  type OperationalIncident,
+} from '@/core/fleet';
+import {
+  formatBytes,
+  formatCounter,
+  formatCpuCores,
+  formatTime,
+} from '@/core/formatting/formatters';
 import { EmptyState } from '@/core/ui/EmptyState';
 import { FilterToolbar } from '@/core/ui/FilterToolbar';
 import { FormField } from '@/core/ui/FormField';
@@ -74,6 +84,7 @@ function NodeSummaryRow({
   const aggregate = aggregateNode(node);
   const status = getNodeStatus(node);
   const resources = aggregate.resources;
+  const admission = summarizeNodeHostAdmission(node.profiles);
   return (
     <tr className="border-t" data-testid={`fleet-node-${node.nodeId}`}>
       <td className={cn('px-4', density === 'compact' ? 'py-2' : 'py-4')}>
@@ -120,8 +131,32 @@ function NodeSummaryRow({
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
         <LastKnownValue node={node}>
-          {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
-          {aggregate.eligibleSlots ?? 'Unknown'}
+          <div className="grid justify-items-end gap-0.5 text-xs">
+            <span>
+              <span className="text-muted-foreground">Configured</span> {aggregate.configuredSlots}
+            </span>
+            <span>
+              <span className="text-muted-foreground">Local</span> {aggregate.activeSlots}
+            </span>
+            <span>
+              <span className="text-muted-foreground">Eligible</span>{' '}
+              {aggregate.eligibleSlots ?? 'Unknown'}
+            </span>
+          </div>
+        </LastKnownValue>
+      </td>
+      <td className="px-4 py-2">
+        <LastKnownValue node={node}>
+          <div className="grid gap-1">
+            <StatusBadge status={admission.status} />
+            <span className="text-xs text-muted-foreground">
+              {admission.status === 'disabled'
+                ? 'Not configured'
+                : admission.borrowedUnits == null || admission.withheldUnits == null
+                  ? 'Accounting unavailable'
+                  : `${formatCounter(admission.withheldUnits)} withheld · ${formatCounter(admission.borrowedUnits)} borrowed`}
+            </span>
+          </div>
         </LastKnownValue>
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
@@ -223,7 +258,7 @@ export default function FleetOverviewPage() {
 
       {!isLoading && fleet?.nodes.length === 0 ? (
         <EmptyState
-          description="Create a one-time code, configure it on a connector, and start the connector."
+          description="Create a one-time code, configure it on a connector, and start the connector. No enrolled servers means no connector has reported; it does not prove fleet health."
           title="No servers enrolled"
         />
       ) : null}
@@ -278,7 +313,7 @@ export default function FleetOverviewPage() {
 
           {nodes.length === 0 ? (
             <EmptyState
-              description="Adjust the status or text filter to see more nodes."
+              description="No nodes match the current filter combination. This does not mean the fleet is empty."
               title="No matching nodes"
             />
           ) : (
@@ -288,6 +323,7 @@ export default function FleetOverviewPage() {
                 {nodes.map((node) => {
                   const aggregate = aggregateNode(node);
                   const nodeStatus = getNodeStatus(node);
+                  const admission = summarizeNodeHostAdmission(node.profiles);
                   return (
                     <div
                       key={node.nodeId}
@@ -303,10 +339,21 @@ export default function FleetOverviewPage() {
                           {node.displayName}
                         </Link>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
                         <span>Profiles: {node.profiles.length}</span>
+                        <span>Configured: {aggregate.configuredSlots}</span>
+                        <span>Local: {aggregate.activeSlots}</span>
+                        <span>Eligible: {aggregate.eligibleSlots ?? 'Unknown'}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <StatusBadge status={admission.status} />
                         <span>
-                          Slots: {aggregate.configuredSlots} / {aggregate.activeSlots}
+                          Host admission:{' '}
+                          {admission.status === 'disabled'
+                            ? 'not configured'
+                            : admission.withheldUnits == null
+                              ? 'accounting unavailable'
+                              : `${formatCounter(admission.withheldUnits)} withheld`}
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -329,9 +376,10 @@ export default function FleetOverviewPage() {
                     { key: 'profiles', header: 'Profiles', align: 'right' },
                     {
                       key: 'slots',
-                      header: 'Configured / local / GitHub eligible',
+                      header: 'Capacity evidence',
                       align: 'right',
                     },
+                    { key: 'admission', header: 'Host admission' },
                     { key: 'resources', header: 'CPU / memory evidence', align: 'right' },
                   ]}
                 >

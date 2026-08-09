@@ -243,6 +243,13 @@
         "owner": "tag:node"
       },
       {
+        "path": "docs/ui/settings-composition.md",
+        "title": "Settings navigation and form composition",
+        "section": "Development",
+        "order": 457,
+        "owner": "repository"
+      },
+      {
         "path": "docs/development/request-validation-and-jobs.md",
         "title": "Request validation and job scheduling",
         "section": "Development",

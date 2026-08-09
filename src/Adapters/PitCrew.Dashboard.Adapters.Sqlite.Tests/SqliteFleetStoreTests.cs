@@ -1444,6 +1444,105 @@ public sealed class SqliteFleetStoreTests
     }
   }
 
+  [Test]
+  public async Task Contract_Eighteen_Host_Admission_Round_Trips(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-fleet-{Guid.NewGuid():N}.db");
+    try
+    {
+      var observedAt = new DateTimeOffset(
+          2026,
+          8,
+          9,
+          6,
+          30,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, store, nodeId) = await CreateEnrolledStoreAsync(
+          databasePath,
+          observedAt,
+          cancellationToken);
+      var expected = new HostAdmissionState(
+          "available",
+          "primary",
+          3,
+          42,
+          12,
+          2,
+          10,
+          4,
+          new string('a', 64),
+          new HostAdmissionAccounting(
+              2,
+              4,
+              false,
+              new string('b', 64),
+              5,
+              0,
+              5,
+              1,
+              4,
+              4),
+          new HostAdmissionDecision(
+              42,
+              "acquire",
+              false,
+              "budget-exceeded",
+              1_754_719_500_000_000_000));
+      var profile = new ManagerObservedState(
+          SchemaVersion: 1,
+          ManagerContractVersion: 18,
+          ProfileId: "default",
+          ManagerInstanceId: "manager-instance",
+          ManagerStatus: "running",
+          ObservedAt: observedAt,
+          Scope: "repo",
+          Generation: 1,
+          DesiredStateHash: null,
+          DesiredStateStatus: "accepted",
+          DesiredSlots: 0,
+          ActiveSlots: 0,
+          DrainingSlots: 0,
+          Slots: [],
+          ResourceTelemetry: null,
+          ConfiguredSlots: 0,
+          Autoscaling: null,
+          EligibleSlots: 0,
+          HostAdmission: expected);
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          observedAt,
+          [profile],
+          new ConnectorCredentialUpdate(
+              ConnectorCredentialUpdateKind.None,
+              string.Empty),
+          cancellationToken);
+
+      var fleet = await store.GetFleetAsync(
+          "tenant",
+          observedAt,
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(fleet.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles[0].HostAdmission)
+          .IsEqualTo(expected);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
   private static ManagerOperationJournal RequireJournal(FleetResponse fleet) =>
       fleet.Nodes[0].Profiles[0].OperationJournal ??
       throw new InvalidOperationException(

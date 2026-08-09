@@ -118,6 +118,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   const [incidentState, setIncidentState] = useState<{
     readonly tenantId: string;
     readonly count: number;
+    readonly highestSeverity: 'critical' | 'warning' | null;
   } | null>(null);
   const selectedTenant =
     session?.tenants.find((tenant) => tenant.tenantId === tenantId) ??
@@ -150,10 +151,17 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
         ),
         badge:
           activeIncidentCount > 0 && item.path.endsWith('/incidents')
-            ? new Intl.NumberFormat(undefined).format(activeIncidentCount)
+            ? {
+                label: new Intl.NumberFormat(undefined).format(activeIncidentCount),
+                accessibleLabel: `${activeIncidentCount} active ${activeIncidentCount === 1 ? 'incident' : 'incidents'}; highest severity ${incidentState?.highestSeverity ?? 'warning'}`,
+                tone:
+                  incidentState?.highestSeverity === 'critical'
+                    ? ('critical' as const)
+                    : ('caution' as const),
+              }
             : undefined,
       }));
-  }, [activeIncidentCount, features, selectedTenant, session]);
+  }, [activeIncidentCount, features, incidentState, selectedTenant, session]);
   const routePresentation = useMemo(
     () => matchRoutePresentation(features, pathname),
     [features, pathname],
@@ -161,6 +169,15 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   const usesFleetData =
     selectedTenant !== null &&
     /^\/tenants\/[^/]+\/(?:fleet(?:\/|$)|nodes(?:\/|$)|runners(?:\/|$))/.test(pathname);
+
+  const pageTitle = formatRouteLabel(
+    routePresentation.presentation.title,
+    routePresentation.params,
+  );
+
+  useEffect(() => {
+    document.title = `${pageTitle} · PitCrew Dashboard`;
+  }, [pageTitle]);
 
   useEffect(() => {
     mainContent.current?.focus({ preventScroll: true });
@@ -178,6 +195,11 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           setIncidentState({
             tenantId: selectedTenant.tenantId,
             count: incidents.length,
+            highestSeverity: incidents.some((incident) => incident.severity === 'critical')
+              ? 'critical'
+              : incidents.length > 0
+                ? 'warning'
+                : null,
           });
         }
       } catch (caught) {
@@ -186,6 +208,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           setIncidentState({
             tenantId: selectedTenant.tenantId,
             count: 0,
+            highestSeverity: null,
           });
         }
       }
@@ -266,10 +289,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           className="mx-auto grid min-w-0 max-w-7xl gap-6 px-4 py-6 sm:px-8 sm:py-8"
           tabIndex={-1}
         >
-          <PageHeader
-            breadcrumbs={<Breadcrumbs match={routePresentation} />}
-            title={formatRouteLabel(routePresentation.presentation.title, routePresentation.params)}
-          />
+          <PageHeader breadcrumbs={<Breadcrumbs match={routePresentation} />} title={pageTitle} />
           {usesFleetData ? (
             <FleetProvider tenantId={selectedTenant.tenantId}>
               <Outlet />

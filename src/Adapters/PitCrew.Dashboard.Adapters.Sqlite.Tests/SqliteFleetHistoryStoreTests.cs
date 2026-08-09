@@ -94,6 +94,391 @@ public sealed class SqliteFleetHistoryStoreTests
   }
 
   [Test]
+  public async Task Host_Admission_Available_Sample_Round_Trips_All_Fields(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("host-admission-available");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var hostAdmission = new HostAdmissionState(
+          "available",
+          "primary",
+          9,
+          43,
+          20,
+          3,
+          17,
+          10,
+          new string('c', 64),
+          new HostAdmissionAccounting(
+              2,
+              5,
+              true,
+              new string('d', 64),
+              4,
+              3,
+              7,
+              2,
+              6,
+              6),
+          new HostAdmissionDecision(
+              43,
+              "acquire",
+              false,
+              "budget-exceeded",
+              1_754_719_500_000_000_000));
+      var profile = CreateProfile(Origin) with
+      {
+        ManagerContractVersion = 18,
+        HostAdmission = hostAdmission,
+      };
+
+      await FleetStorageTestTransactions.AppendAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          [profile],
+          Origin,
+          Retention,
+          cancellationToken);
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Samples).HasSingleItem();
+      var sample = history.Samples[0];
+      await Assert.That(sample.HostAdmissionStatus).IsEqualTo("available");
+      await Assert.That(sample.HostAdmissionNamespace).IsEqualTo("primary");
+      await Assert.That(sample.HostAdmissionEpoch).IsEqualTo(9L);
+      await Assert.That(sample.HostAdmissionDecisionSequence).IsEqualTo(43L);
+      await Assert.That(sample.HostAdmissionCapacityUnits).IsEqualTo(20);
+      await Assert.That(sample.HostAdmissionSafetyMarginUnits).IsEqualTo(3);
+      await Assert.That(sample.HostAdmissionEffectiveTotalUnits).IsEqualTo(17);
+      await Assert.That(sample.HostAdmissionAvailableUnits).IsEqualTo(10);
+      await Assert.That(sample.HostAdmissionUnitCost).IsEqualTo(2);
+      await Assert.That(sample.HostAdmissionReservedUnits).IsEqualTo(5);
+      await Assert.That(sample.HostAdmissionBorrowable).IsTrue();
+      await Assert.That(sample.HostAdmissionActiveUnits).IsEqualTo(4);
+      await Assert.That(sample.HostAdmissionProvisionalUnits).IsEqualTo(3);
+      await Assert.That(sample.HostAdmissionHeldUnits).IsEqualTo(7);
+      await Assert.That(sample.HostAdmissionBorrowedUnits).IsEqualTo(2);
+      await Assert.That(sample.HostAdmissionPendingUnits).IsEqualTo(6);
+      await Assert.That(sample.HostAdmissionWithheldUnits).IsEqualTo(6);
+
+      var hourly = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken,
+          HistoryResolution.Hourly);
+      await Assert.That(hourly.Rollups).HasSingleItem();
+      await Assert.That(hourly.Rollups[0].SampleCount).IsEqualTo(1);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Host_Admission_Null_And_Unknown_Values_Remain_Explicit(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("host-admission-null");
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var observations = new[]
+      {
+          CreateProfile(Origin) with
+          {
+            ManagerContractVersion = 18,
+            HostAdmission = new HostAdmissionState(
+                "unavailable",
+                "primary",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+          },
+          CreateProfile(Origin.AddMinutes(1)) with
+          {
+            ManagerContractVersion = 18,
+            HostAdmission = new HostAdmissionState(
+                "disabled",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+          },
+          CreateProfile(Origin.AddMinutes(2)) with
+          {
+            ManagerContractVersion = 18,
+            HostAdmission = new HostAdmissionState(
+                "degraded",
+                "primary",
+                10,
+                44,
+                null,
+                null,
+                17,
+                17,
+                null,
+                new HostAdmissionAccounting(
+                    2,
+                    0,
+                    false,
+                    null,
+                    0,
+                    0,
+                    0,
+                    0,
+                    null,
+                    null),
+                null),
+          },
+          CreateProfile(Origin.AddMinutes(3)) with
+          {
+            ManagerContractVersion = 17,
+            HostAdmission = null,
+          },
+      };
+      foreach (var observation in observations)
+      {
+        await FleetStorageTestTransactions.AppendAsync(
+            store,
+            connectionFactory,
+            nodeId,
+            [observation],
+            observation.ObservedAt,
+            Retention,
+            cancellationToken);
+      }
+
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Samples).Count().IsEqualTo(4);
+
+      var unavailable = history.Samples[0];
+      await Assert.That(unavailable.HostAdmissionStatus)
+          .IsEqualTo("unavailable");
+      await Assert.That(unavailable.HostAdmissionNamespace)
+          .IsEqualTo("primary");
+      await AssertHostAdmissionMeasurementsAreNullAsync(
+          unavailable,
+          cancellationToken);
+
+      var disabled = history.Samples[1];
+      await Assert.That(disabled.HostAdmissionStatus).IsEqualTo("disabled");
+      await Assert.That(disabled.HostAdmissionNamespace).IsNull();
+      await AssertHostAdmissionMeasurementsAreNullAsync(
+          disabled,
+          cancellationToken);
+
+      var degraded = history.Samples[2];
+      await Assert.That(degraded.HostAdmissionStatus).IsEqualTo("degraded");
+      await Assert.That(degraded.HostAdmissionActiveUnits).IsEqualTo(0);
+      await Assert.That(degraded.HostAdmissionProvisionalUnits).IsEqualTo(0);
+      await Assert.That(degraded.HostAdmissionHeldUnits).IsEqualTo(0);
+      await Assert.That(degraded.HostAdmissionBorrowedUnits).IsEqualTo(0);
+      await Assert.That(degraded.HostAdmissionBorrowable).IsFalse();
+      await Assert.That(degraded.HostAdmissionPendingUnits).IsNull();
+      await Assert.That(degraded.HostAdmissionWithheldUnits).IsNull();
+
+      var legacy = history.Samples[3];
+      await Assert.That(legacy.HostAdmissionStatus).IsNull();
+      await Assert.That(legacy.HostAdmissionNamespace).IsNull();
+      await AssertHostAdmissionMeasurementsAreNullAsync(
+          legacy,
+          cancellationToken);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Migration_Nineteen_Preserves_Prior_Samples(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("host-admission-migration");
+    try
+    {
+      var (connectionFactory, nodeId) =
+          await CreateVersionEighteenEnrolledNodeAsync(
+              databasePath,
+              cancellationToken);
+      var sampledAt = Origin.AddSeconds(-5);
+      await ExecuteAsync(
+          connectionFactory,
+          $"""
+          INSERT INTO profile_telemetry_samples (
+              node_id,
+              profile_id,
+              observed_at,
+              sampled_at,
+              recorded_at,
+              telemetry_status,
+              manager_instance_id,
+              manager_status,
+              generation,
+              desired_slots,
+              active_slots,
+              draining_slots,
+              configured_slots,
+              eligible_slots,
+              target_slots,
+              maximum_slots,
+              assigned_jobs,
+              running_jobs,
+              available_jobs,
+              idle_runners,
+              busy_runners,
+              local_running_workers,
+              manager_cpu_cores,
+              manager_memory_bytes,
+              manager_pids,
+              host_logical_processors,
+              host_memory_bytes,
+              worker_cpu_cores,
+              worker_memory_bytes,
+              worker_pids,
+              network_rx_bytes,
+              network_tx_bytes,
+              block_read_bytes,
+              block_write_bytes,
+              exit_reports,
+              adverse_exit_reports,
+              local_capacity_deficit,
+              eligibility_capacity_deficit,
+              capacity_deficit_reason,
+              capacity_deficit_freshness)
+          VALUES (
+              '{nodeId:D}',
+              'default',
+              '{Origin:O}',
+              '{sampledAt:O}',
+              '{Origin:O}',
+              'partial',
+              'legacy-manager',
+              'running',
+              5,
+              4,
+              2,
+              1,
+              6,
+              3,
+              2,
+              7,
+              5,
+              4,
+              3,
+              2,
+              1,
+              2,
+              1.25,
+              1234,
+              8,
+              16,
+              9999,
+              2.5,
+              5678,
+              10,
+              100,
+              200,
+              300,
+              400,
+              1,
+              0,
+              2,
+              1,
+              'capacity-ceiling',
+              'current');
+          """,
+          cancellationToken);
+
+      await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+          cancellationToken);
+
+      var store = new SqliteFleetHistoryStore(connectionFactory);
+      var history = await ReadProfileHistoryAsync(
+          store,
+          nodeId,
+          cancellationToken);
+      await Assert.That(history.Samples).HasSingleItem();
+      var sample = history.Samples[0];
+      await Assert.That(sample).IsEqualTo(new ProfileTelemetrySample(
+          Origin,
+          sampledAt,
+          "partial",
+          "legacy-manager",
+          "running",
+          5,
+          4,
+          2,
+          1,
+          6,
+          3,
+          2,
+          7,
+          5,
+          4,
+          3,
+          2,
+          1,
+          2,
+          1.25,
+          1234,
+          8,
+          16,
+          9999,
+          2.5,
+          5678,
+          10,
+          100,
+          200,
+          300,
+          400,
+          1,
+          0,
+          2,
+          1,
+          "capacity-ceiling",
+          "current"));
+      await Assert.That(sample.HostAdmissionStatus).IsNull();
+      await Assert.That(sample.HostAdmissionNamespace).IsNull();
+      await AssertHostAdmissionMeasurementsAreNullAsync(
+          sample,
+          cancellationToken);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Worker_Image_Rollout_Transitions_Are_Durable_And_Bounded(
         CancellationToken cancellationToken)
   {
@@ -3336,6 +3721,28 @@ public sealed class SqliteFleetHistoryStoreTests
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
+  private static async Task AssertHostAdmissionMeasurementsAreNullAsync(
+      ProfileTelemetrySample sample,
+      CancellationToken cancellationToken)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    await Assert.That(sample.HostAdmissionEpoch).IsNull();
+    await Assert.That(sample.HostAdmissionDecisionSequence).IsNull();
+    await Assert.That(sample.HostAdmissionCapacityUnits).IsNull();
+    await Assert.That(sample.HostAdmissionSafetyMarginUnits).IsNull();
+    await Assert.That(sample.HostAdmissionEffectiveTotalUnits).IsNull();
+    await Assert.That(sample.HostAdmissionAvailableUnits).IsNull();
+    await Assert.That(sample.HostAdmissionUnitCost).IsNull();
+    await Assert.That(sample.HostAdmissionReservedUnits).IsNull();
+    await Assert.That(sample.HostAdmissionBorrowable).IsNull();
+    await Assert.That(sample.HostAdmissionActiveUnits).IsNull();
+    await Assert.That(sample.HostAdmissionProvisionalUnits).IsNull();
+    await Assert.That(sample.HostAdmissionHeldUnits).IsNull();
+    await Assert.That(sample.HostAdmissionBorrowedUnits).IsNull();
+    await Assert.That(sample.HostAdmissionPendingUnits).IsNull();
+    await Assert.That(sample.HostAdmissionWithheldUnits).IsNull();
+  }
+
   private static async Task<(
       SqliteConnectionFactory ConnectionFactory,
       Guid NodeId)> CreateEnrolledNodeAsync(
@@ -3348,6 +3755,40 @@ public sealed class SqliteFleetHistoryStoreTests
           DatabasePath = databasePath,
         }));
     await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+        cancellationToken);
+    var owner = new DashboardUser(
+        "1",
+        "owner",
+        "Owner",
+        null);
+    await new SqliteAccessStore(connectionFactory).EnsureTenantOwnerAsync(
+        "tenant",
+        "Tenant",
+        owner,
+        Origin,
+        cancellationToken);
+    return (
+        connectionFactory,
+        await EnrollNodeAsync(
+            connectionFactory,
+            "connector",
+            cancellationToken));
+  }
+
+  private static async Task<(
+      SqliteConnectionFactory ConnectionFactory,
+      Guid NodeId)> CreateVersionEighteenEnrolledNodeAsync(
+      string databasePath,
+      CancellationToken cancellationToken)
+  {
+    var connectionFactory = new SqliteConnectionFactory(
+        Options.Create(new SqliteFleetStoreOptions
+        {
+          DatabasePath = databasePath,
+        }));
+    await SqliteMigrationTestDatabase.ApplyThroughAsync(
+        connectionFactory,
+        18,
         cancellationToken);
     var owner = new DashboardUser(
         "1",

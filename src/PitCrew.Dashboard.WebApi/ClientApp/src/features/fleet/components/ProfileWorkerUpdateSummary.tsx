@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { describeWorkerUpdate, type ManagerObservedState } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 function shortIdentity(value: string | null): string {
@@ -22,7 +23,7 @@ export function ProfileWorkerUpdateSummary({
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle>Worker image rollout</CardTitle>
+            <CardTitle as="h3">Worker image rollout</CardTitle>
             <CardDescription>
               Target identity and safe convergence of live ephemeral workers.
             </CardDescription>
@@ -70,12 +71,9 @@ export function ProfileWorkerUpdateSummary({
               Observed {formatTime(profile.observedAt)}. {describeWorkerUpdate(profile)}
             </p>
             {update.lastError ? (
-              <p
-                className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
-                role="alert"
-              >
+              <StateBanner className="px-3 py-2 text-sm" tone="critical">
                 {update.lastError}
-              </p>
+              </StateBanner>
             ) : null}
           </>
         )}

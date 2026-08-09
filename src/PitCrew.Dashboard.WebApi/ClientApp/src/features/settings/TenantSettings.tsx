@@ -1,5 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
+import { CopyableId } from '@/core/ui/CopyableId';
 
 import { renameTenant } from './settingsApi';
 
@@ -21,12 +22,16 @@ export function TenantSettings({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tenant settings</CardTitle>
+        <CardTitle as="h2">Tenant settings</CardTitle>
         <CardDescription>
-          Change the operator-facing name. The stable tenant ID remains {tenantId}.
+          Change the operator-facing name. The stable tenant ID is not editable.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-1">
+          <span className="text-sm font-medium">Tenant ID</span>
+          <CopyableId value={tenantId} label="tenant ID" />
+        </div>
         <DisplayNameEditor
           value={displayName}
           label="Tenant display name"

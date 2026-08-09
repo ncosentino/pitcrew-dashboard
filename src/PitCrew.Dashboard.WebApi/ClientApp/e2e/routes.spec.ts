@@ -47,7 +47,9 @@ const routes: readonly RouteCase[] = [
   },
   { name: 'runners', path: `/tenants/${tenantId}/runners` },
   { name: 'settings-general', path: `/tenants/${tenantId}/settings/general` },
+  { name: 'settings-access', path: `/tenants/${tenantId}/settings/access` },
   { name: 'settings-enrollment', path: `/tenants/${tenantId}/settings/enrollment` },
+  { name: 'settings-diagnostics', path: `/tenants/${tenantId}/settings/diagnostics` },
   { name: 'not-found', path: `/tenants/${tenantId}/this-route-does-not-exist` },
 ];
 

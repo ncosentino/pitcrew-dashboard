@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 
+import { CopyableId } from '@/core/ui/CopyableId';
 import { EntityHeader } from '@/core/ui/EntityHeader';
 
 describe('EntityHeader', () => {
@@ -15,6 +16,17 @@ describe('EntityHeader', () => {
     render(<EntityHeader title="build" identifier="build" headingLevel="h3" />);
 
     expect(screen.getByRole('heading', { level: 3, name: 'build' })).toBeInTheDocument();
+  });
+
+  it('renders a custom identifier node without forcing it into plain text', () => {
+    render(
+      <EntityHeader
+        title="Alpha"
+        identifier={<CopyableId label="node identifier" value="node-1" />}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Copy node identifier' })).toBeInTheDocument();
   });
 
   it('omits the identifier paragraph when the entity has none', () => {
