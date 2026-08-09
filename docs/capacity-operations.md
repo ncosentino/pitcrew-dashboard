@@ -14,6 +14,27 @@ For a zero request, the connector invokes the explicit
 `Setup-Runner.ps1 -Pause` path. The profile and manager remain present, busy
 workers drain normally, and no replacement or new worker is admitted.
 
+## Host-local admission evidence
+
+PitCrew manager contract 18 adds read-only host-local admission evidence to the
+existing fleet projection. This is separate from the configured profile maximum
+and from GitHub demand:
+
+- the configured host capacity and safety margin define an abstract unit budget;
+- each profile reports its worker cost, reservation, and whether unused reserved
+  units are borrowable;
+- active, provisional, held, borrowed, pending, withheld, and available units
+  remain distinct;
+- per-target capacity evidence identifies `host-admission-withheld`,
+  `host-admission-degraded`, and `host-admission-unavailable` without rewriting
+  GitHub demand counts; and
+- disabled, unavailable, and restart-stale evidence remains explicit. Missing
+  values render as unavailable, never as zero or healthy.
+
+The dashboard exposes no host-admission mutation. Admission policy remains
+operator-owned PitCrew configuration, while Dashboard and its connector remain
+read-only consumers of credential-free manager evidence.
+
 ## Deployment boundary
 
 The existing connector container remains read-only. Capacity operations require

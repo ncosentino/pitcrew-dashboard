@@ -70,6 +70,23 @@ internal sealed partial class SqliteFleetHistoryStore(
       host_memory_pressure_full_avg10,
       host_io_pressure_some_avg10,
       host_io_pressure_full_avg10,
+      host_admission_status,
+      host_admission_namespace,
+      host_admission_epoch,
+      host_admission_decision_sequence,
+      host_admission_capacity_units,
+      host_admission_safety_margin_units,
+      host_admission_effective_total_units,
+      host_admission_available_units,
+      host_admission_unit_cost,
+      host_admission_reserved_units,
+      host_admission_borrowable,
+      host_admission_active_units,
+      host_admission_provisional_units,
+      host_admission_held_units,
+      host_admission_borrowed_units,
+      host_admission_pending_units,
+      host_admission_withheld_units,
       worker_cpu_cores,
       worker_memory_bytes,
       worker_pids,
@@ -579,6 +596,23 @@ internal sealed partial class SqliteFleetHistoryStore(
             $hostMemoryPressureFullAvg10,
             $hostIoPressureSomeAvg10,
             $hostIoPressureFullAvg10,
+            $hostAdmissionStatus,
+            $hostAdmissionNamespace,
+            $hostAdmissionEpoch,
+            $hostAdmissionDecisionSequence,
+            $hostAdmissionCapacityUnits,
+            $hostAdmissionSafetyMarginUnits,
+            $hostAdmissionEffectiveTotalUnits,
+            $hostAdmissionAvailableUnits,
+            $hostAdmissionUnitCost,
+            $hostAdmissionReservedUnits,
+            $hostAdmissionBorrowable,
+            $hostAdmissionActiveUnits,
+            $hostAdmissionProvisionalUnits,
+            $hostAdmissionHeldUnits,
+            $hostAdmissionBorrowedUnits,
+            $hostAdmissionPendingUnits,
+            $hostAdmissionWithheldUnits,
             $workerCpuCores,
             $workerMemoryBytes,
             $workerPids,
@@ -699,6 +733,74 @@ internal sealed partial class SqliteFleetHistoryStore(
         command,
         "$hostIoPressureFullAvg10",
         pressure?.IoPressureFullAvg10);
+    AddNullable(
+        command,
+        "$hostAdmissionStatus",
+        sample.HostAdmissionStatus);
+    AddNullable(
+        command,
+        "$hostAdmissionNamespace",
+        sample.HostAdmissionNamespace);
+    AddNullable(
+        command,
+        "$hostAdmissionEpoch",
+        sample.HostAdmissionEpoch);
+    AddNullable(
+        command,
+        "$hostAdmissionDecisionSequence",
+        sample.HostAdmissionDecisionSequence);
+    AddNullable(
+        command,
+        "$hostAdmissionCapacityUnits",
+        sample.HostAdmissionCapacityUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionSafetyMarginUnits",
+        sample.HostAdmissionSafetyMarginUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionEffectiveTotalUnits",
+        sample.HostAdmissionEffectiveTotalUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionAvailableUnits",
+        sample.HostAdmissionAvailableUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionUnitCost",
+        sample.HostAdmissionUnitCost);
+    AddNullable(
+        command,
+        "$hostAdmissionReservedUnits",
+        sample.HostAdmissionReservedUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionBorrowable",
+        sample.HostAdmissionBorrowable);
+    AddNullable(
+        command,
+        "$hostAdmissionActiveUnits",
+        sample.HostAdmissionActiveUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionProvisionalUnits",
+        sample.HostAdmissionProvisionalUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionHeldUnits",
+        sample.HostAdmissionHeldUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionBorrowedUnits",
+        sample.HostAdmissionBorrowedUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionPendingUnits",
+        sample.HostAdmissionPendingUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionWithheldUnits",
+        sample.HostAdmissionWithheldUnits);
     AddNullable(command, "$workerCpuCores", sample.WorkerCpuCores);
     AddNullable(command, "$workerMemoryBytes", sample.WorkerMemoryBytes);
     AddNullable(command, "$workerPids", sample.WorkerPids);

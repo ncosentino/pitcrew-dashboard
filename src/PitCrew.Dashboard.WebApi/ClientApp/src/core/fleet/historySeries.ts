@@ -44,6 +44,23 @@ export interface DeficitReasonChange {
   readonly evidence: string | null;
 }
 
+/** One raw retained change in profile-scoped host-admission evidence. */
+export interface HostAdmissionHistoryChange {
+  readonly observedAt: string;
+  readonly status: 'disabled' | 'available' | 'degraded' | 'unavailable';
+  readonly namespace: string | null;
+  readonly epoch: number | null;
+  readonly decisionSequence: number | null;
+  readonly effectiveTotalUnits: number | null;
+  readonly availableUnits: number | null;
+  readonly reservedUnits: number | null;
+  readonly borrowable: boolean | null;
+  readonly heldUnits: number | null;
+  readonly borrowedUnits: number | null;
+  readonly pendingUnits: number | null;
+  readonly withheldUnits: number | null;
+}
+
 /** Explicit availability of one rendered history range. */
 export interface HistoryAvailability {
   readonly status: 'available' | 'partial' | 'unavailable';
@@ -519,6 +536,42 @@ export function buildDeficitReasonChanges(history: ProfileHistory): readonly Def
       evidence: observation.evidence,
     }))
     .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+}
+
+/** Returns changed raw host-admission observations newest first without inventing hourly state. */
+export function buildHostAdmissionChanges(
+  history: ProfileHistory,
+): readonly HostAdmissionHistoryChange[] {
+  const changes: HostAdmissionHistoryChange[] = [];
+  let previousSignature: string | null = null;
+  const ordered = [...history.samples].sort(
+    (left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt),
+  );
+  for (const sample of ordered) {
+    if (sample.hostAdmissionStatus == null) continue;
+    const change: HostAdmissionHistoryChange = {
+      observedAt: sample.observedAt,
+      status: sample.hostAdmissionStatus,
+      namespace: sample.hostAdmissionNamespace,
+      epoch: sample.hostAdmissionEpoch,
+      decisionSequence: sample.hostAdmissionDecisionSequence,
+      effectiveTotalUnits: sample.hostAdmissionEffectiveTotalUnits,
+      availableUnits: sample.hostAdmissionAvailableUnits,
+      reservedUnits: sample.hostAdmissionReservedUnits,
+      borrowable: sample.hostAdmissionBorrowable,
+      heldUnits: sample.hostAdmissionHeldUnits,
+      borrowedUnits: sample.hostAdmissionBorrowedUnits,
+      pendingUnits: sample.hostAdmissionPendingUnits,
+      withheldUnits: sample.hostAdmissionWithheldUnits,
+    };
+    const signature = JSON.stringify(change, (key, value) =>
+      key === 'observedAt' ? undefined : value,
+    );
+    if (signature === previousSignature) continue;
+    changes.push(change);
+    previousSignature = signature;
+  }
+  return changes.reverse();
 }
 
 /**

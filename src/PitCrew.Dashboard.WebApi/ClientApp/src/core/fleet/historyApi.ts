@@ -50,6 +50,32 @@ const telemetrySampleSchema = z.object({
   hostMemoryPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
   hostIoPressureSomeAvg10: z.number().min(0).max(100).nullable().default(null),
   hostIoPressureFullAvg10: z.number().min(0).max(100).nullable().default(null),
+  hostAdmissionStatus: z
+    .enum(['disabled', 'available', 'degraded', 'unavailable'])
+    .nullable()
+    .default(null),
+  hostAdmissionNamespace: z
+    .string()
+    .min(1)
+    .max(32)
+    .regex(/^[a-z][a-z0-9-]*$/u)
+    .nullable()
+    .default(null),
+  hostAdmissionEpoch: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionDecisionSequence: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionCapacityUnits: z.number().int().positive().nullable().default(null),
+  hostAdmissionSafetyMarginUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionEffectiveTotalUnits: z.number().int().positive().nullable().default(null),
+  hostAdmissionAvailableUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionUnitCost: z.number().int().positive().nullable().default(null),
+  hostAdmissionReservedUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionBorrowable: z.boolean().nullable().default(null),
+  hostAdmissionActiveUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionProvisionalUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionHeldUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionBorrowedUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionPendingUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionWithheldUnits: z.number().int().nonnegative().nullable().default(null),
   workerCpuCores: z.number().nonnegative().nullable(),
   workerMemoryBytes: z.number().int().nonnegative().nullable(),
   workerPids: z.number().int().nonnegative().nullable(),

@@ -1511,5 +1511,106 @@ internal static class SqliteMigrationCatalog
                       'invalid alert incident status transition');
               END;
               """),
+        new(
+              19,
+              "host-admission-history",
+              """
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_status TEXT NULL
+                      CHECK (host_admission_status IS NULL
+                          OR host_admission_status IN (
+                              'disabled',
+                              'available',
+                              'degraded',
+                              'unavailable'));
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_namespace TEXT NULL
+                      CHECK (host_admission_namespace IS NULL
+                          OR (
+                              length(host_admission_namespace)
+                                  BETWEEN 1 AND 32
+                              AND substr(
+                                  host_admission_namespace,
+                                  1,
+                                  1) GLOB '[a-z]'
+                              AND host_admission_namespace
+                                  NOT GLOB '*[^a-z0-9-]*'));
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_epoch INTEGER NULL
+                      CHECK (host_admission_epoch IS NULL
+                          OR host_admission_epoch >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_decision_sequence INTEGER NULL
+                      CHECK (host_admission_decision_sequence IS NULL
+                          OR host_admission_decision_sequence >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_capacity_units INTEGER NULL
+                      CHECK (host_admission_capacity_units IS NULL
+                          OR host_admission_capacity_units > 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_safety_margin_units INTEGER NULL
+                      CHECK (host_admission_safety_margin_units IS NULL
+                          OR host_admission_safety_margin_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_effective_total_units INTEGER NULL
+                      CHECK (host_admission_effective_total_units IS NULL
+                          OR host_admission_effective_total_units > 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_available_units INTEGER NULL
+                      CHECK (host_admission_available_units IS NULL
+                          OR host_admission_available_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_unit_cost INTEGER NULL
+                      CHECK (host_admission_unit_cost IS NULL
+                          OR host_admission_unit_cost > 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_reserved_units INTEGER NULL
+                      CHECK (host_admission_reserved_units IS NULL
+                          OR host_admission_reserved_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_borrowable INTEGER NULL
+                      CHECK (host_admission_borrowable IS NULL
+                          OR host_admission_borrowable IN (0, 1));
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_active_units INTEGER NULL
+                      CHECK (host_admission_active_units IS NULL
+                          OR host_admission_active_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_provisional_units INTEGER NULL
+                      CHECK (host_admission_provisional_units IS NULL
+                          OR host_admission_provisional_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_held_units INTEGER NULL
+                      CHECK (host_admission_held_units IS NULL
+                          OR host_admission_held_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_borrowed_units INTEGER NULL
+                      CHECK (host_admission_borrowed_units IS NULL
+                          OR host_admission_borrowed_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_pending_units INTEGER NULL
+                      CHECK (host_admission_pending_units IS NULL
+                          OR host_admission_pending_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_withheld_units INTEGER NULL
+                      CHECK (host_admission_withheld_units IS NULL
+                          OR host_admission_withheld_units >= 0);
+              """),
     ];
 }
