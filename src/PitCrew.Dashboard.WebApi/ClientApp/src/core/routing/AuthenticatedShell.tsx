@@ -162,6 +162,15 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
     selectedTenant !== null &&
     /^\/tenants\/[^/]+\/(?:fleet(?:\/|$)|nodes(?:\/|$)|runners(?:\/|$))/.test(pathname);
 
+  const pageTitle = formatRouteLabel(
+    routePresentation.presentation.title,
+    routePresentation.params,
+  );
+
+  useEffect(() => {
+    document.title = `${pageTitle} · PitCrew Dashboard`;
+  }, [pageTitle]);
+
   useEffect(() => {
     mainContent.current?.focus({ preventScroll: true });
   }, [pathname]);
@@ -266,10 +275,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
           className="mx-auto grid min-w-0 max-w-7xl gap-6 px-4 py-6 sm:px-8 sm:py-8"
           tabIndex={-1}
         >
-          <PageHeader
-            breadcrumbs={<Breadcrumbs match={routePresentation} />}
-            title={formatRouteLabel(routePresentation.presentation.title, routePresentation.params)}
-          />
+          <PageHeader breadcrumbs={<Breadcrumbs match={routePresentation} />} title={pageTitle} />
           {usesFleetData ? (
             <FleetProvider tenantId={selectedTenant.tenantId}>
               <Outlet />

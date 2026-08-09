@@ -25,10 +25,13 @@ GitHub OAuth credential is required or contacted.
 ## What it covers
 
 - **Route matrix**: Fleet Overview, Incidents, Node Overview, Node Administration,
-  Profile Overview, Runners, Settings (General, Enrollment), and an unknown route
+  Profile Overview, Runners, Settings (General, Access, Enrollment, Diagnostics), and an unknown route
   (404), each rendered in light/dark at desktop (1440×900), wide (1280×800),
   intermediate (768×1024), strict mobile (390×844), and narrow (320×568) sizes —
-  90 combinations.
+  110 combinations.
+- **Settings roles and states** (`e2e/settings.spec.ts`): owner, administrator,
+  viewer, system administrator, tenantless access, branded loading, active primary
+  and section navigation, copyable IDs, and membership/credential confirmations.
 - **Responsive foundation** (`e2e/responsive.spec.ts`): zero document overflow at
   320, 390, 768, 1280, and 1440 pixels; prioritized Fleet, Incidents, Active Jobs,
   Runners, and Profile Workers summaries; keyboard-operable table regions; 44-pixel

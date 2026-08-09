@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/core/api/httpClient';
 import type { DashboardUser, TenantRole } from '@/core/auth';
+import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { FormField } from '@/core/ui/FormField';
+import { LoadingState } from '@/core/ui/LoadingState';
+import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
+import { StateBanner } from '@/core/ui/StateBanner';
 
 import {
   getAvailableUsers,
@@ -26,6 +32,8 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState<TenantRole>('viewer');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
 
   const load = useCallback(
@@ -46,6 +54,8 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
       } catch (caught) {
         if (caught instanceof Error && caught.name === 'AbortError') return;
         setError(caught instanceof Error ? caught.message : 'Memberships could not be loaded.');
+      } finally {
+        if (!signal.aborted) setIsLoading(false);
       }
     },
     [tenantId],
@@ -62,11 +72,14 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
     };
   }, [load]);
 
-  const mutate = async (operation: () => Promise<void>) => {
+  const mutate = async (operation: () => Promise<void>, successMessage: string) => {
     setIsBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       await operation();
       await load(new AbortController().signal);
+      setNotice(successMessage);
     } catch (caught) {
       setError(
         caught instanceof ApiError
@@ -79,19 +92,22 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
       setIsBusy(false);
     }
   };
+  const selectedUser = availableUsers.find((user) => user.githubUserId === selectedUserId);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tenant membership</CardTitle>
+        <CardTitle as="h2">Tenant membership</CardTitle>
         <CardDescription>
           Users appear here after their first GitHub sign-in. A tenant always retains at least one
           owner.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
-        {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
-        <div className="min-w-0 overflow-x-auto">
+        {error ? <StateBanner tone="critical">{error}</StateBanner> : null}
+        {notice ? <StateBanner tone="positive">{notice}</StateBanner> : null}
+        {isLoading ? <LoadingState label="Loading tenant memberships…" /> : null}
+        <ScrollableRegion label="Tenant members">
           <table className="w-full min-w-xl text-left text-sm">
             <caption className="px-2 py-2 text-left font-semibold">Tenant members</caption>
             <thead className="text-xs text-muted-foreground uppercase">
@@ -118,65 +134,106 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
                   </td>
                   <td className="px-2 py-2 capitalize">{member.role}</td>
                   <td className="px-2 py-2 text-right">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={isBusy}
-                      onClick={() =>
-                        void mutate(() =>
-                          removeTenantMembership(
-                            tenantId,
-                            member.user.githubUserId,
-                            antiforgeryToken,
-                          ),
+                    <ConfirmActionDialog
+                      trigger={
+                        <Button type="button" variant="outline" size="sm" disabled={isBusy}>
+                          Remove
+                        </Button>
+                      }
+                      title={`Remove ${member.user.displayName}?`}
+                      description="This will remove the user's access to the tenant."
+                      confirmLabel="Remove member"
+                      confirmVariant="destructive"
+                      details={
+                        <ConfirmationSummary
+                          identity={[
+                            { label: 'User', value: `@${member.user.githubLogin}` },
+                            { label: 'Current role', value: member.role },
+                          ]}
+                          effects={[
+                            'The user will lose all access to this tenant.',
+                            'They can be re-added later.',
+                          ]}
+                        />
+                      }
+                      onConfirm={() =>
+                        mutate(
+                          () =>
+                            removeTenantMembership(
+                              tenantId,
+                              member.user.githubUserId,
+                              antiforgeryToken,
+                            ),
+                          `Removed @${member.user.githubLogin} from this tenant.`,
                         )
                       }
-                    >
-                      Remove
-                    </Button>
+                    />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_auto_auto]">
-          <select
-            aria-label="User"
-            className="h-9 rounded-md border bg-background px-3 text-sm"
-            value={selectedUserId}
-            onChange={(event) => setSelectedUserId(event.target.value)}
-          >
-            {availableUsers.length === 0 ? <option value="">No available users</option> : null}
-            {availableUsers.map((user) => (
-              <option key={user.githubUserId} value={user.githubUserId}>
-                @{user.githubLogin}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Role"
-            className="h-9 rounded-md border bg-background px-3 text-sm"
-            value={selectedRole}
-            onChange={(event) => setSelectedRole(event.target.value as TenantRole)}
-          >
-            <option value="viewer">Viewer</option>
-            <option value="administrator">Administrator</option>
-            <option value="owner">Owner</option>
-          </select>
-          <Button
-            type="button"
-            disabled={isBusy || selectedUserId.length === 0}
-            onClick={() =>
-              void mutate(() =>
-                setTenantMembership(tenantId, selectedUserId, selectedRole, antiforgeryToken),
-              )
-            }
-          >
-            Add member
-          </Button>
-        </div>
+        </ScrollableRegion>
+        <fieldset className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[1fr_auto_auto]">
+          <legend className="px-2 text-sm font-medium">Add a member</legend>
+          <FormField label="User" hint="Users appear after their first sign-in.">
+            <select
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              value={selectedUserId}
+              onChange={(event) => setSelectedUserId(event.target.value)}
+            >
+              {availableUsers.length === 0 ? <option value="">No available users</option> : null}
+              {availableUsers.map((user) => (
+                <option key={user.githubUserId} value={user.githubUserId}>
+                  @{user.githubLogin}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Role" hint="Viewer, Administrator, or Owner.">
+            <select
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              value={selectedRole}
+              onChange={(event) => setSelectedRole(event.target.value as TenantRole)}
+            >
+              <option value="viewer">Viewer</option>
+              <option value="administrator">Administrator</option>
+              <option value="owner">Owner</option>
+            </select>
+          </FormField>
+          <div className="flex items-end">
+            <ConfirmActionDialog
+              trigger={
+                <Button type="button" disabled={isBusy || selectedUser === undefined}>
+                  Add member
+                </Button>
+              }
+              title={`Add ${selectedUser ? `@${selectedUser.githubLogin}` : 'member'}?`}
+              description="This grants access to the current tenant at the selected role."
+              confirmLabel="Add member"
+              details={
+                <ConfirmationSummary
+                  identity={[
+                    {
+                      label: 'User',
+                      value: selectedUser ? `@${selectedUser.githubLogin}` : 'Unavailable',
+                    },
+                    { label: 'Role', value: selectedRole },
+                  ]}
+                  effects={['The user can access this tenant with the selected role.']}
+                  prohibitedEffects={['This does not grant system-administrator access.']}
+                />
+              }
+              onConfirm={() =>
+                mutate(
+                  () =>
+                    setTenantMembership(tenantId, selectedUserId, selectedRole, antiforgeryToken),
+                  `Added @${selectedUser?.githubLogin ?? 'user'} as ${selectedRole}.`,
+                )
+              }
+            />
+          </div>
+        </fieldset>
       </CardContent>
     </Card>
   );
