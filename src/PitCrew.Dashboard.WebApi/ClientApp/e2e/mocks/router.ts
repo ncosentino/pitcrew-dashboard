@@ -116,6 +116,9 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
   await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/incidents\/[^/]+\/acknowledge$/, (route) =>
     mutationResponse(route, mutationOutcome, { acknowledged: true }),
   );
+  await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/incidents\/[^/]+\/unacknowledge$/, (route) =>
+    mutationResponse(route, mutationOutcome),
+  );
 
   await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/nodes\/[^/]+\/revoke$/, (route) =>
     mutationResponse(route, mutationOutcome),

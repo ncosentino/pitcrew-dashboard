@@ -6,13 +6,20 @@ export interface PitCrewBrandProps {
   readonly variant: PitCrewBrandVariant;
 }
 
-/** Renders the canonical PitCrew artwork and dashboard product lockup. */
+/**
+ * Renders the canonical PitCrew artwork and dashboard product lockup.
+ *
+ * The "Dashboard" wordmark uses `--brand-teal-accessible` (instrument-ink
+ * in light, instrument-teal-bright in dark) instead of the raw
+ * `--brand-teal` so the small-text pairing meets WCAG AA 4.5:1 against
+ * both theme surfaces.
+ */
 export function PitCrewBrand({ variant }: PitCrewBrandProps) {
   if (variant === 'hero') {
     return (
       <div className="flex flex-col items-center gap-2 text-center">
         <img className="size-40 object-contain sm:size-48" src="/pitcrew-logo.png" alt="PitCrew" />
-        <div className="text-sm font-bold tracking-[0.32em] text-[var(--brand-teal)] uppercase">
+        <div className="text-sm font-bold tracking-[0.32em] text-[var(--brand-teal-accessible)] uppercase">
           Dashboard
         </div>
       </div>
@@ -33,9 +40,9 @@ export function PitCrewBrand({ variant }: PitCrewBrandProps) {
             'text-[var(--brand-navy)] dark:text-white',
           )}
         >
-          Pit<span className="text-[var(--brand-orange)]">Crew</span>
+          Pit<span className="text-[var(--brand-orange-accessible)]">Crew</span>
         </div>
-        <div className="mt-1 text-xs font-bold tracking-[0.24em] text-[var(--brand-teal)] uppercase">
+        <div className="mt-1 text-xs font-bold tracking-[0.24em] text-[var(--brand-teal-accessible)] uppercase">
           Dashboard
         </div>
       </div>

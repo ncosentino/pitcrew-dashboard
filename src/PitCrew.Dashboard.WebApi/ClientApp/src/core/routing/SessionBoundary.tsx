@@ -3,6 +3,8 @@ import { Outlet } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
+import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
+import { LoadingState } from '@/core/ui/LoadingState';
 
 import { LoginPage } from './pages';
 
@@ -10,15 +12,33 @@ import { LoginPage } from './pages';
 export function SessionBoundary() {
   const { status, error, refreshSession } = useSession();
   if (status === 'loading') {
-    return <main className="p-8 text-muted-foreground">Loading dashboard session…</main>;
+    return (
+      <main className="mx-auto flex min-h-screen max-w-xl items-center px-4">
+        <Card className="w-full">
+          <CardHeader className="items-center text-center">
+            <PitCrewBrand variant="hero" />
+            <CardTitle as="h1" className="mt-2 text-2xl">
+              Opening PitCrew Dashboard
+            </CardTitle>
+            <CardDescription>Loading authorized fleet access.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LoadingState label="Loading dashboard session…" />
+          </CardContent>
+        </Card>
+      </main>
+    );
   }
   if (status === 'unauthenticated') return <LoginPage />;
   if (status === 'error') {
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl items-center px-4" role="alert">
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>Dashboard session is unavailable</CardTitle>
+      <main className="mx-auto flex min-h-screen max-w-xl items-center px-4">
+        <Card className="w-full" role="alert">
+          <CardHeader className="items-center text-center">
+            <PitCrewBrand variant="hero" />
+            <CardTitle as="h1" className="mt-2 text-2xl">
+              Dashboard session is unavailable
+            </CardTitle>
             <CardDescription>
               {error ?? 'The authenticated dashboard session could not be loaded.'}
             </CardDescription>

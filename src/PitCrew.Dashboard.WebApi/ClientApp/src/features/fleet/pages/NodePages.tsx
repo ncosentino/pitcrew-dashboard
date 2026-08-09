@@ -57,7 +57,7 @@ function ProfileSummary({ profile, tenantId, nodeId, nodeIsOnline }: ProfileSumm
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle>
+            <CardTitle as="h3">
               <Link
                 className="text-link underline-offset-4 hover:underline"
                 to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profile.profileId)}`}
@@ -180,7 +180,7 @@ export function NodeDetailLayout() {
         ) : null}
         <Card>
           <CardHeader>
-            <CardTitle>Node not found</CardTitle>
+            <CardTitle as="h2">Node not found</CardTitle>
             <CardDescription>
               No node with ID {nodeId} exists in this tenant&apos;s fleet projection.
             </CardDescription>
@@ -306,7 +306,7 @@ export function NodeOverviewPage() {
     <div className="grid gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Node identity</CardTitle>
+          <CardTitle as="h3">Node identity</CardTitle>
           <CardDescription>Connector, enrollment, and current aggregate capacity.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -373,7 +373,7 @@ export function NodeOverviewPage() {
         {sortedProfiles.length === 0 ? (
           <Card>
             <CardHeader>
-              <CardTitle>No profiles reported</CardTitle>
+              <CardTitle as="h3">No profiles reported</CardTitle>
               <CardDescription>
                 The connector has not reported any profile observations for this node.
               </CardDescription>
@@ -431,7 +431,7 @@ export function NodeAdministrationPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Node administration</CardTitle>
+        <CardTitle as="h2">Node administration</CardTitle>
         <CardDescription>
           Rename this node, rotate its connector credential, or revoke its enrollment.
         </CardDescription>

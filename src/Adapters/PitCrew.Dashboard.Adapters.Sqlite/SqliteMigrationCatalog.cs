@@ -1488,5 +1488,28 @@ internal static class SqliteMigrationCatalog
               CREATE INDEX ix_connector_health_events_received
                   ON connector_health_events (received_at);
               """),
+        new(
+              18,
+              "alert-unacknowledge-transition",
+              """
+              DROP TRIGGER IF EXISTS trg_alert_incidents_transitions;
+
+              CREATE TRIGGER trg_alert_incidents_transitions
+              BEFORE UPDATE OF status ON alert_incidents
+              FOR EACH ROW
+              WHEN NOT (
+                  OLD.status = NEW.status
+                  OR (OLD.status = 'pending' AND NEW.status = 'triggered')
+                  OR (OLD.status = 'triggered' AND NEW.status IN (
+                          'acknowledged',
+                          'resolved'))
+                  OR (OLD.status = 'acknowledged'
+                      AND NEW.status IN ('resolved', 'triggered')))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'invalid alert incident status transition');
+              END;
+              """),
     ];
 }

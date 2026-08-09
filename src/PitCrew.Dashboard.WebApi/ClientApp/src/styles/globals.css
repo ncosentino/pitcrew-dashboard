@@ -18,6 +18,8 @@ html[data-theme='dark'] {
   --brand-navy: #071825;
   --brand-orange: #f33919;
   --brand-teal: #13989f;
+  --brand-teal-accessible: #0b686e;
+  --brand-orange-accessible: #c42a11;
   --brand-teal-glow: rgb(19 152 159 / 12%);
   --brand-orange-glow: rgb(243 57 25 / 8%);
   --radius: 0.625rem;
@@ -70,6 +72,8 @@ html[data-theme='dark'] {
 }
 
 .dark {
+  --brand-teal-accessible: #27b7bd;
+  --brand-orange-accessible: #ff7b6b;
   --brand-teal-glow: rgb(19 152 159 / 18%);
   --brand-orange-glow: rgb(243 57 25 / 12%);
   --background: #071825;
@@ -95,7 +99,7 @@ html[data-theme='dark'] {
   --muted-foreground: #a8bac4;
   --accent: #123c42;
   --accent-foreground: #c9f1f2;
-  --destructive: oklch(0.704 0.191 22.216);
+  --destructive: oklch(0.577 0.245 27.325);
   --border: rgb(255 255 255 / 14%);
   --input: rgb(255 255 255 / 18%);
   --ring: #27b7bd;
@@ -230,5 +234,19 @@ html[data-theme='dark'] {
       radial-gradient(circle at top left, var(--brand-teal-glow), transparent 32rem),
       radial-gradient(circle at top right, var(--brand-orange-glow), transparent 28rem);
     background-attachment: fixed;
+  }
+
+  #main-content:focus {
+    outline: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='sheet-overlay'],
+  [data-slot='sheet-content'],
+  [data-slot='alert-dialog-overlay'],
+  [data-slot='alert-dialog-content'] {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
   }
 }

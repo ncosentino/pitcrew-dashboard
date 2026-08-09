@@ -687,7 +687,7 @@ public sealed class HostingTests
   }
 
   [Test]
-  public async Task Administrator_Views_And_Acknowledges_Active_Incident(
+  public async Task Administrator_Views_Acknowledges_And_Unacknowledges_Active_Incident(
       CancellationToken cancellationToken)
   {
     var databasePath = DashboardTestHelpers.CreateDatabasePath();
@@ -754,6 +754,32 @@ public sealed class HostingTests
       await Assert.That(
           acknowledged.Incidents[0].AcknowledgedByGitHubUserId)
           .IsEqualTo(session.User.GitHubUserId);
+
+      using var unacknowledgement =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents/{incident.IncidentId:D}/unacknowledge",
+              session.AntiforgeryToken,
+              null,
+              cancellationToken);
+      var triggered =
+          await client.GetFromJsonAsync<AlertIncidentListResponse>(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents?status=active",
+              cancellationToken);
+
+      await Assert.That(unacknowledgement.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(triggered).IsNotNull();
+      await Assert.That(triggered!.Incidents).HasSingleItem();
+      await Assert.That(triggered.Incidents[0].Status)
+          .IsEqualTo("triggered");
+      await Assert.That(triggered.Incidents[0].AcknowledgedAt)
+          .IsNull();
+      await Assert.That(
+          triggered.Incidents[0].AcknowledgedByGitHubUserId)
+          .IsNull();
+      await Assert.That(triggered.Incidents[0].ResolvedAt)
+          .IsNull();
     }
     finally
     {

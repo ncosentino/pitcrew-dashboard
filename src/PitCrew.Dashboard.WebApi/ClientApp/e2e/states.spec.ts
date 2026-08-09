@@ -20,7 +20,11 @@ import {
 } from './mocks/scenarios';
 import { setUpPage } from './support/session';
 import { runAxeCheck } from './support/axe';
-import { expectMainLandmark, expectSingleDescriptiveH1 } from './support/landmarks';
+import {
+  expectMainLandmark,
+  expectSequentialHeadingOutline,
+  expectSingleDescriptiveH1,
+} from './support/landmarks';
 import { measureDocumentOverflow } from './support/overflow';
 
 const fleetPath = `/tenants/${tenantId}/fleet`;
@@ -28,6 +32,7 @@ const fleetPath = `/tenants/${tenantId}/fleet`;
 async function expectStateEvidence(page: Page, testInfo: TestInfo, name: string): Promise<void> {
   await page.waitForLoadState('networkidle');
   await expectSingleDescriptiveH1(page);
+  await expectSequentialHeadingOutline(page);
   await expectMainLandmark(page);
 
   const overflow = await measureDocumentOverflow(page);

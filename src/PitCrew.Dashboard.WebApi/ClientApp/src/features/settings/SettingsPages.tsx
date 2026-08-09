@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
+import { FormField } from '@/core/ui/FormField';
 
 import { createEnrollmentCode, type EnrollmentCodeResponse } from './settingsApi';
 import { DiagnosticCredentials } from './DiagnosticCredentials';
@@ -108,20 +109,21 @@ export function EnrollmentSettingsPage() {
     <SettingsPage>
       <Card>
         <CardHeader>
-          <CardTitle>Enroll a connector</CardTitle>
+          <CardTitle as="h2">Enroll a connector</CardTitle>
           <CardDescription>
             Codes expire quickly and are consumed by exactly one enrollment or re-enrollment.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <div className="flex flex-wrap gap-3">
-            <input
-              aria-label="Connector label"
-              className="h-9 min-w-64 flex-1 rounded-md border bg-background px-3 text-sm"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              maxLength={128}
-            />
+          <div className="flex flex-wrap items-end gap-3">
+            <FormField label="Connector label" hint="A name for this enrolled node.">
+              <input
+                className="h-9 min-w-64 flex-1 rounded-md border bg-background px-3 text-sm"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+                maxLength={128}
+              />
+            </FormField>
             <Button
               type="button"
               disabled={isBusy || label.trim().length === 0}
@@ -131,14 +133,19 @@ export function EnrollmentSettingsPage() {
             </Button>
           </div>
           {error ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+            <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           ) : null}
           {code ? (
-            <div className="grid gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            <div
+              className="grid gap-2 rounded-lg border border-status-caution-foreground/30 bg-status-caution p-4 text-status-caution-foreground"
+              role="status"
+            >
               <div className="text-sm font-semibold">Copy this code now</div>
-              <code className="overflow-x-auto rounded bg-background p-3 text-xs">{code.code}</code>
+              <code className="overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+                {code.code}
+              </code>
               <div className="text-xs">
                 Expires {formatTime(code.expiresAt)}. It is not stored in recoverable form.
               </div>

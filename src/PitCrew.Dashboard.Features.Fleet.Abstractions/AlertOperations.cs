@@ -45,6 +45,32 @@ public enum AlertAcknowledgeStatus
 }
 
 /// <summary>
+/// Identifies the outcome of reversing acknowledgement on one incident.
+/// </summary>
+public enum AlertUnacknowledgeStatus
+{
+  /// <summary>
+  /// The acknowledged incident is returned to triggered.
+  /// </summary>
+  Succeeded,
+
+  /// <summary>
+  /// The incident does not exist in the requested tenant.
+  /// </summary>
+  NotFound,
+
+  /// <summary>
+  /// The incident already has the triggered status and no change was needed.
+  /// </summary>
+  AlreadyTriggered,
+
+  /// <summary>
+  /// The incident resolved before it could be unacknowledged.
+  /// </summary>
+  Resolved,
+}
+
+/// <summary>
 /// Carries the latest bounded alert evidence for every enrolled node.
 /// </summary>
 /// <param name="Nodes">Nodes and current profile evidence, including revoked nodes so their incidents can resolve.</param>
@@ -339,5 +365,20 @@ public interface IAlertIncidentStore
       Guid incidentId,
       string acknowledgedByGitHubUserId,
       DateTimeOffset acknowledgedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Reverses acknowledgement on one incident, returning it to triggered without
+  /// resolving or fabricating evidence.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the incident.</param>
+  /// <param name="incidentId">Incident to unacknowledge.</param>
+  /// <param name="unacknowledgedAt">Dashboard time when acknowledgement is reversed.</param>
+  /// <param name="cancellationToken">Token that cancels unacknowledgement.</param>
+  /// <returns>The unacknowledgement result.</returns>
+  Task<AlertUnacknowledgeStatus> UnacknowledgeAsync(
+      string tenantId,
+      Guid incidentId,
+      DateTimeOffset unacknowledgedAt,
       CancellationToken cancellationToken);
 }

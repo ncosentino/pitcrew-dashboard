@@ -7,11 +7,7 @@
 import { test, expect } from '@playwright/test';
 import type { CheckResult, NodeResult, Result } from 'axe-core';
 
-import {
-  classifyAxeResults,
-  KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS,
-  KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML,
-} from './support/axe';
+import { classifyAxeResults } from './support/axe';
 
 function makeNode(html: string, target: string[] = ['.some-selector']): NodeResult {
   return {
@@ -57,37 +53,29 @@ function makeViolation(id: string, impact: Result['impact'], nodes: NodeResult[]
   } as unknown as Result;
 }
 
-const [knownBaselineHtml] = KNOWN_BASELINE_COLOR_CONTRAST_NODE_HTML;
-
-test('a violation containing only the known baseline node is classified as baseline', () => {
-  const violations = [makeViolation('color-contrast', 'serious', [makeNode(knownBaselineHtml)])];
-
-  const result = classifyAxeResults(violations);
-
-  expect(result.baseline).toHaveLength(1);
-  expect(result.unexpected).toHaveLength(0);
-  expect(result.baseline[0]?.nodes).toHaveLength(1);
-});
-
-test('a synthetic second color-contrast node that is not the known brand label is unexpected', () => {
-  const syntheticUnknownNode = makeNode('<button class="bg-red-500 text-red-600">Danger</button>', [
-    '.synthetic-unknown-node',
-  ]);
+test('with an empty HTML baseline set, all color-contrast nodes are unexpected', () => {
   const violations = [
-    makeViolation('color-contrast', 'serious', [makeNode(knownBaselineHtml), syntheticUnknownNode]),
+    makeViolation('color-contrast', 'serious', [
+      makeNode('<div class="text-xs font-bold">Dashboard</div>'),
+    ]),
   ];
 
   const result = classifyAxeResults(violations);
 
-  // The known node is still recognized as baseline...
-  expect(result.baseline).toHaveLength(1);
-  expect(result.baseline[0]?.nodes).toHaveLength(1);
-  expect(result.baseline[0]?.nodes[0]?.html).toBe(knownBaselineHtml);
-
-  // ...but the synthetic, unrecognized node must NOT be silently tolerated
-  // just because it shares a rule ID with a known baseline finding.
+  expect(result.baseline).toHaveLength(0);
   expect(result.unexpected).toHaveLength(1);
-  expect(result.unexpected[0]?.nodes).toHaveLength(1);
+});
+
+test('a synthetic second color-contrast node that is not in the baseline is unexpected', () => {
+  const syntheticUnknownNode = makeNode('<button class="bg-red-500 text-red-600">Danger</button>', [
+    '.synthetic-unknown-node',
+  ]);
+  const violations = [makeViolation('color-contrast', 'serious', [syntheticUnknownNode])];
+
+  const result = classifyAxeResults(violations);
+
+  expect(result.baseline).toHaveLength(0);
+  expect(result.unexpected).toHaveLength(1);
   expect(result.unexpected[0]?.nodes[0]?.html).toBe(syntheticUnknownNode.html);
 });
 
@@ -104,8 +92,8 @@ test('a color-contrast violation with no known nodes at all is entirely unexpect
   expect(result.unexpected).toHaveLength(1);
 });
 
-test('a non-color-contrast serious violation is never baseline, even with matching HTML', () => {
-  const violations = [makeViolation('some-other-rule', 'serious', [makeNode(knownBaselineHtml)])];
+test('a non-color-contrast serious violation is never baseline', () => {
+  const violations = [makeViolation('some-other-rule', 'serious', [makeNode('<div>test</div>')])];
 
   const result = classifyAxeResults(violations);
 
@@ -114,7 +102,7 @@ test('a non-color-contrast serious violation is never baseline, even with matchi
 });
 
 test('moderate/minor impact violations never enter serious/critical classification', () => {
-  const violations = [makeViolation('color-contrast', 'moderate', [makeNode(knownBaselineHtml)])];
+  const violations = [makeViolation('color-contrast', 'moderate', [makeNode('<div>test</div>')])];
 
   const result = classifyAxeResults(violations);
 
@@ -123,13 +111,10 @@ test('moderate/minor impact violations never enter serious/critical classificati
   expect(result.unexpected).toHaveLength(0);
 });
 
-const [knownBaselineColorPair] = KNOWN_BASELINE_COLOR_CONTRAST_COLOR_PAIRS;
-const [knownBgColor, knownFgColor] = knownBaselineColorPair.split('|');
-
-test('a color-contrast node matching a known baseline bg/fg pair is baseline, regardless of its markup text', () => {
+test('with an empty color-pair baseline, a contrast node with any bg/fg pair is unexpected', () => {
   const violations = [
     makeViolation('color-contrast', 'serious', [
-      makeContrastNode('<button>Revoke enrollment</button>', knownBgColor, knownFgColor, [
+      makeContrastNode('<button>Revoke enrollment</button>', '#ff6467', '#ffffff', [
         '.bg-destructive',
       ]),
     ]),
@@ -137,11 +122,11 @@ test('a color-contrast node matching a known baseline bg/fg pair is baseline, re
 
   const result = classifyAxeResults(violations);
 
-  expect(result.baseline).toHaveLength(1);
-  expect(result.unexpected).toHaveLength(0);
+  expect(result.baseline).toHaveLength(0);
+  expect(result.unexpected).toHaveLength(1);
 });
 
-test('a color-contrast node with a different bg/fg pair than any known baseline is unexpected', () => {
+test('a color-contrast node with an arbitrary bg/fg pair is unexpected when baselines are empty', () => {
   const violations = [
     makeViolation('color-contrast', 'serious', [
       makeContrastNode('<button>Some new CTA</button>', '#123456', '#abcdef', ['.some-new-class']),
@@ -154,23 +139,18 @@ test('a color-contrast node with a different bg/fg pair than any known baseline 
   expect(result.unexpected).toHaveLength(1);
 });
 
-test('a violation mixing a known color pair and an unknown color pair splits into both baseline and unexpected', () => {
-  const knownNode = makeContrastNode(
-    '<button>Revoke enrollment</button>',
-    knownBgColor,
-    knownFgColor,
-    ['.bg-destructive'],
-  );
-  const unknownNode = makeContrastNode('<button>Some new CTA</button>', '#123456', '#abcdef', [
+test('multiple unknown color-contrast nodes all classify as unexpected', () => {
+  const nodeA = makeContrastNode('<button>Revoke enrollment</button>', '#ff6467', '#ffffff', [
+    '.bg-destructive',
+  ]);
+  const nodeB = makeContrastNode('<button>Some new CTA</button>', '#123456', '#abcdef', [
     '.some-new-class',
   ]);
-  const violations = [makeViolation('color-contrast', 'serious', [knownNode, unknownNode])];
+  const violations = [makeViolation('color-contrast', 'serious', [nodeA, nodeB])];
 
   const result = classifyAxeResults(violations);
 
-  expect(result.baseline).toHaveLength(1);
-  expect(result.baseline[0]?.nodes).toHaveLength(1);
+  expect(result.baseline).toHaveLength(0);
   expect(result.unexpected).toHaveLength(1);
-  expect(result.unexpected[0]?.nodes).toHaveLength(1);
-  expect(result.unexpected[0]?.nodes[0]?.target).toEqual(['.some-new-class']);
+  expect(result.unexpected[0]?.nodes).toHaveLength(2);
 });

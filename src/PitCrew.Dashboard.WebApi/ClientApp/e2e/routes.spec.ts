@@ -19,7 +19,11 @@ import { healthyScenario, tenantId, nodeIds } from './mocks/scenarios';
 import { setUpPage } from './support/session';
 import { runAxeCheck } from './support/axe';
 import { measureDocumentOverflow } from './support/overflow';
-import { expectSingleDescriptiveH1, expectMainLandmark } from './support/landmarks';
+import {
+  expectMainLandmark,
+  expectSequentialHeadingOutline,
+  expectSingleDescriptiveH1,
+} from './support/landmarks';
 import { measureNavigationTiming, recordMetric } from './support/metrics';
 
 const scenario = healthyScenario();
@@ -74,10 +78,7 @@ const KNOWN_BASELINE_OVERFLOW_ROUTES: Readonly<Record<string, ReadonlySet<Viewpo
   incidents: new Set<ViewportName>(['intermediate']),
 };
 
-const REQUIRED_BASELINE_AXE_EVIDENCE: Readonly<Record<string, string>> = {
-  'fleet-overview--light--desktop': 'brand-teal contrast',
-  'node-administration--dark--desktop': 'dark destructive-token contrast',
-};
+const REQUIRED_BASELINE_AXE_EVIDENCE: Readonly<Record<string, string>> = {};
 
 for (const route of routes) {
   for (const theme of themes) {
@@ -95,6 +96,7 @@ for (const route of routes) {
         await page.waitForLoadState('networkidle');
 
         await expectSingleDescriptiveH1(page);
+        await expectSequentialHeadingOutline(page);
         await expectMainLandmark(page);
 
         const overflow = await measureDocumentOverflow(page);

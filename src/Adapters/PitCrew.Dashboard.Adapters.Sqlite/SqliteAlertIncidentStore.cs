@@ -281,6 +281,67 @@ internal sealed class SqliteAlertIncidentStore(
     };
   }
 
+  public async Task<AlertUnacknowledgeStatus> UnacknowledgeAsync(
+      string tenantId,
+      Guid incidentId,
+      DateTimeOffset unacknowledgedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var transaction = (SqliteTransaction)
+        await connection.BeginTransactionAsync(cancellationToken);
+    await using (var command = connection.CreateCommand())
+    {
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          UPDATE alert_incidents
+          SET status = 'triggered',
+              acknowledged_at = NULL,
+              acknowledged_by_github_user_id = NULL,
+              updated_at = $now
+          WHERE tenant_id = $tenantId
+            AND incident_id = $incidentId
+            AND status = 'acknowledged';
+          """;
+      command.Parameters.AddWithValue("$tenantId", tenantId);
+      command.Parameters.AddWithValue(
+          "$incidentId",
+          incidentId.ToString("D"));
+      command.Parameters.AddWithValue(
+          "$now",
+          Utc(unacknowledgedAt));
+      if (await command.ExecuteNonQueryAsync(cancellationToken) == 1)
+      {
+        await transaction.CommitAsync(cancellationToken);
+        return AlertUnacknowledgeStatus.Succeeded;
+      }
+    }
+
+    await using var query = connection.CreateCommand();
+    query.Transaction = transaction;
+    query.CommandText =
+        """
+        SELECT status
+        FROM alert_incidents
+        WHERE tenant_id = $tenantId
+          AND incident_id = $incidentId;
+        """;
+    query.Parameters.AddWithValue("$tenantId", tenantId);
+    query.Parameters.AddWithValue("$incidentId", incidentId.ToString("D"));
+    var currentStatus = Convert.ToString(
+        await query.ExecuteScalarAsync(cancellationToken),
+        CultureInfo.InvariantCulture);
+    await transaction.CommitAsync(cancellationToken);
+    return currentStatus switch
+    {
+      "triggered" => AlertUnacknowledgeStatus.AlreadyTriggered,
+      "resolved" => AlertUnacknowledgeStatus.Resolved,
+      _ => AlertUnacknowledgeStatus.NotFound,
+    };
+  }
+
   private static async Task<Dictionary<string, OpenIncident>> LoadOpenAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,

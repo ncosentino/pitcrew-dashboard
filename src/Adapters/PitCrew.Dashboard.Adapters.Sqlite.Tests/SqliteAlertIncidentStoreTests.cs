@@ -423,6 +423,102 @@ public sealed class SqliteAlertIncidentStoreTests
     }
   }
 
+  [Test]
+  public async Task Unacknowledge_Returns_Acknowledged_Incident_To_Triggered(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("unacknowledge");
+    try
+    {
+      var factory = await CreateDatabaseAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteAlertIncidentStore(factory);
+      await store.ReconcileAsync(
+          [CreateCandidate("failure", "tenant", TimeSpan.Zero)],
+          [],
+          Origin,
+          Origin.AddDays(-90),
+          100,
+          cancellationToken);
+      var active = await store.GetAsync(
+          "tenant",
+          AlertIncidentFilter.Active,
+          100,
+          Origin,
+          cancellationToken);
+      await Assert.That(active.Incidents).HasSingleItem();
+      var incidentId = active.Incidents[0].IncidentId;
+
+      await store.AcknowledgeAsync(
+          "tenant",
+          incidentId,
+          "1",
+          Origin.AddMinutes(1),
+          cancellationToken);
+
+      await Assert.That(await store.UnacknowledgeAsync(
+          "other",
+          incidentId,
+          Origin.AddMinutes(2),
+          cancellationToken))
+          .IsEqualTo(AlertUnacknowledgeStatus.NotFound);
+      await Assert.That(await store.UnacknowledgeAsync(
+          "tenant",
+          incidentId,
+          Origin.AddMinutes(2),
+          cancellationToken))
+          .IsEqualTo(AlertUnacknowledgeStatus.Succeeded);
+
+      var afterUnack = await store.GetAsync(
+          "tenant",
+          AlertIncidentFilter.Active,
+          100,
+          Origin.AddMinutes(2),
+          cancellationToken);
+      await Assert.That(afterUnack.Incidents).HasSingleItem();
+      await Assert.That(afterUnack.Incidents[0].Status)
+          .IsEqualTo("triggered");
+      await Assert.That(afterUnack.Incidents[0].AcknowledgedAt)
+          .IsNull();
+      await Assert.That(
+          afterUnack.Incidents[0].AcknowledgedByGitHubUserId)
+          .IsNull();
+
+      await Assert.That(await store.UnacknowledgeAsync(
+          "tenant",
+          incidentId,
+          Origin.AddMinutes(2),
+          cancellationToken))
+          .IsEqualTo(AlertUnacknowledgeStatus.AlreadyTriggered);
+
+      await store.ReconcileAsync(
+          [],
+          [],
+          Origin.AddMinutes(3),
+          Origin.AddDays(-90),
+          100,
+          cancellationToken);
+      await Assert.That(await store.UnacknowledgeAsync(
+          "tenant",
+          incidentId,
+          Origin.AddMinutes(4),
+          cancellationToken))
+          .IsEqualTo(AlertUnacknowledgeStatus.Resolved);
+
+      await Assert.That(await store.UnacknowledgeAsync(
+          "tenant",
+          Guid.NewGuid(),
+          Origin.AddMinutes(4),
+          cancellationToken))
+          .IsEqualTo(AlertUnacknowledgeStatus.NotFound);
+    }
+    finally
+    {
+      Cleanup(databasePath);
+    }
+  }
+
   private static AlertCandidate CreateCandidate(
       string reason,
       string tenantId,
