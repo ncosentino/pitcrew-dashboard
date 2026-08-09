@@ -86,4 +86,4 @@ Documentation, design authority, instructions, ADRs, generated guidance mirrors,
 guidance-contract-only changes use the path-aware `guidance-only` scope. Required CI
 and container summary checks remain present while runtime, frontend, installer, and
 image jobs are skipped. Missing, mixed, or unknown path evidence falls back to full
-validation.
+validation. The scope is reported in the workflow summary for auditability.
