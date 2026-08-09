@@ -30,6 +30,7 @@ export interface StateBannerProps {
    */
   readonly role?: 'status' | 'alert';
   readonly className?: string;
+  readonly 'data-testid'?: string;
 }
 
 /**
@@ -37,11 +38,12 @@ export interface StateBannerProps {
  * incidents, and error conditions using DESIGN.md's status-positive /
  * -caution / -critical roles rather than ad hoc amber/red utility classes.
  */
-export function StateBanner({ tone, children, role, className }: StateBannerProps) {
+export function StateBanner({ tone, children, role, className, ...rest }: StateBannerProps) {
   return (
     <div
       className={cn('rounded-lg border p-4', toneClasses[tone], className)}
       role={role ?? defaultRole[tone]}
+      data-testid={rest['data-testid']}
     >
       {children}
     </div>

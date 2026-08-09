@@ -302,7 +302,9 @@ describe('fleet overview and node detail', () => {
     );
     expect(row).toHaveTextContent('2.0.0');
     expect(row).toHaveTextContent('1');
-    expect(row).toHaveTextContent('4 / 2 / 1');
+    expect(row).toHaveTextContent('Configured 4');
+    expect(row).toHaveTextContent('Local 2');
+    expect(row).toHaveTextContent('Eligible 1');
     expect(row).toHaveTextContent('1.5 cores / 3 KiB');
     expect(row).toHaveTextContent('2 of 3 sources');
     expect(row).toHaveTextContent('partial');
@@ -383,7 +385,9 @@ describe('fleet overview and node detail', () => {
     );
 
     const row = await screen.findByTestId(`fleet-node-${alphaId}`);
-    expect(row).toHaveTextContent('8 / 4 / Unknown');
+    expect(row).toHaveTextContent('Configured 8');
+    expect(row).toHaveTextContent('Local 4');
+    expect(row).toHaveTextContent('Eligible Unknown');
   });
 
   it('filters and sorts deterministically and persists density', async () => {

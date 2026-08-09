@@ -32,6 +32,10 @@ GitHub OAuth credential is required or contacted.
 - **Settings roles and states** (`e2e/settings.spec.ts`): owner, administrator,
   viewer, system administrator, tenantless access, branded loading, active primary
   and section navigation, copyable IDs, and membership/credential confirmations.
+- **Fleet and incident interpretation states** (`e2e/incidents.spec.ts`):
+  critical/warning mixes, connector evidence present and unavailable, acknowledged,
+  resolved, truncated history, severity-aware primary navigation, and labeled
+  capacity evidence.
 - **Responsive foundation** (`e2e/responsive.spec.ts`): zero document overflow at
   320, 390, 768, 1280, and 1440 pixels; prioritized Fleet, Incidents, Active Jobs,
   Runners, and Profile Workers summaries; keyboard-operable table regions; 44-pixel

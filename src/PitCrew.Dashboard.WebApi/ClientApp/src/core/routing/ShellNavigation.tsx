@@ -6,7 +6,11 @@ export interface ShellNavigationItem {
   readonly label: string;
   readonly path: string;
   readonly activePaths: ReadonlyArray<string>;
-  readonly badge?: string;
+  readonly badge?: {
+    readonly label: string;
+    readonly accessibleLabel: string;
+    readonly tone: 'critical' | 'caution';
+  };
 }
 
 interface ShellNavigationProps {
@@ -38,8 +42,15 @@ export function ShellNavigation({ items, pathname, onNavigate }: ShellNavigation
                 <span className="flex items-center justify-between gap-3">
                   <span>{item.label}</span>
                   {item.badge ? (
-                    <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">
-                      {item.badge}
+                    <span
+                      aria-label={item.badge.accessibleLabel}
+                      className={
+                        item.badge.tone === 'critical'
+                          ? 'rounded-full bg-status-critical px-2 py-0.5 text-xs text-status-critical-foreground'
+                          : 'rounded-full bg-status-caution px-2 py-0.5 text-xs text-status-caution-foreground'
+                      }
+                    >
+                      {item.badge.label}
                     </span>
                   ) : null}
                 </span>

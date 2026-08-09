@@ -120,8 +120,18 @@ function NodeSummaryRow({
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
         <LastKnownValue node={node}>
-          {aggregate.configuredSlots} / {aggregate.activeSlots} /{' '}
-          {aggregate.eligibleSlots ?? 'Unknown'}
+          <div className="grid justify-items-end gap-0.5 text-xs">
+            <span>
+              <span className="text-muted-foreground">Configured</span> {aggregate.configuredSlots}
+            </span>
+            <span>
+              <span className="text-muted-foreground">Local</span> {aggregate.activeSlots}
+            </span>
+            <span>
+              <span className="text-muted-foreground">Eligible</span>{' '}
+              {aggregate.eligibleSlots ?? 'Unknown'}
+            </span>
+          </div>
         </LastKnownValue>
       </td>
       <td className="px-4 py-2 text-right tabular-nums">
@@ -223,7 +233,7 @@ export default function FleetOverviewPage() {
 
       {!isLoading && fleet?.nodes.length === 0 ? (
         <EmptyState
-          description="Create a one-time code, configure it on a connector, and start the connector."
+          description="Create a one-time code, configure it on a connector, and start the connector. No enrolled servers means no connector has reported; it does not prove fleet health."
           title="No servers enrolled"
         />
       ) : null}
@@ -278,7 +288,7 @@ export default function FleetOverviewPage() {
 
           {nodes.length === 0 ? (
             <EmptyState
-              description="Adjust the status or text filter to see more nodes."
+              description="No nodes match the current filter combination. This does not mean the fleet is empty."
               title="No matching nodes"
             />
           ) : (
@@ -303,11 +313,11 @@ export default function FleetOverviewPage() {
                           {node.displayName}
                         </Link>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
                         <span>Profiles: {node.profiles.length}</span>
-                        <span>
-                          Slots: {aggregate.configuredSlots} / {aggregate.activeSlots}
-                        </span>
+                        <span>Configured: {aggregate.configuredSlots}</span>
+                        <span>Local: {aggregate.activeSlots}</span>
+                        <span>Eligible: {aggregate.eligibleSlots ?? 'Unknown'}</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
                         Last seen {formatTime(node.lastSeenAt)}
@@ -329,7 +339,7 @@ export default function FleetOverviewPage() {
                     { key: 'profiles', header: 'Profiles', align: 'right' },
                     {
                       key: 'slots',
-                      header: 'Configured / local / GitHub eligible',
+                      header: 'Capacity evidence',
                       align: 'right',
                     },
                     { key: 'resources', header: 'CPU / memory evidence', align: 'right' },
