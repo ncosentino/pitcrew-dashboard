@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,10 @@ export interface CopyableIdProps {
   readonly value: string;
   /** An accessible label describing what this ID represents. */
   readonly label: string;
+  /** Optional metadata label rendered before the identifier. */
+  readonly prefix?: ReactNode;
+  /** Optional clipboard implementation for tests or non-browser hosts. */
+  readonly copyText?: (value: string) => Promise<void>;
 }
 
 /**
@@ -19,20 +23,25 @@ export interface CopyableIdProps {
  * "The Human Name First Rule". The button announces success to assistive
  * technology through a transient aria-label change.
  */
-export function CopyableId({ value, label }: CopyableIdProps) {
-  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+export function CopyableId({ value, label, prefix, copyText }: CopyableIdProps) {
+  const [copyState, setCopyState] = useState<{
+    readonly value: string;
+    readonly status: 'copied' | 'failed';
+  } | null>(null);
+  const status = copyState?.value === value ? copyState.status : 'idle';
 
   const copy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(value);
-      setStatus('copied');
+      await (copyText ?? ((nextValue: string) => navigator.clipboard.writeText(nextValue)))(value);
+      setCopyState({ value, status: 'copied' });
     } catch {
-      setStatus('failed');
+      setCopyState({ value, status: 'failed' });
     }
-  }, [value]);
+  }, [copyText, value]);
 
   return (
     <span className="inline-flex min-w-0 items-center gap-1">
+      {prefix ? <span className="text-xs text-muted-foreground">{prefix}</span> : null}
       <span className={typography.identifier} data-testid="copyable-id-value">
         {value}
       </span>

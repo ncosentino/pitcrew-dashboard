@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -20,7 +20,10 @@ const defaultRole: Record<StateBannerTone, 'status' | 'alert'> = {
 };
 
 /** Props for the shared operational state banner. */
-export interface StateBannerProps {
+export interface StateBannerProps extends Omit<
+  ComponentProps<'div'>,
+  'children' | 'className' | 'role'
+> {
   readonly tone: StateBannerTone;
   readonly children: ReactNode;
   /**
@@ -30,7 +33,6 @@ export interface StateBannerProps {
    */
   readonly role?: 'status' | 'alert';
   readonly className?: string;
-  readonly 'data-testid'?: string;
 }
 
 /**
@@ -38,12 +40,12 @@ export interface StateBannerProps {
  * incidents, and error conditions using DESIGN.md's status-positive /
  * -caution / -critical roles rather than ad hoc amber/red utility classes.
  */
-export function StateBanner({ tone, children, role, className, ...rest }: StateBannerProps) {
+export function StateBanner({ tone, children, role, className, ...props }: StateBannerProps) {
   return (
     <div
-      className={cn('rounded-lg border p-4', toneClasses[tone], className)}
+      {...props}
+      className={cn('rounded-lg border p-4 text-sm', toneClasses[tone], className)}
       role={role ?? defaultRole[tone]}
-      data-testid={rest['data-testid']}
     >
       {children}
     </div>

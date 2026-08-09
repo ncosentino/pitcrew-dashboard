@@ -19,6 +19,18 @@ describe('CopyableId', () => {
     expect(screen.getByRole('button', { name: 'Copy tenant ID' })).toBeInTheDocument();
   });
 
+  it('uses an injected clipboard implementation and renders a prefix', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<CopyableId copyText={writeText} label="node ID" prefix="Node ID" value="node-1" />);
+
+    await user.click(screen.getByRole('button', { name: 'Copy node ID' }));
+
+    expect(writeText).toHaveBeenCalledWith('node-1');
+    expect(screen.getByRole('status')).toHaveTextContent('node ID copied.');
+    expect(screen.getByText('Node ID')).toBeInTheDocument();
+  });
+
   it('announces when clipboard access is unavailable', async () => {
     const user = userEvent.setup();
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(

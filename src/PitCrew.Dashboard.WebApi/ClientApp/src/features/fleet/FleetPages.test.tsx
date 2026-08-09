@@ -513,7 +513,7 @@ describe('fleet overview and node detail', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Alpha' })).toBeInTheDocument();
     const profile = screen.getByTestId('node-profile-build');
-    expect(within(profile).getByRole('link', { name: 'build' })).toHaveAttribute(
+    expect(within(profile).getByRole('link', { name: 'Build' })).toHaveAttribute(
       'href',
       `/tenants/local/nodes/${alphaId}/profiles/build`,
     );

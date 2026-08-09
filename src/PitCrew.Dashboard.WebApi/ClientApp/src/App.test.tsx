@@ -518,7 +518,7 @@ describe('authenticated routing', () => {
     });
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/tenants/local/runners'));
-    await screen.findByText('Runners and slots');
+    await screen.findByRole('heading', { level: 1, name: 'Runners' });
     await waitFor(() => expect(main).toHaveFocus());
   });
 
