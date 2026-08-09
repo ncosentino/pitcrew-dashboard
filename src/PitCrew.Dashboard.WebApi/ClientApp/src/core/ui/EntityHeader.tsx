@@ -6,8 +6,8 @@ import { typography } from './typography';
 export interface EntityHeaderProps {
   /** Human-readable entity name (DESIGN.md "The Human Name First Rule"). */
   readonly title: string;
-  /** Secondary monospaced identifier shown under the title, when the entity has a stable ID. */
-  readonly identifier?: string;
+  /** Secondary identifier shown under the title when the entity has a stable ID. */
+  readonly identifier?: ReactNode;
   /** Heading level for the entity title. Defaults to h2, assuming the page's PageHeader owns the H1. */
   readonly headingLevel?: 'h2' | 'h3';
   /** Status badges, buttons, or other entity-level actions aligned to the title. */
@@ -31,7 +31,13 @@ export function EntityHeader({
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         <Heading className={typography.entityTitle}>{title}</Heading>
-        {identifier ? <p className={typography.identifier}>{identifier}</p> : null}
+        {identifier ? (
+          typeof identifier === 'string' ? (
+            <p className={typography.identifier}>{identifier}</p>
+          ) : (
+            <div className="mt-1">{identifier}</div>
+          )
+        ) : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

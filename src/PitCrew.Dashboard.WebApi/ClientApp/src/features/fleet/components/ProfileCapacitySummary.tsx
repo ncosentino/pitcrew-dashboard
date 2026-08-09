@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { type CapacityControlState, type ManagerObservedState } from '@/core/fleet';
 import { formatSeconds, formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 function formatScaleDownCountdown(value: string | null): string {
@@ -376,12 +377,13 @@ export function ProfileCapacitySummary({
         />
       ) : null}
       {autoscaling.lastError ? (
-        <div
-          className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+        <StateBanner
+          className="px-3 py-2 text-sm"
           data-testid={`profile-autoscaling-error-${profile.profileId}`}
+          tone="critical"
         >
           <span className="font-medium">Last error:</span> {autoscaling.lastError}
-        </div>
+        </StateBanner>
       ) : null}
     </section>
   );

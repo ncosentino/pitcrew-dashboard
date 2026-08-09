@@ -7,6 +7,7 @@ import type { FleetNode, OperationalIncident } from '@/core/fleet';
 import { formatBytes, formatSeconds, formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { getIncidents } from '../incidentsApi';
@@ -189,10 +190,10 @@ export function NodePressureCommandCenter({
       </div>
 
       {pressureIncidents.map((incident) => (
-        <div
-          className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-950 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
+        <StateBanner
+          className="px-4 py-3"
           key={incident.incidentId}
-          role="alert"
+          tone={incident.severity === 'critical' ? 'critical' : 'caution'}
         >
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={incident.severity} />
@@ -244,7 +245,7 @@ export function NodePressureCommandCenter({
               ))}
             </div>
           ) : null}
-        </div>
+        </StateBanner>
       ))}
 
       <div className="grid gap-4 lg:grid-cols-2">

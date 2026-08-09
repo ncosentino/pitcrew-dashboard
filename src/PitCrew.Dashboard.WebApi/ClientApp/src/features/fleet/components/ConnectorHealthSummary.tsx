@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 interface ConnectorHealthSummaryProps {
@@ -17,7 +18,7 @@ export function ConnectorHealthSummary({ node }: ConnectorHealthSummaryProps) {
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle>Connector outage evidence</CardTitle>
+            <CardTitle as="h3">Connector outage evidence</CardTitle>
             <CardDescription>
               Bounded evidence replayed after the normal outbound synchronization channel recovered.
             </CardDescription>
@@ -39,10 +40,10 @@ export function ConnectorHealthSummary({ node }: ConnectorHealthSummaryProps) {
         ) : (
           <>
             {!node.isOnline ? (
-              <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              <StateBanner className="px-3 py-2 text-sm" tone="caution">
                 Last-known connector evidence received {formatTime(health?.receivedAt ?? null)}.
                 This is not a current host measurement.
-              </p>
+              </StateBanner>
             ) : null}
             <dl className="grid gap-3 sm:grid-cols-3">
               <EvidenceField label="Last attempt" value={formatTime(snapshot.lastAttemptAt)} />

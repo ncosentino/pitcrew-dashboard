@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { useFleet } from '@/core/fleet';
@@ -8,7 +8,11 @@ import {
   formatOptionalBytes,
   formatPids,
 } from '@/core/formatting/formatters';
-import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
+import { FilterChips, type FilterChipDescriptor } from '@/core/ui/FilterChips';
+import { FilterToolbar } from '@/core/ui/FilterToolbar';
+import { FormField } from '@/core/ui/FormField';
+import { OperationalTable, type OperationalTableColumn } from '@/core/ui/OperationalTable';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
@@ -55,6 +59,44 @@ const sortKeys = new Set<SortKey>([
   'image',
   'exit',
 ]);
+
+const inputClassName = 'h-9 rounded-md border bg-background px-3 text-sm';
+const tableColumns: ReadonlyArray<OperationalTableColumn> = [
+  { key: 'node', header: 'Node' },
+  { key: 'profile', header: 'Profile' },
+  { key: 'slot', header: 'Slot' },
+  { key: 'repository', header: 'Repository' },
+  { key: 'target', header: 'Target' },
+  { key: 'activity', header: 'Activity' },
+  { key: 'registration', header: 'GitHub registration' },
+  { key: 'state', header: 'Local lifecycle state' },
+  { key: 'failures', header: 'Failures', align: 'right' },
+  { key: 'cpu', header: 'CPU', align: 'right' },
+  { key: 'memory', header: 'Memory', align: 'right' },
+  { key: 'pids', header: 'PIDs', align: 'right' },
+  { key: 'network', header: 'Network I/O', align: 'right' },
+  { key: 'block', header: 'Block I/O', align: 'right' },
+  { key: 'image', header: 'Worker image' },
+  { key: 'exit', header: 'Last exit' },
+];
+const sortLabels: Record<SortKey, string> = {
+  node: 'Node',
+  profile: 'Profile',
+  slot: 'Slot',
+  repository: 'Repository',
+  target: 'Target',
+  activity: 'Activity',
+  registration: 'GitHub registration',
+  state: 'Lifecycle state',
+  failures: 'Failure count',
+  cpu: 'CPU',
+  memory: 'Memory',
+  pids: 'PIDs',
+  network: 'Network I/O',
+  block: 'Block I/O',
+  image: 'Worker image',
+  exit: 'Last exit',
+};
 
 function compareText(left: string | null | undefined, right: string | null | undefined): number {
   if (left == null && right == null) return 0;
@@ -135,21 +177,23 @@ function uniqueSorted(values: ReadonlyArray<string>): ReadonlyArray<string> {
   return [...new Set(values)].sort(compareText);
 }
 
+function formatFilterValue(value: string): string {
+  return value.replaceAll('-', ' ');
+}
+
 function ResourceNotice({ rows }: { readonly rows: ReadonlyArray<FleetSlot> }) {
   const reporting = rows.filter((row) => row.slot.resources != null).length;
   if (reporting === rows.length) return null;
   if (reporting === 0) {
     return (
-      <p className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
-        Resource data unavailable for all displayed slots.
-      </p>
+      <StateBanner tone="critical">Resource data unavailable for all displayed slots.</StateBanner>
     );
   }
   return (
-    <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+    <StateBanner tone="caution">
       Partial resource data: {reporting} of {rows.length} displayed slots are reporting CPU, memory,
       and PIDs.
-    </p>
+    </StateBanner>
   );
 }
 
@@ -228,16 +272,23 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     stateFilter,
   ]);
 
-  const setParameter = (name: string, value: string) => {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (value) next.set(name, value);
-        else next.delete(name);
-        return next;
-      },
-      { replace: true },
-    );
+  const setParameter = useCallback(
+    (name: string, value: string) => {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (value) next.set(name, value);
+          else next.delete(name);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const clearAllParameters = () => {
+    setSearchParams(new URLSearchParams(), { replace: true });
   };
 
   const hasFilters = Boolean(
@@ -247,40 +298,129 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     activityFilter ||
     registrationFilter ||
     stateFilter ||
-    exitFilter,
+    exitFilter ||
+    sort !== 'node' ||
+    direction !== 'asc',
+  );
+  const hasAdvancedFilters = Boolean(
+    registrationFilter || stateFilter || exitFilter || sort !== 'node' || direction !== 'asc',
   );
   const offlineCount = rows.filter((row) => !row.nodeOnline).length;
+  const busyCount = rows.filter((row) => row.slot.activity === 'busy').length;
+  const resultSummary = `Showing ${rows.length} of ${allRows.length} ${allRows.length === 1 ? 'slot' : 'slots'} · ${busyCount} busy · ${offlineCount} offline`;
+  const chips = useMemo<ReadonlyArray<FilterChipDescriptor>>(() => {
+    const activeNode = nodes.find(([nodeId]) => nodeId === nodeFilter);
+    return [
+      nodeFilter
+        ? {
+            key: 'node',
+            label: 'Node',
+            value: activeNode?.[1] ?? nodeFilter,
+            onRemove: () => setParameter('node', ''),
+          }
+        : null,
+      profileFilter
+        ? {
+            key: 'profile',
+            label: 'Profile',
+            value: profileFilter,
+            onRemove: () => setParameter('profile', ''),
+          }
+        : null,
+      repositoryFilter
+        ? {
+            key: 'repository',
+            label: 'Repository',
+            value: repositoryFilter,
+            onRemove: () => setParameter('repository', ''),
+          }
+        : null,
+      activityFilter
+        ? {
+            key: 'activity',
+            label: 'Activity',
+            value: activityFilter,
+            onRemove: () => setParameter('activity', ''),
+          }
+        : null,
+      registrationFilter
+        ? {
+            key: 'registration',
+            label: 'Registration',
+            value: formatFilterValue(registrationFilter),
+            onRemove: () => setParameter('registration', ''),
+          }
+        : null,
+      stateFilter
+        ? {
+            key: 'state',
+            label: 'State',
+            value: stateFilter,
+            onRemove: () => setParameter('state', ''),
+          }
+        : null,
+      exitFilter
+        ? {
+            key: 'exit',
+            label: 'Exit',
+            value:
+              exitFilter === 'none' ? 'No exit evidence recorded' : formatFilterValue(exitFilter),
+            onRemove: () => setParameter('exit', ''),
+          }
+        : null,
+      sort !== 'node'
+        ? {
+            key: 'sort',
+            label: 'Sort',
+            value: sortLabels[sort],
+            onRemove: () => setParameter('sort', ''),
+          }
+        : null,
+      direction !== 'asc'
+        ? {
+            key: 'direction',
+            label: 'Direction',
+            value: direction === 'desc' ? 'Descending' : 'Ascending',
+            onRemove: () => setParameter('direction', ''),
+          }
+        : null,
+    ].filter((chip): chip is FilterChipDescriptor & { onRemove: () => void } => chip !== null);
+  }, [
+    activityFilter,
+    direction,
+    exitFilter,
+    nodeFilter,
+    nodes,
+    profileFilter,
+    registrationFilter,
+    repositoryFilter,
+    setParameter,
+    sort,
+    stateFilter,
+  ]);
 
   return (
     <section className="grid min-w-0 max-w-full gap-4">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Runners and slots</h2>
-        <p className="text-sm text-muted-foreground">
-          Local lifecycle and GitHub registration across every node and profile in this tenant.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Local lifecycle and GitHub registration across every node and profile in this tenant.
+      </p>
 
       {isLoading && !fleet ? <p className="text-muted-foreground">Loading runners…</p> : null}
       {error && fleet ? (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+        <StateBanner tone="caution">
           Showing stale runner data because the latest fleet refresh failed: {error}
-        </p>
+        </StateBanner>
       ) : null}
       {error && !fleet ? (
-        <p className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
-          Runner data is unavailable: {error}
-        </p>
+        <StateBanner tone="critical">Runner data is unavailable: {error}</StateBanner>
       ) : null}
 
       {fleet ? (
         <>
-          <fieldset className="grid min-w-0 gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-4">
-            <legend className="px-1 text-sm font-semibold">Runner filters and sorting</legend>
-            <label className="grid gap-1 text-sm" htmlFor="runners-node-filter">
-              Node
+          <FilterToolbar>
+            <FormField label="Node">
               <select
-                id="runners-node-filter"
-                className="h-9 rounded-md border bg-background px-3"
+                className={inputClassName}
                 value={nodeFilter}
                 onChange={(event) => setParameter('node', event.target.value)}
               >
@@ -291,12 +431,10 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-profile-filter">
-              Profile
+            </FormField>
+            <FormField label="Profile">
               <select
-                id="runners-profile-filter"
-                className="h-9 rounded-md border bg-background px-3"
+                className={inputClassName}
                 value={profileFilter}
                 onChange={(event) => setParameter('profile', event.target.value)}
               >
@@ -307,22 +445,18 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-repository-filter">
-              Repository
+            </FormField>
+            <FormField label="Repository">
               <input
-                id="runners-repository-filter"
-                className="h-9 rounded-md border bg-background px-3"
+                className={inputClassName}
                 type="search"
                 value={repositoryFilter}
                 onChange={(event) => setParameter('repository', event.target.value)}
               />
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-activity-filter">
-              Activity
+            </FormField>
+            <FormField label="Activity">
               <select
-                id="runners-activity-filter"
-                className="h-9 rounded-md border bg-background px-3"
+                className={inputClassName}
                 value={activityFilter}
                 onChange={(event) => setParameter('activity', event.target.value)}
               >
@@ -333,95 +467,90 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-registration-filter">
-              GitHub registration
-              <select
-                id="runners-registration-filter"
-                className="h-9 rounded-md border bg-background px-3"
-                value={registrationFilter}
-                onChange={(event) => setParameter('registration', event.target.value)}
-              >
-                <option value="">All registration states</option>
-                {registrations.map((registration) => (
-                  <option key={registration} value={registration}>
-                    {registration.replaceAll('-', ' ')}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-state-filter">
-              Lifecycle state
-              <select
-                id="runners-state-filter"
-                className="h-9 rounded-md border bg-background px-3"
-                value={stateFilter}
-                onChange={(event) => setParameter('state', event.target.value)}
-              >
-                <option value="">All states</option>
-                {states.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-exit-filter">
-              Last exit
-              <select
-                id="runners-exit-filter"
-                className="h-9 rounded-md border bg-background px-3"
-                value={exitFilter}
-                onChange={(event) => setParameter('exit', event.target.value)}
-              >
-                <option value="">All exit evidence</option>
-                <option value="none">No exit evidence recorded</option>
-                {exitClassifications.map((classification) => (
-                  <option key={classification} value={classification}>
-                    {classification.replaceAll('-', ' ')}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-sort">
-              Sort by
-              <select
-                id="runners-sort"
-                className="h-9 rounded-md border bg-background px-3"
-                value={sort}
-                onChange={(event) => setParameter('sort', event.target.value)}
-              >
-                <option value="node">Node</option>
-                <option value="profile">Profile</option>
-                <option value="slot">Slot</option>
-                <option value="repository">Repository</option>
-                <option value="target">Target</option>
-                <option value="activity">Activity</option>
-                <option value="registration">GitHub registration</option>
-                <option value="state">Lifecycle state</option>
-                <option value="failures">Failure count</option>
-                <option value="cpu">CPU</option>
-                <option value="memory">Memory</option>
-                <option value="pids">PIDs</option>
-                <option value="network">Network I/O</option>
-                <option value="block">Block I/O</option>
-                <option value="image">Worker image</option>
-                <option value="exit">Last exit</option>
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm" htmlFor="runners-sort-direction">
-              Sort direction
-              <select
-                id="runners-sort-direction"
-                className="h-9 rounded-md border bg-background px-3"
-                value={direction}
-                onChange={(event) => setParameter('direction', event.target.value)}
-              >
-                <option value="asc">Ascending</option>
-                <option value="desc">Descending</option>
-              </select>
-            </label>
-          </fieldset>
+            </FormField>
+          </FilterToolbar>
+
+          <details className="rounded-lg border bg-card" open={hasAdvancedFilters}>
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Advanced filters and sorting
+            </summary>
+            <div className="border-t px-4 py-4">
+              <FilterToolbar className="border-0 bg-transparent p-0 shadow-none">
+                <FormField label="GitHub registration">
+                  <select
+                    className={inputClassName}
+                    value={registrationFilter}
+                    onChange={(event) => setParameter('registration', event.target.value)}
+                  >
+                    <option value="">All registration states</option>
+                    {registrations.map((registration) => (
+                      <option key={registration} value={registration}>
+                        {formatFilterValue(registration)}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="Lifecycle state">
+                  <select
+                    className={inputClassName}
+                    value={stateFilter}
+                    onChange={(event) => setParameter('state', event.target.value)}
+                  >
+                    <option value="">All states</option>
+                    {states.map((state) => (
+                      <option key={state} value={state}>
+                        {state}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="Last exit">
+                  <select
+                    className={inputClassName}
+                    value={exitFilter}
+                    onChange={(event) => setParameter('exit', event.target.value)}
+                  >
+                    <option value="">All exit evidence</option>
+                    <option value="none">No exit evidence recorded</option>
+                    {exitClassifications.map((classification) => (
+                      <option key={classification} value={classification}>
+                        {formatFilterValue(classification)}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="Sort by">
+                  <select
+                    className={inputClassName}
+                    value={sort}
+                    onChange={(event) => setParameter('sort', event.target.value)}
+                  >
+                    {Object.entries(sortLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="Sort direction">
+                  <select
+                    className={inputClassName}
+                    value={direction}
+                    onChange={(event) => setParameter('direction', event.target.value)}
+                  >
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                  </select>
+                </FormField>
+              </FilterToolbar>
+            </div>
+          </details>
+
+          <FilterChips
+            chips={chips}
+            resultSummary={resultSummary}
+            onClearAll={hasFilters ? clearAllParameters : undefined}
+          />
 
           {allRows.length === 0 ? (
             <p className="rounded-lg border p-4 text-sm text-muted-foreground">
@@ -436,14 +565,13 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
           {rows.length > 0 ? (
             <>
               {offlineCount > 0 ? (
-                <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                <StateBanner tone="caution">
                   {offlineCount} displayed {offlineCount === 1 ? 'slot is' : 'slots are'} from
                   offline nodes and may be stale.
-                </p>
+                </StateBanner>
               ) : null}
               <ResourceNotice rows={rows} />
 
-              {/* Mobile summary cards */}
               <div className="grid gap-3 lg:hidden" data-testid="runners-mobile-summary">
                 {rows.slice(0, 50).map((row) => (
                   <div
@@ -455,6 +583,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                       <span className="min-w-0 break-words font-medium">{row.nodeName}</span>
                       {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
                       <StatusBadge status={row.slot.state} />
+                      <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
                     </div>
                     <div className="min-w-0 break-all font-mono text-xs text-muted-foreground">
                       {row.profileId} / {row.slot.key}
@@ -468,6 +597,9 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                     {row.slot.repository ? (
                       <div className="min-w-0 break-words text-xs">{row.slot.repository}</div>
                     ) : null}
+                    <div className="text-xs text-muted-foreground">
+                      Failures: <span className="tabular-nums">{row.slot.failureCount}</span>
+                    </div>
                     <Link
                       className="min-h-11 inline-flex items-center justify-self-start rounded-md border px-3 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                       to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
@@ -483,154 +615,94 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 ) : null}
               </div>
 
-              {/* Desktop full evidence table */}
-              <ScrollableRegion
-                className="hidden rounded-lg border lg:block"
-                label="Runner slots for the active tenant"
+              <OperationalTable
+                caption="Runner slots for the active tenant"
+                className="hidden lg:block"
+                columns={tableColumns}
+                minWidthClassName="min-w-6xl"
               >
-                <table className="w-full min-w-6xl text-left text-sm">
-                  <caption className="p-3 text-left text-sm font-semibold">
-                    Runner slots for the active tenant
-                  </caption>
-                  <thead className="bg-muted/30 text-xs text-muted-foreground uppercase">
-                    <tr>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Node
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Profile
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Slot
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Repository
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Target
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Activity
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        GitHub registration
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Local lifecycle state
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Failures
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        CPU
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Memory
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        PIDs
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Network I/O
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Block I/O
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Worker image
-                      </th>
-                      <th scope="col" className="px-3 py-2 font-medium">
-                        Last exit
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr
-                        key={`${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                        className="border-t"
-                        data-testid={`runner-row-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                {rows.map((row) => (
+                  <tr
+                    key={`${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    className="border-t"
+                    data-testid={`runner-row-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                  >
+                    <td className="px-3 py-2">
+                      <div>{row.nodeName}</div>
+                      {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Link
+                        className="font-medium underline-offset-4 hover:underline focus-visible:underline"
+                        to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
                       >
-                        <td className="px-3 py-2">
-                          <div>{row.nodeName}</div>
-                          {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Link
-                            className="font-medium underline-offset-4 hover:underline focus-visible:underline"
-                            to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
-                          >
-                            {row.profileId}
-                          </Link>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs">{row.slot.key}</td>
-                        <td className="px-3 py-2">{row.slot.repository ?? 'Shared scope'}</td>
-                        <td className="px-3 py-2">{row.slot.target ?? 'Unavailable'}</td>
-                        <td className="px-3 py-2">
-                          {row.slot.activity ? (
-                            <StatusBadge status={row.slot.activity} />
-                          ) : (
-                            'Unavailable'
-                          )}
-                        </td>
-                        <td
-                          className="px-3 py-2"
-                          data-testid={`runner-registration-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                        >
-                          <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <StatusBadge status={row.slot.state} />
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.slot.failureCount}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.slot.resources
-                            ? formatCpuCores(row.slot.resources.cpuCores)
-                            : 'Unavailable'}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.slot.resources
-                            ? formatBytes(row.slot.resources.memoryWorkingSetBytes)
-                            : 'Unavailable'}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.slot.resources ? formatPids(row.slot.resources.pids) : 'Unavailable'}
-                        </td>
-                        <td
-                          className="px-3 py-2 text-right tabular-nums"
-                          data-testid={`runner-network-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                        >
-                          {row.slot.resources
-                            ? `${formatOptionalBytes(row.slot.resources.networkRxBytes)} in · ${formatOptionalBytes(row.slot.resources.networkTxBytes)} out`
-                            : 'Unavailable'}
-                        </td>
-                        <td
-                          className="px-3 py-2 text-right tabular-nums"
-                          data-testid={`runner-block-io-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                        >
-                          {row.slot.resources
-                            ? `${formatOptionalBytes(row.slot.resources.blockReadBytes)} read · ${formatOptionalBytes(row.slot.resources.blockWriteBytes)} written`
-                            : 'Unavailable'}
-                        </td>
-                        <td
-                          className="px-3 py-2"
-                          data-testid={`runner-image-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                        >
-                          <WorkerImageIdentity imageId={row.slot.imageId} />
-                        </td>
-                        <td
-                          className="px-3 py-2"
-                          data-testid={`runner-last-exit-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                        >
-                          <WorkerExitEvidence lastExit={row.slot.lastExit} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollableRegion>
+                        {row.profileId}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{row.slot.key}</td>
+                    <td className="px-3 py-2">{row.slot.repository ?? 'Shared scope'}</td>
+                    <td className="px-3 py-2">{row.slot.target ?? 'Unavailable'}</td>
+                    <td className="px-3 py-2">
+                      {row.slot.activity ? (
+                        <StatusBadge status={row.slot.activity} />
+                      ) : (
+                        'Unavailable'
+                      )}
+                    </td>
+                    <td
+                      className="px-3 py-2"
+                      data-testid={`runner-registration-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    >
+                      <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={row.slot.state} />
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{row.slot.failureCount}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {row.slot.resources
+                        ? formatCpuCores(row.slot.resources.cpuCores)
+                        : 'Unavailable'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {row.slot.resources
+                        ? formatBytes(row.slot.resources.memoryWorkingSetBytes)
+                        : 'Unavailable'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {row.slot.resources ? formatPids(row.slot.resources.pids) : 'Unavailable'}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-right tabular-nums"
+                      data-testid={`runner-network-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    >
+                      {row.slot.resources
+                        ? `${formatOptionalBytes(row.slot.resources.networkRxBytes)} in · ${formatOptionalBytes(row.slot.resources.networkTxBytes)} out`
+                        : 'Unavailable'}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-right tabular-nums"
+                      data-testid={`runner-block-io-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    >
+                      {row.slot.resources
+                        ? `${formatOptionalBytes(row.slot.resources.blockReadBytes)} read · ${formatOptionalBytes(row.slot.resources.blockWriteBytes)} written`
+                        : 'Unavailable'}
+                    </td>
+                    <td
+                      className="px-3 py-2"
+                      data-testid={`runner-image-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    >
+                      <WorkerImageIdentity imageId={row.slot.imageId} />
+                    </td>
+                    <td
+                      className="px-3 py-2"
+                      data-testid={`runner-last-exit-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                    >
+                      <WorkerExitEvidence lastExit={row.slot.lastExit} />
+                    </td>
+                  </tr>
+                ))}
+              </OperationalTable>
             </>
           ) : null}
           {hasFilters ? (

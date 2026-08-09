@@ -12,6 +12,7 @@ import {
 } from '@/core/fleet';
 import { formatCounter, formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { cn } from '@/lib/utils';
 
@@ -384,30 +385,36 @@ export function ProfileManagerRecovery({
         />
       </div>
 
-      {availability.explanation === null ? null : (
+      {availability.explanation === null ? null : explanationIsInformational ? (
         <p
-          className={cn(
-            'rounded-md border px-3 py-2 text-sm',
-            explanationIsInformational
-              ? 'bg-background text-muted-foreground'
-              : 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100',
-          )}
+          className={cn('rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground')}
           id={explanationId}
           data-testid={`profile-recovery-unavailable-${profileId}`}
           data-reason={availability.code ?? ''}
         >
           {availability.explanation}
         </p>
+      ) : (
+        <StateBanner
+          className="px-3 py-2 text-sm"
+          id={explanationId}
+          data-testid={`profile-recovery-unavailable-${profileId}`}
+          data-reason={availability.code ?? ''}
+          tone="caution"
+        >
+          {availability.explanation}
+        </StateBanner>
       )}
 
       {invalidation === null ? null : (
-        <p
-          role="alert"
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+        <StateBanner
+          className="px-3 py-2 text-sm"
           data-testid={`profile-recovery-invalidated-${profileId}`}
+          role="alert"
+          tone="caution"
         >
           {invalidation}
-        </p>
+        </StateBanner>
       )}
 
       {latestCommand === null ? null : (

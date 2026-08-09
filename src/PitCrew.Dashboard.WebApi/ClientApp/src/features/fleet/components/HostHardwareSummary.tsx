@@ -16,7 +16,7 @@ export function HostHardwareCard({ hardware, isOnline, lastSeenAt }: HostHardwar
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle>Host hardware</CardTitle>
+            <CardTitle as="h3">Host hardware</CardTitle>
             <CardDescription>
               Sanitized processor, memory, operating-system, and Docker runtime context.
             </CardDescription>
