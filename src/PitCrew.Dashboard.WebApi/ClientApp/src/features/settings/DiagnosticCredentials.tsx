@@ -131,6 +131,9 @@ export function DiagnosticCredentials({ tenantId, antiforgeryToken }: Diagnostic
           <FormField label="Expiry (hours)" hint="Between 1 and 8760 hours from creation.">
             <input
               className="h-9 rounded-md border bg-background px-3 text-sm"
+              type="number"
+              min={1}
+              max={8760}
               inputMode="numeric"
               value={expiryHours}
               onChange={(event) => setExpiryHours(event.target.value)}

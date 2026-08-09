@@ -118,7 +118,9 @@ describe('authenticated routing', () => {
     mockSession({ ...ownerSession, isSystemAdministrator: true, tenants: [] });
     const router = renderRoute('/');
 
-    expect(await screen.findByText('Create tenant')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Create tenant' }),
+    ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/admin/tenants');
   });
 
@@ -291,7 +293,7 @@ describe('authenticated routing', () => {
 
     await user.type(await screen.findByLabelText('Tenant ID'), 'new-tenant');
     await user.type(screen.getByLabelText('Tenant display name'), 'New tenant');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Create tenant' }));
 
     expect(await screen.findByText('No servers enrolled')).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/tenants/new-tenant/fleet');

@@ -18,7 +18,7 @@ function statusClasses(status: string): string {
     case 'healthy':
     case 'clean':
     case 'current':
-      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200';
+      return 'bg-status-positive text-status-positive-foreground';
     case 'partial':
     case 'draining':
     case 'restarting':
@@ -32,7 +32,7 @@ function statusClasses(status: string): string {
     case 'stale':
     case 'retry-scheduled':
     case 'rolling':
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
+      return 'bg-status-caution text-status-caution-foreground';
     case 'backoff':
     case 'disconnected':
     case 'degraded':
@@ -52,7 +52,7 @@ function statusClasses(status: string): string {
     case 'signal':
     case 'error':
     case 'launch-failure':
-      return 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200';
+      return 'bg-status-critical text-status-critical-foreground';
     default:
       return 'bg-muted text-muted-foreground';
   }

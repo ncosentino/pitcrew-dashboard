@@ -243,6 +243,13 @@
         "owner": "tag:node"
       },
       {
+        "path": "docs/testing/physical-device-evidence.md",
+        "title": "Physical device evidence procedure",
+        "section": "Development",
+        "order": 456,
+        "owner": "testing"
+      },
+      {
         "path": "docs/ui/settings-composition.md",
         "title": "Settings navigation and form composition",
         "section": "Development",

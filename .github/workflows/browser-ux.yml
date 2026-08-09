@@ -1,18 +1,14 @@
-name: Browser UX evidence (advisory)
+name: Browser UX
 
-# Advisory workflow for issue #84: runs the Playwright + axe-core browser UX
-# harness (`npm run test:browser` in the dashboard SPA) and the Impeccable
-# visual-antipattern detector, uploading screenshots, metrics, accessibility
-# reports, and detector output as PR evidence.
+# Required deterministic browser UX gate (issue #91). The check is always
+# present on ready pull requests. Guidance-only changes run path planning and
+# exit successfully; every other change runs the production-built SPA through
+# the Chromium Playwright + axe-core harness and Impeccable detector.
 #
-# Intentionally NOT added to .github/genesis-delivery.json's requiredChecks:
-# this check name is advisory and must never block merges while the harness
-# is new and while ADR-0007's known baseline defects (see
-# src/PitCrew.Dashboard.WebApi/ClientApp/e2e/support/axe.ts and
-# e2e/routes.spec.ts) are still open. Kept as its own workflow file (rather
-# than a job inside ci.yml) with paths scoped to the dashboard SPA so issue
-# #91 can later promote specific gates to required independently, without
-# renaming or restructuring the existing "CI" required check.
+# Added to .github/genesis-delivery.json's requiredChecks as "Browser UX"
+# per issue #91's promotion of axe/overflow/heading/keyboard/dialog
+# contracts from advisory to required. The suite remains path-scoped to the
+# Artifacts retain for 7 days per repository convention.
 #
 # `types` explicitly excludes plain draft `synchronize` churn from running
 # the expensive Playwright install/suite: the job-level `if:` below only
@@ -25,13 +21,6 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'src/PitCrew.Dashboard.WebApi/ClientApp/**'
-      - '.github/workflows/browser-ux.yml'
-      - '.github/skills/impeccable/**'
-      - 'PRODUCT.md'
-      - 'DESIGN.md'
-      - '.impeccable/**'
   workflow_dispatch: {}
 
 permissions:
@@ -43,7 +32,7 @@ concurrency:
 
 jobs:
   browser-ux:
-    name: Browser UX evidence
+    name: Browser UX
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Skip the expensive browser install/suite for draft-PR synchronize
@@ -52,25 +41,55 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve browser validation scope
+        id: scope
+        shell: pwsh
+        run: |
+          $eventName = '${{ github.event_name }}'
+          $changedFiles = @()
+          if ($eventName -eq 'pull_request') {
+              $base = '${{ github.event.pull_request.base.sha }}'
+              if ($base) {
+                  $changedFiles = @(git diff --name-only "$base...HEAD")
+                  if ($LASTEXITCODE -ne 0) {
+                      Write-Warning 'Changed-path detection failed; running browser validation.'
+                      $changedFiles = @()
+                  }
+              }
+          }
+
+          $scope = & ./scripts/guidance/Resolve-ValidationScope.ps1 `
+              -EventName $eventName `
+              -ChangedFiles $changedFiles
+          $runBrowser = $scope -ne 'guidance-only'
+          "run_browser=$($runBrowser.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "Validation scope '$scope'; run browser evidence: $runBrowser."
 
       - uses: actions/setup-node@v7
+        if: steps.scope.outputs.run_browser == 'true'
         with:
           node-version: '24'
 
       - name: Install dependencies
+        if: steps.scope.outputs.run_browser == 'true'
         working-directory: src/PitCrew.Dashboard.WebApi/ClientApp
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browser
+        if: steps.scope.outputs.run_browser == 'true'
         working-directory: src/PitCrew.Dashboard.WebApi/ClientApp
         run: npx playwright install --with-deps chromium
 
       - name: Run browser UX evidence suite
+        if: steps.scope.outputs.run_browser == 'true'
         working-directory: src/PitCrew.Dashboard.WebApi/ClientApp
         run: npm run test:browser
 
       - name: Upload browser UX evidence
-        if: always()
+        if: always() && steps.scope.outputs.run_browser == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: browser-ux-evidence
@@ -89,7 +108,7 @@ jobs:
       # metrics artifacts above empty or incomplete, so this directory is
       # uploaded separately to keep failures diagnosable even then.
       - name: Upload browser UX failure diagnostics
-        if: always()
+        if: always() && steps.scope.outputs.run_browser == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: browser-ux-failure-diagnostics
@@ -98,7 +117,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run Impeccable detector
-        if: always()
+        if: always() && steps.scope.outputs.run_browser == 'true'
         id: impeccable
         run: |
           set +e
@@ -111,11 +130,8 @@ jobs:
           #   0 = clean scan (or advisory-only findings)
           #   2 = primary findings detected
           #   1 = usage/execution error (detector itself broken)
-          # Detector *findings* stay advisory here by design (they must never
-          # block this already-advisory workflow), but detector *execution*
-          # failing is NOT tolerated: any exit code other than 0 or 2 means
-          # the detector could not actually run, which would otherwise
-          # silently hide a broken advisory gate instead of surfacing it.
+          # Detector findings stay advisory judgment evidence, but detector
+          # execution failure is not tolerated.
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
             echo "::error::Impeccable detector failed to execute (exit $status)."
             exit 1
@@ -125,7 +141,7 @@ jobs:
           fi
 
       - name: Upload Impeccable detector report
-        if: always()
+        if: always() && steps.scope.outputs.run_browser == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: impeccable-detector-report
