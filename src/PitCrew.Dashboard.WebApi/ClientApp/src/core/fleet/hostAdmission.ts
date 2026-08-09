@@ -58,7 +58,24 @@ export function describeHostAdmission(
 export function summarizeNodeHostAdmission(
   profiles: ReadonlyArray<ManagerObservedState>,
 ): NodeHostAdmissionSummary {
+  if (profiles.length === 0) {
+    return {
+      status: 'unavailable',
+      configuredProfiles: 0,
+      borrowedUnits: null,
+      withheldUnits: null,
+    };
+  }
   const states = profiles.map((profile) => profile.hostAdmission);
+  if (states.some((state) => state == null)) {
+    return {
+      status: 'unavailable',
+      configuredProfiles: states.filter((state) => state != null && state.status !== 'disabled')
+        .length,
+      borrowedUnits: null,
+      withheldUnits: null,
+    };
+  }
   const configured = states.filter(
     (state): state is HostAdmissionState => state != null && state.status !== 'disabled',
   );
@@ -76,12 +93,15 @@ export function summarizeNodeHostAdmission(
     : configured.some((state) => state.status === 'degraded')
       ? 'degraded'
       : 'available';
-  const accountingComplete = configured.every(
-    (state) =>
-      state.accounting != null &&
-      state.accounting.withheldUnits != null &&
-      state.accounting.borrowedUnits >= 0,
-  );
+  const accountingComplete =
+    !configured.some((state) => state.status === 'unavailable') &&
+    configured.every(
+      (state) =>
+        state.accounting != null &&
+        state.accounting.pendingUnits != null &&
+        state.accounting.withheldUnits != null &&
+        state.accounting.borrowedUnits >= 0,
+    );
 
   return {
     status,

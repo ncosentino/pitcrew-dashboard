@@ -185,6 +185,15 @@ describe('describeHostAdmission', () => {
 });
 
 describe('summarizeNodeHostAdmission', () => {
+  it('keeps an empty node unavailable', () => {
+    expect(summarizeNodeHostAdmission([])).toEqual({
+      status: 'unavailable',
+      configuredProfiles: 0,
+      borrowedUnits: null,
+      withheldUnits: null,
+    });
+  });
+
   it('sums complete borrowed and withheld accounting', () => {
     const summary = summarizeNodeHostAdmission([
       profile(availableAdmission),
@@ -242,6 +251,17 @@ describe('summarizeNodeHostAdmission', () => {
 
     expect(summary).toMatchObject({
       status: 'unavailable',
+      borrowedUnits: null,
+      withheldUnits: null,
+    });
+  });
+
+  it('does not publish partial totals when one profile is legacy', () => {
+    const summary = summarizeNodeHostAdmission([profile(availableAdmission), profile(null)]);
+
+    expect(summary).toMatchObject({
+      status: 'unavailable',
+      configuredProfiles: 1,
       borrowedUnits: null,
       withheldUnits: null,
     });

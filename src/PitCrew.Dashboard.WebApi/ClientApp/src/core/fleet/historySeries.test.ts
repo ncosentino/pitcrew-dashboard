@@ -440,6 +440,51 @@ describe('buildHostAdmissionChanges', () => {
       withheldUnits: null,
     });
   });
+
+  it('preserves a missing-evidence gap between identical available observations', () => {
+    const available = {
+      hostAdmissionStatus: 'available' as const,
+      hostAdmissionNamespace: 'primary',
+      hostAdmissionEpoch: 3,
+      hostAdmissionDecisionSequence: 42,
+      hostAdmissionEffectiveTotalUnits: 10,
+      hostAdmissionAvailableUnits: 4,
+      hostAdmissionReservedUnits: 4,
+      hostAdmissionBorrowable: false,
+      hostAdmissionHeldUnits: 5,
+      hostAdmissionBorrowedUnits: 1,
+      hostAdmissionPendingUnits: 4,
+      hostAdmissionWithheldUnits: 4,
+    };
+    const changes = buildHostAdmissionChanges(
+      history({
+        samples: [
+          sample({
+            observedAt: '2026-07-26T12:00:00+00:00',
+            ...available,
+          }),
+          sample({
+            observedAt: '2026-07-26T12:05:00+00:00',
+          }),
+          sample({
+            observedAt: '2026-07-26T12:10:00+00:00',
+            ...available,
+          }),
+        ],
+      }),
+    );
+
+    expect(changes.map((change) => change.status)).toEqual([
+      'available',
+      'unavailable',
+      'available',
+    ]);
+    expect(changes[1]).toMatchObject({
+      namespace: null,
+      heldUnits: null,
+      withheldUnits: null,
+    });
+  });
 });
 
 describe('describeDeficitEvidence', () => {

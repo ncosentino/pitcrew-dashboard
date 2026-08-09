@@ -548,10 +548,9 @@ export function buildHostAdmissionChanges(
     (left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt),
   );
   for (const sample of ordered) {
-    if (sample.hostAdmissionStatus == null) continue;
     const change: HostAdmissionHistoryChange = {
       observedAt: sample.observedAt,
-      status: sample.hostAdmissionStatus,
+      status: sample.hostAdmissionStatus ?? 'unavailable',
       namespace: sample.hostAdmissionNamespace,
       epoch: sample.hostAdmissionEpoch,
       decisionSequence: sample.hostAdmissionDecisionSequence,
