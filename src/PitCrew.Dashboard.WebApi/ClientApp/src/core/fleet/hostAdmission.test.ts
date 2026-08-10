@@ -65,7 +65,7 @@ function profile(hostAdmission: HostAdmissionState | null): ManagerObservedState
 
 function contractProfile(
   managerContractVersion: number,
-  hostAdmission?: HostAdmissionState,
+  hostAdmission?: unknown,
 ): unknown {
   return {
     schemaVersion: 1,
@@ -244,17 +244,15 @@ describe('summarizeNodeHostAdmission', () => {
       });
 
       expect(managerObservedStateSchema.safeParse(adopted).success).toBe(true);
+      const unknownCommand = contractProfile(18, {
+        ...availableAdmission,
+        lastDecision: {
+          ...adoptedDecision,
+          command: 'unknown',
+        },
+      });
       expect(
-        managerObservedStateSchema.safeParse({
-          ...adopted,
-          hostAdmission: {
-            ...availableAdmission,
-            lastDecision: {
-              ...adoptedDecision,
-              command: 'unknown',
-            },
-          },
-        }).success,
+        managerObservedStateSchema.safeParse(unknownCommand).success,
       ).toBe(false);
     });
   });
