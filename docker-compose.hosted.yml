@@ -33,7 +33,7 @@ services:
     volumes:
       - dashboard-data:/var/lib/pitcrew-dashboard
     tmpfs:
-      - /tmp:size=32m,noexec,nosuid,nodev
+      - /tmp:size=512m,noexec,nosuid,nodev
     cap_drop:
       - ALL
     security_opt:
