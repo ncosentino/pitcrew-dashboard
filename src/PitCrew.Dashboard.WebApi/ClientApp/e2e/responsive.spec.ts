@@ -118,6 +118,10 @@ test.describe('responsive mobile summaries', () => {
     await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}`);
     await page.waitForLoadState('networkidle');
 
+    const pressureSection = page.getByTestId('node-overview-section-pressure');
+    await expect(pressureSection).not.toHaveAttribute('open', '');
+    await pressureSection.locator(':scope > summary').click();
+    await expect(pressureSection).toHaveAttribute('open', '');
     await expect(page.getByTestId('active-workloads-mobile-summary')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open in GitHub' })).toHaveCSS(
       'min-height',
