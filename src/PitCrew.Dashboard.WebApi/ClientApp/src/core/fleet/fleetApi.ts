@@ -495,7 +495,7 @@ const hostAdmissionAccountingSchema = z
 
 const hostAdmissionDecisionSchema = z.object({
   sequence: z.number().int().nonnegative(),
-  command: z.enum(['acquire', 'renew', 'activate', 'release', 'reconcile']),
+  command: z.enum(['acquire', 'adopt', 'renew', 'activate', 'release', 'reconcile']),
   granted: z.boolean(),
   failureCategory: z
     .string()
