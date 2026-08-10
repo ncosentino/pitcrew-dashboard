@@ -37,6 +37,11 @@ the dashboard or connector images.
   operations.
 - SQLite and ASP.NET data-protection keys share one persistent dashboard volume.
   Protect that volume as a credential-bearing asset.
+- The dashboard receives a hardened 512 MiB `/tmp` tmpfs for SQLite temporary
+  files. Windowed history retention and full integrity verification can spill
+  temporary data there, so free space on the persistent dashboard volume does
+  not replace this bounded temporary capacity. The cap is not allocated
+  eagerly and retains `noexec`, `nosuid`, and `nodev`.
 
 ## Common configuration
 

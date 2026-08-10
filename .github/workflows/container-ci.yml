@@ -122,6 +122,9 @@ jobs:
           assert 'Host: pitcrew.example.com' in dashboard_health_test
           assert '/health/hosted-ingress/v1' in dashboard_health_test
           assert 'pitcrew-dashboard-hosted-ingress-v1' in dashboard_health_test
+          assert base['services']['dashboard']['tmpfs'] == [
+              '/tmp:size=512m,noexec,nosuid,nodev',
+          ]
 
           assert sorted(caddy['services']) == ['caddy', 'dashboard']
           assert sorted(str(port['published']) for port in caddy['services']['caddy']['ports']) == [
