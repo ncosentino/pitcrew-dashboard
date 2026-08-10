@@ -63,10 +63,7 @@ function profile(hostAdmission: HostAdmissionState | null): ManagerObservedState
   };
 }
 
-function contractProfile(
-  managerContractVersion: number,
-  hostAdmission?: unknown,
-): unknown {
+function contractProfile(managerContractVersion: number, hostAdmission?: unknown): unknown {
   return {
     schemaVersion: 1,
     managerContractVersion,
@@ -251,9 +248,7 @@ describe('summarizeNodeHostAdmission', () => {
           command: 'unknown',
         },
       });
-      expect(
-        managerObservedStateSchema.safeParse(unknownCommand).success,
-      ).toBe(false);
+      expect(managerObservedStateSchema.safeParse(unknownCommand).success).toBe(false);
     });
   });
 
