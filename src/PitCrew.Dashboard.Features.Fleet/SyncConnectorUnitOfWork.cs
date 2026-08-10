@@ -706,6 +706,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
       decision.Sequence >= 0 &&
       decision.Command is (
           "acquire" or
+          "adopt" or
           "renew" or
           "activate" or
           "release" or

@@ -89,6 +89,38 @@ public sealed class SyncConnectorContractEighteenTests
     })).IsFalse();
   }
 
+  [Test]
+  public async Task Accepts_Adopt_Decisions_And_Rejects_Unknown_Commands()
+  {
+    var profile = CreateProfile();
+    var admission = profile.HostAdmission ??
+        throw new InvalidOperationException(
+            "The contract-18 fixture must include host admission.");
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(profile with
+    {
+      HostAdmission = admission with
+      {
+        LastDecision = admission.LastDecision! with
+        {
+          Command = "adopt",
+          Granted = true,
+          FailureCategory = null,
+        },
+      },
+    })).IsTrue();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(profile with
+    {
+      HostAdmission = admission with
+      {
+        LastDecision = admission.LastDecision! with
+        {
+          Command = "unknown",
+        },
+      },
+    })).IsFalse();
+  }
+
   private static ManagerObservedState CreateProfile()
   {
     var baseline = SyncConnectorContractSixteenTests.CreateProfile();
