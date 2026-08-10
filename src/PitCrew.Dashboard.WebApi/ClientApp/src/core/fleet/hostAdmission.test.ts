@@ -229,6 +229,34 @@ describe('summarizeNodeHostAdmission', () => {
     it('keeps manager contract 17 readable without host admission', () => {
       expect(managerObservedStateSchema.safeParse(contractProfile(17)).success).toBe(true);
     });
+
+    it('accepts adopt decisions and rejects unknown commands', () => {
+      const adoptedDecision = {
+        sequence: 43,
+        command: 'adopt' as const,
+        granted: true,
+        failureCategory: null,
+        decidedAtUnixNano: 1_754_719_500_000_000_000,
+      };
+      const adopted = contractProfile(18, {
+        ...availableAdmission,
+        lastDecision: adoptedDecision,
+      });
+
+      expect(managerObservedStateSchema.safeParse(adopted).success).toBe(true);
+      expect(
+        managerObservedStateSchema.safeParse({
+          ...adopted,
+          hostAdmission: {
+            ...availableAdmission,
+            lastDecision: {
+              ...adoptedDecision,
+              command: 'unknown',
+            },
+          },
+        }).success,
+      ).toBe(false);
+    });
   });
 
   it('does not fabricate totals when one profile is unavailable', () => {
