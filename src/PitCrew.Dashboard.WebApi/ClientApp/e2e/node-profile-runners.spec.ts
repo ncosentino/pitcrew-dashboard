@@ -123,6 +123,61 @@ test('mobile runner summaries retain technical evidence behind disclosure', asyn
   await expect(card.getByText('Updated')).toBeVisible();
 });
 
+test('mobile node overview exposes a compact section index before detailed evidence', async ({
+  page,
+}) => {
+  await page.setViewportSize(viewports.mobile);
+  await setUpPage(page, pressureScenario(), 'dark');
+  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}`);
+
+  await expect(page.getByTestId(`node-overview-profiles-${nodeIds.alpha}`)).toContainText(
+    '0 named profiles',
+  );
+  await expect(page.getByTestId('node-overview-section-profiles')).toContainText(
+    '1 profile · 0 named in incidents',
+  );
+
+  const sectionIds = [
+    'node-overview-section-identity',
+    'node-overview-section-pressure',
+    'node-overview-section-connector',
+    'node-overview-section-hardware',
+    'node-overview-section-profiles',
+  ] as const;
+  for (const testId of sectionIds) {
+    const section = page.getByTestId(testId);
+    await expect(section.locator(':scope > summary')).toBeVisible();
+    await expect(section).not.toHaveAttribute('open', '');
+  }
+
+  const firstSummary = await page
+    .getByTestId(sectionIds[0])
+    .locator(':scope > summary')
+    .boundingBox();
+  const lastSummary = await page
+    .getByTestId(sectionIds[4])
+    .locator(':scope > summary')
+    .boundingBox();
+  expect(firstSummary).not.toBeNull();
+  expect(lastSummary).not.toBeNull();
+  expect((lastSummary?.y ?? 0) - (firstSummary?.y ?? 0)).toBeLessThan(320);
+
+  const pressure = page.getByTestId('node-overview-section-pressure');
+  await pressure.locator(':scope > summary').click();
+  await expect(
+    page.getByRole('heading', { level: 3, name: 'Host pressure and active workloads' }),
+  ).toBeVisible();
+  await pressure.locator(':scope > summary').click();
+
+  const profiles = page.getByTestId('node-overview-section-profiles');
+  await profiles.locator(':scope > summary').click();
+  const profile = page.getByTestId('node-profile-disclosure-build');
+  await expect(profile.locator(':scope > summary')).toBeVisible();
+  await expect(profile.getByRole('link', { name: 'Build' })).not.toBeVisible();
+  await profile.locator(':scope > summary').click();
+  await expect(profile.getByRole('link', { name: 'Build' })).toBeVisible();
+});
+
 const matrix = [
   {
     name: 'healthy',
@@ -190,7 +245,13 @@ for (const state of matrix) {
         await setUpPage(page, state.scenario(), theme);
         await page.goto(state.path);
 
-        if ('readyHeading' in state) {
+        if (
+          viewport.name === 'mobile' &&
+          state.path === `/tenants/${tenantId}/nodes/${nodeIds.alpha}` &&
+          'readyText' in state
+        ) {
+          await expect(page.getByRole('heading', { level: 2, name: 'Alpha' })).toBeVisible();
+        } else if ('readyHeading' in state) {
           await expect(
             page.getByRole('heading', { level: 2, name: state.readyHeading }),
           ).toBeVisible();

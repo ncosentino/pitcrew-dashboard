@@ -28,6 +28,9 @@ paths:
 - Run Impeccable context loader before editing established UI surfaces; use `shape` for new surfaces or materially changed flows.
 - Use only approved shared primitives and design tokens.
 - Cover all relevant states and viewports (320, 390, 768, 1280, 1440 CSS px).
+- On narrow multi-section operational detail routes, show a compact section summary
+  and progressive disclosure before detailed evidence. Never treat vertically
+  stacking every desktop panel at full length as a mobile strategy.
 - Never use a raw identifier as a title when a human-readable display name exists.
 - Never introduce a new table without a documented narrow-screen strategy.
 - Never add a consequential action without confirmation or approved reversibility.

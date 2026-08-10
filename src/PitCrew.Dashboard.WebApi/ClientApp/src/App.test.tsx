@@ -366,16 +366,14 @@ describe('authenticated routing', () => {
     const router = renderRoute('/tenants/local/nodes/node-1');
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Node node-1 overview' }),
+      await screen.findByRole('heading', { level: 1, name: 'Node overview' }),
     ).toBeInTheDocument();
     expect(
       within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
         name: 'Fleet',
       }),
     ).toHaveAttribute('href', '/tenants/local/fleet');
-    expect(
-      screen.getByText('Node node-1', { selector: '[aria-current="page"]' }),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Node', { selector: '[aria-current="page"]' })).toBeInTheDocument();
     expect(await screen.findByText('Node not found')).toBeInTheDocument();
 
     await act(async () => {
@@ -383,7 +381,7 @@ describe('authenticated routing', () => {
     });
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Node node-1 history' }),
+      await screen.findByRole('heading', { level: 1, name: 'Node history' }),
     ).toBeInTheDocument();
     expect(screen.getByText('History', { selector: '[aria-current="page"]' })).toBeInTheDocument();
 
@@ -396,7 +394,7 @@ describe('authenticated routing', () => {
     ).toBeInTheDocument();
     expect(
       within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
-        name: 'Node node-1',
+        name: 'Node',
       }),
     ).toHaveAttribute('href', '/tenants/local/nodes/node-1');
 
