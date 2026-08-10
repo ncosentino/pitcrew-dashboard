@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -73,6 +73,15 @@ describe('settings routes', () => {
   });
 
   describe('owner role', () => {
+    it('resolves the shared Settings destination to general settings', async () => {
+      mockSession(ownerSession);
+      const router = renderRoute('/tenants/local/settings');
+
+      await waitFor(() =>
+        expect(router.state.location.pathname).toBe('/tenants/local/settings/general'),
+      );
+    });
+
     it('renders general settings with section navigation', async () => {
       mockSession(ownerSession);
       renderRoute('/tenants/local/settings/general');
@@ -123,6 +132,15 @@ describe('settings routes', () => {
   });
 
   describe('administrator role', () => {
+    it('resolves the shared Settings destination to enrollment', async () => {
+      mockSession(adminSession);
+      const router = renderRoute('/tenants/local/settings');
+
+      await waitFor(() =>
+        expect(router.state.location.pathname).toBe('/tenants/local/settings/enrollment'),
+      );
+    });
+
     it('renders enrollment page with section navigation', async () => {
       mockSession(adminSession);
       renderRoute('/tenants/local/settings/enrollment');
@@ -244,6 +262,18 @@ describe('settings routes', () => {
       const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
       const activeLink = nav.querySelector('[aria-current="page"]');
       expect(activeLink).toHaveTextContent('Settings');
+    });
+
+    it('marks Settings as active in the primary navigation on enrollment', async () => {
+      mockSession(adminSession);
+      renderRoute('/tenants/local/settings/enrollment');
+
+      await screen.findByRole('heading', { level: 1, name: 'Connector enrollment' });
+      const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+      const activeLink = nav.querySelector('[aria-current="page"]');
+      expect(activeLink).toHaveTextContent('Settings');
+      expect(nav).not.toHaveTextContent('Enrollment');
+      expect(nav).not.toHaveTextContent('Diagnostics');
     });
   });
 });

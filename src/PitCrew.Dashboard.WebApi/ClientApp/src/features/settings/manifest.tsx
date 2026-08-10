@@ -6,6 +6,10 @@ const GeneralSettingsPage = lazyFeature('settings', async () => {
   const module = await import('./SettingsPages');
   return { default: module.GeneralSettingsPage };
 });
+const SettingsLandingPage = lazyFeature('settings', async () => {
+  const module = await import('./SettingsPages');
+  return { default: module.SettingsLandingPage };
+});
 const AccessSettingsPage = lazyFeature('settings', async () => {
   const module = await import('./SettingsPages');
   return { default: module.AccessSettingsPage };
@@ -25,22 +29,14 @@ export const settingsManifest: FeatureManifest = {
   navigation: [
     {
       label: 'Settings',
-      path: '/tenants/:tenantId/settings/general',
-      minimumTenantRole: 'owner',
+      path: '/tenants/:tenantId/settings',
+      minimumTenantRole: 'administrator',
       activePathPatterns: [
         '/tenants/:tenantId/settings/general',
         '/tenants/:tenantId/settings/access',
+        '/tenants/:tenantId/settings/enrollment',
+        '/tenants/:tenantId/settings/diagnostics',
       ],
-    },
-    {
-      label: 'Enrollment',
-      path: '/tenants/:tenantId/settings/enrollment',
-      minimumTenantRole: 'administrator',
-    },
-    {
-      label: 'Diagnostics',
-      path: '/tenants/:tenantId/settings/diagnostics',
-      minimumTenantRole: 'administrator',
     },
   ],
   routePresentations: [
@@ -53,7 +49,7 @@ export const settingsManifest: FeatureManifest = {
       path: '/tenants/:tenantId/settings/access',
       title: 'Tenant access',
       breadcrumbs: [
-        { label: 'Settings', path: '/tenants/:tenantId/settings/general' },
+        { label: 'Settings', path: '/tenants/:tenantId/settings' },
         { label: 'Access' },
       ],
     },
@@ -61,7 +57,7 @@ export const settingsManifest: FeatureManifest = {
       path: '/tenants/:tenantId/settings/enrollment',
       title: 'Connector enrollment',
       breadcrumbs: [
-        { label: 'Settings', path: '/tenants/:tenantId/settings/general' },
+        { label: 'Settings', path: '/tenants/:tenantId/settings' },
         { label: 'Enrollment' },
       ],
     },
@@ -69,12 +65,20 @@ export const settingsManifest: FeatureManifest = {
       path: '/tenants/:tenantId/settings/diagnostics',
       title: 'Diagnostic credentials',
       breadcrumbs: [
-        { label: 'Settings', path: '/tenants/:tenantId/settings/general' },
+        { label: 'Settings', path: '/tenants/:tenantId/settings' },
         { label: 'Diagnostics' },
       ],
     },
   ],
   routes: [
+    {
+      path: 'tenants/:tenantId/settings',
+      element: (
+        <TenantRouteGuard minimumRole="administrator">
+          <SettingsLandingPage />
+        </TenantRouteGuard>
+      ),
+    },
     {
       path: 'tenants/:tenantId/settings/general',
       element: (

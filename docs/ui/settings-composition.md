@@ -7,6 +7,8 @@ routes in the PitCrew Dashboard frontend.
 
 Settings routes live under `/tenants/:tenantId/settings/`. Each route has:
 
+- **One primary Settings destination** at `/tenants/:tenantId/settings`. It
+  resolves owners to General and administrators to Enrollment.
 - **One human-readable page title** via `routePresentations` in the feature
   manifest. The shell renders it as the single H1 and sets `document.title`.
 - **Breadcrumbs** linking back to the parent settings section.
@@ -73,5 +75,7 @@ level. The section navigation only renders tabs the current role can access.
 ## Primary navigation active state
 
 The manifest's `activePathPatterns` for the "Settings" primary navigation
-item includes both `/settings/general` and `/settings/access`, ensuring the
-primary nav link shows as active across all settings sub-routes.
+item includes General, Access, Enrollment, and Diagnostics. Child settings
+routes never contribute separate primary-navigation items, so desktop and
+mobile shells expose one stable Settings parent while section navigation owns
+the authorized child destinations.

@@ -7,6 +7,7 @@ import {
   formatCpuCores,
   formatOptionalBytes,
   formatPids,
+  formatTime,
 } from '@/core/formatting/formatters';
 import { FilterChips, type FilterChipDescriptor } from '@/core/ui/FilterChips';
 import { FilterToolbar } from '@/core/ui/FilterToolbar';
@@ -62,22 +63,11 @@ const sortKeys = new Set<SortKey>([
 
 const inputClassName = 'h-9 rounded-md border bg-background px-3 text-sm';
 const tableColumns: ReadonlyArray<OperationalTableColumn> = [
-  { key: 'node', header: 'Node' },
-  { key: 'profile', header: 'Profile' },
-  { key: 'slot', header: 'Slot' },
-  { key: 'repository', header: 'Repository' },
-  { key: 'target', header: 'Target' },
-  { key: 'activity', header: 'Activity' },
-  { key: 'registration', header: 'GitHub registration' },
-  { key: 'state', header: 'Local lifecycle state' },
-  { key: 'failures', header: 'Failures', align: 'right' },
-  { key: 'cpu', header: 'CPU', align: 'right' },
-  { key: 'memory', header: 'Memory', align: 'right' },
-  { key: 'pids', header: 'PIDs', align: 'right' },
-  { key: 'network', header: 'Network I/O', align: 'right' },
-  { key: 'block', header: 'Block I/O', align: 'right' },
-  { key: 'image', header: 'Worker image' },
-  { key: 'exit', header: 'Last exit' },
+  { key: 'runner', header: 'Runner' },
+  { key: 'workload', header: 'Workload' },
+  { key: 'state', header: 'State' },
+  { key: 'resources', header: 'Resources' },
+  { key: 'evidence', header: 'Evidence' },
 ];
 const sortLabels: Record<SortKey, string> = {
   node: 'Node',
@@ -194,6 +184,155 @@ function ResourceNotice({ rows }: { readonly rows: ReadonlyArray<FleetSlot> }) {
       Partial resource data: {reporting} of {rows.length} displayed slots are reporting CPU, memory,
       and PIDs.
     </StateBanner>
+  );
+}
+
+function formatRepositoryLabel(repository: string): string {
+  if (!URL.canParse(repository)) return repository;
+  const url = new URL(repository);
+  if (url.hostname.toLocaleLowerCase() !== 'github.com') return repository;
+  return url.pathname.replace(/^\/|\/$/g, '').replace(/\.git$/i, '') || repository;
+}
+
+function RunnerIdentity({ row, tenantId }: { readonly row: FleetSlot; readonly tenantId: string }) {
+  return (
+    <div className="grid min-w-28 gap-1">
+      <Link
+        className="w-fit font-semibold underline-offset-4 hover:underline focus-visible:underline"
+        to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
+      >
+        {row.nodeName}
+      </Link>
+      <span className="flex min-w-0 flex-wrap gap-x-1 font-mono text-xs text-muted-foreground">
+        <span className="break-words">{row.profileId}</span>
+        <span aria-hidden="true">·</span>
+        <span className="break-words">{row.slot.key}</span>
+      </span>
+    </div>
+  );
+}
+
+function RunnerWorkload({ row }: { readonly row: FleetSlot }) {
+  const repository = row.slot.repository;
+  return (
+    <div className="grid min-w-32 max-w-56 gap-1">
+      <span className="break-words font-medium" title={repository ?? undefined}>
+        {repository ? formatRepositoryLabel(repository) : 'Shared scope'}
+      </span>
+      <span className="break-words text-xs text-muted-foreground">
+        {row.slot.target ?? 'Target unavailable'}
+      </span>
+    </div>
+  );
+}
+
+function RunnerState({ row }: { readonly row: FleetSlot }) {
+  return (
+    <div className="flex min-w-24 flex-wrap gap-1.5">
+      {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+      {row.slot.activity ? <StatusBadge status={row.slot.activity} /> : null}
+      <StatusBadge status={row.slot.state} />
+      <span data-testid={`runner-registration-${row.nodeId}-${row.profileId}-${row.slot.key}`}>
+        <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
+      </span>
+    </div>
+  );
+}
+
+function RunnerResources({ row }: { readonly row: FleetSlot }) {
+  return (
+    <div
+      className="grid min-w-20 gap-1 text-xs tabular-nums"
+      data-testid={`runner-resources-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+    >
+      {row.slot.resources ? (
+        <>
+          <span>{formatCpuCores(row.slot.resources.cpuCores)}</span>
+          <span>{formatBytes(row.slot.resources.memoryWorkingSetBytes)}</span>
+          <span>{formatPids(row.slot.resources.pids)}</span>
+        </>
+      ) : (
+        <span className="text-muted-foreground">Unavailable</span>
+      )}
+    </div>
+  );
+}
+
+function RunnerEvidence({
+  row,
+  includeTestIds = true,
+}: {
+  readonly row: FleetSlot;
+  readonly includeTestIds?: boolean;
+}) {
+  return (
+    <div className="grid min-w-28 gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs tabular-nums">
+          {row.slot.failureCount === 0
+            ? 'No failures'
+            : `${row.slot.failureCount} ${row.slot.failureCount === 1 ? 'failure' : 'failures'}`}
+        </span>
+        {row.slot.lastExit ? <StatusBadge status={row.slot.lastExit.classification} /> : null}
+      </div>
+      <details className="group">
+        <summary className="min-h-9 w-fit cursor-pointer rounded-md py-2 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+          Technical details
+        </summary>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 border-t pt-2 text-xs">
+          <dt className="text-muted-foreground">Network</dt>
+          <dd
+            className="text-right tabular-nums"
+            data-testid={
+              includeTestIds
+                ? `runner-network-${row.nodeId}-${row.profileId}-${row.slot.key}`
+                : undefined
+            }
+          >
+            {row.slot.resources
+              ? `${formatOptionalBytes(row.slot.resources.networkRxBytes)} in · ${formatOptionalBytes(row.slot.resources.networkTxBytes)} out`
+              : 'Unavailable'}
+          </dd>
+          <dt className="text-muted-foreground">Block I/O</dt>
+          <dd
+            className="text-right tabular-nums"
+            data-testid={
+              includeTestIds
+                ? `runner-block-io-${row.nodeId}-${row.profileId}-${row.slot.key}`
+                : undefined
+            }
+          >
+            {row.slot.resources
+              ? `${formatOptionalBytes(row.slot.resources.blockReadBytes)} read · ${formatOptionalBytes(row.slot.resources.blockWriteBytes)} written`
+              : 'Unavailable'}
+          </dd>
+          <dt className="text-muted-foreground">Image</dt>
+          <dd
+            className="text-right"
+            data-testid={
+              includeTestIds
+                ? `runner-image-${row.nodeId}-${row.profileId}-${row.slot.key}`
+                : undefined
+            }
+          >
+            <WorkerImageIdentity imageId={row.slot.imageId} />
+          </dd>
+          <dt className="text-muted-foreground">Last exit</dt>
+          <dd
+            className="min-w-0 text-right [&>span]:!whitespace-normal [&>span]:flex-wrap [&>span]:justify-end"
+            data-testid={
+              includeTestIds
+                ? `runner-last-exit-${row.nodeId}-${row.profileId}-${row.slot.key}`
+                : undefined
+            }
+          >
+            <WorkerExitEvidence lastExit={row.slot.lastExit} />
+          </dd>
+          <dt className="text-muted-foreground">Updated</dt>
+          <dd className="text-right">{formatTime(row.slot.updatedAt)}</dd>
+        </dl>
+      </details>
+    </div>
   );
 }
 
@@ -576,36 +715,29 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 {rows.slice(0, 50).map((row) => (
                   <div
                     key={`${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                    className="grid gap-1.5 rounded-lg border bg-card p-4"
+                    className="grid gap-3 rounded-lg border bg-card p-4"
                     data-testid={`runner-card-${row.nodeId}-${row.profileId}-${row.slot.key}`}
                   >
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="min-w-0 break-words font-medium">{row.nodeName}</span>
+                    <RunnerIdentity row={row} tenantId={tenantId} />
+                    <RunnerWorkload row={row} />
+                    <div className="flex flex-wrap gap-1.5">
                       {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+                      {row.slot.activity ? <StatusBadge status={row.slot.activity} /> : null}
                       <StatusBadge status={row.slot.state} />
                       <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
                     </div>
-                    <div className="min-w-0 break-all font-mono text-xs text-muted-foreground">
-                      {row.profileId} / {row.slot.key}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      {row.slot.resources ? (
+                        <span className="tabular-nums">
+                          {formatCpuCores(row.slot.resources.cpuCores)} ·{' '}
+                          {formatBytes(row.slot.resources.memoryWorkingSetBytes)} ·{' '}
+                          {formatPids(row.slot.resources.pids)}
+                        </span>
+                      ) : (
+                        <span>Resources unavailable</span>
+                      )}
                     </div>
-                    {row.slot.activity ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">Activity:</span>
-                        <StatusBadge status={row.slot.activity} />
-                      </div>
-                    ) : null}
-                    {row.slot.repository ? (
-                      <div className="min-w-0 break-words text-xs">{row.slot.repository}</div>
-                    ) : null}
-                    <div className="text-xs text-muted-foreground">
-                      Failures: <span className="tabular-nums">{row.slot.failureCount}</span>
-                    </div>
-                    <Link
-                      className="min-h-11 inline-flex items-center justify-self-start rounded-md border px-3 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                      to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
-                    >
-                      View profile
-                    </Link>
+                    <RunnerEvidence row={row} includeTestIds={false} />
                   </div>
                 ))}
                 {rows.length > 50 ? (
@@ -619,7 +751,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 caption="Runner slots for the active tenant"
                 className="hidden lg:block"
                 columns={tableColumns}
-                minWidthClassName="min-w-6xl"
+                minWidthClassName="min-w-[42rem]"
               >
                 {rows.map((row) => (
                   <tr
@@ -627,78 +759,23 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                     className="border-t"
                     data-testid={`runner-row-${row.nodeId}-${row.profileId}-${row.slot.key}`}
                   >
-                    <td className="px-3 py-2">
-                      <div>{row.nodeName}</div>
-                      {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Link
-                        className="font-medium underline-offset-4 hover:underline focus-visible:underline"
-                        to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
-                      >
-                        {row.profileId}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">{row.slot.key}</td>
-                    <td className="px-3 py-2">{row.slot.repository ?? 'Shared scope'}</td>
-                    <td className="px-3 py-2">{row.slot.target ?? 'Unavailable'}</td>
-                    <td className="px-3 py-2">
-                      {row.slot.activity ? (
-                        <StatusBadge status={row.slot.activity} />
-                      ) : (
-                        'Unavailable'
-                      )}
-                    </td>
                     <td
-                      className="px-3 py-2"
-                      data-testid={`runner-registration-${row.nodeId}-${row.profileId}-${row.slot.key}`}
+                      className="px-3 py-3 align-top"
+                      data-testid={`runner-slot-${row.nodeId}-${row.profileId}-${row.slot.key}`}
                     >
-                      <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
+                      <RunnerIdentity row={row} tenantId={tenantId} />
                     </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={row.slot.state} />
+                    <td className="px-3 py-3 align-top">
+                      <RunnerWorkload row={row} />
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{row.slot.failureCount}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.slot.resources
-                        ? formatCpuCores(row.slot.resources.cpuCores)
-                        : 'Unavailable'}
+                    <td className="px-3 py-3 align-top">
+                      <RunnerState row={row} />
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.slot.resources
-                        ? formatBytes(row.slot.resources.memoryWorkingSetBytes)
-                        : 'Unavailable'}
+                    <td className="px-3 py-3 align-top">
+                      <RunnerResources row={row} />
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.slot.resources ? formatPids(row.slot.resources.pids) : 'Unavailable'}
-                    </td>
-                    <td
-                      className="px-3 py-2 text-right tabular-nums"
-                      data-testid={`runner-network-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                    >
-                      {row.slot.resources
-                        ? `${formatOptionalBytes(row.slot.resources.networkRxBytes)} in · ${formatOptionalBytes(row.slot.resources.networkTxBytes)} out`
-                        : 'Unavailable'}
-                    </td>
-                    <td
-                      className="px-3 py-2 text-right tabular-nums"
-                      data-testid={`runner-block-io-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                    >
-                      {row.slot.resources
-                        ? `${formatOptionalBytes(row.slot.resources.blockReadBytes)} read · ${formatOptionalBytes(row.slot.resources.blockWriteBytes)} written`
-                        : 'Unavailable'}
-                    </td>
-                    <td
-                      className="px-3 py-2"
-                      data-testid={`runner-image-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                    >
-                      <WorkerImageIdentity imageId={row.slot.imageId} />
-                    </td>
-                    <td
-                      className="px-3 py-2"
-                      data-testid={`runner-last-exit-${row.nodeId}-${row.profileId}-${row.slot.key}`}
-                    >
-                      <WorkerExitEvidence lastExit={row.slot.lastExit} />
+                    <td className="px-3 py-3 align-top">
+                      <RunnerEvidence row={row} />
                     </td>
                   </tr>
                 ))}

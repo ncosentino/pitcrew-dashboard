@@ -217,7 +217,9 @@ describe('runners feature', () => {
     expect(screen.getByLabelText('Sort by')).toHaveValue('failures');
     expect(screen.getByLabelText('Sort direction')).toHaveValue('desc');
     expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(1);
-    expect(screen.getByText('slot-a')).toBeInTheDocument();
+    expect(screen.getByTestId(`runner-slot-${localNodeId}-build-slot-a`)).toHaveTextContent(
+      'slot-a',
+    );
   });
 
   it('writes each filter and sorting choice to the URL', async () => {
@@ -240,7 +242,9 @@ describe('runners feature', () => {
       ),
     );
     expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(1);
-    expect(screen.getByText('slot-b')).toBeInTheDocument();
+    expect(screen.getByTestId(`runner-slot-${localNodeId}-deploy-slot-b`)).toHaveTextContent(
+      'slot-b',
+    );
   });
 
   it('sorts deterministically with route context as the tie breaker', async () => {
@@ -248,11 +252,15 @@ describe('runners feature', () => {
 
     const table = await screen.findByRole('table');
     const rows = within(table).getAllByTestId(/^runner-row-/);
-    expect(rows.map((row) => within(row).getAllByRole('cell')[2]?.textContent)).toEqual([
-      'slot-b',
-      'slot-c',
-      'slot-a',
-    ]);
+    expect(
+      rows.map((row) =>
+        within(row)
+          .getByTestId(/^runner-slot-/)
+          .textContent?.split('·')
+          .at(-1)
+          ?.trim(),
+      ),
+    ).toEqual(['slot-b', 'slot-c', 'slot-a']);
   });
 
   it('keeps missing metrics unavailable while preserving reported zero values', async () => {
@@ -275,7 +283,9 @@ describe('runners feature', () => {
 
     expect(await screen.findByText(/Partial resource data: 1 of 2/)).toBeInTheDocument();
     const missing = screen.getByTestId(`runner-row-${localNodeId}-build-missing`);
-    expect(within(missing).getAllByText('Unavailable')).toHaveLength(6);
+    expect(
+      within(missing).getByTestId(`runner-resources-${localNodeId}-build-missing`),
+    ).toHaveTextContent('Unavailable');
     expect(screen.getByTestId(`runner-network-${localNodeId}-build-missing`)).toHaveTextContent(
       'Unavailable',
     );

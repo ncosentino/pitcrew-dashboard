@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +54,17 @@ function SettingsPage({ children }: SettingsPageProps) {
       {children}
     </section>
   );
+}
+
+/** Resolves the shared Settings destination to the first route the current role can access. */
+export function SettingsLandingPage() {
+  const { tenantId, tenant } = useCurrentTenant();
+  if (!tenant) return null;
+
+  const destination = hasMinimumTenantRole(tenant.role, 'owner')
+    ? `/tenants/${tenantId}/settings/general`
+    : `/tenants/${tenantId}/settings/enrollment`;
+  return <Navigate replace to={destination} />;
 }
 
 /** Owner-managed general tenant settings route. */
