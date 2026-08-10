@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
@@ -43,6 +44,7 @@ interface ProfileSummaryProps {
   readonly tenantId: string;
   readonly nodeId: string;
   readonly nodeIsOnline: boolean;
+  readonly isDesktop: boolean;
 }
 
 interface OverviewSummaryCardProps {
@@ -53,8 +55,72 @@ interface OverviewSummaryCardProps {
   readonly testId: string;
 }
 
+interface ResponsiveOverviewSectionProps {
+  readonly title: string;
+  readonly summary: string;
+  readonly status?: string;
+  readonly isDesktop: boolean;
+  readonly testId: string;
+  readonly children: ReactNode;
+}
+
+const desktopOverviewQuery = '(min-width: 48rem)';
+
 function useNodeDetail(): NodeDetailContext {
   return useOutletContext<NodeDetailContext>();
+}
+
+function useDesktopOverview(): boolean {
+  const [isDesktop, setIsDesktop] = useState(
+    () => globalThis.matchMedia(desktopOverviewQuery).matches,
+  );
+
+  useEffect(() => {
+    const mediaQuery = globalThis.matchMedia(desktopOverviewQuery);
+    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return isDesktop;
+}
+
+function ResponsiveOverviewSection({
+  title,
+  summary,
+  status,
+  isDesktop,
+  testId,
+  children,
+}: ResponsiveOverviewSectionProps) {
+  const [isOpenOnMobile, setIsOpenOnMobile] = useState(false);
+  const isOpen = isDesktop || isOpenOnMobile;
+
+  return (
+    <details
+      className="group min-w-0 md:contents"
+      data-testid={testId}
+      open={isOpen}
+      onToggle={(event) => {
+        if (!isDesktop) setIsOpenOnMobile(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring md:hidden">
+        <span className="min-w-0">
+          <span className="block font-semibold">{title}</span>
+          <span className="block truncate text-xs text-muted-foreground">{summary}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {status ? <StatusBadge status={status} /> : null}
+          <ChevronDown
+            aria-hidden="true"
+            className="size-4 text-muted-foreground transition-transform group-open:rotate-180"
+          />
+        </span>
+      </summary>
+      <div className="mt-3 min-w-0 md:mt-0">{children}</div>
+    </details>
+  );
 }
 
 function formatProfileDisplayName(profileId: string): string {
@@ -89,118 +155,139 @@ function OverviewSummaryCard({
   testId,
 }: OverviewSummaryCardProps) {
   return (
-    <div className="grid content-start gap-2" data-testid={testId}>
+    <div
+      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 sm:block sm:p-0"
+      data-testid={testId}
+    >
       <span className="text-xs font-semibold text-muted-foreground uppercase">{label}</span>
       <strong className="text-xl font-semibold tabular-nums">{value}</strong>
-      {status ? <StatusBadge status={status} /> : null}
-      <p className="text-xs text-muted-foreground">{description}</p>
+      {status ? (
+        <span className="col-start-2 row-span-2 row-start-1 justify-self-end sm:mt-2 sm:block">
+          <StatusBadge status={status} />
+        </span>
+      ) : null}
+      <p className="hidden text-xs text-muted-foreground sm:mt-2 sm:block">{description}</p>
     </div>
   );
 }
 
-function ProfileSummary({ profile, tenantId, nodeId, nodeIsOnline }: ProfileSummaryProps) {
+function ProfileSummary({
+  profile,
+  tenantId,
+  nodeId,
+  nodeIsOnline,
+  isDesktop,
+}: ProfileSummaryProps) {
   const configured =
     profile.configuredSlots ?? profile.autoscaling?.maximumSlots ?? profile.desiredSlots;
   const resources = aggregateProfileResources(profile);
   const profileName = formatProfileDisplayName(profile.profileId);
 
   return (
-    <Card data-testid={`node-profile-${profile.profileId}`}>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-2">
-            <CardTitle as="h3">
-              <Link
-                className="text-link underline-offset-4 hover:underline"
-                to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profile.profileId)}`}
-              >
-                {profileName}
-              </Link>
-            </CardTitle>
-            <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <CopyableId
-                label={`${profile.profileId} profile ID`}
-                prefix="Profile ID"
-                value={profile.profileId}
-              />
-              <span>{profile.scope} scope</span>
-              <span>generation {profile.generation}</span>
-              <span>
-                {nodeIsOnline ? 'observed' : 'last-known observation'}{' '}
-                {formatTime(profile.observedAt)}
+    <ResponsiveOverviewSection
+      isDesktop={isDesktop}
+      status={profile.managerStatus}
+      summary={`${configured} configured · ${profile.activeSlots} local · ${profile.eligibleSlots ?? 'unknown'} eligible`}
+      testId={`node-profile-disclosure-${profile.profileId}`}
+      title={profileName}
+    >
+      <Card data-testid={`node-profile-${profile.profileId}`}>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="grid gap-2">
+              <CardTitle as="h3">
+                <Link
+                  className="text-link underline-offset-4 hover:underline"
+                  to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profile.profileId)}`}
+                >
+                  {profileName}
+                </Link>
+              </CardTitle>
+              <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <CopyableId
+                  label={`${profile.profileId} profile ID`}
+                  prefix="Profile ID"
+                  value={profile.profileId}
+                />
+                <span>{profile.scope} scope</span>
+                <span>generation {profile.generation}</span>
+                <span>
+                  {nodeIsOnline ? 'observed' : 'last-known observation'}{' '}
+                  {formatTime(profile.observedAt)}
+                </span>
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge status={profile.managerStatus} />
+              <StatusBadge status={profile.desiredStateStatus} />
+              {profile.autoscaling ? <StatusBadge status={profile.autoscaling.status} /> : null}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <dl className="grid gap-3 text-sm sm:grid-cols-5">
+            <div>
+              <dt className="text-xs text-muted-foreground uppercase">
+                {nodeIsOnline ? 'Configured' : 'Last known configured'}
+              </dt>
+              <dd className="mt-1 font-semibold tabular-nums">{configured}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground uppercase">
+                {nodeIsOnline ? 'Desired' : 'Last known desired'}
+              </dt>
+              <dd className="mt-1 font-semibold tabular-nums">{profile.desiredSlots}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground uppercase">
+                {nodeIsOnline ? 'Local slots' : 'Last known local slots'}
+              </dt>
+              <dd className="mt-1 font-semibold tabular-nums">{profile.activeSlots}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground uppercase">
+                {nodeIsOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
+              </dt>
+              <dd className="mt-1 font-semibold tabular-nums">
+                {profile.eligibleSlots ?? 'Unknown'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground uppercase">
+                {nodeIsOnline ? 'Draining' : 'Last known draining'}
+              </dt>
+              <dd className="mt-1 font-semibold tabular-nums">{profile.drainingSlots}</dd>
+            </div>
+          </dl>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+            <div>
+              <span className="font-medium">
+                {nodeIsOnline ? 'CPU / memory: ' : 'Last known CPU / memory: '}
               </span>
-            </CardDescription>
+              {resources.reportingSources > 0
+                ? `${formatCpuCores(resources.cpuCores)} / ${formatBytes(resources.memoryWorkingSetBytes)}`
+                : 'Unavailable'}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {resources.reportingSources} of {resources.totalSources} sources
+              </span>
+              <StatusBadge status={resources.status} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge status={profile.managerStatus} />
-            <StatusBadge status={profile.desiredStateStatus} />
-            {profile.autoscaling ? <StatusBadge status={profile.autoscaling.status} /> : null}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <dl className="grid gap-3 text-sm sm:grid-cols-5">
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">
-              {nodeIsOnline ? 'Configured' : 'Last known configured'}
-            </dt>
-            <dd className="mt-1 font-semibold tabular-nums">{configured}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">
-              {nodeIsOnline ? 'Desired' : 'Last known desired'}
-            </dt>
-            <dd className="mt-1 font-semibold tabular-nums">{profile.desiredSlots}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">
-              {nodeIsOnline ? 'Local slots' : 'Last known local slots'}
-            </dt>
-            <dd className="mt-1 font-semibold tabular-nums">{profile.activeSlots}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">
-              {nodeIsOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
-            </dt>
-            <dd className="mt-1 font-semibold tabular-nums">
-              {profile.eligibleSlots ?? 'Unknown'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground uppercase">
-              {nodeIsOnline ? 'Draining' : 'Last known draining'}
-            </dt>
-            <dd className="mt-1 font-semibold tabular-nums">{profile.drainingSlots}</dd>
-          </div>
-        </dl>
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
-          <div>
-            <span className="font-medium">
-              {nodeIsOnline ? 'CPU / memory: ' : 'Last known CPU / memory: '}
-            </span>
-            {resources.reportingSources > 0
-              ? `${formatCpuCores(resources.cpuCores)} / ${formatBytes(resources.memoryWorkingSetBytes)}`
-              : 'Unavailable'}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {resources.reportingSources} of {resources.totalSources} sources
-            </span>
-            <StatusBadge status={resources.status} />
-          </div>
-        </div>
-        {resources.status === 'partial' ? (
-          <StateBanner className="py-3 text-sm" tone="caution">
-            Partial telemetry: totals include only reporting manager and worker sources.
-          </StateBanner>
-        ) : null}
-        {profile.autoscaling?.lastError ? (
-          <StateBanner className="py-3 text-sm" tone="critical">
-            Autoscaling error: {profile.autoscaling.lastError}
-          </StateBanner>
-        ) : null}
-      </CardContent>
-    </Card>
+          {resources.status === 'partial' ? (
+            <StateBanner className="py-3 text-sm" tone="caution">
+              Partial telemetry: totals include only reporting manager and worker sources.
+            </StateBanner>
+          ) : null}
+          {profile.autoscaling?.lastError ? (
+            <StateBanner className="py-3 text-sm" tone="critical">
+              Autoscaling error: {profile.autoscaling.lastError}
+            </StateBanner>
+          ) : null}
+        </CardContent>
+      </Card>
+    </ResponsiveOverviewSection>
   );
 }
 
@@ -323,6 +410,7 @@ export function NodeDetailLayout() {
 export function NodeOverviewPage() {
   const { tenantId, node, canAdminister, antiforgeryToken, refreshNow } = useNodeDetail();
   const { fleet } = useFleet();
+  const isDesktop = useDesktopOverview();
   const [pauseProfileId, setPauseProfileId] = useState<string | null>(null);
   const [pauseError, setPauseError] = useState<string | null>(null);
   const aggregate = aggregateNode(node);
@@ -344,6 +432,28 @@ export function NodeOverviewPage() {
     incidents.flatMap((incident) => (incident.profileId ? [incident.profileId] : [])),
   );
   const pauseReadyProfiles = countPauseReadyProfiles(node);
+  const nodeStatus = getNodeStatus(node);
+  const connectorStatus =
+    node.connectorHealth?.snapshot == null
+      ? 'unavailable'
+      : node.isOnline
+        ? node.connectorHealth.snapshot.state
+        : 'last known';
+  const hardwareStatus =
+    node.hardware == null
+      ? 'unreported'
+      : !node.isOnline
+        ? 'last known'
+        : node.hardware.status === 'current'
+          ? 'latest reported'
+          : node.hardware.status;
+  const pressureStatus = incidents.some((incident) => incident.severity === 'critical')
+    ? 'critical'
+    : incidents.length > 0
+      ? 'warning'
+      : busyWorkers > 0 || runningJobs > 0
+        ? 'running'
+        : 'current';
   const pauseProfile = async (profileId: string) => {
     setPauseProfileId(profileId);
     setPauseError(null);
@@ -358,10 +468,10 @@ export function NodeOverviewPage() {
   };
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-2 md:gap-4">
       <section
         aria-label="Node triage summary"
-        className="grid gap-5 rounded-lg border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="divide-y rounded-lg border bg-card sm:grid sm:grid-cols-2 sm:gap-5 sm:divide-y-0 sm:p-4 xl:grid-cols-4"
       >
         <OverviewSummaryCard
           label="What's wrong"
@@ -392,13 +502,17 @@ export function NodeOverviewPage() {
         />
         <OverviewSummaryCard
           label="What's affected"
-          value={`${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile' : 'profiles'}`}
+          value={
+            incidents.length > 0
+              ? `${affectedProfiles.size} named ${affectedProfiles.size === 1 ? 'profile' : 'profiles'}`
+              : 'No active impact'
+          }
           description={
             incidents.length > 0
-              ? `${affectedProfiles.size} directly named by current incident evidence.`
-              : 'Profile summaries below show capacity, health, and autoscaling evidence.'
+              ? `${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile is' : 'profiles are'} reported; node-wide incidents may not name one.`
+              : `${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile is' : 'profiles are'} available for inspection.`
           }
-          status={sortedProfiles.length > 0 ? 'available' : 'unavailable'}
+          status={incidents.length > 0 ? 'warning' : 'available'}
           testId={`node-overview-profiles-${node.nodeId}`}
         />
         <OverviewSummaryCard
@@ -439,101 +553,157 @@ export function NodeOverviewPage() {
         />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle as="h3">Node identity</CardTitle>
-          <CardDescription>Connector, enrollment, and current aggregate capacity.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid gap-3 text-sm sm:grid-cols-3 xl:grid-cols-6">
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {node.isOnline ? 'Connector' : 'Last known connector'}
-              </dt>
-              <dd className="mt-1 font-medium">{node.connectorVersion || 'Unknown'}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">Last seen</dt>
-              <dd className="mt-1 font-medium">{formatTime(node.lastSeenAt)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">Enrolled</dt>
-              <dd className="mt-1 font-medium">{formatTime(node.enrolledAt)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {node.isOnline ? 'Configured slots' : 'Last known configured slots'}
-              </dt>
-              <dd className="mt-1 font-medium tabular-nums">{aggregate.configuredSlots}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {node.isOnline ? 'Local slots' : 'Last known local slots'}
-              </dt>
-              <dd className="mt-1 font-medium tabular-nums">{aggregate.activeSlots}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {node.isOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
-              </dt>
-              <dd className="mt-1 font-medium tabular-nums">
-                {aggregate.eligibleSlots ?? 'Unknown'}
-              </dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
+      <ResponsiveOverviewSection
+        isDesktop={isDesktop}
+        status={nodeStatus}
+        summary={`${node.connectorVersion || 'Unknown connector'} · ${aggregate.activeSlots} of ${aggregate.configuredSlots} local slots`}
+        testId="node-overview-section-identity"
+        title="Node identity"
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle as="h3">Node identity</CardTitle>
+            <CardDescription>
+              Connector, enrollment, and current aggregate capacity.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-3 text-sm sm:grid-cols-3 xl:grid-cols-6">
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">
+                  {node.isOnline ? 'Connector' : 'Last known connector'}
+                </dt>
+                <dd className="mt-1 font-medium">{node.connectorVersion || 'Unknown'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">Last seen</dt>
+                <dd className="mt-1 font-medium">{formatTime(node.lastSeenAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">Enrolled</dt>
+                <dd className="mt-1 font-medium">{formatTime(node.enrolledAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">
+                  {node.isOnline ? 'Configured slots' : 'Last known configured slots'}
+                </dt>
+                <dd className="mt-1 font-medium tabular-nums">{aggregate.configuredSlots}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">
+                  {node.isOnline ? 'Local slots' : 'Last known local slots'}
+                </dt>
+                <dd className="mt-1 font-medium tabular-nums">{aggregate.activeSlots}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground uppercase">
+                  {node.isOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
+                </dt>
+                <dd className="mt-1 font-medium tabular-nums">
+                  {aggregate.eligibleSlots ?? 'Unknown'}
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+      </ResponsiveOverviewSection>
 
-      <NodePressureCommandCenter
-        activeIncidents={fleet?.activeIncidents ?? []}
-        canAdminister={canAdminister}
-        disabled={pauseProfileId !== null || !node.isOnline || node.isRevoked}
-        generatedAt={fleet?.generatedAt ?? node.lastSeenAt ?? node.enrolledAt}
-        node={node}
-        onPause={pauseProfile}
-        tenantId={tenantId}
-      />
+      <ResponsiveOverviewSection
+        isDesktop={isDesktop}
+        status={pressureStatus}
+        summary={`${busyWorkers} busy ${busyWorkers === 1 ? 'worker' : 'workers'} · ${runningJobs} GitHub ${runningJobs === 1 ? 'job' : 'jobs'}`}
+        testId="node-overview-section-pressure"
+        title="Pressure and workloads"
+      >
+        <NodePressureCommandCenter
+          activeIncidents={fleet?.activeIncidents ?? []}
+          canAdminister={canAdminister}
+          disabled={pauseProfileId !== null || !node.isOnline || node.isRevoked}
+          generatedAt={fleet?.generatedAt ?? node.lastSeenAt ?? node.enrolledAt}
+          node={node}
+          onPause={pauseProfile}
+          tenantId={tenantId}
+        />
+      </ResponsiveOverviewSection>
       {pauseError ? (
         <StateBanner role="alert" tone="critical">
           {pauseError}
         </StateBanner>
       ) : null}
 
-      <ConnectorHealthSummary node={node} />
-      <HostHardwareCard
-        hardware={node.hardware ?? null}
-        isOnline={node.isOnline}
-        lastSeenAt={node.lastSeenAt}
-      />
+      <ResponsiveOverviewSection
+        isDesktop={isDesktop}
+        status={connectorStatus}
+        summary={
+          node.connectorHealth?.snapshot == null
+            ? 'No retained connector evidence'
+            : `${node.connectorHealth.snapshot.consecutiveFailures} consecutive failures`
+        }
+        testId="node-overview-section-connector"
+        title="Connector health"
+      >
+        <ConnectorHealthSummary node={node} />
+      </ResponsiveOverviewSection>
 
-      <section className="grid gap-3">
-        <div>
-          <h3 className="text-xl font-semibold">Profiles</h3>
-          <p className="text-sm text-muted-foreground">
-            Capacity and health summaries from the latest manager observations.
-          </p>
-        </div>
-        {sortedProfiles.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle as="h3">No profiles reported</CardTitle>
-              <CardDescription>
-                The connector has not reported any profile observations for this node.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        ) : (
-          sortedProfiles.map((profile) => (
-            <ProfileSummary
-              key={profile.profileId}
-              profile={profile}
-              tenantId={tenantId}
-              nodeId={node.nodeId}
-              nodeIsOnline={node.isOnline}
-            />
-          ))
-        )}
-      </section>
+      <ResponsiveOverviewSection
+        isDesktop={isDesktop}
+        status={hardwareStatus}
+        summary={
+          node.hardware == null
+            ? 'Hardware inventory not reported'
+            : `${node.hardware.processorModel ?? 'Processor unavailable'} · ${
+                node.hardware.memoryBytes == null
+                  ? 'Memory unavailable'
+                  : formatBytes(node.hardware.memoryBytes)
+              }`
+        }
+        testId="node-overview-section-hardware"
+        title="Host hardware"
+      >
+        <HostHardwareCard
+          hardware={node.hardware ?? null}
+          isOnline={node.isOnline}
+          lastSeenAt={node.lastSeenAt}
+        />
+      </ResponsiveOverviewSection>
+
+      <ResponsiveOverviewSection
+        isDesktop={isDesktop}
+        status={sortedProfiles.length > 0 ? 'available' : 'unavailable'}
+        summary={`${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile' : 'profiles'} · ${affectedProfiles.size} named in incidents`}
+        testId="node-overview-section-profiles"
+        title="Profiles"
+      >
+        <section className="grid gap-3">
+          <div>
+            <h3 className="text-xl font-semibold">Profiles</h3>
+            <p className="text-sm text-muted-foreground">
+              Capacity and health summaries from the latest manager observations.
+            </p>
+          </div>
+          {sortedProfiles.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle as="h3">No profiles reported</CardTitle>
+                <CardDescription>
+                  The connector has not reported any profile observations for this node.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            sortedProfiles.map((profile) => (
+              <ProfileSummary
+                isDesktop={isDesktop}
+                key={profile.profileId}
+                profile={profile}
+                tenantId={tenantId}
+                nodeId={node.nodeId}
+                nodeIsOnline={node.isOnline}
+              />
+            ))
+          )}
+        </section>
+      </ResponsiveOverviewSection>
     </div>
   );
 }

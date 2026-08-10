@@ -314,6 +314,15 @@ function renderRoute(path: string, session: unknown = ownerSession) {
   return router;
 }
 
+async function openDisclosure(
+  user: ReturnType<typeof userEvent.setup>,
+  testId: string,
+): Promise<void> {
+  const summary = screen.getByTestId(testId).querySelector('summary');
+  if (summary == null) throw new Error(`Disclosure ${testId} has no summary.`);
+  await user.click(summary);
+}
+
 describe('fleet overview and node detail', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -407,8 +416,11 @@ describe('fleet overview and node detail', () => {
   });
 
   it('renders latest reported hardware without implying host liveness', async () => {
+    const user = userEvent.setup();
     renderRoute(`/tenants/local/nodes/${alphaId}`);
 
+    await screen.findByRole('heading', { level: 2, name: 'Alpha' });
+    await openDisclosure(user, 'node-overview-section-hardware');
     const hardware = await screen.findByTestId('node-hardware');
     expect(hardware).toHaveTextContent('Example Processor 9000');
     expect(hardware).toHaveTextContent('riscv64');
@@ -509,9 +521,12 @@ describe('fleet overview and node detail', () => {
   });
 
   it('renders profile triage links and partial telemetry without runner tables', async () => {
+    const user = userEvent.setup();
     renderRoute(`/tenants/local/nodes/${alphaId}`);
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Alpha' })).toBeInTheDocument();
+    await openDisclosure(user, 'node-overview-section-profiles');
+    await openDisclosure(user, 'node-profile-disclosure-build');
     const profile = screen.getByTestId('node-profile-build');
     expect(within(profile).getByRole('link', { name: 'Build' })).toHaveAttribute(
       'href',
@@ -539,6 +554,7 @@ describe('fleet overview and node detail', () => {
   });
 
   it('renders node-not-found, offline, revoked, and empty-profile states', async () => {
+    const user = userEvent.setup();
     const router = renderRoute('/tenants/local/nodes/00000000-0000-0000-0000-000000000000');
 
     expect(await screen.findByText('Node not found')).toBeInTheDocument();
@@ -546,6 +562,9 @@ describe('fleet overview and node detail', () => {
       await router.navigate(`/tenants/local/nodes/${bravoId}`);
     });
     expect(await screen.findByText(/Every connector, profile, capacity/)).toBeInTheDocument();
+    await openDisclosure(user, 'node-overview-section-profiles');
+    await openDisclosure(user, 'node-overview-section-hardware');
+    await openDisclosure(user, 'node-overview-section-connector');
     expect(screen.getByText('No profiles reported')).toBeInTheDocument();
     expect(screen.getByTestId('node-hardware')).toHaveTextContent('last known');
     expect(screen.getByTestId('connector-health-summary')).toHaveTextContent('Recovered outage');
@@ -598,7 +617,43 @@ describe('fleet overview and node detail', () => {
       'Diagnostics context downloaded',
     );
 
+    await openDisclosure(user, 'node-overview-section-profiles');
     expect(screen.getByText('No profiles reported')).toBeInTheDocument();
+  });
+
+  it('shows a compact mobile section index before detailed node evidence', async () => {
+    const user = userEvent.setup();
+    renderRoute(`/tenants/local/nodes/${alphaId}`);
+
+    await screen.findByRole('heading', { level: 2, name: 'Alpha' });
+    for (const testId of [
+      'node-overview-section-identity',
+      'node-overview-section-pressure',
+      'node-overview-section-connector',
+      'node-overview-section-hardware',
+      'node-overview-section-profiles',
+    ]) {
+      const summary = screen.getByTestId(testId).querySelector('summary');
+      expect(summary).not.toBeNull();
+      expect(summary).toBeVisible();
+    }
+
+    expect(screen.getByTestId('node-overview-section-identity')).not.toHaveAttribute('open');
+    expect(screen.getByTestId('node-overview-section-pressure')).not.toHaveAttribute('open');
+    expect(screen.getByTestId('node-overview-section-profiles')).not.toHaveAttribute('open');
+
+    await openDisclosure(user, 'node-overview-section-profiles');
+    expect(screen.getByTestId('node-overview-section-profiles')).toHaveAttribute('open');
+    expect(
+      screen.getByTestId('node-profile-disclosure-build').querySelector('summary'),
+    ).toBeVisible();
+    expect(screen.getByTestId('node-profile-disclosure-build')).not.toHaveAttribute('open');
+
+    await openDisclosure(user, 'node-profile-disclosure-build');
+    expect(screen.getByTestId('node-profile-disclosure-build')).toHaveAttribute('open');
+    expect(
+      within(screen.getByTestId('node-profile-build')).getByRole('link', { name: 'Build' }),
+    ).toBeVisible();
   });
 
   it('preserves rename, rotation, and revoke behavior for administrators', async () => {

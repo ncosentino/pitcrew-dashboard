@@ -56,15 +56,15 @@ function nodeBreadcrumbs(section?: string) {
   return [
     { label: 'Fleet', path: '/tenants/:tenantId/fleet' },
     ...(section === undefined
-      ? [{ label: 'Node :nodeId' }]
-      : [{ label: 'Node :nodeId', path: nodePath }, { label: section }]),
+      ? [{ label: 'Node' }]
+      : [{ label: 'Node', path: nodePath }, { label: section }]),
   ];
 }
 
 function profileBreadcrumbs(section?: string) {
   return [
     { label: 'Fleet', path: '/tenants/:tenantId/fleet' },
-    { label: 'Node :nodeId', path: nodePath },
+    { label: 'Node', path: nodePath },
     ...(section === undefined
       ? [{ label: 'Profile :profileId' }]
       : [{ label: 'Profile :profileId', path: profilePath }, { label: section }]),
@@ -105,17 +105,17 @@ export const fleetManifest: FeatureManifest = {
     },
     {
       path: nodePath,
-      title: 'Node :nodeId overview',
+      title: 'Node overview',
       breadcrumbs: nodeBreadcrumbs(),
     },
     {
       path: `${nodePath}/history`,
-      title: 'Node :nodeId history',
+      title: 'Node history',
       breadcrumbs: nodeBreadcrumbs('History'),
     },
     {
       path: `${nodePath}/administration`,
-      title: 'Node :nodeId administration',
+      title: 'Node administration',
       breadcrumbs: nodeBreadcrumbs('Administration'),
     },
     {

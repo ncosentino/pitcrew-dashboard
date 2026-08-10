@@ -571,6 +571,8 @@ try {
         'Frontend instruction does not require approved shared primitives.')
     Add-Check ($frontendContent -match 'all relevant states') (
         'Frontend instruction does not require all relevant states and viewports.')
+    Add-Check ($frontendContent -match 'compact section summary[\s\S]*progressive disclosure') (
+        'Frontend instruction does not prevent full-length desktop panel stacking on mobile.')
     Add-Check ($frontendContent -match 'raw identifier.*display name') (
         'Frontend instruction does not prohibit raw IDs when display names exist.')
     Add-Check ($frontendContent -match 'new table.*narrow-screen strategy') (
