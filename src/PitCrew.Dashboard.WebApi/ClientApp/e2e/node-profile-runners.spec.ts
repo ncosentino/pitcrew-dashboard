@@ -83,6 +83,46 @@ test('advanced runners filters disclosure opens and exposes sorting controls', a
   await expect(page.getByLabel('Sort direction')).toBeVisible();
 });
 
+test('runners table prioritizes operator decisions over raw telemetry columns', async ({
+  page,
+}) => {
+  await page.setViewportSize(viewports.wide);
+  await setUpPage(page, healthyScenario(), 'dark');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  const table = page.getByRole('table', { name: 'Runner slots for the active tenant' });
+  await expect(table.getByRole('columnheader')).toHaveText([
+    'Runner',
+    'Workload',
+    'State',
+    'Resources',
+    'Evidence',
+  ]);
+  await expect(table.getByRole('columnheader', { name: 'Network I/O' })).toHaveCount(0);
+  await expect(table.getByRole('columnheader', { name: 'Worker image' })).toHaveCount(0);
+
+  const firstRow = table.getByRole('row').nth(2);
+  await firstRow.getByText('Technical details').click();
+  await expect(firstRow.getByText('Network')).toBeVisible();
+  await expect(firstRow.getByText('Block I/O')).toBeVisible();
+  await expect(firstRow.getByText('Image')).toBeVisible();
+  await expect(firstRow.getByText('Last exit')).toBeVisible();
+});
+
+test('mobile runner summaries retain technical evidence behind disclosure', async ({ page }) => {
+  await page.setViewportSize(viewports.mobile);
+  await setUpPage(page, healthyScenario(), 'dark');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  const card = page.getByTestId(/^runner-card-/).first();
+  await card.getByText('Technical details').click();
+  await expect(card.getByText('Network')).toBeVisible();
+  await expect(card.getByText('Block I/O')).toBeVisible();
+  await expect(card.getByText('Image')).toBeVisible();
+  await expect(card.getByText('Last exit')).toBeVisible();
+  await expect(card.getByText('Updated')).toBeVisible();
+});
+
 const matrix = [
   {
     name: 'healthy',

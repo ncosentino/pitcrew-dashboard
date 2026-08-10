@@ -27,6 +27,16 @@ test.describe('settings roles and navigation', () => {
     ).toHaveAttribute('aria-current', 'page');
     await expect(
       page
+        .getByRole('navigation', { name: 'Primary navigation' })
+        .getByRole('link', { name: 'Enrollment' }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Primary navigation' })
+        .getByRole('link', { name: 'Diagnostics' }),
+    ).toHaveCount(0);
+    await expect(
+      page
         .getByRole('navigation', { name: 'Tenant settings' })
         .getByRole('link', { name: 'Access' }),
     ).toHaveAttribute('aria-current', 'page');
@@ -57,6 +67,11 @@ test.describe('settings roles and navigation', () => {
     await page.waitForLoadState('networkidle');
 
     const navigation = page.getByRole('navigation', { name: 'Tenant settings' });
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Primary navigation' })
+        .getByRole('link', { name: 'Settings' }),
+    ).toHaveAttribute('aria-current', 'page');
     await expect(navigation.getByRole('link', { name: 'Enrollment' })).toBeVisible();
     await expect(navigation.getByRole('link', { name: 'Diagnostics' })).toHaveAttribute(
       'aria-current',

@@ -420,13 +420,13 @@ describe('authenticated routing', () => {
     },
     {
       role: 'administrator',
-      visible: ['Fleet', 'Enrollment'],
-      hidden: ['Settings'],
+      visible: ['Fleet', 'Settings'],
+      hidden: ['Enrollment'],
     },
     {
       role: 'owner',
-      visible: ['Fleet', 'Settings', 'Enrollment'],
-      hidden: [],
+      visible: ['Fleet', 'Settings'],
+      hidden: ['Enrollment'],
     },
   ] as const)('shows only $role tenant navigation', async ({ role, visible, hidden }) => {
     mockSession({
@@ -468,7 +468,7 @@ describe('authenticated routing', () => {
     const settingsBreadcrumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(within(settingsBreadcrumbs).getByRole('link', { name: 'Settings' })).toHaveAttribute(
       'href',
-      '/tenants/local/settings/general',
+      '/tenants/local/settings',
     );
     expect(within(settingsBreadcrumbs).getByText('Access')).toHaveAttribute('aria-current', 'page');
     expect(
@@ -538,7 +538,7 @@ describe('authenticated routing', () => {
     throw new Error('Simulated route render failure.');
   }
 
-  it('closes mobile navigation after keyboard navigation and restores trigger focus', async () => {
+  it('closes mobile navigation and moves focus to the selected destination', async () => {
     mockSession(ownerSession);
     const router = renderRoute('/tenants/local/fleet');
     const user = userEvent.setup();
@@ -551,13 +551,15 @@ describe('authenticated routing', () => {
       within(dialog)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Settings', 'Enrollment', 'Diagnostics']);
+    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Settings']);
     expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('link', { name: 'Enrollment' }));
+    await user.click(within(dialog).getByRole('link', { name: 'Settings' }));
 
-    expect(router.state.location.pathname).toBe('/tenants/local/settings/enrollment');
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/tenants/local/settings/general'),
+    );
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(document.querySelector('#main-content')).toHaveFocus());
   });
 
   it('reuses fleet polling across fleet routes and stops it on settings routes', async () => {
