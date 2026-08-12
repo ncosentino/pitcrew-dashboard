@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, LayoutGrid, Table2 } from 'lucide-react';
 import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
@@ -27,6 +27,7 @@ import { ConnectorHealthSummary } from '../components/ConnectorHealthSummary';
 import { FleetHistoryPanel } from '../components/FleetHistoryPanel';
 import { HostHardwareCard } from '../components/HostHardwareSummary';
 import { NodePressureCommandCenter } from '../components/NodePressureCommandCenter';
+import { ProfileComparisonTable } from '../components/ProfileComparisonTable';
 import { renameNode, requestCredentialRotation, revokeNode, setCapacityMaximum } from '../fleetApi';
 import { downloadDiagnosticsContext } from '../diagnosticsDownload';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
@@ -65,6 +66,8 @@ interface ResponsiveOverviewSectionProps {
 }
 
 const desktopOverviewQuery = '(min-width: 48rem)';
+export const profileComparisonViewStorageKey = 'pitcrew.node-profiles.view';
+type ProfilePresentation = 'cards' | 'table';
 
 function useNodeDetail(): NodeDetailContext {
   return useOutletContext<NodeDetailContext>();
@@ -413,6 +416,11 @@ export function NodeOverviewPage() {
   const isDesktop = useDesktopOverview();
   const [pauseProfileId, setPauseProfileId] = useState<string | null>(null);
   const [pauseError, setPauseError] = useState<string | null>(null);
+  const [profilePresentation, setProfilePresentation] = useState<ProfilePresentation>(() =>
+    globalThis.localStorage.getItem(profileComparisonViewStorageKey) === 'table'
+      ? 'table'
+      : 'cards',
+  );
   const aggregate = aggregateNode(node);
   const sortedProfiles = [...node.profiles].sort((left, right) =>
     left.profileId < right.profileId ? -1 : left.profileId > right.profileId ? 1 : 0,
@@ -454,6 +462,11 @@ export function NodeOverviewPage() {
       : busyWorkers > 0 || runningJobs > 0
         ? 'running'
         : 'current';
+  const effectiveProfilePresentation = isDesktop ? profilePresentation : 'cards';
+  const changeProfilePresentation = (next: ProfilePresentation) => {
+    setProfilePresentation(next);
+    globalThis.localStorage.setItem(profileComparisonViewStorageKey, next);
+  };
   const pauseProfile = async (profileId: string) => {
     setPauseProfileId(profileId);
     setPauseError(null);
@@ -675,11 +688,41 @@ export function NodeOverviewPage() {
         title="Profiles"
       >
         <section className="grid gap-3">
-          <div>
-            <h3 className="text-xl font-semibold">Profiles</h3>
-            <p className="text-sm text-muted-foreground">
-              Capacity and health summaries from the latest manager observations.
-            </p>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h3 className="text-xl font-semibold">Profiles</h3>
+              <p className="text-sm text-muted-foreground">
+                Capacity and health summaries from the latest manager observations.
+              </p>
+            </div>
+            {sortedProfiles.length > 0 ? (
+              <div
+                aria-label="Profile presentation"
+                className="hidden items-center rounded-lg border bg-muted/40 p-1 md:flex"
+                role="group"
+              >
+                <Button
+                  aria-pressed={profilePresentation === 'cards'}
+                  size="sm"
+                  type="button"
+                  variant={profilePresentation === 'cards' ? 'secondary' : 'ghost'}
+                  onClick={() => changeProfilePresentation('cards')}
+                >
+                  <LayoutGrid aria-hidden="true" />
+                  Cards
+                </Button>
+                <Button
+                  aria-pressed={profilePresentation === 'table'}
+                  size="sm"
+                  type="button"
+                  variant={profilePresentation === 'table' ? 'secondary' : 'ghost'}
+                  onClick={() => changeProfilePresentation('table')}
+                >
+                  <Table2 aria-hidden="true" />
+                  Table
+                </Button>
+              </div>
+            ) : null}
           </div>
           {sortedProfiles.length === 0 ? (
             <Card>
@@ -690,6 +733,14 @@ export function NodeOverviewPage() {
                 </CardDescription>
               </CardHeader>
             </Card>
+          ) : effectiveProfilePresentation === 'table' ? (
+            <ProfileComparisonTable
+              formatProfileName={formatProfileDisplayName}
+              nodeId={node.nodeId}
+              nodeIsOnline={node.isOnline}
+              profiles={sortedProfiles}
+              tenantId={tenantId}
+            />
           ) : (
             sortedProfiles.map((profile) => (
               <ProfileSummary

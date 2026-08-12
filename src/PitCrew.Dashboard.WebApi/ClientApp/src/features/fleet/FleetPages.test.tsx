@@ -8,10 +8,12 @@ import { createTestRouter } from '@/core/routing/createAppRouter';
 import { features } from '@/features.registry';
 
 import { fleetDensityStorageKey } from './FleetOverviewPage';
+import { profileComparisonViewStorageKey } from './pages/NodePages';
 
 const alphaId = 'a6235ec4-2a15-4f91-a9e0-811152869a51';
 const bravoId = 'b6235ec4-2a15-4f91-a9e0-811152869a52';
 const charlieId = 'c6235ec4-2a15-4f91-a9e0-811152869a53';
+const defaultMatchMedia = window.matchMedia;
 
 const ownerSession = {
   user: {
@@ -325,6 +327,7 @@ async function openDisclosure(
 
 describe('fleet overview and node detail', () => {
   afterEach(() => {
+    window.matchMedia = defaultMatchMedia;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -551,6 +554,38 @@ describe('fleet overview and node detail', () => {
       `/tenants/local/nodes/${alphaId}/administration`,
     );
     expect(screen.queryByTestId('node-history')).not.toBeInTheDocument();
+  });
+
+  it('switches between profile cards and a persisted desktop comparison table', async () => {
+    window.matchMedia = vi.fn((media: string) => ({
+      matches: media === '(min-width: 48rem)',
+      media,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const user = userEvent.setup();
+    renderRoute(`/tenants/local/nodes/${alphaId}`);
+
+    await screen.findByRole('heading', { level: 2, name: 'Alpha' });
+    expect(screen.getByTestId('node-profile-build')).toBeInTheDocument();
+    expect(screen.queryByTestId('node-profile-comparison-table')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Table' }));
+
+    const table = screen.getByTestId('node-profile-comparison-table');
+    expect(table).toBeInTheDocument();
+    const buildRow = within(table).getByTestId('node-profile-table-build');
+    expect(within(buildRow).getByRole('link', { name: 'Build' })).toHaveAttribute(
+      'href',
+      `/tenants/local/nodes/${alphaId}/profiles/build`,
+    );
+    expect(buildRow).toHaveTextContent('running');
+    expect(buildRow).toHaveTextContent('accepted');
+    expect(localStorage.getItem(profileComparisonViewStorageKey)).toBe('table');
   });
 
   it('renders node-not-found, offline, revoked, and empty-profile states', async () => {

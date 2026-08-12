@@ -47,6 +47,40 @@ test('node detail renders an EntityHeader with the node display name title', asy
   await expect(page.getByRole('button', { name: `Copy Alpha node ID` })).toBeVisible();
 });
 
+test('desktop node profiles switch between cards and a persisted comparison table', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize(viewports.wide);
+  await setUpPage(page, healthyScenario(), 'dark');
+  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}`);
+
+  await expect(page.getByTestId('node-profile-build')).toBeVisible();
+  await expect(page.getByTestId('node-profile-deploy')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Table' }).click();
+
+  const table = page.getByTestId('node-profile-comparison-table');
+  await expect(table).toBeVisible();
+  await expect(table.getByRole('columnheader')).toHaveText([
+    'Profile',
+    'State',
+    'Configured',
+    'Desired',
+    'Local',
+    'Eligible',
+    'Draining',
+    'Resources',
+    'Evidence',
+  ]);
+  await expect(table.getByTestId('node-profile-table-build')).toContainText('Build');
+  await expect(table.getByTestId('node-profile-table-deploy')).toContainText('Deploy');
+
+  await page.reload();
+  await expect(page.getByTestId('node-profile-comparison-table')).toBeVisible();
+
+  await expectSurfaceHealth(page, testInfo, 'node-profile-comparison-table');
+});
+
 test('profile detail renders an EntityHeader for the profile', async ({ page }) => {
   await setUpPage(page, healthyScenario(), 'light');
   await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build`);
