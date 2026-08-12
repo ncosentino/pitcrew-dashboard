@@ -58,9 +58,9 @@ function page(status: 'triggered' | 'acknowledged' | 'resolved' = 'triggered') {
   };
 }
 
-function renderPage(fetchImpl: typeof fetch) {
+function renderPage(fetchImpl: typeof fetch, route = '/tenants/local/incidents') {
   vi.spyOn(globalThis, 'fetch').mockImplementation(fetchImpl);
-  const router = createTestRouter(features, ['/tenants/local/incidents']);
+  const router = createTestRouter(features, [route]);
   render(
     <SessionProvider>
       <RouterProvider router={router} />
@@ -93,8 +93,88 @@ describe('IncidentsPage', () => {
     expect(
       within(row).getByRole('link', { name: 'default capacity is below target' }),
     ).toHaveAttribute('href', `/tenants/local/nodes/${nodeId}/profiles/default`);
-    expect(screen.getByText('1', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByText(/1 need attention · 1 critical · 0 warning/i)).toBeInTheDocument();
     expect(screen.getByText(/showing only the newest incidents/i)).toBeInTheDocument();
+  });
+
+  it('hides acknowledged incidents from the default queue and can reveal all active incidents', async () => {
+    const acknowledged = {
+      ...incident('acknowledged'),
+      incidentId: '33333333-3333-4333-8333-333333333333',
+      title: 'Acknowledged connector outage',
+    };
+    renderPage(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          incidents: [incident(), acknowledged],
+          truncated: false,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
+    expect(screen.queryByText('Acknowledged connector outage')).not.toBeInTheDocument();
+    expect(screen.getByText(/1 acknowledged hidden/i)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Work queue'), 'active');
+
+    expect(await screen.findAllByText('Acknowledged connector outage')).toHaveLength(2);
+  });
+
+  it('filters by severity and search text, then sorts the visible queue', async () => {
+    const olderCritical = {
+      ...incident(),
+      incidentId: '33333333-3333-4333-8333-333333333333',
+      title: 'Older critical capacity incident',
+      triggeredAt: '2026-07-28T00:30:00+00:00',
+      lastObservedAt: '2026-07-28T00:40:00+00:00',
+    };
+    const warning = {
+      ...incident(),
+      incidentId: '44444444-4444-4444-8444-444444444444',
+      severity: 'warning' as const,
+      title: 'Runner startup warning',
+      reason: 'startup-delay',
+      triggeredAt: '2026-07-28T00:45:00+00:00',
+      lastObservedAt: '2026-07-28T00:50:00+00:00',
+    };
+    renderPage(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          incidents: [incident(), olderCritical, warning],
+          truncated: false,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const user = userEvent.setup();
+
+    await screen.findByTestId(`incident-row-${incidentId}`);
+    await user.selectOptions(screen.getByLabelText('Sort by'), 'oldest');
+
+    const rows = screen.getAllByTestId(/^incident-row-/);
+    expect(rows[0]).toHaveAttribute('data-testid', `incident-row-${olderCritical.incidentId}`);
+
+    await user.selectOptions(screen.getByLabelText('Severity'), 'warning');
+    expect(screen.queryByTestId(`incident-row-${incidentId}`)).not.toBeInTheDocument();
+    expect(screen.getByTestId(`incident-row-${warning.incidentId}`)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Search incidents'), 'startup-delay');
+    expect(screen.getByTestId(`incident-row-${warning.incidentId}`)).toBeInTheDocument();
   });
 
   it('renders incidents without waiting for connector-health enrichment', async () => {
@@ -212,10 +292,13 @@ describe('IncidentsPage', () => {
 
     await user.click(within(row).getByRole('button', { name: 'Acknowledge' }));
 
-    expect(await within(row).findByText(/^acknowledged$/i)).toBeInTheDocument();
+    await expect(
+      screen.findByText(/now hidden from Needs attention/i),
+    ).resolves.toBeInTheDocument();
+    expect(screen.queryByTestId(`incident-row-${incidentId}`)).not.toBeInTheDocument();
     expect(
-      await screen.findByText(
-        'Acknowledged default capacity is below target. The incident remains active.',
+      screen.getByText(
+        'Acknowledged default capacity is below target. It remains active and is now hidden from Needs attention.',
       ),
     ).toBeInTheDocument();
     const request = fetchMock.mock.calls.find(
@@ -244,7 +327,7 @@ describe('IncidentsPage', () => {
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    renderPage(fetchMock);
+    renderPage(fetchMock, '/tenants/local/incidents?view=active');
     const user = userEvent.setup();
     const row = await screen.findByTestId(`incident-row-${incidentId}`);
 
@@ -283,7 +366,7 @@ describe('IncidentsPage', () => {
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    renderPage(fetchMock);
+    renderPage(fetchMock, '/tenants/local/incidents?view=active');
     const user = userEvent.setup();
     const row = await screen.findByTestId(`incident-row-${incidentId}`);
 
@@ -309,7 +392,7 @@ describe('IncidentsPage', () => {
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    renderPage(fetchMock);
+    renderPage(fetchMock, '/tenants/local/incidents?view=active');
     const user = userEvent.setup();
     const row = await screen.findByTestId(`incident-row-${incidentId}`);
 

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/core/auth';
 import { getFleet, type FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { EmptyState } from '@/core/ui/EmptyState';
-import { FilterToolbar } from '@/core/ui/FilterToolbar';
-import { FormField } from '@/core/ui/FormField';
+import type { FilterChipDescriptor } from '@/core/ui/FilterChips';
 import { LoadingState } from '@/core/ui/LoadingState';
 import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
 import { StateBanner } from '@/core/ui/StateBanner';
@@ -22,128 +21,27 @@ import {
   type IncidentPage,
   type OperationalIncident,
 } from './incidentsApi';
-
-interface IncidentRowProps {
-  readonly incident: OperationalIncident;
-  readonly canAcknowledge: boolean;
-  readonly isAcknowledging: boolean;
-  readonly onAcknowledge: (incident: OperationalIncident) => void;
-  readonly onUnacknowledge: (incident: OperationalIncident) => void;
-  readonly node: FleetNode | undefined;
-}
-
-function IncidentRow({
-  incident,
-  canAcknowledge,
-  isAcknowledging,
-  onAcknowledge,
-  onUnacknowledge,
-  node,
-}: IncidentRowProps) {
-  const health = node?.connectorHealth?.snapshot;
-  return (
-    <tr className="border-t align-top" data-testid={`incident-row-${incident.incidentId}`}>
-      <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge status={incident.severity} />
-          <StatusBadge status={incident.status} />
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <Link
-          className="font-semibold text-link underline-offset-4 hover:underline"
-          to={incident.link}
-        >
-          {incident.title}
-        </Link>
-        <p className="mt-1 max-w-3xl text-xs text-muted-foreground">{incident.summary}</p>
-        {incident.evidence ? (
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            Evidence: {incident.evidence}
-          </p>
-        ) : null}
-        {health && incident.kind === 'connector-offline' ? (
-          <p className="mt-2 max-w-3xl rounded border bg-muted/30 px-2 py-1 text-xs">
-            Retained connector evidence: {health.lastFailureCategory ?? 'category unavailable'};{' '}
-            {health.activeOutageId
-              ? `active since ${formatTime(health.activeOutageStartedAt)}`
-              : health.lastRecoveredOutageId
-                ? `recovered ${formatTime(health.lastRecoveredOutageStartedAt)} to ${formatTime(health.lastRecoveredAt)}`
-                : 'no outage interval retained'}
-            {health.nextRetryAt ? `; retry ${formatTime(health.nextRetryAt)}` : ''}.
-          </p>
-        ) : incident.kind === 'connector-offline' ? (
-          <p className="mt-2 max-w-3xl rounded border bg-muted/30 px-2 py-1 text-xs">
-            Reason unavailable: the unreachable connector has never replayed bounded health
-            evidence.
-          </p>
-        ) : null}
-      </td>
-      <td className="px-4 py-3 font-mono text-xs">{incident.reason}</td>
-      <td className="px-4 py-3 text-xs whitespace-nowrap">
-        <div>Triggered {formatTime(incident.triggeredAt)}</div>
-        <div className="mt-1 text-muted-foreground">
-          Last observed {formatTime(incident.lastObservedAt)}
-        </div>
-        {incident.resolvedAt ? (
-          <div className="mt-1 text-muted-foreground">
-            Resolved {formatTime(incident.resolvedAt)}
-          </div>
-        ) : null}
-      </td>
-      <td className="px-4 py-3">
-        {canAcknowledge && incident.status === 'triggered' ? (
-          <div className="grid gap-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={isAcknowledging}
-              onClick={() => onAcknowledge(incident)}
-            >
-              {isAcknowledging ? 'Acknowledging…' : 'Acknowledge'}
-            </Button>
-            <span className="max-w-48 text-xs text-muted-foreground">
-              Records operator ownership without resolving the condition. Reversible while active.
-            </span>
-          </div>
-        ) : canAcknowledge && incident.status === 'acknowledged' ? (
-          <div className="grid gap-1">
-            <span className="text-xs text-muted-foreground">
-              Acknowledged {formatTime(incident.acknowledgedAt)}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={isAcknowledging}
-              onClick={() => onUnacknowledge(incident)}
-            >
-              {isAcknowledging ? 'Reverting…' : 'Unacknowledge'}
-            </Button>
-            <span className="max-w-48 text-xs text-muted-foreground">
-              Returns this active incident to triggered.
-            </span>
-          </div>
-        ) : incident.status === 'acknowledged' ? (
-          <span className="text-xs text-muted-foreground">
-            Acknowledged {formatTime(incident.acknowledgedAt)}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">No action</span>
-        )}
-      </td>
-    </tr>
-  );
-}
+import { IncidentFilters } from './components/IncidentFilters';
+import { IncidentRow } from './components/IncidentRow';
+import {
+  apiFilterForView,
+  compareIncidents,
+  matchesIncidentSearch,
+  parseIncidentSort,
+  parseIncidentView,
+  parseSeverityFilter,
+  sortLabels,
+  viewLabels,
+} from './incidentView';
 
 /** Renders active incidents and bounded resolved history without crowding fleet status pages. */
 export default function IncidentsPage() {
   const { tenantId = '' } = useParams();
   const { session } = useSession();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [nodes, setNodes] = useState<ReadonlyArray<FleetNode>>([]);
-  const [filter, setFilter] = useState<IncidentFilter>('active');
   const [page, setPage] = useState<IncidentPage | null>(null);
+  const [loadedFilter, setLoadedFilter] = useState<IncidentFilter | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -152,6 +50,21 @@ export default function IncidentsPage() {
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAcknowledge = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const antiforgeryToken = session?.antiforgeryToken ?? '';
+  const view = parseIncidentView(searchParams.get('view'));
+  const severity = parseSeverityFilter(searchParams.get('severity'));
+  const sort = parseIncidentSort(searchParams.get('sort'));
+  const query = searchParams.get('q')?.trim().toLocaleLowerCase() ?? '';
+  const sourceFilter = apiFilterForView(view);
+
+  const setParameter = useCallback(
+    (key: string, value: string, defaultValue: string) => {
+      const next = new URLSearchParams(searchParams);
+      if (!value || value === defaultValue) next.delete(key);
+      else next.set(key, value);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -164,9 +77,10 @@ export default function IncidentsPage() {
           console.warn('Connector health evidence is unavailable on the incident page.', caught);
           return null;
         });
-        const next = await getIncidents(tenantId, filter, signal);
+        const next = await getIncidents(tenantId, sourceFilter, signal);
         if (version !== requestVersion.current) return;
         setPage(next);
+        setLoadedFilter(sourceFilter);
         setError(null);
         void fleetPromise.then((nextFleet) => {
           if (version === requestVersion.current) setNodes(nextFleet?.nodes ?? []);
@@ -179,7 +93,7 @@ export default function IncidentsPage() {
         if (!signal?.aborted && version === requestVersion.current) setIsLoading(false);
       }
     },
-    [filter, tenantId],
+    [sourceFilter, tenantId],
   );
 
   useEffect(() => {
@@ -195,15 +109,70 @@ export default function IncidentsPage() {
     };
   }, [load]);
 
-  const counts = useMemo(
-    () => ({
-      critical: page?.incidents.filter((incident) => incident.severity === 'critical').length ?? 0,
-      warning: page?.incidents.filter((incident) => incident.severity === 'warning').length ?? 0,
-      acknowledged:
-        page?.incidents.filter((incident) => incident.status === 'acknowledged').length ?? 0,
-    }),
-    [page],
+  const nodesById = useMemo(
+    () => new Map(nodes.map((node) => [node.nodeId, node] as const)),
+    [nodes],
   );
+  const currentPage = loadedFilter === sourceFilter ? page : null;
+  const counts = useMemo(() => {
+    const incidents = currentPage?.incidents ?? [];
+    return {
+      total: incidents.length,
+      acknowledged: incidents.filter((incident) => incident.status === 'acknowledged').length,
+    };
+  }, [currentPage]);
+  const visibleIncidents = useMemo(() => {
+    const incidents = currentPage?.incidents ?? [];
+    return incidents
+      .filter((incident) => view !== 'attention' || incident.status === 'triggered')
+      .filter((incident) => severity === 'all' || incident.severity === severity)
+      .filter((incident) => matchesIncidentSearch(incident, nodesById.get(incident.nodeId), query))
+      .sort((left, right) => compareIncidents(left, right, sort));
+  }, [currentPage, nodesById, query, severity, sort, view]);
+  const visibleCritical = visibleIncidents.filter(
+    (incident) => incident.severity === 'critical',
+  ).length;
+  const visibleWarning = visibleIncidents.length - visibleCritical;
+  const filterChips = useMemo<ReadonlyArray<FilterChipDescriptor>>(() => {
+    const chips: FilterChipDescriptor[] = [];
+    if (view !== 'attention') {
+      chips.push({
+        key: 'view',
+        label: 'View',
+        value: viewLabels[view],
+        onRemove: () => setParameter('view', 'attention', 'attention'),
+      });
+    }
+    if (severity !== 'all') {
+      chips.push({
+        key: 'severity',
+        label: 'Severity',
+        value: severity,
+        onRemove: () => setParameter('severity', 'all', 'all'),
+      });
+    }
+    if (query) {
+      chips.push({
+        key: 'query',
+        label: 'Search',
+        value: searchParams.get('q')?.trim() ?? '',
+        onRemove: () => setParameter('q', '', ''),
+      });
+    }
+    if (sort !== 'priority') {
+      chips.push({
+        key: 'sort',
+        label: 'Sort',
+        value: sortLabels[sort],
+        onRemove: () => setParameter('sort', 'priority', 'priority'),
+      });
+    }
+    return chips;
+  }, [query, searchParams, setParameter, severity, sort, view]);
+
+  const resetView = useCallback(() => {
+    setSearchParams({}, { replace: true });
+  }, [setSearchParams]);
 
   const acknowledge = async (incident: OperationalIncident) => {
     setAcknowledgingId(incident.incidentId);
@@ -212,7 +181,11 @@ export default function IncidentsPage() {
     try {
       await acknowledgeIncident(tenantId, incident.incidentId, antiforgeryToken);
       await load();
-      setNotice(`Acknowledged ${incident.title}. The incident remains active.`);
+      setNotice(
+        view === 'attention'
+          ? `Acknowledged ${incident.title}. It remains active and is now hidden from Needs attention.`
+          : `Acknowledged ${incident.title}. The incident remains active.`,
+      );
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : 'The incident could not be acknowledged.',
@@ -250,43 +223,32 @@ export default function IncidentsPage() {
             </p>
           </div>
           <div className="text-right text-sm text-muted-foreground">
-            {page ? `Updated ${formatTime(page.generatedAt)}` : 'Waiting for incidents'}
+            {currentPage
+              ? `Updated ${formatTime(currentPage.generatedAt)}`
+              : 'Waiting for incidents'}
           </div>
         </div>
       </section>
 
-      <FilterToolbar label="Incident filters and summary">
-        <FormField label="Lifecycle">
-          <select
-            className="h-9 rounded-md border bg-background px-3 text-sm"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value as IncidentFilter)}
-          >
-            <option value="active">Active</option>
-            <option value="resolved">Resolved</option>
-            <option value="all">All history</option>
-          </select>
-        </FormField>
-        <div className="grid content-center gap-1 text-sm">
-          <span className="text-xs font-semibold text-muted-foreground uppercase">Critical</span>
-          <strong className="tabular-nums">{counts.critical}</strong>
-        </div>
-        <div className="grid content-center gap-1 text-sm">
-          <span className="text-xs font-semibold text-muted-foreground uppercase">Warning</span>
-          <strong className="tabular-nums">{counts.warning}</strong>
-        </div>
-        <div className="flex items-end justify-between gap-3">
-          <div className="grid gap-1 text-sm">
-            <span className="text-xs font-semibold text-muted-foreground uppercase">
-              Acknowledged
-            </span>
-            <strong className="tabular-nums">{counts.acknowledged}</strong>
-          </div>
-          <Button type="button" size="sm" variant="outline" onClick={() => void load()}>
-            Refresh
-          </Button>
-        </div>
-      </FilterToolbar>
+      {page ? (
+        <IncidentFilters
+          view={view}
+          query={searchParams.get('q') ?? ''}
+          severity={severity}
+          sort={sort}
+          chips={filterChips}
+          resultSummary={
+            !currentPage
+              ? `Loading ${viewLabels[view].toLocaleLowerCase()} incidents…`
+              : view === 'attention'
+                ? `${visibleIncidents.length} need attention · ${visibleCritical} critical · ${visibleWarning} warning${counts.acknowledged > 0 ? ` · ${counts.acknowledged} acknowledged hidden` : ''}`
+                : `${visibleIncidents.length} of ${counts.total} incidents shown`
+          }
+          onParameterChange={setParameter}
+          onReset={resetView}
+          onRefresh={() => void load()}
+        />
+      ) : null}
 
       {error ? (
         <StateBanner tone="critical" role="alert">
@@ -302,25 +264,51 @@ export default function IncidentsPage() {
         </div>
       ) : null}
 
-      {page?.truncated ? (
+      {currentPage?.truncated ? (
         <StateBanner tone="caution" role="status">
           Showing only the newest incidents allowed by the server response limit.
         </StateBanner>
       ) : null}
 
-      {isLoading && !page ? <LoadingState label="Loading operational incidents…" /> : null}
+      {isLoading && !currentPage ? <LoadingState label="Loading operational incidents…" /> : null}
 
-      {!isLoading && page?.incidents.length === 0 ? (
+      {!isLoading && currentPage?.incidents.length === 0 ? (
         <EmptyState
-          title={`No ${filter === 'all' ? '' : `${filter} `}incidents`}
+          title={
+            view === 'attention' || view === 'active'
+              ? 'No active incidents'
+              : view === 'resolved'
+                ? 'No resolved incidents'
+                : 'No incident history'
+          }
           description="Brief conditions remain hidden unless they cross their debounce boundary. This does not prove the fleet is healthy — only that no qualifying condition is visible."
         />
       ) : null}
 
-      {page && page.incidents.length > 0 ? (
+      {currentPage && currentPage.incidents.length > 0 && visibleIncidents.length === 0 ? (
+        <EmptyState
+          title={
+            view === 'attention' && counts.acknowledged > 0
+              ? 'No incidents need attention'
+              : 'No incidents match this view'
+          }
+          description={
+            view === 'attention' && counts.acknowledged > 0
+              ? `${counts.acknowledged} active ${counts.acknowledged === 1 ? 'incident is' : 'incidents are'} acknowledged and hidden from this queue. Switch to All active to review them.`
+              : 'Change or reset the filters to return to the active attention queue.'
+          }
+          action={
+            <Button type="button" variant="outline" onClick={resetView}>
+              Reset incident view
+            </Button>
+          }
+        />
+      ) : null}
+
+      {currentPage && visibleIncidents.length > 0 ? (
         <>
           <div className="grid gap-3 lg:hidden" data-testid="incidents-mobile-summary">
-            {page.incidents.map((incident) => (
+            {visibleIncidents.map((incident) => (
               <div
                 key={incident.incidentId}
                 className="grid gap-2 rounded-lg border bg-card p-4"
@@ -383,15 +371,11 @@ export default function IncidentsPage() {
 
           <ScrollableRegion
             className="hidden rounded-lg border bg-card lg:block"
-            label={
-              filter === 'active' ? 'Active operational incidents' : 'Operational incident history'
-            }
+            label={`${viewLabels[view]} operational incidents`}
           >
             <table className="w-full min-w-5xl text-left text-sm">
               <caption className="p-3 text-left text-sm font-semibold">
-                {filter === 'active'
-                  ? 'Active operational incidents'
-                  : 'Operational incident history'}
+                {viewLabels[view]} operational incidents
               </caption>
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase">
                 <tr>
@@ -413,7 +397,7 @@ export default function IncidentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {page.incidents.map((incident) => (
+                {visibleIncidents.map((incident) => (
                   <IncidentRow
                     key={incident.incidentId}
                     incident={incident}
@@ -421,7 +405,7 @@ export default function IncidentsPage() {
                     isAcknowledging={acknowledgingId === incident.incidentId}
                     onAcknowledge={(selected) => void acknowledge(selected)}
                     onUnacknowledge={(selected) => void unacknowledge(selected)}
-                    node={nodes.find((node) => node.nodeId === incident.nodeId)}
+                    node={nodesById.get(incident.nodeId)}
                   />
                 ))}
               </tbody>
