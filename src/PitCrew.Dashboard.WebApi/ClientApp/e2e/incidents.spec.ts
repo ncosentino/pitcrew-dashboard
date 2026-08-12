@@ -116,6 +116,62 @@ test('critical/warning mix: both severities display with labeled counts', async 
   await expectNoOverflowAndAccessible(page, testInfo, 'critical-warning-mix');
 });
 
+test('attention queue hides acknowledged incidents and supports filtering and sorting', async ({
+  page,
+}, testInfo) => {
+  const triggeredCritical = buildIncident({
+    incidentId: 'a1111111-1111-4111-8111-111111111111',
+    title: 'Critical capacity deficit',
+    triggeredAt: '2026-07-19T18:10:00+00:00',
+    lastObservedAt: '2026-07-19T18:25:00+00:00',
+  });
+  const triggeredWarning = buildIncident({
+    incidentId: 'a2222222-2222-4222-8222-222222222222',
+    severity: 'warning',
+    title: 'Runner startup warning',
+    reason: 'startup-delay',
+    triggeredAt: '2026-07-19T18:05:00+00:00',
+    lastObservedAt: '2026-07-19T18:20:00+00:00',
+  });
+  const acknowledged = buildIncident({
+    incidentId: 'a3333333-3333-4333-8333-333333333333',
+    status: 'acknowledged',
+    title: 'Acknowledged connector outage',
+    acknowledgedAt: '2026-07-19T18:15:00+00:00',
+    acknowledgedByGitHubUserId: '1001',
+  });
+  const base = baseScenario();
+  const scenario: MockApiOptions = {
+    ...base,
+    incidents: buildIncidentPage([triggeredCritical, triggeredWarning, acknowledged]),
+  };
+
+  await setUpPage(page, scenario, 'light');
+  await page.goto(incidentsPath);
+
+  await expect(page.getByText(/2 need attention · 1 critical · 1 warning/i)).toBeVisible();
+  await expect(page.getByText(/1 acknowledged hidden/i)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Acknowledged connector outage' })).toBeHidden();
+
+  await page.getByLabel('Sort by').selectOption('oldest');
+  const visibleIncidentLinks = page
+    .getByRole('region', { name: 'Needs attention operational incidents' })
+    .getByRole('link');
+  await expect(visibleIncidentLinks.first()).toHaveText('Runner startup warning');
+
+  await page.getByLabel('Severity', { exact: true }).selectOption('warning');
+  await page.getByLabel('Search incidents').fill('startup-delay');
+  await expect(page.getByRole('link', { name: 'Runner startup warning' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Critical capacity deficit' })).toBeHidden();
+
+  await page.getByLabel('Work queue').selectOption('active');
+  await page.getByLabel('Severity', { exact: true }).selectOption('all');
+  await page.getByLabel('Search incidents').fill('');
+  await expect(page.getByRole('link', { name: 'Acknowledged connector outage' })).toBeVisible();
+
+  await expectNoOverflowAndAccessible(page, testInfo, 'attention-filter-sort');
+});
+
 test('connector evidence present: retained connector health shown for connector-offline incident', async ({
   page,
 }, testInfo) => {
@@ -149,7 +205,7 @@ test('connector evidence present: retained connector health shown for connector-
   await expect(page.getByText(/Retained connector evidence/)).toBeVisible();
   await expect(
     page
-      .getByRole('region', { name: 'Active operational incidents' })
+      .getByRole('region', { name: 'Needs attention operational incidents' })
       .getByText(/synchronization-network/),
   ).toBeVisible();
 
@@ -176,7 +232,7 @@ test('connector evidence absent: absence stated truthfully for never-replayed co
   };
 
   await setUpPage(page, scenario, 'light');
-  await page.goto(incidentsPath);
+  await page.goto(`${incidentsPath}?view=active`);
 
   await expect(page.getByRole('link', { name: 'Connector is offline' })).toBeVisible();
   await expect(page.getByText(/never replayed bounded health evidence/)).toBeVisible();
@@ -200,9 +256,13 @@ test('acknowledged: acknowledged incident shows ack state and undo action', asyn
   };
 
   await setUpPage(page, scenario, 'light');
-  await page.goto(incidentsPath);
+  await page.goto(`${incidentsPath}?view=active`);
 
-  await expect(page.getByText('acknowledged').first()).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'All active operational incidents' })
+      .getByText('acknowledged', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unacknowledge' })).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'acknowledged');
@@ -221,11 +281,18 @@ test('resolved: resolved incident displays resolved timestamp', async ({ page },
   };
 
   await setUpPage(page, scenario, 'light');
-  await page.goto(incidentsPath);
+  await page.goto(`${incidentsPath}?view=resolved`);
 
-  await expect(page.getByText('resolved').first()).toBeVisible();
   await expect(
-    page.getByRole('region', { name: 'Active operational incidents' }).getByText(/^Resolved /),
+    page
+      .getByRole('region', { name: 'Resolved operational incidents' })
+      .getByText('resolved', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Resolved operational incidents' })
+      .locator('tbody')
+      .getByText(/^Resolved /),
   ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'resolved');
