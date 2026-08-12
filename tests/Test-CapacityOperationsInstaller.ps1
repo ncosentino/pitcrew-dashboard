@@ -227,6 +227,54 @@ $global:PitCrewInstallerFailServiceStart = $false
 
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 try {
+    if ($IsWindows) {
+        $tokens = $null
+        $parseErrors = $null
+        $installerAst = [Management.Automation.Language.Parser]::ParseFile(
+            $installerPath,
+            [ref]$tokens,
+            [ref]$parseErrors)
+        $diagnosticFunction = $installerAst.Find(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'Get-WindowsConnectorFailureDiagnostics'
+            },
+            $true)
+        Add-Check (
+            $parseErrors.Count -eq 0 -and
+            $null -ne $diagnosticFunction
+        ) 'The bounded Windows service diagnostic helper is missing or invalid.'
+        if ($null -ne $diagnosticFunction) {
+            Invoke-Expression $diagnosticFunction.Extent.Text
+            $diagnosticRoot = Join-Path $testRoot 'diagnostic-data'
+            New-Item -ItemType Directory -Path $diagnosticRoot -Force | Out-Null
+            $sensitiveMarker = 'must-not-appear-in-installer-output'
+            [IO.File]::WriteAllText(
+                (Join-Path $diagnosticRoot 'connector-test.log'),
+                $sensitiveMarker,
+                [Text.UTF8Encoding]::new($false))
+            $diagnostics = Get-WindowsConnectorFailureDiagnostics `
+                -Name 'PitCrewMissingDiagnosticService' `
+                -DisplayName 'PitCrew missing diagnostic service' `
+                -DataRoot $diagnosticRoot
+            Add-Check (
+                $diagnostics -match 'serviceStatus=unavailable' -and
+                $diagnostics -match 'connectorLogCount=1' -and
+                $diagnostics -match 'connectorLogBytes=' -and
+                $diagnostics -match 'serviceControlEventIds='
+            ) 'The Windows service diagnostic summary omitted bounded metadata.'
+            Add-Check (
+                -not $diagnostics.Contains(
+                    $diagnosticRoot,
+                    [StringComparison]::OrdinalIgnoreCase) -and
+                -not $diagnostics.Contains(
+                    $sensitiveMarker,
+                    [StringComparison]::Ordinal)
+            ) 'The Windows service diagnostic summary exposed a path or log content.'
+        }
+    }
+
     Remove-TestHostInstallation
     $release = New-TestReleaseAsset -Root $testRoot
     $pitCrewRoot = Join-Path $testRoot 'pitcrew'
