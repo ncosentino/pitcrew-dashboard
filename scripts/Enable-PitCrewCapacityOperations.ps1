@@ -249,6 +249,98 @@ function Remove-WindowsConnectorService {
     }
 }
 
+function Get-WindowsConnectorFailureDiagnostics {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter(Mandatory)]
+        [string]$DisplayName,
+
+        [Parameter(Mandatory)]
+        [string]$DataRoot
+    )
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+        $diagnostics.Add('serviceStatus=unavailable')
+    } else {
+        try {
+            $diagnostics.Add("serviceStatus=$($service.Status)")
+        } finally {
+            $service.Dispose()
+        }
+    }
+
+    try {
+        $serviceMetadata = Get-CimInstance `
+            -ClassName Win32_Service `
+            -Filter "Name='$Name'" `
+            -ErrorAction Stop
+        if ($null -eq $serviceMetadata) {
+            $diagnostics.Add('serviceMetadata=unavailable')
+        } else {
+            $diagnostics.Add("serviceState=$($serviceMetadata.State)")
+            $diagnostics.Add("win32ExitCode=$($serviceMetadata.ExitCode)")
+            $diagnostics.Add(
+                "serviceSpecificExitCode=$($serviceMetadata.ServiceSpecificExitCode)")
+            $diagnostics.Add("processId=$($serviceMetadata.ProcessId)")
+        }
+    } catch {
+        $diagnostics.Add('serviceMetadata=unavailable')
+    }
+
+    try {
+        $logs = @(
+            Get-ChildItem `
+                -LiteralPath $DataRoot `
+                -Filter 'connector-*.log' `
+                -File `
+                -ErrorAction Stop
+        )
+        $totalBytes = (
+            $logs |
+                Measure-Object -Property Length -Sum
+        ).Sum
+        if ($null -eq $totalBytes) {
+            $totalBytes = 0
+        }
+        $diagnostics.Add("connectorLogCount=$($logs.Count)")
+        $diagnostics.Add("connectorLogBytes=$totalBytes")
+    } catch {
+        $diagnostics.Add('connectorLogMetadata=unavailable')
+    }
+
+    try {
+        $eventIds = @(
+            Get-WinEvent `
+                -FilterHashtable @{
+                    LogName = 'System'
+                    ProviderName = 'Service Control Manager'
+                    StartTime = [DateTime]::UtcNow.AddMinutes(-5)
+                } `
+                -MaxEvents 32 `
+                -ErrorAction Stop |
+                Where-Object {
+                    $_.Properties.Count -gt 0 -and
+                    [string]$_.Properties[0].Value -in @($Name, $DisplayName)
+                } |
+                Select-Object -ExpandProperty Id -Unique
+        )
+        $eventSummary = if ($eventIds.Count -eq 0) {
+            'none'
+        } else {
+            $eventIds -join ','
+        }
+        $diagnostics.Add("serviceControlEventIds=$eventSummary")
+    } catch {
+        $diagnostics.Add('serviceControlEventIds=unavailable')
+    }
+
+    return $diagnostics -join '; '
+}
+
 function Write-WindowsConnectorSettings {
     param(
         [Parameter(Mandatory)]
@@ -657,7 +749,11 @@ try {
         $service = Get-Service -Name $windowsServiceName
         try {
             if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
-                throw "Windows service '$windowsServiceName' did not remain running."
+                $diagnostics = Get-WindowsConnectorFailureDiagnostics `
+                    -Name $windowsServiceName `
+                    -DisplayName $windowsServiceDisplayName `
+                    -DataRoot $dataRoot
+                throw "Windows service '$windowsServiceName' did not remain running. Bounded diagnostics: $diagnostics"
             }
         } finally {
             $service.Dispose()
