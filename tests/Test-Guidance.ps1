@@ -577,6 +577,10 @@ try {
         'Frontend instruction does not prohibit raw IDs when display names exist.')
     Add-Check ($frontendContent -match 'new table.*narrow-screen strategy') (
         'Frontend instruction does not require narrow-screen strategy for tables.')
+    Add-Check (
+        $frontendContent -match 'card/detail[\s\S]*table/comparison[\s\S]*operator preference'
+    ) (
+        'Frontend instruction does not require complementary detail and comparison views.')
     Add-Check ($frontendContent -match 'consequential action.*confirmation') (
         'Frontend instruction does not require confirmation for consequential actions.')
 

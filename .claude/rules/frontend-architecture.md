@@ -33,6 +33,7 @@ paths:
   stacking every desktop panel at full length as a mobile strategy.
 - Never use a raw identifier as a title when a human-readable display name exists.
 - Never introduce a new table without a documented narrow-screen strategy.
+- When investigation and cross-item comparison are both primary tasks, offer card/detail and table/comparison views from the same evidence, persist the operator preference, and define the narrow-screen fallback.
 - Never add a consequential action without confirmation or approved reversibility.
 - Primary workflows must work with keyboard only, at 200% zoom, under forced-colors,
   and with `prefers-reduced-motion`. Long content (40% expansion), CJK, emoji, and
