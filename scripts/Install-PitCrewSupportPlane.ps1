@@ -1018,9 +1018,7 @@ function Set-WindowsServiceDefinition {
         'config',
         $Name,
         'obj=',
-        "NT SERVICE\$Name",
-        'password=',
-        '""'
+        "NT SERVICE\$Name"
     )
     Invoke-Checked sc.exe @('sidtype', $Name, 'restricted')
     Invoke-Checked sc.exe @('privs', $Name, 'SeChangeNotifyPrivilege')
@@ -1666,10 +1664,37 @@ function Assert-SystemdExecStart {
 
     $actual = [string](
         Get-SystemdProperty -Unit $Unit -Property 'ExecStart')
-    if ($actual -notmatch 'path=(?<path>[^ ;]+)') {
-        throw 'An effective systemd support-service command was overridden.'
+    $actualPath = $null
+    $actualArguments = $null
+    $pathMatched = $actual -match 'path\s*=\s*(?<path>[^ ;]+)'
+    $structuredPath = if ($pathMatched) {
+        $Matches.path.Trim('"')
+    } else {
+        $null
     }
-    $actualPath = $Matches.path.Trim('"')
+    $argumentsMatched =
+        $actual -match 'argv\[\]\s*=\s*(?<arguments>[^;]+)'
+    $structuredArguments = if ($argumentsMatched) {
+        $Matches.arguments.Trim()
+    } else {
+        $null
+    }
+    if ($pathMatched -and $argumentsMatched) {
+        $actualPath = $structuredPath
+        $actualArguments = $structuredArguments
+    } else {
+        $plainTokens = @(
+            $actual.Trim().Split(
+                ' ',
+                [StringSplitOptions]::RemoveEmptyEntries) |
+                ForEach-Object { $_.Trim('"') }
+        )
+        if ($plainTokens.Count -eq 0) {
+            throw 'An effective systemd support-service command was overridden.'
+        }
+        $actualPath = $plainTokens[0]
+        $actualArguments = $actual.Trim()
+    }
     $resolvedTarget = if (Test-Path -LiteralPath $ExpectedExecutable) {
         [IO.File]::ResolveLinkTarget(
             $ExpectedExecutable,
@@ -1686,11 +1711,8 @@ function Assert-SystemdExecStart {
         $actualPath -cne $resolvedExpected) {
         throw 'An effective systemd support-service command was overridden.'
     }
-    if ($actual -notmatch 'argv\[\]=(?<arguments>[^;]+)') {
-        throw 'An effective systemd support-service command was overridden.'
-    }
     $actualTokens = @(
-        $Matches.arguments.Trim().Split(
+        $actualArguments.Split(
             ' ',
             [StringSplitOptions]::RemoveEmptyEntries) |
             ForEach-Object { $_.Trim('"') }

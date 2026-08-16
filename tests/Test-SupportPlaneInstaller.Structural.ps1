@@ -326,8 +326,7 @@ Add-Check (
 ) 'The installer uses an unqualified UnixFileMode type that fails in PowerShell.'
 Add-Check (
     $installer -match '''binPath='',\s*\r?\n\s*\$binaryPath' -and
-    $installer -notmatch '"binPath= \$binaryPath"' -and
-    $installer -match '''password='',\s*\r?\n\s*''""'''
+    $installer -notmatch '"binPath= \$binaryPath"'
 ) 'The installer does not pass sc.exe option names and values separately.'
 Add-Check (
     $installer.Contains(
