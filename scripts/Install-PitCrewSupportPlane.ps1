@@ -1722,9 +1722,8 @@ function Assert-SystemdSetProperty {
         @()
     } else {
         @(
-            $value.Split(
-                ' ',
-                [StringSplitOptions]::RemoveEmptyEntries) |
+            $value -split '\s+' |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
                 Sort-Object
         )
     }
