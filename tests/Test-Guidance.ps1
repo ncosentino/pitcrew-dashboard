@@ -411,7 +411,12 @@ try {
         $supportInstruction -match 'arbitrary paths' -and
         $supportInstruction -match 'tunnels' -and
         $supportInstruction -match 'Docker\s+access' -and
-        $supportInstruction -match 'PipeOptions\.CurrentUserOnly'
+        $supportInstruction -match 'PipeOptions\.CurrentUserOnly' -and
+        $supportInstruction -match 'persisted CNG keys' -and
+        $supportInstruction -match '0700' -and
+        $supportInstruction -match '0600' -and
+        $supportInstruction -match 'never silently re-enroll' -and
+        $supportInstruction -match 'preserve-keys or delete-keys'
     ) 'Support-plane guidance does not contain the required v1 negative boundary rules.'
     Add-Check (
         (& $scopeResolver `

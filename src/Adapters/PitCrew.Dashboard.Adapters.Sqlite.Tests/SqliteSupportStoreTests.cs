@@ -67,6 +67,12 @@ public sealed class SqliteSupportStoreTests
       await Assert.That(tenantA).HasSingleItem();
       await Assert.That(tenantB).IsEmpty();
 
+      var session = CreateSession("tenant-a", nodeId, now.AddMinutes(2));
+      var staleKeySession = await supportStore.CreateSessionAsync(
+          session,
+          "retired-signing-key",
+          "retired-encryption-key",
+          cancellationToken);
       var revoked = await supportStore.RevokeIdentityAsync(
           "tenant-a",
           nodeId,
@@ -74,9 +80,13 @@ public sealed class SqliteSupportStoreTests
           now.AddMinutes(1),
           cancellationToken);
       var sessionStatus = await supportStore.CreateSessionAsync(
-          CreateSession("tenant-a", nodeId, now.AddMinutes(2)),
+          session,
+          identity.NodeSigningPublicKeySpki,
+          identity.NodeEncryptionPublicKeySpki,
           cancellationToken);
 
+      await Assert.That(staleKeySession)
+          .IsEqualTo(SupportMutationStatus.NotFound);
       await Assert.That(revoked).IsEqualTo(SupportMutationStatus.Succeeded);
       await Assert.That(sessionStatus).IsEqualTo(SupportMutationStatus.NotFound);
     }
@@ -134,7 +144,11 @@ public sealed class SqliteSupportStoreTests
               now.AddHours(1)),
           cancellationToken);
       var session = CreateSession("tenant-a", nodeId, now.AddMinutes(1));
-      var created = await supportStore.CreateSessionAsync(session, cancellationToken);
+      var created = await supportStore.CreateSessionAsync(
+          session,
+          keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+          keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
+          cancellationToken);
       var crossTenant = await supportStore.GetSessionOrNullAsync(
           "tenant-b",
           session.SessionId,

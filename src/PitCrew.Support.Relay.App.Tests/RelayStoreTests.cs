@@ -51,11 +51,14 @@ public sealed class RelayStoreTests
           DateTimeOffset.Parse("2026-08-01T00:00:00+00:00", CultureInfo.InvariantCulture),
           cancellationToken);
 
-      await Assert.That(wrongNode).IsNull();
-      await Assert.That(wrongCredential).IsNull();
-      await Assert.That(result).IsNotNull();
-      await Assert.That(result!.SessionId).IsEqualTo(sessionA);
-      await Assert.That(result.RequestEnvelope).IsEqualTo("{\"opaque\":true}");
+      await Assert.That(wrongNode.CredentialAccepted).IsTrue();
+      await Assert.That(wrongNode.Session).IsNull();
+      await Assert.That(wrongCredential.CredentialAccepted).IsFalse();
+      await Assert.That(wrongCredential.Session).IsNull();
+      await Assert.That(result.CredentialAccepted).IsTrue();
+      await Assert.That(result.Session).IsNotNull();
+      await Assert.That(result.Session!.SessionId).IsEqualTo(sessionA);
+      await Assert.That(result.Session.RequestEnvelope).IsEqualTo("{\"opaque\":true}");
     }
     finally
     {
@@ -138,8 +141,10 @@ public sealed class RelayStoreTests
           cancellationToken);
       var stored = await store.GetSessionAsync(sessionId, cancellationToken);
 
-      await Assert.That(wrongCredential).IsFalse().Because("node bearer authentication precedes result upload");
-      await Assert.That(uploaded).IsTrue().Because("the correct node credential may upload its result");
+      await Assert.That(wrongCredential)
+          .IsEqualTo(RelayResultUploadOutcome.CredentialRejected);
+      await Assert.That(uploaded)
+          .IsEqualTo(RelayResultUploadOutcome.Succeeded);
       await Assert.That(stored).IsNotNull();
       await Assert.That(stored!.Status).IsEqualTo("completed");
       await Assert.That(stored.ResultEnvelope).IsEqualTo("opaque-result");
@@ -183,9 +188,153 @@ public sealed class RelayStoreTests
           cancellationToken);
       var stored = await store.GetSessionAsync(sessionId, cancellationToken);
 
-      await Assert.That(result).IsNull();
+      await Assert.That(result.CredentialAccepted).IsTrue();
+      await Assert.That(result.Session).IsNull();
       await Assert.That(stored).IsNotNull();
       await Assert.That(stored!.Status).IsEqualTo("expired");
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Credential_Rotation_Preserves_Old_Until_Promotion_Then_Rejects_It(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var nodeId = Guid.NewGuid();
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-old")),
+          cancellationToken);
+      var rotation = new RelayNodeCredentialRotationRequest(
+          Guid.NewGuid(),
+          "tenant-a",
+          RelayCredentialHash.Hash("credential-old"),
+          RelayCredentialHash.Hash("credential-new"));
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+
+      var prepared = await store.PrepareNodeCredentialAsync(
+          nodeId,
+          rotation,
+          now,
+          cancellationToken);
+      var prepareRetry = await store.PrepareNodeCredentialAsync(
+          nodeId,
+          rotation,
+          now,
+          cancellationToken);
+      var oldBeforePromotion = await store.PollAsync(
+          nodeId,
+          "credential-old",
+          now,
+          cancellationToken);
+      var newBeforePromotion = await store.PollAsync(
+          nodeId,
+          "credential-new",
+          now,
+          cancellationToken);
+      var promoted = await store.PromoteNodeCredentialAsync(
+          nodeId,
+          rotation,
+          now.AddMinutes(1),
+          cancellationToken);
+      var promoteRetry = await store.PromoteNodeCredentialAsync(
+          nodeId,
+          rotation,
+          now.AddMinutes(1),
+          cancellationToken);
+      var oldAfterPromotion = await store.PollAsync(
+          nodeId,
+          "credential-old",
+          now.AddMinutes(1),
+          cancellationToken);
+      var newAfterPromotion = await store.PollAsync(
+          nodeId,
+          "credential-new",
+          now.AddMinutes(1),
+          cancellationToken);
+      var nextRotation = new RelayNodeCredentialRotationRequest(
+          Guid.NewGuid(),
+          "tenant-a",
+          RelayCredentialHash.Hash("credential-new"),
+          RelayCredentialHash.Hash("credential-next"));
+      var nextPrepared = await store.PrepareNodeCredentialAsync(
+          nodeId,
+          nextRotation,
+          now.AddMinutes(2),
+          cancellationToken);
+
+      await Assert.That(prepared)
+          .IsEqualTo(RelayCredentialRotationStatus.Prepared);
+      await Assert.That(prepareRetry)
+          .IsEqualTo(RelayCredentialRotationStatus.Prepared);
+      await Assert.That(oldBeforePromotion.CredentialAccepted).IsTrue();
+      await Assert.That(newBeforePromotion.CredentialAccepted).IsTrue();
+      await Assert.That(promoted)
+          .IsEqualTo(RelayCredentialRotationStatus.Promoted);
+      await Assert.That(promoteRetry)
+          .IsEqualTo(RelayCredentialRotationStatus.Promoted);
+      await Assert.That(oldAfterPromotion.CredentialAccepted).IsFalse();
+      await Assert.That(newAfterPromotion.CredentialAccepted).IsTrue();
+      await Assert.That(nextPrepared)
+          .IsEqualTo(RelayCredentialRotationStatus.Prepared);
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Revocation_Rejects_The_Next_Poll_And_Result_Exchange(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var nodeId = Guid.NewGuid();
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-active")),
+          cancellationToken);
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      await store.RevokeNodeAsync(
+          nodeId,
+          now,
+          cancellationToken);
+
+      var poll = await store.PollAsync(
+          nodeId,
+          "credential-active",
+          now,
+          cancellationToken);
+      var upload = await store.UploadResultAsync(
+          nodeId,
+          Guid.NewGuid(),
+          "credential-active",
+          "opaque-result",
+          cancellationToken);
+
+      await Assert.That(poll.CredentialAccepted).IsFalse();
+      await Assert.That(upload)
+          .IsEqualTo(RelayResultUploadOutcome.CredentialRejected);
     }
     finally
     {
@@ -215,4 +364,3 @@ public sealed class RelayStoreTests
     }
   }
 }
-

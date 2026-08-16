@@ -7,27 +7,51 @@ namespace PitCrew.Support.Agent.App.Tests;
 public sealed class SupportAgentOptionsTests
 {
   [Test]
-  public async Task Relay_Origin_Must_Use_Https_Except_For_Loopback()
+  public async Task Dashboard_Origin_Must_Use_Https_Except_For_Loopback()
   {
-    var insecure = SupportAgentOptions.FromConfiguration(
-        CreateConfiguration("http://relay.example.com"));
-    var secure = SupportAgentOptions.FromConfiguration(
-        CreateConfiguration("https://relay.example.com"));
-    var loopback = SupportAgentOptions.FromConfiguration(
-        CreateConfiguration("http://127.0.0.1:8080"));
+    var insecure = SupportAgentBootstrapOptions.FromConfiguration(
+        CreateConfiguration("http://dashboard.example.com", allowLegacy: false));
+    var secure = SupportAgentBootstrapOptions.FromConfiguration(
+        CreateConfiguration("https://dashboard.example.com", allowLegacy: false));
+    var loopback = SupportAgentBootstrapOptions.FromConfiguration(
+        CreateConfiguration("http://127.0.0.1:8080", allowLegacy: false));
 
     await Assert.That(insecure).IsNull();
     await Assert.That(secure).IsNotNull();
     await Assert.That(loopback).IsNotNull();
   }
 
-  private static IConfiguration CreateConfiguration(string relayUrl) =>
+  [Test]
+  public async Task Legacy_Private_Key_Configuration_Requires_Explicit_Gate()
+  {
+    var disabledConfiguration = CreateConfiguration(
+        "https://dashboard.example.com",
+        allowLegacy: false);
+    var enabledConfiguration = CreateConfiguration(
+        "https://dashboard.example.com",
+        allowLegacy: true);
+    var disabled = SupportAgentBootstrapOptions
+        .FromConfiguration(disabledConfiguration)!
+        .CreateLegacyOrNull(disabledConfiguration);
+    var enabled = SupportAgentBootstrapOptions
+        .FromConfiguration(enabledConfiguration)!
+        .CreateLegacyOrNull(enabledConfiguration);
+
+    await Assert.That(disabled).IsNull();
+    await Assert.That(enabled).IsNotNull();
+  }
+
+  private static IConfiguration CreateConfiguration(
+      string dashboardUrl,
+      bool allowLegacy) =>
       new ConfigurationBuilder()
           .AddInMemoryCollection(new Dictionary<string, string?>
           {
+              ["PitCrewSupport:Agent:DashboardUrl"] = dashboardUrl,
               ["PitCrewSupport:Agent:TenantId"] = "tenant-a",
-              ["PitCrewSupport:Agent:NodeId"] = "11111111-1111-1111-1111-111111111111",
-              ["PitCrewSupport:Agent:RelayUrl"] = relayUrl,
+              ["PitCrewSupport:Agent:NodeId"] =
+                  "11111111-1111-1111-1111-111111111111",
+              ["PitCrewSupport:Agent:RelayUrl"] = "https://relay.example.com",
               ["PitCrewSupport:Agent:TransportCredential"] =
                   "fixture-transport-credential",
               ["PitCrewSupport:Agent:DashboardAuthorizationSigningPublicKeySpki"] =
@@ -38,6 +62,8 @@ public sealed class SupportAgentOptionsTests
                   "fixture-signing-key",
               ["PitCrewSupport:Agent:NodeEncryptionPrivateKeyPkcs8"] =
                   "fixture-encryption-key",
+              ["PitCrewSupport:Agent:AllowLegacyPrivateKeyConfiguration"] =
+                  allowLegacy.ToString(),
           })
           .Build();
 }

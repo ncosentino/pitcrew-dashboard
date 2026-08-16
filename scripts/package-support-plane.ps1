@@ -115,6 +115,16 @@ foreach ($runtimeIdentifier in $RuntimeIdentifiers) {
             '--output',
             $publishDirectory
         )
+        if ($component.Name -eq 'agent') {
+            Copy-Item `
+                -LiteralPath (
+                    Join-Path $repositoryRoot `
+                        'deploy/support-plane/support-agent.env.example'
+                ) `
+                -Destination (
+                    Join-Path $publishDirectory 'support-agent.env.example'
+                )
+        }
         $manifest.Add((New-Archive `
             -Component $component.Name `
             -RuntimeIdentifier $runtimeIdentifier `
