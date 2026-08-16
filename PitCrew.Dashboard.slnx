@@ -8,6 +8,8 @@
     <Project Path="src/PitCrew.Connector.Bootstrap/PitCrew.Connector.Bootstrap.csproj" />
     <Project Path="src/PitCrew.Dashboard.Bootstrap/PitCrew.Dashboard.Bootstrap.csproj" />
     <Project Path="src/PitCrew.Protocol/PitCrew.Protocol.csproj" />
+    <Project Path="src/PitCrew.Support.Protocol.Tests/PitCrew.Support.Protocol.Tests.csproj" />
+    <Project Path="src/PitCrew.Support.Protocol/PitCrew.Support.Protocol.csproj" />
   </Folder>
   <Folder Name="/src/Adapters/">
     <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.Sqlite.Tests/PitCrew.Dashboard.Adapters.Sqlite.Tests.csproj" />
@@ -18,6 +20,12 @@
     <Project Path="src/PitCrew.Dashboard.DatabaseTool/PitCrew.Dashboard.DatabaseTool.csproj" />
     <Project Path="src/PitCrew.Dashboard.WebApi.Tests/PitCrew.Dashboard.WebApi.Tests.csproj" />
     <Project Path="src/PitCrew.Dashboard.WebApi/PitCrew.Dashboard.WebApi.csproj" />
+    <Project Path="src/PitCrew.Support.Agent.App.Tests/PitCrew.Support.Agent.App.Tests.csproj" />
+    <Project Path="src/PitCrew.Support.Agent.App/PitCrew.Support.Agent.App.csproj" />
+    <Project Path="src/PitCrew.Support.Broker.App.Tests/PitCrew.Support.Broker.App.Tests.csproj" />
+    <Project Path="src/PitCrew.Support.Broker.App/PitCrew.Support.Broker.App.csproj" />
+    <Project Path="src/PitCrew.Support.Relay.App.Tests/PitCrew.Support.Relay.App.Tests.csproj" />
+    <Project Path="src/PitCrew.Support.Relay.App/PitCrew.Support.Relay.App.csproj" />
   </Folder>
   <Folder Name="/src/Connector/">
     <Project Path="src/PitCrew.Connector.Features.Sync.Tests/PitCrew.Connector.Features.Sync.Tests.csproj" />
@@ -29,6 +37,8 @@
     <Project Path="src/PitCrew.Dashboard.Features.Fleet.Abstractions/PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Fleet.Tests/PitCrew.Dashboard.Features.Fleet.Tests.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Fleet/PitCrew.Dashboard.Features.Fleet.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Features.Support.Abstractions/PitCrew.Dashboard.Features.Support.Abstractions.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Features.Support/PitCrew.Dashboard.Features.Support.csproj" />
   </Folder>
   <Folder Name="/src/Kernel/">
     <Project Path="src/PitCrew.Dashboard.Kernel.Authentication/PitCrew.Dashboard.Kernel.Authentication.csproj" />

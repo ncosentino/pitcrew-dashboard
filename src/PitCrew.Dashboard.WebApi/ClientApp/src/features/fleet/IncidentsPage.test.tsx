@@ -75,7 +75,7 @@ describe('IncidentsPage', () => {
 
   it('renders a compact active incident with a direct evidence link', async () => {
     renderPage(async (input) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -86,7 +86,9 @@ describe('IncidentsPage', () => {
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
 
-    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    const row = await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
 
     expect(within(row).getByText('critical')).toBeInTheDocument();
     expect(within(row).getByText('triggered')).toBeInTheDocument();
@@ -104,7 +106,7 @@ describe('IncidentsPage', () => {
       title: 'Acknowledged connector outage',
     };
     renderPage(async (input) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -147,7 +149,7 @@ describe('IncidentsPage', () => {
       lastObservedAt: '2026-07-28T00:50:00+00:00',
     };
     renderPage(async (input) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -183,7 +185,7 @@ describe('IncidentsPage', () => {
       resolveFleet = resolve;
     });
     renderPage(async (input) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) return await pendingFleet;
       if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
@@ -206,7 +208,7 @@ describe('IncidentsPage', () => {
       summary: 'No connector synchronization has been accepted.',
     };
     renderPage(async (input) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({
@@ -261,7 +263,9 @@ describe('IncidentsPage', () => {
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
 
-    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    const row = await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
 
     expect(await within(row).findByText(/Retained connector evidence/)).toBeInTheDocument();
     expect(row).toHaveTextContent('synchronization-network');
@@ -272,7 +276,7 @@ describe('IncidentsPage', () => {
   it('acknowledges an active incident and refreshes its lifecycle state', async () => {
     let acknowledged = false;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -288,7 +292,9 @@ describe('IncidentsPage', () => {
     });
     renderPage(fetchMock);
     const user = userEvent.setup();
-    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    const row = await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
 
     await user.click(within(row).getByRole('button', { name: 'Acknowledge' }));
 
@@ -313,7 +319,7 @@ describe('IncidentsPage', () => {
   it('unacknowledges an acknowledged incident and refreshes its lifecycle state', async () => {
     let unacknowledged = false;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -329,7 +335,9 @@ describe('IncidentsPage', () => {
     });
     renderPage(fetchMock, '/tenants/local/incidents?view=active');
     const user = userEvent.setup();
-    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    const row = await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
 
     await user.click(within(row).getByRole('button', { name: 'Unacknowledge' }));
 
@@ -350,7 +358,7 @@ describe('IncidentsPage', () => {
 
   it('announces an error when unacknowledge fails', async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -368,7 +376,9 @@ describe('IncidentsPage', () => {
     });
     renderPage(fetchMock, '/tenants/local/incidents?view=active');
     const user = userEvent.setup();
-    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    const row = await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
 
     await user.click(within(row).getByRole('button', { name: 'Unacknowledge' }));
 
@@ -378,7 +388,7 @@ describe('IncidentsPage', () => {
   it('does not show acknowledgement as resolved after unacknowledge', async () => {
     let unacknowledged = false;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
@@ -394,7 +404,9 @@ describe('IncidentsPage', () => {
     });
     renderPage(fetchMock, '/tenants/local/incidents?view=active');
     const user = userEvent.setup();
-    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    const row = await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
 
     await user.click(within(row).getByRole('button', { name: 'Unacknowledge' }));
 

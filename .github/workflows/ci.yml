@@ -551,6 +551,56 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
+  support-package:
+    name: Support plane package
+    needs: validation-plan
+    if: needs.validation-plan.outputs.scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Package Linux support plane
+        shell: pwsh
+        run: |
+          ./scripts/package-support-plane.ps1 `
+              -Configuration Release `
+              -Version 0.0.0-ci `
+              -RuntimeIdentifiers linux-x64 `
+              -OutputRoot artifacts/support-plane-ci
+
+      - name: Verify support package checksums
+        shell: pwsh
+        run: |
+          $archives = @(
+              Get-ChildItem `
+                  -LiteralPath artifacts/support-plane-ci/archives `
+                  -Filter '*.tar.gz' `
+                  -File)
+          if ($archives.Count -ne 3) {
+              throw "Expected three support archives, found $($archives.Count)."
+          }
+          foreach ($archive in $archives) {
+              $checksumPath = "$($archive.FullName).sha256"
+              if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
+                  throw "Missing checksum for '$($archive.Name)'."
+              }
+              $expected = (
+                  Get-Content -LiteralPath $checksumPath -Raw
+              ).Split(' ', [StringSplitOptions]::RemoveEmptyEntries)[0]
+              $actual = (
+                  Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256
+              ).Hash.ToLowerInvariant()
+              if ($actual -cne $expected) {
+                  throw "Checksum mismatch for '$($archive.Name)'."
+              }
+          }
+
   linux-installer:
     name: Linux capacity installer
     needs: validation-plan
@@ -606,7 +656,7 @@ jobs:
     name: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'Draft CI' || 'CI' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validation-plan, guidance, frontend, build, test, linux-installer, windows-installer]
+    needs: [validation-plan, guidance, frontend, build, test, support-package, linux-installer, windows-installer]
     if: always()
     steps:
       - name: Check validation results
@@ -617,6 +667,7 @@ jobs:
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          SUPPORT_PACKAGE_RESULT: ${{ needs.support-package.result }}
           LINUX_INSTALLER_RESULT: ${{ needs.linux-installer.result }}
           WINDOWS_INSTALLER_RESULT: ${{ needs.windows-installer.result }}
         run: |
@@ -630,6 +681,7 @@ jobs:
             "$FRONTEND_RESULT" \
             "$BUILD_RESULT" \
             "$TEST_RESULT" \
+            "$SUPPORT_PACKAGE_RESULT" \
             "$LINUX_INSTALLER_RESULT" \
             "$WINDOWS_INSTALLER_RESULT"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
@@ -643,6 +695,7 @@ jobs:
               if [ "$FRONTEND_RESULT" != "success" ] ||
                  [ "$BUILD_RESULT" != "success" ] ||
                  [ "$TEST_RESULT" != "success" ] ||
+                 [ "$SUPPORT_PACKAGE_RESULT" != "success" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "success" ] ||
                  [ "$WINDOWS_INSTALLER_RESULT" != "success" ]; then
                 echo "::error::Full validation did not complete successfully."
@@ -653,6 +706,7 @@ jobs:
               if [ "$FRONTEND_RESULT" != "success" ] ||
                  [ "$BUILD_RESULT" != "success" ] ||
                  [ "$TEST_RESULT" != "skipped" ] ||
+                 [ "$SUPPORT_PACKAGE_RESULT" != "skipped" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
                  [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
                 echo "::error::Draft subset validation did not complete as planned."
@@ -663,6 +717,7 @@ jobs:
               if [ "$FRONTEND_RESULT" != "skipped" ] ||
                  [ "$BUILD_RESULT" != "skipped" ] ||
                  [ "$TEST_RESULT" != "skipped" ] ||
+                 [ "$SUPPORT_PACKAGE_RESULT" != "skipped" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
                  [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
                 echo "::error::Ready-only draft validation ran unexpected jobs."
@@ -677,6 +732,7 @@ jobs:
               if [ "$FRONTEND_RESULT" != "skipped" ] ||
                  [ "$BUILD_RESULT" != "skipped" ] ||
                  [ "$TEST_RESULT" != "skipped" ] ||
+                 [ "$SUPPORT_PACKAGE_RESULT" != "skipped" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
                  [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
                 echo "::error::Guidance-only validation ran unexpected expensive jobs."

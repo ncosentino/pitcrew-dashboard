@@ -1612,5 +1612,150 @@ internal static class SqliteMigrationCatalog
                       CHECK (host_admission_withheld_units IS NULL
                           OR host_admission_withheld_units >= 0);
               """),
+        new(
+              20,
+              "support-plane-v1",
+              """
+              CREATE TABLE support_nodes (
+                  node_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  display_name TEXT NOT NULL
+                      CHECK (length(display_name) BETWEEN 1 AND 128),
+                  node_signing_public_key_spki TEXT NOT NULL,
+                  node_encryption_public_key_spki TEXT NOT NULL,
+                  transport_credential_hash TEXT NOT NULL UNIQUE,
+                  enrollment_code_hash TEXT NOT NULL UNIQUE,
+                  enrollment_expires_at TEXT NOT NULL,
+                  enrollment_consumed_at TEXT NULL,
+                  created_by_github_user_id TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  revoked_at TEXT NULL,
+                  revoked_by_github_user_id TEXT NULL,
+                  last_poll_at TEXT NULL,
+                  last_result_at TEXT NULL,
+                  capability_version INTEGER NOT NULL
+                      CHECK (capability_version >= 1),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (created_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (revoked_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id)
+              );
+
+              CREATE INDEX ix_support_nodes_tenant_created
+                  ON support_nodes (tenant_id, created_at DESC);
+
+              CREATE INDEX ix_support_nodes_tenant_active
+                  ON support_nodes (tenant_id, node_id)
+                  WHERE revoked_at IS NULL;
+
+              CREATE TABLE support_sessions (
+                  session_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  node_id TEXT NOT NULL,
+                  diagnostic_mode TEXT NOT NULL
+                      CHECK (diagnostic_mode IN (
+                          'ConnectorOffline',
+                          'CapacityMismatch',
+                          'JobNotAssigned',
+                          'HostPressure',
+                          'Full')),
+                  profile_id TEXT NULL
+                      CHECK (profile_id IS NULL
+                          OR length(profile_id) BETWEEN 1 AND 128),
+                  package_id TEXT NOT NULL
+                      CHECK (length(package_id) BETWEEN 1 AND 128),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'queued',
+                          'dispatched',
+                          'completed',
+                          'rejected',
+                          'cancelled',
+                          'expired')),
+                  requested_by_github_user_id TEXT NOT NULL,
+                  requested_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  request_envelope_json TEXT NOT NULL,
+                  completed_at TEXT NULL,
+                  result_envelope_json TEXT NULL,
+                  report_json TEXT NULL,
+                  markdown TEXT NULL,
+                  attestation_json TEXT NULL,
+                  cancelled_at TEXT NULL,
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (node_id)
+                      REFERENCES support_nodes(node_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_support_sessions_tenant_requested
+                  ON support_sessions (
+                      tenant_id,
+                      requested_at DESC,
+                      session_id DESC);
+
+              CREATE INDEX ix_support_sessions_node_active
+                  ON support_sessions (node_id, expires_at)
+                  WHERE status IN ('queued', 'dispatched');
+
+              CREATE TABLE support_audit_events (
+                  event_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  node_id TEXT NULL,
+                  session_id TEXT NULL,
+                  kind TEXT NOT NULL
+                      CHECK (length(kind) BETWEEN 1 AND 64),
+                  actor_github_user_id TEXT NULL,
+                  occurred_at TEXT NOT NULL,
+                  detail TEXT NULL
+                      CHECK (detail IS NULL OR length(detail) <= 512),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_support_audit_events_tenant_occurred
+                  ON support_audit_events (
+                      tenant_id,
+                      occurred_at DESC,
+                      event_id DESC);
+              """),
+        new(
+              21,
+              "support-session-pinned-client-contract",
+              """
+              ALTER TABLE support_sessions
+                      ADD COLUMN capability TEXT NOT NULL DEFAULT ''
+                          CHECK (capability = ''
+                              OR capability = 'pitcrew.diagnostics.snapshot.v1');
+
+              ALTER TABLE support_sessions
+                      ADD COLUMN request_digest TEXT NOT NULL DEFAULT ''
+                          CHECK (request_digest = ''
+                              OR (length(request_digest) = 64
+                                  AND request_digest NOT GLOB '*[^0-9a-f]*'));
+
+              ALTER TABLE support_sessions
+                      ADD COLUMN node_signing_key_fingerprint TEXT NOT NULL DEFAULT ''
+                          CHECK (node_signing_key_fingerprint = ''
+                              OR (length(node_signing_key_fingerprint) = 64
+                                  AND node_signing_key_fingerprint
+                                      NOT GLOB '*[^0-9a-f]*'));
+
+              CREATE TRIGGER trg_support_sessions_pinned_contract_immutable
+              BEFORE UPDATE ON support_sessions
+              FOR EACH ROW
+              WHEN OLD.capability <> NEW.capability
+                OR OLD.request_digest <> NEW.request_digest
+                OR OLD.node_signing_key_fingerprint
+                        <> NEW.node_signing_key_fingerprint
+                OR OLD.expires_at <> NEW.expires_at
+              BEGIN
+                      SELECT RAISE(
+                          ABORT,
+                          'support session pinned contract is immutable');
+              END;
+              """),
     ];
 }

@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Carter" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Access\PitCrew.Dashboard.Features.Access.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Support.Abstractions\PitCrew.Dashboard.Features.Support.Abstractions.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Kernel.Authentication\PitCrew.Dashboard.Kernel.Authentication.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Kernel.DisplayNames\PitCrew.Dashboard.Kernel.DisplayNames.csproj" />
+    <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
+    <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

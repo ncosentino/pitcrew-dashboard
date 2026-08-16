@@ -549,7 +549,7 @@ describe('authenticated routing', () => {
       within(dialog)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Settings']);
+    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Settings', 'Support']);
     expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     await user.click(within(dialog).getByRole('link', { name: 'Settings' }));
 

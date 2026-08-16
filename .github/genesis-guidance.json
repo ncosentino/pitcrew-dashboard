@@ -290,6 +290,20 @@
         "section": "UX and design",
         "order": 520,
         "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0008-support-plane-v1-read-only-diagnostics.md",
+        "title": "ADR-0008: Dashboard-owned support plane v1",
+        "section": "Architecture decisions",
+        "order": 108,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/support-plane.md",
+        "title": "Support plane v1",
+        "section": "Fleet operations and evidence",
+        "order": 270,
+        "owner": "repository"
       }
     ]
   },
@@ -347,7 +361,16 @@
       "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/api/httpClient.ts",
       "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetOverviewPage.tsx",
       "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetPages.test.tsx",
-      "src/PitCrew.Protocol/CurrentJobContext.cs"
+      "src/PitCrew.Protocol/CurrentJobContext.cs",
+      ".github/instructions/support-plane.instructions.md",
+      "src/PitCrew.Support.Protocol/SupportEnvelopeCryptography.cs",
+      "src/PitCrew.Dashboard.Features.Support/SupportCarterModule.cs",
+      "src/PitCrew.Support.Relay.App/Program.cs",
+      "src/PitCrew.Support.Agent.App/SupportAgentRequestProcessor.cs",
+      "src/PitCrew.Support.Broker.App/SupportDiagnosticsBroker.cs",
+      "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx",
+      "docs/adr/adr-0008-support-plane-v1-read-only-diagnostics.md",
+      "docs/support-plane.md"
     ]
   },
   "review": {
@@ -365,6 +388,30 @@
     }
   ],
   "contextExceptions": [
+    {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.ts",
+      "maxLines": 400,
+      "maxBytes": 20480,
+      "phase": "migration",
+      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
+      "reason": "Support API contracts compose feature, frontend, protocol, and support-plane trust-boundary guidance."
+    },
+    {
+      "pattern": "src/PitCrew.Dashboard.Features.Support/**/*.cs",
+      "maxLines": 600,
+      "maxBytes": 32768,
+      "phase": "migration",
+      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
+      "reason": "Support server files compose API, auth, protocol, and support-plane boundary guidance."
+    },
+    {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.tsx",
+      "maxLines": 450,
+      "maxBytes": 24576,
+      "phase": "migration",
+      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
+      "reason": "Support UI files compose frontend, support-plane, accessibility, and untrusted-result rendering guidance."
+    },
     {
       "pattern": "src/**/*Tests/**/*.cs",
       "maxLines": 600,
