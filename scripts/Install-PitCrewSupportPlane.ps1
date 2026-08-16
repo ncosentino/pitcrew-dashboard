@@ -1132,7 +1132,10 @@ function Stop-WindowsSupportServices {
 }
 
 function Get-WindowsServiceFailureDiagnostics {
-    param([Parameter(Mandatory)][string]$Name)
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [AllowEmptyString()][string]$StateRoot = ''
+    )
 
     $parts = [Collections.Generic.List[string]]::new()
     $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
@@ -1189,15 +1192,37 @@ function Get-WindowsServiceFailureDiagnostics {
     } catch {
         $parts.Add('serviceControlEventIds=unavailable')
     }
+    if (-not [string]::IsNullOrWhiteSpace($StateRoot)) {
+        $statusPath = Join-Path $StateRoot 'broker-startup-status.json'
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                if ($status.schemaVersion -eq 1 -and
+                    [string]$status.exceptionType -match
+                        '^[A-Za-z][A-Za-z0-9]{0,127}$') {
+                    $parts.Add(
+                        "startupExceptionType=$($status.exceptionType)")
+                }
+            } catch {
+                $parts.Add('startupExceptionType=unavailable')
+            }
+        }
+    }
     return $parts -join '; '
 }
 
 function Start-WindowsSupportServices {
+    $paths = Get-PlatformPaths
     try {
         Start-Service -Name $windowsBrokerService
     } catch {
         $diagnostics = Get-WindowsServiceFailureDiagnostics `
-            -Name $windowsBrokerService
+            -Name $windowsBrokerService `
+            -StateRoot $paths.BrokerStateRoot
         throw "The Windows support broker failed to start. Bounded diagnostics: $diagnostics"
     }
     (Get-Service -Name $windowsBrokerService).WaitForStatus(
@@ -1316,13 +1341,17 @@ function Grant-LinuxTraverse {
 }
 
 function Deny-LinuxTreeAccess {
-    param([Parameter(Mandatory)][string]$Root)
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][uint]$AgentUid,
+        [Parameter(Mandatory)][uint]$BrokerUid
+    )
 
     Invoke-Checked setfacl @(
         '-R',
         '-m',
-        "u:$linuxAgentUser`:---",
-        "u:$linuxBrokerUser`:---",
+        "u:$AgentUid`:---",
+        "u:$BrokerUid`:---",
         $Root
     )
     $directories = @(
@@ -1336,8 +1365,8 @@ function Deny-LinuxTreeAccess {
     foreach ($directory in $directories) {
         Invoke-Checked setfacl @(
             '-m',
-            "d:u:$linuxAgentUser`:---",
-            "d:u:$linuxBrokerUser`:---",
+            "d:u:$AgentUid`:---",
+            "d:u:$BrokerUid`:---",
             $directory.FullName
         )
     }
@@ -1347,14 +1376,19 @@ function Grant-LinuxBrokerEvidence {
     param(
         [Parameter(Mandatory)][string]$ResolvedPitCrewRoot,
         [Parameter(Mandatory)][string[]]$AllowedProfiles,
-        [Parameter(Mandatory)][hashtable]$Paths
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][uint]$AgentUid,
+        [Parameter(Mandatory)][uint]$BrokerUid
     )
 
     $policy = Get-EvidencePolicy
-    Deny-LinuxTreeAccess -Root $ResolvedPitCrewRoot
+    Deny-LinuxTreeAccess `
+        -Root $ResolvedPitCrewRoot `
+        -AgentUid $AgentUid `
+        -BrokerUid $BrokerUid
     Invoke-Checked setfacl @(
         '-m',
-        "u:$linuxBrokerUser`:--x",
+        "u:$BrokerUid`:--x",
         $ResolvedPitCrewRoot
     )
     $stateRoot = Join-Path $ResolvedPitCrewRoot '.pitcrew-state'
@@ -1364,14 +1398,14 @@ function Grant-LinuxBrokerEvidence {
     }
     Invoke-Checked setfacl @(
         '-m',
-        "u:$linuxBrokerUser`:r-x",
+        "u:$BrokerUid`:r-x",
         $stateRoot
     )
     foreach ($profile in $AllowedProfiles) {
         $profileRoot = Join-Path $stateRoot $profile
         Invoke-Checked setfacl @(
             '-m',
-            "u:$linuxBrokerUser`:--x",
+            "u:$BrokerUid`:--x",
             $profileRoot
         )
         foreach ($fileName in $policy.profileProjectionFiles) {
@@ -1379,7 +1413,7 @@ function Grant-LinuxBrokerEvidence {
             if (Test-Path -LiteralPath $path -PathType Leaf) {
                 Invoke-Checked setfacl @(
                     '-m',
-                    "u:$linuxBrokerUser`:r--",
+                    "u:$BrokerUid`:r--",
                     $path
                 )
             }
@@ -1392,26 +1426,29 @@ function Grant-LinuxBrokerEvidence {
         [IO.Path]::DirectorySeparatorChar)
     Grant-LinuxTraverse `
         -Path $collector `
-        -User $linuxBrokerUser `
+        -User ([string]$BrokerUid) `
         -EvidenceRoot $ResolvedPitCrewRoot
     Invoke-Checked setfacl @(
         '-m',
-        "u:$linuxBrokerUser`:r--",
+        "u:$BrokerUid`:r--",
         $collector
     )
     $connectorRoot = Split-Path $Paths.ConnectorHealthRoot -Parent
     if (Test-Path -LiteralPath $connectorRoot -PathType Container) {
-        Deny-LinuxTreeAccess -Root $connectorRoot
+        Deny-LinuxTreeAccess `
+            -Root $connectorRoot `
+            -AgentUid $AgentUid `
+            -BrokerUid $BrokerUid
         Invoke-Checked setfacl @(
             '-m',
-            "u:$linuxBrokerUser`:--x",
+            "u:$BrokerUid`:--x",
             $connectorRoot
         )
     }
     if (Test-Path -LiteralPath $Paths.ConnectorHealthRoot -PathType Container) {
         Invoke-Checked setfacl @(
             '-m',
-            "u:$linuxBrokerUser`:--x",
+            "u:$BrokerUid`:--x",
             $Paths.ConnectorHealthRoot
         )
         foreach ($fileName in $policy.connectorHealthFiles) {
@@ -1419,7 +1456,7 @@ function Grant-LinuxBrokerEvidence {
             if (Test-Path -LiteralPath $path -PathType Leaf) {
                 Invoke-Checked setfacl @(
                     '-m',
-                    "u:$linuxBrokerUser`:r--",
+                    "u:$BrokerUid`:r--",
                     $path
                 )
             }
@@ -2080,7 +2117,9 @@ function Initialize-LinuxInstallation {
     Grant-LinuxBrokerEvidence `
         -ResolvedPitCrewRoot $ResolvedPitCrewRoot `
         -AllowedProfiles $AllowedProfiles `
-        -Paths $Paths
+        -Paths $Paths `
+        -AgentUid $agentUid `
+        -BrokerUid $brokerUid
     Initialize-LinuxEvidenceMetadataContract `
         -Paths $Paths `
         -PitCrewRoot $ResolvedPitCrewRoot `
@@ -3874,7 +3913,9 @@ function Invoke-RepairEvidenceAcl {
         Grant-LinuxBrokerEvidence `
             -ResolvedPitCrewRoot ([string]$brokerSettings.PitCrewRoot) `
             -AllowedProfiles $profiles `
-            -Paths $Paths
+            -Paths $Paths `
+            -AgentUid ([uint]$brokerSettings.ExpectedAgentUid) `
+            -BrokerUid ([uint]$brokerSettings.BrokerUid)
     }
     Assert-EvidenceFilesReadable `
         -Paths $Paths `

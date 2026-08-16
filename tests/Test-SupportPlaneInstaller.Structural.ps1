@@ -382,7 +382,7 @@ Add-Check (
         '"*$BrokerSid`:(RD,X,RA)"',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        '"u:$linuxBrokerUser`:r-x"',
+        '"u:$BrokerUid`:r-x"',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
         '"*$BrokerSid`:(RA)"',
