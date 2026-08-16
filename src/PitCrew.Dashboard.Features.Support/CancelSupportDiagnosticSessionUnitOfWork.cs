@@ -21,20 +21,17 @@ internal sealed class CancelSupportDiagnosticSessionUnitOfWork(
     {
       return read.Status;
     }
-    var status = await _supportStore.CancelSessionAsync(
+    var relayStatus = await _relayClient.CancelSessionAsync(
+        sessionId,
+        cancellationToken);
+    if (relayStatus == SupportRelayManagementStatus.Failed)
+    {
+      return SupportMutationStatus.Conflict;
+    }
+    return await _supportStore.CancelSessionAsync(
         tenantId,
         sessionId,
         _timeProvider.GetUtcNow(),
         cancellationToken);
-    if (status == SupportMutationStatus.Succeeded)
-    {
-      var relayStatus = await _relayClient.CancelSessionAsync(
-          sessionId,
-          cancellationToken);
-      return relayStatus == SupportRelayManagementStatus.Failed
-          ? SupportMutationStatus.Conflict
-          : status;
-    }
-    return status;
   }
 }

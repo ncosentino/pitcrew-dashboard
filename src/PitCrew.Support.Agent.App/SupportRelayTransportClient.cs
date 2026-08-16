@@ -11,7 +11,23 @@ internal sealed record AgentRelayPollResponse(
     DateTimeOffset ExpiresAt)
 {
   public SupportEnvelope? GetRequestEnvelopeOrNull() =>
-      System.Text.Json.JsonSerializer.Deserialize<SupportEnvelope>(RequestEnvelope);
+      DeserializeEnvelopeOrNull(RequestEnvelope);
+
+  private static SupportEnvelope? DeserializeEnvelopeOrNull(string value)
+  {
+    if (string.IsNullOrWhiteSpace(value) || value.Length > 1_048_576)
+    {
+      return null;
+    }
+    try
+    {
+      return System.Text.Json.JsonSerializer.Deserialize<SupportEnvelope>(value);
+    }
+    catch (System.Text.Json.JsonException)
+    {
+      return null;
+    }
+  }
 }
 
 internal sealed class SupportRelayTransportClient(

@@ -28,7 +28,11 @@ internal sealed record SupportAgentOptions(
     if (string.IsNullOrWhiteSpace(tenantId) ||
         !Guid.TryParse(nodeIdValue, CultureInfo.InvariantCulture, out var nodeId) ||
         !Uri.TryCreate(relayUrlValue, UriKind.Absolute, out var relayUrl) ||
-        string.IsNullOrWhiteSpace(transportCredential) ||
+        !IsAllowedRelayOrigin(relayUrl) ||
+        transportCredential is null ||
+        transportCredential.Length is < 16 or > 4096 ||
+        transportCredential.Contains('\r') ||
+        transportCredential.Contains('\n') ||
         string.IsNullOrWhiteSpace(authPublicKey) ||
         string.IsNullOrWhiteSpace(resultPublicKey) ||
         string.IsNullOrWhiteSpace(signingPrivateKey) ||
@@ -45,9 +49,24 @@ internal sealed record SupportAgentOptions(
         resultPublicKey,
         signingPrivateKey,
         encryptionPrivateKey,
-        configuration["PitCrewSupport:Agent:ReplayRoot"] ?? "support-security-state",
+        configuration["PitCrewSupport:Agent:ReplayRoot"] ?? DefaultReplayRoot(),
         configuration["PitCrewSupport:Agent:PipeName"] ?? "pitcrew-support-broker-v1");
   }
+
+  private static string DefaultReplayRoot() =>
+      OperatingSystem.IsWindows()
+          ? Path.Combine(
+              Environment.GetFolderPath(
+                  Environment.SpecialFolder.CommonApplicationData),
+              "PitCrew",
+              "Support")
+          : "/var/lib/pitcrew-support";
+
+  private static bool IsAllowedRelayOrigin(Uri relayUrl) =>
+      string.IsNullOrEmpty(relayUrl.UserInfo) &&
+      string.IsNullOrEmpty(relayUrl.Query) &&
+      string.IsNullOrEmpty(relayUrl.Fragment) &&
+      relayUrl.AbsolutePath == "/" &&
+      (relayUrl.Scheme == Uri.UriSchemeHttps ||
+       relayUrl.Scheme == Uri.UriSchemeHttp && relayUrl.IsLoopback);
 }
-
-

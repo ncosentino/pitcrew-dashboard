@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 
 using PitCrew.Support.Relay.App;
 
@@ -10,6 +12,10 @@ builder.Services.AddSingleton(relayOptions);
 builder.Services.AddSingleton(store);
 builder.Services.AddSingleton(TimeProvider.System);
 var app = builder.Build();
+app.MapGet("/healthz", () => Results.Ok(new
+{
+  status = "healthy",
+}));
 
 static bool HasInternalBearer(HttpRequest request, RelayOptions options)
 {
@@ -17,7 +23,18 @@ static bool HasInternalBearer(HttpRequest request, RelayOptions options)
   const string prefix = "Bearer ";
   return !string.IsNullOrWhiteSpace(options.InternalBearerSecret) &&
       value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-      string.Equals(value[prefix.Length..].Trim(), options.InternalBearerSecret, StringComparison.Ordinal);
+      SecretEquals(value[prefix.Length..].Trim(), options.InternalBearerSecret);
+}
+
+static bool SecretEquals(string actual, string expected)
+{
+  if (actual.Length is < 16 or > 4096 || expected.Length is < 16 or > 4096)
+  {
+    return false;
+  }
+  return CryptographicOperations.FixedTimeEquals(
+      SHA256.HashData(Encoding.UTF8.GetBytes(actual)),
+      SHA256.HashData(Encoding.UTF8.GetBytes(expected)));
 }
 
 static string? ReadBearer(HttpRequest request)
@@ -41,8 +58,9 @@ internalApi.MapPost("/nodes", async (
   {
     return Results.Unauthorized();
   }
-  await relayStore.RegisterNodeAsync(request, cancellationToken);
-  return Results.NoContent();
+  return await relayStore.RegisterNodeAsync(request, cancellationToken)
+      ? Results.NoContent()
+      : Results.Conflict();
 });
 internalApi.MapPost("/nodes/{nodeId:guid}/revoke", async (
     HttpContext context,
@@ -71,8 +89,15 @@ internalApi.MapPost("/sessions", async (
   {
     return Results.Unauthorized();
   }
-  await relayStore.EnqueueSessionAsync(request, cancellationToken);
-  return Results.Accepted($"/internal/support/v1/sessions/{request.SessionId:D}");
+  if (string.IsNullOrWhiteSpace(request.TenantId) ||
+      string.IsNullOrWhiteSpace(request.RequestEnvelope) ||
+      request.RequestEnvelope.Length > 1_048_576)
+  {
+    return Results.BadRequest();
+  }
+  return await relayStore.EnqueueSessionAsync(request, cancellationToken)
+      ? Results.Accepted($"/internal/support/v1/sessions/{request.SessionId:D}")
+      : Results.Conflict();
 });
 internalApi.MapPost("/sessions/{sessionId:guid}/cancel", async (
     HttpContext context,
@@ -151,6 +176,11 @@ nodeApi.MapPost("/sessions/{sessionId:guid}/result", async (
   {
     return Results.Unauthorized();
   }
+  if (string.IsNullOrWhiteSpace(request.ResultEnvelope) ||
+      request.ResultEnvelope.Length > 4_194_304)
+  {
+    return Results.BadRequest();
+  }
   return await relayStore.UploadResultAsync(nodeId, sessionId, bearer, request.ResultEnvelope, cancellationToken)
       ? Results.NoContent()
       : Results.NotFound();
@@ -162,5 +192,3 @@ await app.RunAsync();
 /// Test hook for WebApplicationFactory.
 /// </summary>
 public partial class Program;
-
-

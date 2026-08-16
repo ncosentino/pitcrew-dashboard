@@ -8,9 +8,6 @@ namespace PitCrew.Support.Broker.App;
 
 internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
 {
-  private const string RelativeCollectorPath =
-      "plugins\\pitcrew-operations\\skills\\pitcrew-remote-diagnostics\\scripts\\Collect-PitCrewDiagnostics.ps1";
-
   public async Task<SupportBrokerExecution> ExecuteAsync(
       SupportBrokerRequest request,
       CancellationToken cancellationToken)
@@ -37,7 +34,14 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "Package ID is not a deterministic lowercase hexadecimal identifier.");
     }
-    var scriptPath = Path.Combine(_options.PitCrewRoot, RelativeCollectorPath);
+    var scriptPath = Path.Combine(
+        _options.PitCrewRoot,
+        "plugins",
+        "pitcrew-operations",
+        "skills",
+        "pitcrew-remote-diagnostics",
+        "scripts",
+        "Collect-PitCrewDiagnostics.ps1");
     if (!File.Exists(scriptPath))
     {
       return new SupportBrokerExecution(
@@ -81,26 +85,52 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "The diagnostics collector could not be started.");
     }
-    var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-    await process.WaitForExitAsync(cancellationToken);
+    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+    try
+    {
+      await Task.WhenAll(
+          outputTask,
+          errorTask,
+          process.WaitForExitAsync(cancellationToken));
+    }
+    catch (OperationCanceledException)
+    {
+      if (!process.HasExited)
+      {
+        process.Kill(entireProcessTree: true);
+      }
+      throw;
+    }
     if (process.ExitCode != 0)
     {
       return new SupportBrokerExecution(
           SupportBrokerStatus.ExecutionFailed,
           null,
-          string.IsNullOrWhiteSpace(error) ? "The diagnostics collector failed." : error.Trim());
+          "The diagnostics collector failed.");
+    }
+    var output = await outputTask;
+    if (output.Length > 4_194_304)
+    {
+      return new SupportBrokerExecution(
+          SupportBrokerStatus.ExecutionFailed,
+          null,
+          "The diagnostics collector returned an oversized response.");
     }
     return ParseResponse(output);
   }
 
   private bool ProfileExists(string profileId)
   {
-    var profilesRoot = Path.Combine(_options.PitCrewRoot, "profiles");
+    var profilesRoot = Path.Combine(_options.PitCrewRoot, ".pitcrew-state");
     var profileDirectory = Path.Combine(profilesRoot, profileId);
-    var fullProfilesRoot = Path.GetFullPath(profilesRoot);
+    var fullProfilesRoot = Path.TrimEndingDirectorySeparator(
+        Path.GetFullPath(profilesRoot)) + Path.DirectorySeparatorChar;
     var fullProfileDirectory = Path.GetFullPath(profileDirectory);
-    return fullProfileDirectory.StartsWith(fullProfilesRoot, StringComparison.OrdinalIgnoreCase) &&
+    var comparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+    return fullProfileDirectory.StartsWith(fullProfilesRoot, comparison) &&
         Directory.Exists(fullProfileDirectory);
   }
 

@@ -8,7 +8,8 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
     SupportPrincipalAuthorizer _authorizer,
     PitCrew.Dashboard.Features.Access.IDiagnosticAccessScopeAccessor _diagnosticScopeAccessor,
     ISupportStore _supportStore,
-    SupportRelayResultIngestor _resultIngestor) : IGetSupportDiagnosticSessionUnitOfWork
+    SupportRelayResultIngestor _resultIngestor,
+    TimeProvider _timeProvider) : IGetSupportDiagnosticSessionUnitOfWork
 {
   public async Task<SupportSessionMutation> GetAsync(
       ClaimsPrincipal principal,
@@ -35,13 +36,16 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
         tenantId,
         session.NodeId,
         cancellationToken);
-    if (identity is not null)
+    if (identity is not null &&
+        (session.Status is SupportDiagnosticSessionStatus.Queued or
+            SupportDiagnosticSessionStatus.Dispatched))
     {
       session = await _resultIngestor.IngestOrCurrentAsync(
           session,
           identity,
           cancellationToken);
     }
+    session = WithCurrentLifecycle(session);
     return new SupportSessionMutation(SupportMutationStatus.Succeeded, null, session);
   }
 
@@ -50,7 +54,12 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
       string tenantId,
       CancellationToken cancellationToken)
   {
-    var sessions = await _supportStore.GetSessionsAsync(tenantId, 50, cancellationToken);
+    var sessions = (await _supportStore.GetSessionsAsync(
+            tenantId,
+            50,
+            cancellationToken))
+        .Select(WithCurrentLifecycle)
+        .ToArray();
     var scope = _diagnosticScopeAccessor.GetOrNull(principal);
     if (scope is null)
     {
@@ -68,5 +77,15 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
              scope.ProfileIds.Contains(session.ProfileId, StringComparer.Ordinal)))
         .ToArray();
   }
-}
 
+  private SupportDiagnosticSession WithCurrentLifecycle(
+      SupportDiagnosticSession session) =>
+      (session.Status is SupportDiagnosticSessionStatus.Queued or
+          SupportDiagnosticSessionStatus.Dispatched) &&
+      session.ExpiresAt <= _timeProvider.GetUtcNow()
+          ? session with
+          {
+            Status = SupportDiagnosticSessionStatus.Expired,
+          }
+          : session;
+}

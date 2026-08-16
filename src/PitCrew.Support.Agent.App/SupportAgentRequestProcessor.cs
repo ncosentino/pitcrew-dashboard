@@ -14,6 +14,7 @@ internal sealed class SupportAgentRequestProcessor(
   private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
   public async Task<SupportEnvelope?> ProcessAsync(
+      Guid expectedSessionId,
       SupportEnvelope envelope,
       CancellationToken cancellationToken)
   {
@@ -30,7 +31,7 @@ internal sealed class SupportAgentRequestProcessor(
       return null;
     }
     var request = JsonSerializer.Deserialize<SupportDiagnosticRequest>(payload, _jsonOptions);
-    if (request is null)
+    if (request is null || request.SessionId != expectedSessionId)
     {
       return null;
     }
@@ -49,12 +50,33 @@ internal sealed class SupportAgentRequestProcessor(
     {
       return null;
     }
+    if (!_replayCache.ClaimNonce(request.Nonce))
+    {
+      return _replayCache.GetResultOrNull(request.SessionId);
+    }
+    using var expiryCancellation = new CancellationTokenSource(
+        request.ExpiresAt - _timeProvider.GetUtcNow(),
+        _timeProvider);
+    using var executionCancellation =
+        CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            expiryCancellation.Token);
     var diagnostics = await _broker.ExecuteAsync(
         new LocalDiagnosticsRequest(
             request.DiagnosticMode,
             request.ProfileId,
             request.PackageId),
-        cancellationToken);
+        executionCancellation.Token);
+    if (!SupportDiagnosticReportValidator.IsSafeMarkdown(
+            diagnostics.Markdown) ||
+        !SupportDiagnosticReportValidator.IsValid(
+            diagnostics.Report,
+            request.DiagnosticMode,
+            request.ProfileId,
+            request.PackageId))
+    {
+      return null;
+    }
     var resultPayload = new SupportResultPayload(
         request.TenantId,
         request.NodeId,
@@ -85,7 +107,6 @@ internal sealed class SupportAgentRequestProcessor(
         _options.NodeId.ToString("N"),
         "dashboard-result-v1");
     _replayCache.StoreResult(request.SessionId, resultEnvelope);
-    _replayCache.MarkNonce(request.Nonce);
     return resultEnvelope;
   }
 }

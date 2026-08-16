@@ -86,6 +86,20 @@ export async function getSupportSessions(
   );
 }
 
+export async function getSupportSession(
+  tenantId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SupportSession> {
+  return await client().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/support/v1/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      schema: supportSessionSchema,
+      signal,
+    },
+  );
+}
+
 export async function createSupportSession(
   tenantId: string,
   nodeId: string,

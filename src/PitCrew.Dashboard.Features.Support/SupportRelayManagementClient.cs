@@ -119,20 +119,32 @@ internal sealed class SupportRelayManagementClient(
   }
 
   private bool IsConfigured =>
-      !string.IsNullOrWhiteSpace(_options.Value.RelayInternalBearerSecret) &&
-      Uri.TryCreate(_options.Value.RelayUrl, UriKind.Absolute, out _);
+      _options.Value.RelayInternalBearerSecret.Length is >= 16 and <= 4096 &&
+      !_options.Value.RelayInternalBearerSecret.Contains('\r') &&
+      !_options.Value.RelayInternalBearerSecret.Contains('\n') &&
+      Uri.TryCreate(_options.Value.RelayUrl, UriKind.Absolute, out var relayUrl) &&
+      IsAllowedRelayOrigin(relayUrl);
 
   private HttpClient CreateClient()
   {
     var client = _httpClientFactory.CreateClient(
         SupportRelayManagementHttpClientOptions.ClientName);
     client.BaseAddress = new Uri(_options.Value.RelayUrl, UriKind.Absolute);
+    client.MaxResponseContentBufferSize = 4_194_304;
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
         "Bearer",
         _options.Value.RelayInternalBearerSecret);
     client.DefaultRequestHeaders.Date = _timeProvider.GetUtcNow();
     return client;
   }
+
+  private static bool IsAllowedRelayOrigin(Uri relayUrl) =>
+      string.IsNullOrEmpty(relayUrl.UserInfo) &&
+      string.IsNullOrEmpty(relayUrl.Query) &&
+      string.IsNullOrEmpty(relayUrl.Fragment) &&
+      relayUrl.AbsolutePath == "/" &&
+      (relayUrl.Scheme == Uri.UriSchemeHttps ||
+       relayUrl.Scheme == Uri.UriSchemeHttp && relayUrl.IsLoopback);
 }
 
 internal enum SupportRelayManagementStatus

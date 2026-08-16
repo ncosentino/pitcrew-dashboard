@@ -22,12 +22,10 @@ support identity administration, diagnostic sessions, user experience, guidance,
 and release packaging.
 
 This record is the Dashboard half of the paired cross-repository decision. It
-pairs with the PitCrew support-plane ADR tracked from
-[ncosentino/pitcrew#131](https://github.com/ncosentino/pitcrew/issues/131) and
-expected to live in the parent repository under `docs/adr/` as the support-plane
-v1 decision. The current public PitCrew repository exposes ADR-0001 through
-ADR-0006; until the parent ADR lands, the issue remains the stable public anchor
-for the PitCrew-side local collector and service-boundary decision.
+pairs with
+[PitCrew ADR-0007](https://github.com/ncosentino/pitcrew/blob/main/docs/adr/adr-0007-outbound-read-only-support-plane.md),
+which owns the local collector, operations-skill, and cross-repository
+service-boundary decision.
 
 Verified facts in this repository:
 
@@ -99,11 +97,13 @@ V1 uses only built-in .NET cryptography.
 Node software is split into a native network transport agent and a file-only
 diagnostics broker. The transport process has network access but no direct
 PitCrew state access. The broker has local PitCrew state access but no network
-role. MVP IPC uses authenticated .NET named pipes with
-`PipeOptions.CurrentUserOnly` as the cross-platform peer boundary. Production
-packages must strengthen this with service-account isolation, owner-controlled
-filesystem permissions, and OS-specific ACLs before treating it as a high-trust
-multi-user host boundary.
+role. MVP IPC uses .NET named pipes with `PipeOptions.CurrentUserOnly` as the
+cross-platform peer boundary. The MVP therefore runs both processes under one
+dedicated account and provides code-level rather than OS-enforced filesystem
+separation. Production packages must replace that limitation with
+service-account isolation, owner-controlled filesystem permissions, and
+OS-specific IPC ACLs before treating it as a high-trust multi-user host
+boundary.
 
 The broker executes exactly one locally configured collector:
 `<PitCrewRoot>\plugins\pitcrew-operations\skills\pitcrew-remote-diagnostics\scripts\Collect-PitCrewDiagnostics.ps1`

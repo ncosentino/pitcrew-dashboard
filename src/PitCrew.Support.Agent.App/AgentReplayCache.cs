@@ -6,13 +6,21 @@ namespace PitCrew.Support.Agent.App;
 
 internal sealed class AgentReplayCache(string _root)
 {
-  public void MarkNonce(string nonce)
+  public bool ClaimNonce(string nonce)
   {
     Directory.CreateDirectory(NonceRoot);
     var path = Path.Combine(NonceRoot, FileName(nonce));
-    using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-    using var writer = new StreamWriter(stream);
-    writer.Write("seen");
+    try
+    {
+      using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+      using var writer = new StreamWriter(stream);
+      writer.Write("seen");
+      return true;
+    }
+    catch (IOException) when (File.Exists(path))
+    {
+      return false;
+    }
   }
 
   public bool HasNonce(string nonce) =>
@@ -25,7 +33,21 @@ internal sealed class AgentReplayCache(string _root)
     {
       return null;
     }
-    return JsonSerializer.Deserialize<SupportEnvelope>(File.ReadAllText(path));
+    try
+    {
+      var item = new FileInfo(path);
+      return item.Length is > 0 and <= 4_194_304
+          ? JsonSerializer.Deserialize<SupportEnvelope>(File.ReadAllText(path))
+          : null;
+    }
+    catch (JsonException)
+    {
+      return null;
+    }
+    catch (IOException)
+    {
+      return null;
+    }
   }
 
   public void StoreResult(Guid sessionId, SupportEnvelope envelope)

@@ -12,6 +12,7 @@ import {
   createSupportEnrollment,
   createSupportSession,
   getSupportIdentities,
+  getSupportSession,
   getSupportSessions,
   type CreatedSupportEnrollment,
   type SupportIdentity,
@@ -41,6 +42,7 @@ export default function SupportPage() {
   const [encryptionKey, setEncryptionKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshingSessionId, setRefreshingSessionId] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -114,6 +116,23 @@ export default function SupportPage() {
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  const checkSession = async (sessionId: string) => {
+    setRefreshingSessionId(sessionId);
+    try {
+      const updated = await getSupportSession(tenantId, sessionId);
+      setSessions((current) =>
+        current.map((candidate) => (candidate.sessionId === sessionId ? updated : candidate)),
+      );
+      setError(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Support diagnostic result could not be loaded.',
+      );
+    } finally {
+      setRefreshingSessionId(null);
     }
   };
 
@@ -196,13 +215,30 @@ export default function SupportPage() {
               className="grid gap-2 rounded-lg border border-status-caution-foreground/30 bg-status-caution p-4 text-status-caution-foreground"
             >
               <strong>Copy support enrollment material now</strong>
-              <code className="overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+              <span className="text-xs font-medium">Node ID</span>
+              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+                {enrollment.nodeId}
+              </code>
+              <span className="text-xs font-medium">Enrollment code</span>
+              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
                 {enrollment.enrollmentCode}
               </code>
-              <code className="overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+              <span className="text-xs font-medium">Transport credential</span>
+              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
                 {enrollment.transportCredential}
               </code>
-              <span className="text-xs">Relay: {enrollment.relayUrl}</span>
+              <span className="text-xs font-medium">Relay URL</span>
+              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+                {enrollment.relayUrl}
+              </code>
+              <span className="text-xs font-medium">Dashboard authorization signing key</span>
+              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+                {enrollment.authorizationSigningPublicKeySpki}
+              </code>
+              <span className="text-xs font-medium">Dashboard result encryption key</span>
+              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+                {enrollment.resultEncryptionPublicKeySpki}
+              </code>
             </div>
           ) : null}
         </CardContent>
@@ -254,7 +290,12 @@ export default function SupportPage() {
         </CardHeader>
         <CardContent className="grid gap-3">
           {sessions.map((supportSession) => (
-            <SupportSessionCard key={supportSession.sessionId} session={supportSession} />
+            <SupportSessionCard
+              key={supportSession.sessionId}
+              session={supportSession}
+              refreshing={refreshingSessionId === supportSession.sessionId}
+              onCheckResult={checkSession}
+            />
           ))}
         </CardContent>
       </Card>
@@ -262,7 +303,21 @@ export default function SupportPage() {
   );
 }
 
-export function SupportSessionCard({ session }: { readonly session: SupportSession }) {
+export interface SupportSessionCardProps {
+  readonly session: SupportSession;
+  readonly refreshing?: boolean;
+  readonly onCheckResult?: (sessionId: string) => Promise<void>;
+}
+
+export function SupportSessionCard({
+  session,
+  refreshing = false,
+  onCheckResult,
+}: SupportSessionCardProps) {
+  const canCheckResult =
+    session.result === null &&
+    onCheckResult !== undefined &&
+    ['Queued', 'Dispatched', 'Expired'].includes(session.status);
   return (
     <article className="grid gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -290,6 +345,18 @@ export function SupportSessionCard({ session }: { readonly session: SupportSessi
           Verified report unavailable until completion.
         </p>
       )}
+      {canCheckResult ? (
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={refreshing}
+            onClick={() => void onCheckResult(session.sessionId)}
+          >
+            {refreshing ? 'Checking result…' : 'Check result'}
+          </Button>
+        </div>
+      ) : null}
       {session.result ? (
         <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
           {session.result.markdown}

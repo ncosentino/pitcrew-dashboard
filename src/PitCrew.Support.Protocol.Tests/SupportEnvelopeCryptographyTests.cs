@@ -104,11 +104,25 @@ public sealed class SupportEnvelopeCryptographyTests
         Guid.Parse("33333333-3333-3333-3333-333333333333", CultureInfo.InvariantCulture),
         now,
         _ => false);
+    var excessiveLifetime = SupportRequestValidator.Validate(
+        request with { ExpiresAt = request.IssuedAt.AddHours(2) },
+        "tenant-a",
+        nodeId,
+        now,
+        _ => false);
+    var oversizedNonce = SupportRequestValidator.Validate(
+        request with { Nonce = new string('n', 257) },
+        "tenant-a",
+        nodeId,
+        now,
+        _ => false);
 
     await Assert.That(valid).IsEqualTo(SupportRequestValidationStatus.Valid);
     await Assert.That(replay).IsEqualTo(SupportRequestValidationStatus.Replay);
     await Assert.That(expired).IsEqualTo(SupportRequestValidationStatus.Expired);
     await Assert.That(wrongNode).IsEqualTo(SupportRequestValidationStatus.WrongTenantOrNode);
+    await Assert.That(excessiveLifetime).IsEqualTo(SupportRequestValidationStatus.Expired);
+    await Assert.That(oversizedNonce).IsEqualTo(SupportRequestValidationStatus.InvalidNonce);
   }
 
   [Test]
@@ -146,5 +160,132 @@ public sealed class SupportEnvelopeCryptographyTests
         .IsFalse()
         .Because("altering the canonical payload must invalidate the signature");
   }
-}
 
+  [Test]
+  public async Task FileOnly_Report_Validation_Rejects_Secret_And_Private_Path_Evidence()
+  {
+    using var valid = JsonDocument.Parse(
+        $$"""
+        {
+          "schemaVersion": 1,
+          "collectorVersion": "1.1.0",
+          "collectorSha256": "{{new string('a', 64)}}",
+          "packageId": "0123456789abcdef",
+          "diagnosticMode": "Full",
+          "collectionScope": "file-only",
+          "platform": "Windows",
+          "platformSource": "detected",
+          "profile": "default",
+          "pitcrewRoot": "<pitcrew-root>",
+          "startedAt": "2026-08-01T00:00:00+00:00",
+          "completedAt": "2026-08-01T00:00:01+00:00",
+          "verifiedMeasurements": {},
+          "unavailableEvidence": [],
+          "hypotheses": []
+        }
+        """);
+    using var secret = JsonDocument.Parse(
+        $$"""
+        {
+          "schemaVersion": 1,
+          "collectorVersion": "1.1.0",
+          "collectorSha256": "{{new string('a', 64)}}",
+          "packageId": "0123456789abcdef",
+          "diagnosticMode": "Full",
+          "collectionScope": "file-only",
+          "platform": "Windows",
+          "platformSource": "detected",
+          "profile": "default",
+          "pitcrewRoot": "<pitcrew-root>",
+          "startedAt": "2026-08-01T00:00:00+00:00",
+          "completedAt": "2026-08-01T00:00:01+00:00",
+          "verifiedMeasurements": { "accessToken": "not-allowed" },
+          "unavailableEvidence": [],
+          "hypotheses": []
+        }
+        """);
+    using var privatePath = JsonDocument.Parse(
+        $$"""
+        {
+          "schemaVersion": 1,
+          "collectorVersion": "1.1.0",
+          "collectorSha256": "{{new string('a', 64)}}",
+          "packageId": "0123456789abcdef",
+          "diagnosticMode": "Full",
+          "collectionScope": "file-only",
+          "platform": "Windows",
+          "platformSource": "detected",
+          "profile": "default",
+          "pitcrewRoot": "<pitcrew-root>",
+          "startedAt": "2026-08-01T00:00:00+00:00",
+          "completedAt": "2026-08-01T00:00:01+00:00",
+          "verifiedMeasurements": { "detail": "C:\\Users\\operator\\private.txt" },
+          "unavailableEvidence": [],
+          "hypotheses": []
+        }
+        """);
+    using var opaqueCredential = JsonDocument.Parse(
+        $$"""
+        {
+          "schemaVersion": 1,
+          "collectorVersion": "1.1.0",
+          "collectorSha256": "{{new string('a', 64)}}",
+          "packageId": "0123456789abcdef",
+          "diagnosticMode": "Full",
+          "collectionScope": "file-only",
+          "platform": "Windows",
+          "platformSource": "detected",
+          "profile": "default",
+          "pitcrewRoot": "<pitcrew-root>",
+          "startedAt": "2026-08-01T00:00:00+00:00",
+          "completedAt": "2026-08-01T00:00:01+00:00",
+          "verifiedMeasurements": {
+            "detail": "ghp_0123456789abcdef0123456789abcdef0123"
+          },
+          "unavailableEvidence": [],
+          "hypotheses": []
+        }
+        """);
+
+    await Assert.That(SupportDiagnosticReportValidator.IsValid(
+            valid.RootElement,
+            SupportDiagnosticModes.Full,
+            "default",
+            "0123456789abcdef"))
+        .IsTrue()
+        .Because("the bounded file-only report matches the signed request");
+    await Assert.That(SupportDiagnosticReportValidator.IsValid(
+            secret.RootElement,
+            SupportDiagnosticModes.Full,
+            "default",
+            "0123456789abcdef"))
+        .IsFalse()
+        .Because("secret-bearing property names cannot cross the transport boundary");
+    await Assert.That(SupportDiagnosticReportValidator.IsValid(
+            privatePath.RootElement,
+            SupportDiagnosticModes.Full,
+            "default",
+            "0123456789abcdef"))
+        .IsFalse()
+        .Because("private absolute host paths cannot cross the transport boundary");
+    await Assert.That(SupportDiagnosticReportValidator.IsValid(
+            opaqueCredential.RootElement,
+            SupportDiagnosticModes.Full,
+            "default",
+            "0123456789abcdef"))
+        .IsFalse()
+        .Because("credential formats cannot cross under otherwise allowed fields");
+    await Assert.That(SupportDiagnosticReportValidator.IsSafeMarkdown(
+            "# Verified evidence\nNo unavailable measurements."))
+        .IsTrue()
+        .Because("bounded diagnostic markdown remains available to operators");
+    await Assert.That(SupportDiagnosticReportValidator.IsSafeMarkdown(
+            "credential=C:\\Users\\operator\\secret.txt"))
+        .IsFalse()
+        .Because("markdown cannot carry credential-shaped private host evidence");
+    await Assert.That(SupportDiagnosticReportValidator.IsSafeMarkdown(
+            "ghp_0123456789abcdef0123456789abcdef0123 /etc/shadow"))
+        .IsFalse()
+        .Because("markdown cannot carry opaque credentials or private Unix paths");
+  }
+}

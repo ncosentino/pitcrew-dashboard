@@ -42,7 +42,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
-  public async Task RegisterNodeAsync(
+  public async Task<bool> RegisterNodeAsync(
       RelayNodeRegistrationRequest request,
       CancellationToken cancellationToken)
   {
@@ -57,14 +57,14 @@ internal sealed class SqliteRelayStore(string _databasePath)
             revoked_at)
         VALUES ($nodeId, $tenantId, $hash, NULL)
         ON CONFLICT (node_id) DO UPDATE SET
-            tenant_id = excluded.tenant_id,
             transport_credential_hash = excluded.transport_credential_hash,
-            revoked_at = NULL;
+            revoked_at = NULL
+        WHERE relay_nodes.tenant_id = excluded.tenant_id;
         """;
     command.Parameters.AddWithValue("$nodeId", request.NodeId.ToString("D"));
     command.Parameters.AddWithValue("$tenantId", request.TenantId);
     command.Parameters.AddWithValue("$hash", request.TransportCredentialHash);
-    await command.ExecuteNonQueryAsync(cancellationToken);
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
   }
 
   public async Task<bool> RevokeNodeAsync(
@@ -78,15 +78,14 @@ internal sealed class SqliteRelayStore(string _databasePath)
         """
         UPDATE relay_nodes
         SET revoked_at = $revokedAt
-        WHERE node_id = $nodeId
-          AND revoked_at IS NULL;
+        WHERE node_id = $nodeId;
         """;
     command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
     command.Parameters.AddWithValue("$revokedAt", Format(revokedAt));
     return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
   }
 
-  public async Task EnqueueSessionAsync(
+  public async Task<bool> EnqueueSessionAsync(
       RelaySessionEnqueueRequest request,
       CancellationToken cancellationToken)
   {
@@ -101,13 +100,17 @@ internal sealed class SqliteRelayStore(string _databasePath)
             status,
             expires_at,
             request_envelope_json)
-        VALUES (
+        SELECT
             $sessionId,
             $tenantId,
             $nodeId,
             'queued',
             $expiresAt,
-            $requestEnvelope)
+            $requestEnvelope
+        FROM relay_nodes
+        WHERE node_id = $nodeId
+          AND tenant_id = $tenantId
+          AND revoked_at IS NULL
         ON CONFLICT (session_id) DO NOTHING;
         """;
     command.Parameters.AddWithValue("$sessionId", request.SessionId.ToString("D"));
@@ -115,7 +118,24 @@ internal sealed class SqliteRelayStore(string _databasePath)
     command.Parameters.AddWithValue("$nodeId", request.NodeId.ToString("D"));
     command.Parameters.AddWithValue("$expiresAt", Format(request.ExpiresAt));
     command.Parameters.AddWithValue("$requestEnvelope", request.RequestEnvelope);
-    await command.ExecuteNonQueryAsync(cancellationToken);
+    var inserted = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    if (inserted)
+    {
+      return true;
+    }
+    await using var existing = connection.CreateCommand();
+    existing.CommandText =
+        """
+        SELECT 1
+        FROM relay_sessions
+        WHERE session_id = $sessionId
+          AND tenant_id = $tenantId
+          AND node_id = $nodeId;
+        """;
+    existing.Parameters.AddWithValue("$sessionId", request.SessionId.ToString("D"));
+    existing.Parameters.AddWithValue("$tenantId", request.TenantId);
+    existing.Parameters.AddWithValue("$nodeId", request.NodeId.ToString("D"));
+    return await existing.ExecuteScalarAsync(cancellationToken) is not null;
   }
 
   public async Task<RelaySessionRecord?> PollAsync(
@@ -130,6 +150,21 @@ internal sealed class SqliteRelayStore(string _databasePath)
     {
       await transaction.RollbackAsync(cancellationToken);
       return null;
+    }
+    await using (var expire = connection.CreateCommand())
+    {
+      expire.Transaction = transaction;
+      expire.CommandText =
+          """
+          UPDATE relay_sessions
+          SET status = 'expired'
+          WHERE node_id = $nodeId
+            AND status IN ('queued', 'dispatched')
+            AND expires_at < $now;
+          """;
+      expire.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+      expire.Parameters.AddWithValue("$now", Format(now));
+      await expire.ExecuteNonQueryAsync(cancellationToken);
     }
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
@@ -243,7 +278,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
         UPDATE relay_sessions
         SET status = 'cancelled'
         WHERE session_id = $sessionId
-          AND status IN ('queued', 'dispatched');
+          AND status IN ('queued', 'dispatched', 'cancelled');
         """;
     command.Parameters.AddWithValue("$sessionId", sessionId.ToString("D"));
     return await command.ExecuteNonQueryAsync(cancellationToken) == 1;

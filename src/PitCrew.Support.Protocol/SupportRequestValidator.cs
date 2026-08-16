@@ -37,11 +37,15 @@ public static class SupportRequestValidator
     {
       return SupportRequestValidationStatus.UnsupportedDiagnosticMode;
     }
-    if (request.ExpiresAt <= now || request.IssuedAt > now.AddMinutes(5))
+    if (request.ExpiresAt <= now ||
+        request.IssuedAt > now.AddMinutes(5) ||
+        request.ExpiresAt <= request.IssuedAt ||
+        request.ExpiresAt - request.IssuedAt > TimeSpan.FromHours(1))
     {
       return SupportRequestValidationStatus.Expired;
     }
-    if (string.IsNullOrWhiteSpace(request.Nonce) || request.Nonce.Length < 32)
+    if (string.IsNullOrWhiteSpace(request.Nonce) ||
+        request.Nonce.Length is < 32 or > 256)
     {
       return SupportRequestValidationStatus.InvalidNonce;
     }

@@ -15,8 +15,13 @@ builder.Services.AddHttpClient(SupportRelayTransportHttpClientOptions.ClientName
 {
   client.BaseAddress = options.RelayUrl;
   client.Timeout = TimeSpan.FromSeconds(30);
+  client.MaxResponseContentBufferSize = 1_048_576;
   client.DefaultRequestHeaders.UserAgent.ParseAdd("PitCrew-Support-Agent/1");
-});
+})
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+      AllowAutoRedirect = false,
+    });
 builder.Services.AddSingleton<SupportRelayTransportClient>(services =>
     new SupportRelayTransportClient(
         services.GetRequiredService<IHttpClientFactory>(),
@@ -24,6 +29,5 @@ builder.Services.AddSingleton<SupportRelayTransportClient>(services =>
 builder.Services.AddSingleton<SupportAgentRequestProcessor>();
 builder.Services.AddHostedService<SupportAgentWorker>();
 await builder.Build().RunAsync();
-
 
 

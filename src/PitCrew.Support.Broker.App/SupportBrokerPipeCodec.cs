@@ -1,16 +1,25 @@
 using System.Buffers.Binary;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace PitCrew.Support.Broker.App;
 
 internal static class SupportBrokerPipeCodec
 {
+  private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
+  {
+    Converters =
+    {
+        new JsonStringEnumConverter(),
+    },
+  };
+
   public static async Task WriteAsync<T>(
       Stream stream,
       T value,
       CancellationToken cancellationToken)
   {
-    var payload = JsonSerializer.SerializeToUtf8Bytes(value);
+    var payload = JsonSerializer.SerializeToUtf8Bytes(value, _jsonOptions);
     Span<byte> length = stackalloc byte[4];
     BinaryPrimitives.WriteInt32LittleEndian(length, payload.Length);
     await stream.WriteAsync(length.ToArray(), cancellationToken);
@@ -31,6 +40,6 @@ internal static class SupportBrokerPipeCodec
     }
     var payload = new byte[length];
     await stream.ReadExactlyAsync(payload, cancellationToken);
-    return JsonSerializer.Deserialize<T>(payload);
+    return JsonSerializer.Deserialize<T>(payload, _jsonOptions);
   }
 }

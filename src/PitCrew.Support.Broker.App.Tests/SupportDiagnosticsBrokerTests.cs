@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Text.Json;
+
 using PitCrew.Support.Broker.App;
 using PitCrew.Support.Protocol;
 
@@ -12,7 +15,7 @@ public sealed class SupportDiagnosticsBrokerTests
     var root = CreatePitCrewRoot();
     try
     {
-      Directory.CreateDirectory(Path.Combine(root, "profiles", "default"));
+      Directory.CreateDirectory(Path.Combine(root, ".pitcrew-state", "default"));
       WriteCollector(root);
       var broker = new SupportDiagnosticsBroker(new SupportBrokerOptions(root, "unused"));
 
@@ -39,7 +42,7 @@ public sealed class SupportDiagnosticsBrokerTests
     var root = CreatePitCrewRoot();
     try
     {
-      Directory.CreateDirectory(Path.Combine(root, "profiles", "default"));
+      Directory.CreateDirectory(Path.Combine(root, ".pitcrew-state", "default"));
       WriteCollector(root);
       var broker = new SupportDiagnosticsBroker(new SupportBrokerOptions(root, "unused"));
       var result = await broker.ExecuteAsync(
@@ -68,7 +71,7 @@ public sealed class SupportDiagnosticsBrokerTests
     var root = CreatePitCrewRoot();
     try
     {
-      Directory.CreateDirectory(Path.Combine(root, "profiles", "default"));
+      Directory.CreateDirectory(Path.Combine(root, ".pitcrew-state", "default"));
       WriteCollector(root);
       var pipeName = $"pitcrew-support-broker-test-{Guid.NewGuid():N}";
       var options = new SupportBrokerOptions(root, pipeName);
@@ -89,6 +92,29 @@ public sealed class SupportDiagnosticsBrokerTests
     {
       DeleteDirectory(root);
     }
+  }
+
+  [Test]
+  public async Task Broker_Response_Status_Is_String_Compatible_With_Transport_Agent(
+      CancellationToken cancellationToken)
+  {
+    await using var stream = new MemoryStream();
+    await SupportBrokerPipeCodec.WriteAsync(
+        stream,
+        new SupportBrokerExecution(
+            SupportBrokerStatus.Succeeded,
+            null,
+            null),
+        cancellationToken);
+    stream.Position = 0;
+    var lengthBytes = new byte[4];
+    await stream.ReadExactlyAsync(lengthBytes, cancellationToken);
+    var payload = new byte[BinaryPrimitives.ReadInt32LittleEndian(lengthBytes)];
+    await stream.ReadExactlyAsync(payload, cancellationToken);
+    using var document = JsonDocument.Parse(payload);
+
+    await Assert.That(document.RootElement.GetProperty("status").GetString())
+        .IsEqualTo("Succeeded");
   }
 
   private static string CreatePitCrewRoot() =>
@@ -127,4 +153,3 @@ public sealed class SupportDiagnosticsBrokerTests
     }
   }
 }
-

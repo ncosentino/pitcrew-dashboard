@@ -64,6 +64,44 @@ public sealed class RelayStoreTests
   }
 
   [Test]
+  public async Task Session_Cannot_Cross_The_Registered_Node_Tenant(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var nodeId = Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture);
+      var sessionId = Guid.Parse("33333333-3333-3333-3333-333333333333", CultureInfo.InvariantCulture);
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-a")),
+          cancellationToken);
+
+      var enqueued = await store.EnqueueSessionAsync(
+          new RelaySessionEnqueueRequest(
+              "tenant-b",
+              nodeId,
+              sessionId,
+              DateTimeOffset.Parse("2026-08-01T00:10:00+00:00", CultureInfo.InvariantCulture),
+              "opaque-request"),
+          cancellationToken);
+      var stored = await store.GetSessionAsync(sessionId, cancellationToken);
+
+      await Assert.That(enqueued).IsFalse()
+          .Because("relay routing must bind a session to the node's registered tenant");
+      await Assert.That(stored).IsNull();
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Result_Upload_Is_Node_Bound_And_Relay_Stores_Opaque_Result(
       CancellationToken cancellationToken)
   {
@@ -112,6 +150,49 @@ public sealed class RelayStoreTests
     }
   }
 
+  [Test]
+  public async Task Poll_Marks_Expired_Session_Without_Delivering_It(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var nodeId = Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture);
+      var sessionId = Guid.Parse("33333333-3333-3333-3333-333333333333", CultureInfo.InvariantCulture);
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-a")),
+          cancellationToken);
+      await store.EnqueueSessionAsync(
+          new RelaySessionEnqueueRequest(
+              "tenant-a",
+              nodeId,
+              sessionId,
+              DateTimeOffset.Parse("2026-08-01T00:01:00+00:00", CultureInfo.InvariantCulture),
+              "opaque-request"),
+          cancellationToken);
+
+      var result = await store.PollAsync(
+          nodeId,
+          "credential-a",
+          DateTimeOffset.Parse("2026-08-01T00:02:00+00:00", CultureInfo.InvariantCulture),
+          cancellationToken);
+      var stored = await store.GetSessionAsync(sessionId, cancellationToken);
+
+      await Assert.That(result).IsNull();
+      await Assert.That(stored).IsNotNull();
+      await Assert.That(stored!.Status).IsEqualTo("expired");
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
   private static string CreateDatabasePath() =>
       Path.Combine(
           AppContext.BaseDirectory,
@@ -134,7 +215,4 @@ public sealed class RelayStoreTests
     }
   }
 }
-
-
-
 

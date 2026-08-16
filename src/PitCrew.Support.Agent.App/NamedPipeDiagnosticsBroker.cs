@@ -6,6 +6,9 @@ namespace PitCrew.Support.Agent.App;
 
 internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagnosticsBroker
 {
+  private static readonly JsonSerializerOptions _jsonOptions =
+      new(JsonSerializerDefaults.Web);
+
   public async Task<LocalDiagnosticsResult> ExecuteAsync(
       LocalDiagnosticsRequest request,
       CancellationToken cancellationToken)
@@ -18,11 +21,11 @@ internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagn
     await pipe.ConnectAsync(30000, cancellationToken);
     await WriteAsync(pipe, request, cancellationToken);
     var response = await ReadAsync<BrokerResponseEnvelope>(pipe, cancellationToken) ??
-        throw new InvalidOperationException("Broker returned an empty response.");
+        throw new IOException("Broker returned an empty response.");
     if (!string.Equals(response.Status, "Succeeded", StringComparison.Ordinal) ||
         response.Response is null)
     {
-      throw new InvalidOperationException("Broker rejected the support diagnostic request.");
+      throw new IOException("Broker rejected the support diagnostic request.");
     }
     return new LocalDiagnosticsResult(
         response.Response.Report,
@@ -34,7 +37,7 @@ internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagn
       T value,
       CancellationToken cancellationToken)
   {
-    var payload = JsonSerializer.SerializeToUtf8Bytes(value);
+    var payload = JsonSerializer.SerializeToUtf8Bytes(value, _jsonOptions);
     Span<byte> length = stackalloc byte[4];
     BinaryPrimitives.WriteInt32LittleEndian(length, payload.Length);
     await stream.WriteAsync(length.ToArray(), cancellationToken);
@@ -55,7 +58,7 @@ internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagn
     }
     var payload = new byte[length];
     await stream.ReadExactlyAsync(payload, cancellationToken);
-    return JsonSerializer.Deserialize<T>(payload);
+    return JsonSerializer.Deserialize<T>(payload, _jsonOptions);
   }
 
   private sealed record BrokerResponseEnvelope(
