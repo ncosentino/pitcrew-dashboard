@@ -2202,7 +2202,15 @@ function Wait-LinuxSupportServiceActive {
 
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $activeSince = $null
+    $capturedStartupExceptionType = 'unavailable'
     while ($stopwatch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        if (-not [string]::IsNullOrWhiteSpace($StartupStatusPath)) {
+            $observedStartupExceptionType = Get-BrokerStartupExceptionType `
+                -StatusPath $StartupStatusPath
+            if ($observedStartupExceptionType -cne 'unavailable') {
+                $capturedStartupExceptionType = $observedStartupExceptionType
+            }
+        }
         $activeState = [string](
             Get-SystemdProperty -Unit $Service -Property 'ActiveState')
         if ($activeState -ceq 'active') {
@@ -2233,9 +2241,9 @@ function Wait-LinuxSupportServiceActive {
         }
     ) -join ';'
     if (-not [string]::IsNullOrWhiteSpace($StartupStatusPath)) {
-        $startupExceptionType = Get-BrokerStartupExceptionType `
-            -StatusPath $StartupStatusPath
-        $diagnostics += ";StartupExceptionType=$startupExceptionType"
+        $diagnostics += (
+            ";StartupExceptionType=$capturedStartupExceptionType"
+        )
     }
     throw "Linux support service '$Service' did not stabilize as active. Bounded diagnostics: $diagnostics"
 }

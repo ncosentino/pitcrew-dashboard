@@ -497,7 +497,10 @@ Add-Check (
         "'broker-startup-status.json'",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'StartupExceptionType=$startupExceptionType',
+        '$capturedStartupExceptionType = $observedStartupExceptionType',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'StartupExceptionType=$capturedStartupExceptionType',
         [StringComparison]::Ordinal)
 ) 'Linux service startup accepts transitional activation or lacks bounded failure diagnostics.'
 Add-Check (
