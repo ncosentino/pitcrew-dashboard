@@ -773,7 +773,17 @@ function Assert-LinuxCurrentVersion {
             (Join-Path (
                 Join-Path $installRoot 'versions'
             ) $InstalledVersion))
-        $actual = (Resolve-Path -LiteralPath $current).Path
+        $targets = @($item.Target)
+        $actual = if ($targets.Count -eq 1) {
+            $target = [string]$targets[0]
+            if ([IO.Path]::IsPathRooted($target)) {
+                [IO.Path]::GetFullPath($target)
+            } else {
+                [IO.Path]::GetFullPath((Join-Path $installRoot $target))
+            }
+        } else {
+            ''
+        }
         if ($item.LinkType -ne 'SymbolicLink' -or
             -not $actual.Equals(
                 $expected,

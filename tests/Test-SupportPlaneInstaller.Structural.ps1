@@ -460,6 +460,17 @@ Add-Check (
 ) 'Linux units are not parser-verified before service installation.'
 Add-Check (
     $installer.Contains(
+        '$targets = @($item.Target)',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        '[IO.Path]::IsPathRooted($target)',
+        [StringComparison]::Ordinal) -and
+    -not $installer.Contains(
+        '(Resolve-Path -LiteralPath $current).Path',
+        [StringComparison]::Ordinal)
+) 'Linux current-version verification does not compare the normalized symlink target.'
+Add-Check (
+    $installer.Contains(
         "'ActiveState',",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
