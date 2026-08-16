@@ -59,3 +59,12 @@ startup side effect.
 
 Feature-level plugins live at the feature root. A plugin with no manual concern or
 startup behavior should not exist.
+
+## Support plane projects
+
+Support-plane v1 intentionally crosses process boundaries. The Dashboard-owned API
+slice lives in `PitCrew.Dashboard.Features.Support` with contracts in
+`PitCrew.Dashboard.Features.Support.Abstractions`. Shared request/result crypto lives
+in `PitCrew.Support.Protocol`. The relay, transport agent, and diagnostics broker are
+separate application projects so their deployable trust boundaries remain visible in
+the solution instead of being hidden behind one host process.

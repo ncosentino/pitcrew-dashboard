@@ -1,0 +1,84 @@
+name: Publish support plane
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to package without a leading v
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-support-plane-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [linux-x64, linux-arm64, win-x64, win-arm64]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Test support projects
+        shell: pwsh
+        run: |
+          dotnet test src/PitCrew.Support.Protocol.Tests/PitCrew.Support.Protocol.Tests.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test src/PitCrew.Support.Relay.App.Tests/PitCrew.Support.Relay.App.Tests.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test src/PitCrew.Support.Agent.App.Tests/PitCrew.Support.Agent.App.Tests.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test src/PitCrew.Support.Broker.App.Tests/PitCrew.Support.Broker.App.Tests.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package support plane
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $version = if ([string]::IsNullOrWhiteSpace($env:RELEASE_TAG)) {
+              $env:INPUT_VERSION
+          } else {
+              $env:RELEASE_TAG.TrimStart('v')
+          }
+          ./scripts/package-support-plane.ps1 `
+              -Configuration Release `
+              -Version $version `
+              -RuntimeIdentifiers $env:RID `
+              -OutputRoot "artifacts/support-plane-$($env:RID)"
+
+      - name: Upload support release assets
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          rid='${{ matrix.rid }}'
+          archive_dir="artifacts/support-plane-${rid}/archives"
+          gh release upload "$RELEASE_TAG" "$archive_dir"/*.tar.gz "$archive_dir"/*.sha256 --clobber
+
+      - name: Upload support package artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: support-plane-${{ matrix.rid }}
+          path: artifacts/support-plane-${{ matrix.rid }}/archives/*
+          if-no-files-found: error

@@ -24,6 +24,7 @@ This map is the canonical entry point for maintained Dashboard documentation.
 - [Runner correlation assignments](runner-correlation.md)
 - [Noninteractive read-only diagnostics](noninteractive-diagnostics.md)
 - [Database operations](database-operations.md)
+- [Support plane v1](support-plane.md)
 
 ## Deployment
 

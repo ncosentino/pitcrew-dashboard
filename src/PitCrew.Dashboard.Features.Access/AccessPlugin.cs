@@ -25,6 +25,9 @@ internal sealed class AccessPlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<
         IAuthorizationHandler,
         DiagnosticAccessAuthorizationHandler>();
+    options.Services.AddSingleton<
+        IAuthorizationHandler,
+        SupportDiagnosticAccessAuthorizationHandler>();
     options.Services.AddAuthentication()
         .AddScheme<
             AuthenticationSchemeOptions,
@@ -64,7 +67,17 @@ internal sealed class AccessPlugin : IServiceCollectionPlugin
                     DiagnosticAuthenticationDefaults.Scheme)
                 .RequireAuthenticatedUser()
                 .AddRequirements(
-                    new DiagnosticAccessRequirement()));
+                    new DiagnosticAccessRequirement()))
+        .AddPolicy(
+            AccessPolicies.SupportDiagnosticRequester,
+            policy => policy
+                .AddAuthenticationSchemes(
+                    DiagnosticAuthenticationDefaults.Scheme,
+                    "PitCrewCookie",
+                    "PitCrewDevelopment")
+                .RequireAuthenticatedUser()
+                .AddRequirements(
+                    new SupportDiagnosticAccessRequirement()));
     options.Services.AddHostedService<DevelopmentAccessInitializer>();
   }
 }

@@ -33,4 +33,10 @@ public static class AccessPolicies
   public const string DiagnosticsReader =
       "PitCrew.DiagnosticsReader";
 
+  /// <summary>
+  /// Requires tenant administrator access or one scoped read-only diagnostic credential.
+  /// </summary>
+  public const string SupportDiagnosticRequester =
+      "PitCrew.SupportDiagnosticRequester";
+
 }

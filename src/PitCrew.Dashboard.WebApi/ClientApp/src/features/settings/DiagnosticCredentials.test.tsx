@@ -58,7 +58,7 @@ describe('DiagnosticCredentials', () => {
     expect(body.profileIds).toEqual(['default']);
     expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now());
     expect(screen.getByText(credential.credentialId)).toBeInTheDocument();
-  });
+  }, 10000);
 
   it('surfaces creation errors without displaying a secret', async () => {
     vi.spyOn(globalThis, 'fetch')

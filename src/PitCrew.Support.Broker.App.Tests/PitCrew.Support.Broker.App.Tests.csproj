@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Support.Broker.App\PitCrew.Support.Broker.App.csproj" />
+  </ItemGroup>
+
+</Project>

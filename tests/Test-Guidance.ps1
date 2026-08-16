@@ -290,12 +290,12 @@ try {
     $result = & $validator -ProjectRoot $root
     Add-Check ($result.instructions -eq $result.generatedMirrors) (
         'Instruction and generated mirror counts differ.')
-    Add-Check ($result.instructions -ge 120) (
+    Add-Check ($result.instructions -ge 130) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 42) (
-        'The documentation map does not contain the expected 42 maintained pages.')
-    Add-Check ($result.adrs -eq 7) (
-        'The ADR index does not contain seven accepted records.')
+    Add-Check ($result.docs -eq 44) (
+        'The documentation map does not contain the expected 44 maintained pages.')
+    Add-Check ($result.adrs -eq 8) (
+        'The ADR index does not contain eight accepted records.')
 
     $productPath = Join-Path $root 'PRODUCT.md'
     $designPath = Join-Path $root 'DESIGN.md'
@@ -368,6 +368,51 @@ try {
         ($resolverOutput -join "`n") -match 'README\.md' -and
         ($resolverOutput -join "`n") -match 'docs/README\.md'
     ) 'The multi-path resolver did not return both requested paths.'
+    $supportResolverOutput = @(
+        & $resolver `
+            -Path `
+            'src/PitCrew.Support.Protocol/SupportEnvelopeCryptography.cs', `
+            'src/PitCrew.Dashboard.Features.Support/SupportCarterModule.cs', `
+            'src/PitCrew.Support.Relay.App/Program.cs', `
+            'src/PitCrew.Support.Agent.App/SupportAgentRequestProcessor.cs', `
+            'src/PitCrew.Support.Broker.App/SupportDiagnosticsBroker.cs', `
+            'src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx' `
+            2>&1
+    )
+    Add-Check ($LASTEXITCODE -eq 0) (
+        'The support-plane representative resolver invocation failed.')
+    Add-Check (
+        @(
+            $supportResolverOutput |
+                Where-Object {
+                    $_.InstructionPath -eq
+                        '.github/instructions/support-plane.instructions.md'
+                }
+        ).Count -ge 6
+    ) 'Support-plane representative paths do not resolve support-plane.instructions.md.'
+    $supportNegativeOutput = @(
+        & $resolver `
+            -Path 'src/PitCrew.Connector.Features.Sync/SyncConnectorUnitOfWork.cs' `
+            2>&1
+    )
+    Add-Check (
+        @(
+            $supportNegativeOutput |
+                Where-Object {
+                    $_.InstructionPath -eq
+                        '.github/instructions/support-plane.instructions.md'
+                }
+        ).Count -eq 0
+    ) 'Support-plane guidance applies to the existing connector synchronization path.'
+    $supportInstruction = Get-Content -LiteralPath (
+        Join-Path $root '.github' 'instructions' 'support-plane.instructions.md'
+    ) -Raw
+    Add-Check (
+        $supportInstruction -match 'arbitrary paths' -and
+        $supportInstruction -match 'tunnels' -and
+        $supportInstruction -match 'Docker\s+access' -and
+        $supportInstruction -match 'PipeOptions\.CurrentUserOnly'
+    ) 'Support-plane guidance does not contain the required v1 negative boundary rules.'
     Add-Check (
         (& $scopeResolver `
             -EventName workflow_dispatch `
