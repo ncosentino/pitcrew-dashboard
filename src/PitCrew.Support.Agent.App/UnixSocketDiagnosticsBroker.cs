@@ -1,11 +1,10 @@
 using System.Buffers.Binary;
-using System.IO.Pipes;
-using System.Security.Principal;
+using System.Net.Sockets;
 using System.Text.Json;
 
 namespace PitCrew.Support.Agent.App;
 
-internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagnosticsBroker
+internal sealed class UnixSocketDiagnosticsBroker(string _socketPath) : ILocalDiagnosticsBroker
 {
   private static readonly JsonSerializerOptions _jsonOptions =
       new(JsonSerializerDefaults.Web);
@@ -14,15 +13,18 @@ internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagn
       LocalDiagnosticsRequest request,
       CancellationToken cancellationToken)
   {
-    await using var pipe = new NamedPipeClientStream(
-        ".",
-        _pipeName,
-        PipeDirection.InOut,
-        PipeOptions.Asynchronous,
-        TokenImpersonationLevel.Identification);
-    await pipe.ConnectAsync(30000, cancellationToken);
-    await WriteAsync(pipe, request, cancellationToken);
-    var response = await ReadAsync<BrokerResponseEnvelope>(pipe, cancellationToken) ??
+    using var socket = new Socket(
+        AddressFamily.Unix,
+        SocketType.Stream,
+        ProtocolType.Unspecified);
+    await socket.ConnectAsync(
+        new UnixDomainSocketEndPoint(_socketPath),
+        cancellationToken);
+    await using var stream = new NetworkStream(socket, ownsSocket: false);
+    await WriteAsync(stream, request, cancellationToken);
+    var response = await ReadAsync<BrokerResponseEnvelope>(
+        stream,
+        cancellationToken) ??
         throw new IOException("Broker returned an empty response.");
     if (!string.Equals(response.Status, "Succeeded", StringComparison.Ordinal) ||
         response.Response is null)

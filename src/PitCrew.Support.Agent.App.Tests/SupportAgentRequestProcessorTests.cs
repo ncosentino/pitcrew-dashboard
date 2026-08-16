@@ -35,7 +35,8 @@ public sealed class SupportAgentRequestProcessorTests
           nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
           nodeKeys.Encryption.PrivateKeyPkcs8Base64Url,
           replayRoot,
-          "unused");
+          "unused",
+          "/unused");
       var processor = new SupportAgentRequestProcessor(
           options,
           broker,
@@ -121,7 +122,8 @@ public sealed class SupportAgentRequestProcessorTests
           nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
           nodeKeys.Encryption.PrivateKeyPkcs8Base64Url,
           replayRoot,
-          "unused");
+          "unused",
+          "/unused");
       var processor = new SupportAgentRequestProcessor(
           options,
           broker,

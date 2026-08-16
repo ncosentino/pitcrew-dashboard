@@ -565,6 +565,10 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Validate support installer structure
+        shell: pwsh
+        run: ./tests/Test-SupportPlaneInstaller.Structural.ps1
+
       - name: Package Linux support plane
         shell: pwsh
         run: |
@@ -582,8 +586,8 @@ jobs:
                   -LiteralPath artifacts/support-plane-ci/archives `
                   -Filter '*.tar.gz' `
                   -File)
-          if ($archives.Count -ne 3) {
-              throw "Expected three support archives, found $($archives.Count)."
+          if ($archives.Count -ne 4) {
+              throw "Expected four support archives, found $($archives.Count)."
           }
           foreach ($archive in $archives) {
               $checksumPath = "$($archive.FullName).sha256"
@@ -602,25 +606,11 @@ jobs:
           }
 
   linux-installer:
-    name: Linux capacity installer
+    name: Linux installers
     needs: validation-plan
     if: needs.validation-plan.outputs.scope == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Validate systemd installation and rollback
-        run: >-
-          sudo pwsh ./tests/Test-CapacityOperationsInstaller.ps1
-          -AllowMachineChanges
-
-  windows-installer:
-    name: Windows capacity installer
-    needs: validation-plan
-    if: needs.validation-plan.outputs.scope == 'full'
-    runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -628,6 +618,72 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+
+      - name: Ensure POSIX ACL tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v setfacl >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes acl
+          fi
+
+      - name: Publish Linux support services
+        shell: pwsh
+        run: |
+          dotnet publish `
+              src/PitCrew.Support.Agent.App/PitCrew.Support.Agent.App.csproj `
+              --configuration Release `
+              --runtime linux-x64 `
+              --self-contained true `
+              -p:PublishSingleFile=true `
+              -p:DebugType=None `
+              -p:DebugSymbols=false `
+              --output "$env:RUNNER_TEMP/support-agent"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish `
+              src/PitCrew.Support.Broker.App/PitCrew.Support.Broker.App.csproj `
+              --configuration Release `
+              --runtime linux-x64 `
+              --self-contained true `
+              -p:PublishSingleFile=true `
+              -p:DebugType=None `
+              -p:DebugSymbols=false `
+              --output "$env:RUNNER_TEMP/support-broker"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate systemd installation and rollback
+        run: >-
+          sudo pwsh ./tests/Test-CapacityOperationsInstaller.ps1
+          -AllowMachineChanges
+
+      - name: Validate isolated support lifecycle and outbound denial
+        run: >-
+          sudo pwsh ./tests/Test-SupportPlaneInstaller.ps1
+          -AgentPublishRoot "$RUNNER_TEMP/support-agent"
+          -BrokerPublishRoot "$RUNNER_TEMP/support-broker"
+          -AllowMachineChanges
+
+  windows-installer:
+    name: Windows installers
+    needs: validation-plan
+    if: needs.validation-plan.outputs.scope == 'full'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Validate Windows named-pipe isolation
+        shell: pwsh
+        run: >-
+          dotnet test --project
+          src/PitCrew.Support.Broker.App.Tests/PitCrew.Support.Broker.App.Tests.csproj
+          --configuration Release
 
       - name: Publish Windows connector
         shell: pwsh
@@ -645,11 +701,43 @@ jobs:
               exit $LASTEXITCODE
           }
 
+      - name: Publish Windows support services
+        shell: pwsh
+        run: |
+          dotnet publish `
+              src/PitCrew.Support.Agent.App/PitCrew.Support.Agent.App.csproj `
+              --configuration Release `
+              --runtime win-x64 `
+              --self-contained true `
+              -p:PublishSingleFile=true `
+              -p:DebugType=None `
+              -p:DebugSymbols=false `
+              --output "$env:RUNNER_TEMP/support-agent"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish `
+              src/PitCrew.Support.Broker.App/PitCrew.Support.Broker.App.csproj `
+              --configuration Release `
+              --runtime win-x64 `
+              --self-contained true `
+              -p:PublishSingleFile=true `
+              -p:DebugType=None `
+              -p:DebugSymbols=false `
+              --output "$env:RUNNER_TEMP/support-broker"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Validate Windows Service installation and rollback
         shell: pwsh
         run: |
           ./tests/Test-CapacityOperationsInstaller.ps1 `
               -ConnectorPublishRoot "$env:RUNNER_TEMP/connector" `
+              -AllowMachineChanges
+
+      - name: Validate isolated support lifecycle and outbound denial
+        shell: pwsh
+        run: |
+          ./tests/Test-SupportPlaneInstaller.ps1 `
+              -AgentPublishRoot "$env:RUNNER_TEMP/support-agent" `
+              -BrokerPublishRoot "$env:RUNNER_TEMP/support-broker" `
               -AllowMachineChanges
 
   ci:

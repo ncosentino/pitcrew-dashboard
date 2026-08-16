@@ -13,7 +13,8 @@ internal sealed record SupportAgentOptions(
     string NodeSigningPrivateKeyPkcs8,
     string NodeEncryptionPrivateKeyPkcs8,
     string ReplayRoot,
-    string PipeName)
+    string PipeName,
+    string SocketPath)
 {
   public static SupportAgentOptions? FromConfiguration(IConfiguration configuration)
   {
@@ -50,7 +51,9 @@ internal sealed record SupportAgentOptions(
         signingPrivateKey,
         encryptionPrivateKey,
         configuration["PitCrewSupport:Agent:ReplayRoot"] ?? DefaultReplayRoot(),
-        configuration["PitCrewSupport:Agent:PipeName"] ?? "pitcrew-support-broker-v1");
+        configuration["PitCrewSupport:Agent:PipeName"] ?? "pitcrew-support-broker-v1",
+        configuration["PitCrewSupport:Agent:SocketPath"] ??
+            "/run/pitcrew-support/broker.sock");
   }
 
   private static string DefaultReplayRoot() =>

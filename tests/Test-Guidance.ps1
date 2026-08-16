@@ -376,7 +376,11 @@ try {
             'src/PitCrew.Support.Relay.App/Program.cs', `
             'src/PitCrew.Support.Agent.App/SupportAgentRequestProcessor.cs', `
             'src/PitCrew.Support.Broker.App/SupportDiagnosticsBroker.cs', `
-            'src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx' `
+            'src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx', `
+            'assets/support-plane/support-evidence-policy-v0.10.0.json', `
+            'scripts/Install-PitCrewSupportPlane.ps1', `
+            'tests/Test-SupportPlaneInstaller.Structural.ps1', `
+            '.github/workflows/ci.yml' `
             2>&1
     )
     Add-Check ($LASTEXITCODE -eq 0) (
@@ -388,7 +392,7 @@ try {
                     $_.InstructionPath -eq
                         '.github/instructions/support-plane.instructions.md'
                 }
-        ).Count -ge 6
+        ).Count -ge 10
     ) 'Support-plane representative paths do not resolve support-plane.instructions.md.'
     $supportNegativeOutput = @(
         & $resolver `
@@ -411,7 +415,10 @@ try {
         $supportInstruction -match 'arbitrary paths' -and
         $supportInstruction -match 'tunnels' -and
         $supportInstruction -match 'Docker\s+access' -and
-        $supportInstruction -match 'PipeOptions\.CurrentUserOnly'
+        $supportInstruction -match 'SO_PEERCRED' -and
+        $supportInstruction -match 'PrivateNetwork=true' -and
+        $supportInstruction -match 'atomic-replacement ACL drift' -and
+        $supportInstruction -notmatch 'PipeOptions\.CurrentUserOnly'
     ) 'Support-plane guidance does not contain the required v1 negative boundary rules.'
     Add-Check (
         (& $scopeResolver `

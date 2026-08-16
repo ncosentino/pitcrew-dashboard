@@ -10,7 +10,11 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<AgentReplayCache>(
     _ => new AgentReplayCache(options.ReplayRoot));
 builder.Services.AddSingleton<ILocalDiagnosticsBroker>(
-    _ => new NamedPipeDiagnosticsBroker(options.PipeName));
+    _ => new PlatformDiagnosticsBroker(options));
+builder.Services.AddWindowsService(service =>
+{
+  service.ServiceName = "PitCrewSupportAgent";
+});
 builder.Services.AddHttpClient(SupportRelayTransportHttpClientOptions.ClientName, client =>
 {
   client.BaseAddress = options.RelayUrl;
@@ -29,5 +33,4 @@ builder.Services.AddSingleton<SupportRelayTransportClient>(services =>
 builder.Services.AddSingleton<SupportAgentRequestProcessor>();
 builder.Services.AddHostedService<SupportAgentWorker>();
 await builder.Build().RunAsync();
-
 

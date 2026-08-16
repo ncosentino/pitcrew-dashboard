@@ -120,6 +120,33 @@ foreach ($runtimeIdentifier in $RuntimeIdentifiers) {
             -RuntimeIdentifier $runtimeIdentifier `
             -SourceDirectory $publishDirectory))
     }
+    $installerDirectory = Join-Path $publishRoot "installer-$runtimeIdentifier"
+    if (Test-Path -LiteralPath $installerDirectory) {
+        Remove-Item -LiteralPath $installerDirectory -Recurse -Force
+    }
+    New-Item `
+        -ItemType Directory `
+        -Path $installerDirectory `
+        -Force |
+        Out-Null
+    Copy-Item `
+        -LiteralPath (
+            Join-Path $repositoryRoot 'scripts' 'Install-PitCrewSupportPlane.ps1'
+        ) `
+        -Destination $installerDirectory
+    Copy-Item `
+        -LiteralPath (
+            Join-Path `
+                $repositoryRoot `
+                'assets' `
+                'support-plane' `
+                'support-evidence-policy-v0.10.0.json'
+        ) `
+        -Destination $installerDirectory
+    $manifest.Add((New-Archive `
+        -Component 'installer' `
+        -RuntimeIdentifier $runtimeIdentifier `
+        -SourceDirectory $installerDirectory))
 }
 
 $manifestPath = Join-Path $outputRootPath 'support-plane-packages.json'
