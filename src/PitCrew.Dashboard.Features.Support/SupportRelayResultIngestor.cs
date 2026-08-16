@@ -135,7 +135,7 @@ internal sealed class SupportRelayResultIngestor(
     {
       return session;
     }
-    var status = await _supportStore.CompleteSessionAsync(
+    _ = await _supportStore.CompleteSessionAsync(
         session.TenantId,
         session.SessionId,
         resultJson,
@@ -144,10 +144,6 @@ internal sealed class SupportRelayResultIngestor(
         JsonSerializer.Serialize(attestation, _jsonOptions),
         _timeProvider.GetUtcNow(),
         cancellationToken);
-    if (status != SupportMutationStatus.Succeeded)
-    {
-      return session;
-    }
     return await _supportStore.GetSessionOrNullAsync(
         session.TenantId,
         session.SessionId,

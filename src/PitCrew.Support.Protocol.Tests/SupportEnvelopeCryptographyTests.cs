@@ -287,5 +287,9 @@ public sealed class SupportEnvelopeCryptographyTests
             "ghp_0123456789abcdef0123456789abcdef0123 /etc/shadow"))
         .IsFalse()
         .Because("markdown cannot carry opaque credentials or private Unix paths");
+    await Assert.That(SupportDiagnosticReportValidator.IsSafeMarkdown(
+            "C:/Users/operator/private.txt https://runner-host.internal.local/admin"))
+        .IsFalse()
+        .Because("markdown cannot carry alternate private paths or internal endpoints");
   }
 }

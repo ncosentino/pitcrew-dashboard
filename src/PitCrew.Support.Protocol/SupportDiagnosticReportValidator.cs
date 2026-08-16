@@ -108,6 +108,7 @@ public static partial class SupportDiagnosticReportValidator
       return !UnsafeText().IsMatch(markdown) &&
           !OpaqueCredential().IsMatch(markdown) &&
           !PrivatePath().IsMatch(markdown) &&
+          !PrivateNetworkLocation().IsMatch(markdown) &&
           !UrlWithQuery().IsMatch(markdown);
     }
     catch (RegexMatchTimeoutException)
@@ -178,6 +179,7 @@ public static partial class SupportDiagnosticReportValidator
             !UnsafeText().IsMatch(text) &&
             !OpaqueCredential().IsMatch(text) &&
             !PrivatePath().IsMatch(text) &&
+            !PrivateNetworkLocation().IsMatch(text) &&
             !UrlWithQuery().IsMatch(text);
       case JsonValueKind.Number:
       case JsonValueKind.True:
@@ -232,7 +234,7 @@ public static partial class SupportDiagnosticReportValidator
   private static partial Regex UnsafeText();
 
   [GeneratedRegex(
-      "(?:[A-Z]:\\\\|\\\\\\\\[^\\\\\\s]+\\\\|(?<![A-Za-z0-9:])/(?:etc|root|home|Users|var|tmp|opt|srv|run|mnt|media|proc|sys|dev)(?:/|\\b))",
+      "(?:[A-Z]:[\\\\/]|\\\\\\\\[^\\\\\\s]+\\\\|(?<![A-Za-z0-9:])/(?:etc|root|home|Users|var|tmp|opt|srv|run|mnt|media|proc|sys|dev)(?:/|\\b))",
       RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
       100)]
   private static partial Regex PrivatePath();
@@ -242,6 +244,12 @@ public static partial class SupportDiagnosticReportValidator
       RegexOptions.CultureInvariant,
       100)]
   private static partial Regex OpaqueCredential();
+
+  [GeneratedRegex(
+      "(?:https?://)?(?:localhost|127(?:\\.\\d{1,3}){3}|10(?:\\.\\d{1,3}){3}|192\\.168(?:\\.\\d{1,3}){2}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d{1,3}){2}|[A-Za-z0-9.-]+\\.(?:internal|local|lan))(?::\\d+)?(?:/\\S*)?",
+      RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+      100)]
+  private static partial Regex PrivateNetworkLocation();
 
   [GeneratedRegex(
       "https?://\\S+\\?",
