@@ -30,6 +30,13 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "Profile ID is not locally configured.");
     }
+    if (!IsPackageIdValid(request.PackageId))
+    {
+      return new SupportBrokerExecution(
+          SupportBrokerStatus.ExecutionFailed,
+          null,
+          "Package ID is not a deterministic lowercase hexadecimal identifier.");
+    }
     var scriptPath = Path.Combine(_options.PitCrewRoot, RelativeCollectorPath);
     if (!File.Exists(scriptPath))
     {
@@ -39,26 +46,21 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           "The fixed diagnostics collector is not installed.");
     }
 
+    var collectorCommand =
+        $"& {Quote(scriptPath)} -PitCrewRoot {Quote(_options.PitCrewRoot)} -FileOnly -PassThruOnly -DiagnosticMode {Quote(request.DiagnosticMode)} -PackageId {Quote(request.PackageId)}";
+    if (request.ProfileId is not null)
+    {
+      collectorCommand += $" -Profile {Quote(request.ProfileId)}";
+    }
+    collectorCommand += " | ConvertTo-Json -Depth 100 -Compress";
     var arguments = new List<string>
     {
         "-NoLogo",
         "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        scriptPath,
-        "-FileOnly",
-        "-PassThruOnly",
-        "-Mode",
-        request.DiagnosticMode,
-        "-PackageId",
-        request.PackageId,
+        "-NonInteractive",
+        "-Command",
+        collectorCommand,
     };
-    if (request.ProfileId is not null)
-    {
-      arguments.Add("-ProfileId");
-      arguments.Add(request.ProfileId);
-    }
 
     using var process = new Process();
     process.StartInfo = new ProcessStartInfo
@@ -102,6 +104,14 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
         Directory.Exists(fullProfileDirectory);
   }
 
+  private static bool IsPackageIdValid(string packageId) =>
+      packageId.Length is >= 16 and <= 64 &&
+      packageId.All(character =>
+          character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+  private static string Quote(string value) =>
+      "'" + value.Replace("'", "''") + "'";
+
   private static SupportBrokerExecution ParseResponse(string output)
   {
     try
@@ -131,4 +141,3 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
     }
   }
 }
-

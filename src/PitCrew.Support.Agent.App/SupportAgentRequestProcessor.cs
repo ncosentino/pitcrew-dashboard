@@ -56,6 +56,8 @@ internal sealed class SupportAgentRequestProcessor(
             request.PackageId),
         cancellationToken);
     var resultPayload = new SupportResultPayload(
+        request.TenantId,
+        request.NodeId,
         request.SessionId,
         diagnostics.Report,
         diagnostics.Markdown);

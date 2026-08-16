@@ -81,7 +81,7 @@ public sealed class SupportHostingTests
       await Assert.That(getResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
       await Assert.That(fetched.Status).IsEqualTo("Queued");
       await Assert.That(fetched.DiagnosticMode).IsEqualTo(SupportDiagnosticModes.ConnectorOffline);
-      await Assert.That(fetched.Report).IsNull();
+      await Assert.That(fetched.Result).IsNull();
     }
     finally
     {
@@ -178,3 +178,4 @@ public sealed class SupportHostingTests
 
 
 }
+

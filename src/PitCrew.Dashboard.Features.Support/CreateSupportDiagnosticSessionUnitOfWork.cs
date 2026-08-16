@@ -63,7 +63,7 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         1,
         input.DiagnosticMode,
         input.ProfileId,
-        $"support-{sessionId:N}",
+        sessionId.ToString("N"),
         now,
         now.AddSeconds(seconds),
         _secretService.CreateNonce());

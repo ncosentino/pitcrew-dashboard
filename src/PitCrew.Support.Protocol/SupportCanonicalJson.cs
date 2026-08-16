@@ -85,6 +85,8 @@ public static class SupportCanonicalJson
     using (var writer = new Utf8JsonWriter(buffer, _writerOptions))
     {
       writer.WriteStartObject();
+      writer.WriteString("tenantId", payload.TenantId);
+      writer.WriteString("nodeId", payload.NodeId.ToString("D"));
       writer.WriteString("sessionId", payload.SessionId.ToString("D"));
       writer.WritePropertyName("report");
       payload.Report.WriteTo(writer);

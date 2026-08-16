@@ -281,24 +281,24 @@ export function SupportSessionCard({ session }: { readonly session: SupportSessi
       <div className="text-sm text-muted-foreground">
         Requested {formatTime(session.requestedAt)} · expires {formatTime(session.expiresAt)}
       </div>
-      {session.report ? (
+      {session.result ? (
         <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
-          {JSON.stringify(session.report, null, 2)}
+          {JSON.stringify(session.result.report, null, 2)}
         </pre>
       ) : (
         <p className="text-sm text-muted-foreground">
           Verified report unavailable until completion.
         </p>
       )}
-      {session.markdown ? (
+      {session.result ? (
         <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
-          {session.markdown}
+          {session.result.markdown}
         </pre>
       ) : null}
-      {session.attestation ? (
+      {session.result ? (
         <p className="break-all text-xs text-muted-foreground">
-          Attestation {session.attestation.signatureAlgorithm}:{' '}
-          {session.attestation.signatureBase64Url}
+          Attestation {session.result.attestation.signatureAlgorithm}:{' '}
+          {session.result.attestation.signatureBase64Url}
         </p>
       ) : null}
     </article>

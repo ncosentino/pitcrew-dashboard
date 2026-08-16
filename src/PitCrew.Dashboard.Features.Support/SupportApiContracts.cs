@@ -63,9 +63,16 @@ public sealed record SupportDiagnosticSessionResponse(
     string Status,
     DateTimeOffset RequestedAt,
     DateTimeOffset ExpiresAt,
-    JsonElement? Report,
-    string? Markdown,
-    SupportDiagnosticAttestationResponse? Attestation);
+    string? NodeSigningKeyFingerprint,
+    SupportDiagnosticResultResponse? Result);
+
+/// <summary>
+/// Verified support diagnostic result returned only for completed sessions.
+/// </summary>
+public sealed record SupportDiagnosticResultResponse(
+    JsonElement Report,
+    string Markdown,
+    SupportDiagnosticAttestationResponse Attestation);
 
 /// <summary>
 /// Node-signature attestation returned with completed diagnostic sessions.

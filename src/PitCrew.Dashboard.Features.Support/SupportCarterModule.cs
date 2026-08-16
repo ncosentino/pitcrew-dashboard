@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 using Carter;
 
 using Microsoft.AspNetCore.Antiforgery;
@@ -171,15 +173,23 @@ public sealed class SupportCarterModule : ICarterModule
           session.Status.ToString(),
           session.RequestedAt,
           session.ExpiresAt,
-          session.Report,
-          session.Markdown,
           session.Attestation is null
               ? null
-              : new SupportDiagnosticAttestationResponse(
-                  session.Attestation.NodeSigningPublicKeySpki,
-                  session.Attestation.PayloadBase64Url,
-                  session.Attestation.SignatureBase64Url,
-                  session.Attestation.SignatureAlgorithm));
+              : Convert.ToHexString(SHA256.HashData(
+                  Convert.FromBase64String(session.Attestation.NodeSigningPublicKeySpki)))
+                  .ToLowerInvariant(),
+          session.Report is not null &&
+          session.Markdown is not null &&
+          session.Attestation is not null
+              ? new SupportDiagnosticResultResponse(
+                  session.Report.Value,
+                  session.Markdown,
+                  new SupportDiagnosticAttestationResponse(
+                      session.Attestation.NodeSigningPublicKeySpki,
+                      session.Attestation.PayloadBase64Url,
+                      session.Attestation.SignatureBase64Url,
+                      session.Attestation.SignatureAlgorithm))
+              : null);
 
   private static IResult MutationResult(SupportMutationStatus status) =>
       status switch
@@ -202,3 +212,4 @@ public sealed class SupportCarterModule : ICarterModule
         },
       };
 }
+

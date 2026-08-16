@@ -125,11 +125,14 @@ diagnostic sessions because the action is read-only and remains limited by its
 tenant/node/profile scope. Existing mutation routes stay forbidden to diagnostic
 credentials.
 
-Completed session responses include structured report JSON, markdown, and an
-attestation `{ nodeSigningPublicKeySpki, payloadBase64Url, signatureBase64Url,
-signatureAlgorithm: 'ES256-P1363' }`. The attestation payload is canonical UTF-8
-JSON containing `sessionId`, `report`, and `markdown`, enabling the PitCrew
-PowerShell skill to verify the node signature without trusting rendered
+Completed session responses include `nodeSigningKeyFingerprint` as lowercase
+SHA-256 over the node SPKI bytes and a `result` object containing structured
+report JSON, markdown, and attestation `{ nodeSigningPublicKeySpki,
+payloadBase64Url, signatureBase64Url, signatureAlgorithm: 'ES256-P1363' }`.
+The attestation public key is standard base64 SPKI; payload and signature are
+base64url. The attestation payload is canonical UTF-8 JSON containing
+`tenantId`, `nodeId`, `sessionId`, `report`, and `markdown`, enabling the
+PitCrew PowerShell skill to verify the node signature without trusting rendered
 Dashboard HTML.
 
 # Alternatives considered

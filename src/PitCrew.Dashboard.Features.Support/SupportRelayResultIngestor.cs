@@ -60,13 +60,17 @@ internal sealed class SupportRelayResultIngestor(
       return session;
     }
     var payload = JsonSerializer.Deserialize<SupportResultPayload>(payloadBytes, _jsonOptions);
-    if (payload is null || payload.SessionId != session.SessionId)
+    if (payload is null ||
+        !string.Equals(payload.TenantId, session.TenantId, StringComparison.Ordinal) ||
+        payload.NodeId != session.NodeId ||
+        payload.SessionId != session.SessionId)
     {
       return session;
     }
     var reportJson = payload.Report.GetRawText();
+    var publicKeyBytes = SupportBase64Url.Decode(identity.NodeSigningPublicKeySpki);
     var attestation = new SupportResultAttestation(
-        identity.NodeSigningPublicKeySpki,
+        Convert.ToBase64String(publicKeyBytes),
         package.PayloadBase64Url,
         package.SignatureBase64Url,
         SupportEnvelopeCryptography.SignatureAlgorithm);
@@ -89,4 +93,3 @@ internal sealed class SupportRelayResultIngestor(
         cancellationToken) ?? session;
   }
 }
-

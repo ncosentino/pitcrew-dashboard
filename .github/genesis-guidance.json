@@ -389,6 +389,30 @@
   ],
   "contextExceptions": [
     {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.ts",
+      "maxLines": 400,
+      "maxBytes": 20480,
+      "phase": "migration",
+      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
+      "reason": "Support API contracts compose feature, frontend, protocol, and support-plane trust-boundary guidance."
+    },
+    {
+      "pattern": "src/PitCrew.Dashboard.Features.Support/**/*.cs",
+      "maxLines": 600,
+      "maxBytes": 32768,
+      "phase": "migration",
+      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
+      "reason": "Support server files compose API, auth, protocol, and support-plane boundary guidance."
+    },
+    {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.tsx",
+      "maxLines": 450,
+      "maxBytes": 24576,
+      "phase": "migration",
+      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
+      "reason": "Support UI files compose frontend, support-plane, accessibility, and untrusted-result rendering guidance."
+    },
+    {
       "pattern": "src/**/*Tests/**/*.cs",
       "maxLines": 600,
       "maxBytes": 32768,
@@ -411,15 +435,6 @@
       "phase": "migration",
       "owner": "ADR-0006 and ncosentino/genesis#408",
       "reason": "Feature components compose React, accessibility, resilience, and project architecture guidance."
-    },
-    {
-      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.ts",
-      "maxLines": 400,
-      "maxBytes": 20480,
-      "phase": "migration",
-      "owner": "ADR-0008 and ncosentino/pitcrew-dashboard#124",
-      "reason": "Support API contracts compose feature, frontend, protocol, and support-plane trust-boundary guidance."
     }
   ]
 }
-

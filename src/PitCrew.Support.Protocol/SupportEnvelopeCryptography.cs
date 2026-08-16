@@ -161,8 +161,10 @@ public static class SupportEnvelopeCryptography
     {
       return false;
     }
-    using var key = SupportKeyFactory.ImportEcdsaPublicKey(
-        attestation.NodeSigningPublicKeySpki);
+    using var key = ECDsa.Create();
+    key.ImportSubjectPublicKeyInfo(
+        Convert.FromBase64String(attestation.NodeSigningPublicKeySpki),
+        out _);
     return key.VerifyData(
         SupportBase64Url.Decode(attestation.PayloadBase64Url),
         SupportBase64Url.Decode(attestation.SignatureBase64Url),

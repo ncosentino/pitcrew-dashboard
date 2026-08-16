@@ -15,13 +15,16 @@ describe('SupportSessionCard', () => {
           status: 'Completed',
           requestedAt: '2026-08-01T00:00:00+00:00',
           expiresAt: '2026-08-01T00:05:00+00:00',
-          report: { verified: ['connector'], unavailable: [], hypotheses: [] },
-          markdown: '<script>alert(1)</script> verified evidence',
-          attestation: {
-            nodeSigningPublicKeySpki: 'spki',
-            payloadBase64Url: 'payload',
-            signatureBase64Url: 'signature',
-            signatureAlgorithm: 'ES256-P1363',
+          nodeSigningKeyFingerprint: 'a'.repeat(64),
+          result: {
+            report: { verified: ['connector'], unavailable: [], hypotheses: [] },
+            markdown: '<script>alert(1)</script> verified evidence',
+            attestation: {
+              nodeSigningPublicKeySpki: 'spki',
+              payloadBase64Url: 'payload',
+              signatureBase64Url: 'signature',
+              signatureAlgorithm: 'ES256-P1363',
+            },
           },
         }}
       />,

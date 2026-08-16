@@ -119,6 +119,8 @@ public sealed class SupportEnvelopeCryptographyTests
         nodeKeys.Signing.PrivateKeyPkcs8Base64Url);
     using var report = JsonDocument.Parse("{\"verified\":[\"capacity\"],\"unavailable\":[],\"hypotheses\":[]}");
     var payload = new SupportResultPayload(
+        "tenant-a",
+        Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture),
         Guid.Parse("22222222-2222-2222-2222-222222222222", CultureInfo.InvariantCulture),
         report.RootElement.Clone(),
         "# Report");
@@ -128,7 +130,7 @@ public sealed class SupportEnvelopeCryptographyTests
         System.Security.Cryptography.HashAlgorithmName.SHA256,
         System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
     var attestation = new SupportResultAttestation(
-        nodeKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+        Convert.ToBase64String(SupportBase64Url.Decode(nodeKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url)),
         SupportBase64Url.Encode(canonical),
         SupportBase64Url.Encode(signature),
         SupportEnvelopeCryptography.SignatureAlgorithm);
@@ -142,5 +144,4 @@ public sealed class SupportEnvelopeCryptographyTests
         .Because("altering the canonical payload must invalidate the signature");
   }
 }
-
 

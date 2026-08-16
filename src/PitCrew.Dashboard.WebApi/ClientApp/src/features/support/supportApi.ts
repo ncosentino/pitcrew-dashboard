@@ -22,6 +22,11 @@ export const supportAttestationSchema = z.object({
   signatureBase64Url: z.string(),
   signatureAlgorithm: z.literal('ES256-P1363'),
 });
+export const supportResultSchema = z.object({
+  report: z.unknown(),
+  markdown: z.string(),
+  attestation: supportAttestationSchema,
+});
 export const supportSessionSchema = z.object({
   sessionId: z.string().uuid(),
   nodeId: z.string().uuid(),
@@ -30,9 +35,8 @@ export const supportSessionSchema = z.object({
   status: z.string(),
   requestedAt: offsetDateTimeSchema,
   expiresAt: offsetDateTimeSchema,
-  report: z.unknown().nullable(),
-  markdown: z.string().nullable(),
-  attestation: supportAttestationSchema.nullable(),
+  nodeSigningKeyFingerprint: z.string().nullable(),
+  result: supportResultSchema.nullable(),
 });
 export const supportSessionsSchema = z.array(supportSessionSchema);
 export const createdSupportEnrollmentSchema = z.object({

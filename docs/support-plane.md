@@ -63,18 +63,31 @@ A completed response includes `report`, `markdown`, and:
 
 ```json
 {
-  "attestation": {
-    "nodeSigningPublicKeySpki": "<base64url-spki>",
-    "payloadBase64Url": "<base64url-canonical-json>",
-    "signatureBase64Url": "<base64url-signature>",
-    "signatureAlgorithm": "ES256-P1363"
+  "nodeSigningKeyFingerprint": "<lowercase-sha256-of-spki>",
+  "result": {
+    "report": {
+      "schemaVersion": 1,
+      "collectionScope": "file-only",
+      "diagnosticMode": "ConnectorOffline",
+      "profile": "default",
+      "pitcrewRoot": "<pitcrew-root>",
+      "packageId": "<lowercase-hex-package-id>",
+      "collectorSha256": "<lowercase-sha256>"
+    },
+    "markdown": "<diagnostic markdown>",
+    "attestation": {
+      "nodeSigningPublicKeySpki": "<base64-spki>",
+      "payloadBase64Url": "<base64url-canonical-json>",
+      "signatureBase64Url": "<base64url-signature>",
+      "signatureAlgorithm": "ES256-P1363"
+    }
   }
 }
 ```
 
-The attestation payload is canonical UTF-8 JSON containing `sessionId`, `report`,
-and `markdown`. The PitCrew PowerShell diagnostic skill can verify the signature
-without scraping Dashboard pages.
+The attestation payload is canonical UTF-8 JSON containing `tenantId`, `nodeId`,
+`sessionId`, `report`, and `markdown`. The PitCrew PowerShell diagnostic skill
+can verify the signature without scraping Dashboard pages.
 
 ## Packaging
 

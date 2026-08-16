@@ -17,10 +17,10 @@ public sealed class SupportDiagnosticsBrokerTests
       var broker = new SupportDiagnosticsBroker(new SupportBrokerOptions(root, "unused"));
 
       var invalidMode = await broker.ExecuteAsync(
-          new SupportBrokerRequest("Shell", "default", "package-1"),
+          new SupportBrokerRequest("Shell", "default", "0123456789abcdef"),
           cancellationToken);
       var invalidProfile = await broker.ExecuteAsync(
-          new SupportBrokerRequest(SupportDiagnosticModes.Full, "..\\secret", "package-1"),
+          new SupportBrokerRequest(SupportDiagnosticModes.Full, "..\\secret", "0123456789abcdef"),
           cancellationToken);
 
       await Assert.That(invalidMode.Status).IsEqualTo(SupportBrokerStatus.InvalidMode);
@@ -43,7 +43,7 @@ public sealed class SupportDiagnosticsBrokerTests
       WriteCollector(root);
       var broker = new SupportDiagnosticsBroker(new SupportBrokerOptions(root, "unused"));
       var result = await broker.ExecuteAsync(
-          new SupportBrokerRequest(SupportDiagnosticModes.HostPressure, "default", "package-1"),
+          new SupportBrokerRequest(SupportDiagnosticModes.HostPressure, "default", "0123456789abcdef"),
           cancellationToken);
 
       await Assert.That(result.Status).IsEqualTo(SupportBrokerStatus.Succeeded);
@@ -78,7 +78,7 @@ public sealed class SupportDiagnosticsBrokerTests
       var serverTask = server.RunOnceAsync(cancellationToken);
 
       var result = await client.ExecuteAsync(
-          new SupportBrokerRequest(SupportDiagnosticModes.Full, "default", "package-1"),
+          new SupportBrokerRequest(SupportDiagnosticModes.Full, "default", "0123456789abcdef"),
           cancellationToken);
       await serverTask;
 
@@ -108,8 +108,14 @@ public sealed class SupportDiagnosticsBrokerTests
     File.WriteAllText(
         scriptPath,
         """
-        param([switch]$FileOnly,[switch]$PassThruOnly,[string]$Mode,[string]$ProfileId,[string]$PackageId)
-        [Console]::Out.Write('{"report":{"mode":"' + $Mode + '","fileOnly":' + $FileOnly.IsPresent.ToString().ToLowerInvariant() + '},"markdown":"# Diagnostics"}')
+        param([string]$PitCrewRoot,[switch]$FileOnly,[switch]$PassThruOnly,[string]$DiagnosticMode,[string]$Profile,[string]$PackageId)
+        [PSCustomObject][ordered]@{
+          report = [PSCustomObject][ordered]@{
+            mode = $DiagnosticMode
+            fileOnly = $FileOnly.IsPresent
+          }
+          markdown = '# Diagnostics'
+        }
         """);
   }
 
@@ -121,3 +127,4 @@ public sealed class SupportDiagnosticsBrokerTests
     }
   }
 }
+

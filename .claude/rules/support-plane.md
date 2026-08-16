@@ -43,6 +43,9 @@ paths:
   validated profile ID, and package ID. No server path or executable crosses IPC.
 - Result rendering treats report JSON and markdown as untrusted node output. Render
   diagnostic markdown as text or through an approved sanitizer; never use raw HTML.
+- Completed API responses expose `nodeSigningKeyFingerprint` as lowercase SHA-256,
+  base64 SPKI in `result.attestation.nodeSigningPublicKeySpki`, and a signed
+  canonical payload containing tenant ID, node ID, session ID, report, and markdown.
 - Existing scoped diagnostic bearer credentials may create/read support diagnostic
   sessions because the action is read-only. They must not gain access to connector
   mutations or support identity mutation routes.
