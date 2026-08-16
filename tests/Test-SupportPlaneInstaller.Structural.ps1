@@ -445,7 +445,7 @@ $installer.Contains(
 ) 'Windows service lifecycle rights depend on an image-default service DACL.'
 Add-Check (
 $installer.Contains(
-    "'password=',",
+    '''password= ""''',
     [StringComparison]::Ordinal) -and
 $installer.Contains(
     '"NT SERVICE\$Name",',
@@ -707,6 +707,9 @@ Add-Check (
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         'example.com',
+        [StringComparison]::Ordinal) -and
+    $hostTest.Contains(
+        'ExecStart=/bin/bash $probePath $resultPath',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         "'denied'",

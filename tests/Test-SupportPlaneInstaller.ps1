@@ -244,15 +244,48 @@ try {
         [Text.UTF8Encoding]::new($false))
 }
 
+function Write-LinuxNetworkProbeScript {
+    param([Parameter(Mandatory)][string]$Path)
+
+    [IO.File]::WriteAllText(
+        $Path,
+        @'
+#!/bin/bash
+if timeout 8 /bin/bash -c '</dev/tcp/example.com/443' 2>/dev/null; then
+  printf connected > "$1"
+else
+  printf denied > "$1"
+fi
+'@,
+        [Text.UTF8Encoding]::new($false))
+}
+
 function Invoke-InstalledBrokerNetworkDenialProbe {
     param([Parameter(Mandatory)][hashtable]$Paths)
 
     if (-not (Test-PublicTcpConnection)) {
         throw 'The hosted runner could not establish the public network control connection.'
     }
-    $probePath = Join-Path $Paths.BrokerStateRoot 'network-denial-probe.ps1'
+    $probePath = Join-Path $Paths.BrokerStateRoot (
+        if ($IsWindows) {
+            'network-denial-probe.ps1'
+        } else {
+            'network-denial-probe.sh'
+        })
     $resultPath = Join-Path $Paths.BrokerStateRoot 'network-denial-result.txt'
-    Write-NetworkProbeScript -Path $probePath
+    if ($IsWindows) {
+        Write-NetworkProbeScript -Path $probePath
+    } else {
+        Write-LinuxNetworkProbeScript -Path $probePath
+        & chown pitcrew-support-broker:pitcrew-support-broker $probePath
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not assign the Linux network probe to the broker identity.'
+        }
+        & chmod 500 $probePath
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not protect the Linux network probe.'
+        }
+    }
     Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
     $pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
     try {
@@ -306,7 +339,7 @@ function Invoke-InstalledBrokerNetworkDenialProbe {
                 @"
 [Service]
 ExecStart=
-ExecStart=$pwshPath -NoLogo -NoProfile -NonInteractive -File $probePath -ResultPath $resultPath
+ExecStart=/bin/bash $probePath $resultPath
 Restart=no
 "@,
                 [Text.UTF8Encoding]::new($false))
