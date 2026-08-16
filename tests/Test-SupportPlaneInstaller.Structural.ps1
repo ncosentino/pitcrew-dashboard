@@ -460,6 +460,17 @@ Add-Check (
 ) 'Linux units are not parser-verified before service installation.'
 Add-Check (
     $installer.Contains(
+        "'ActiveState',",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'ExecMainStatus'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'Bounded diagnostics: $diagnostics',
+        [StringComparison]::Ordinal)
+) 'Linux service startup failures lack bounded state and exit diagnostics.'
+Add-Check (
+    $installer.Contains(
         "-Direction Outbound",
         [StringComparison]::Ordinal) -and
     $installer.Contains(

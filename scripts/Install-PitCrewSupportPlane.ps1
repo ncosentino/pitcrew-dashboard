@@ -2166,16 +2166,27 @@ function Stop-LinuxSupportServices {
 function Start-LinuxSupportServices {
     Invoke-Checked systemctl @('start', $linuxBrokerService)
     Invoke-Checked systemctl @('start', $linuxAgentService)
-    Invoke-Checked systemctl @(
-        'is-active',
-        '--quiet',
-        $linuxBrokerService
-    )
-    Invoke-Checked systemctl @(
-        'is-active',
-        '--quiet',
-        $linuxAgentService
-    )
+    foreach ($service in @($linuxBrokerService, $linuxAgentService)) {
+        & systemctl is-active --quiet $service
+        if ($LASTEXITCODE -eq 0) {
+            continue
+        }
+
+        $diagnostics = @(
+            foreach ($property in @(
+                'ActiveState',
+                'SubState',
+                'Result',
+                'ExecMainCode',
+                'ExecMainStatus'
+            )) {
+                $value = [string](
+                    Get-SystemdProperty -Unit $service -Property $property)
+                "$property=$value"
+            }
+        ) -join ';'
+        throw "Linux support service '$service' did not remain active. Bounded diagnostics: $diagnostics"
+    }
 }
 
 function Configure-WindowsVersion {
