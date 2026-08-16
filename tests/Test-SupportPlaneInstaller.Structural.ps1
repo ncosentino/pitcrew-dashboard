@@ -471,6 +471,17 @@ Add-Check (
 ) 'Linux current-version verification does not compare the normalized symlink target.'
 Add-Check (
     $installer.Contains(
+        "-Property 'UnitFileState'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        '$expectedUnitFileState',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'Bounded diagnostics: UnitFileState=$unitFileState;ActiveState=$activeState',
+        [StringComparison]::Ordinal)
+) 'Linux lifecycle verification relies on ambiguous systemctl exit codes.'
+Add-Check (
+    $installer.Contains(
         "'ActiveState',",
         [StringComparison]::Ordinal) -and
     $installer.Contains(

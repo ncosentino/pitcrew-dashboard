@@ -4199,15 +4199,27 @@ function Invoke-Verify {
             -InstalledVersion ([string]$Manifest.currentVersion)
         Assert-EffectiveLinuxServiceBoundary -Paths $Paths
         foreach ($service in @($linuxAgentService, $linuxBrokerService)) {
-            & systemctl is-enabled --quiet $service
-            $enabledResult = $LASTEXITCODE
-            & systemctl is-active --quiet $service
-            $activeResult = $LASTEXITCODE
-            if (([bool]$Manifest.enabled -and
-                    ($enabledResult -ne 0 -or $activeResult -ne 0)) -or
-                (-not [bool]$Manifest.enabled -and
-                    ($enabledResult -eq 0 -or $activeResult -eq 0))) {
-                throw 'The Linux support service state does not match the lifecycle manifest.'
+            $unitFileState = [string](
+                Get-SystemdProperty `
+                    -Unit $service `
+                    -Property 'UnitFileState')
+            $activeState = [string](
+                Get-SystemdProperty `
+                    -Unit $service `
+                    -Property 'ActiveState')
+            $expectedUnitFileState = if ([bool]$Manifest.enabled) {
+                'enabled'
+            } else {
+                'disabled'
+            }
+            $expectedActiveState = if ([bool]$Manifest.enabled) {
+                'active'
+            } else {
+                'inactive'
+            }
+            if ($unitFileState -cne $expectedUnitFileState -or
+                $activeState -cne $expectedActiveState) {
+                throw "The Linux support service state does not match the lifecycle manifest. Bounded diagnostics: UnitFileState=$unitFileState;ActiveState=$activeState"
             }
         }
         $agentGroups = @(
