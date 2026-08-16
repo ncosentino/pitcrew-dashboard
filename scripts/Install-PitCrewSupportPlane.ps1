@@ -1166,7 +1166,7 @@ function Get-WindowsServiceFailureDiagnostics {
         $parts.Add('metadata=unavailable')
     }
     try {
-        $eventIds = @(
+        $events = @(
             Get-WinEvent `
                 -FilterHashtable @{
                     LogName = 'System'
@@ -1182,15 +1182,28 @@ function Get-WindowsServiceFailureDiagnostics {
                         "PitCrew isolated file-only diagnostics broker",
                         "PitCrew isolated support transport agent"
                     )
-                } |
-                Select-Object -ExpandProperty Id -Unique
+                }
         )
+        $eventIds = @($events | Select-Object -ExpandProperty Id -Unique)
         $parts.Add(
             "serviceControlEventIds=$(if ($eventIds.Count) {
                 $eventIds -join ','
             } else {
                 'none'
             })")
+        $eventCodes = @(
+            foreach ($event in $events) {
+                foreach ($property in @($event.Properties | Select-Object -Skip 1)) {
+                    $value = [string]$property.Value
+                    if ($value -match '^(?:0x[0-9a-fA-F]+|[0-9]+)$') {
+                        $value
+                    }
+                }
+            }
+        ) | Sort-Object -Unique
+        if ($eventCodes.Count -gt 0) {
+            $parts.Add("serviceControlErrorCodes=$($eventCodes -join ',')")
+        }
     } catch {
         $parts.Add('serviceControlEventIds=unavailable')
     }
@@ -1606,7 +1619,7 @@ function Get-SystemdProperty {
         [Parameter(Mandatory)][string]$Property
     )
 
-    $value = & systemctl show $Unit "--property=$Property" --value
+    $value = & systemctl show "--property=$Property" --value $Unit
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not inspect the effective support service configuration.'
     }
@@ -1664,6 +1677,10 @@ function Assert-SystemdExecStart {
 
     $actual = [string](
         Get-SystemdProperty -Unit $Unit -Property 'ExecStart')
+    if ([string]::IsNullOrWhiteSpace($actual)) {
+        $actual = [string](
+            Get-SystemdProperty -Unit $Unit -Property 'ExecStartEx')
+    }
     $actualPath = $null
     $actualArguments = $null
     $pathMatched = $actual -match 'path\s*=\s*(?<path>[^ ;]+)'
@@ -1690,7 +1707,7 @@ function Assert-SystemdExecStart {
                 ForEach-Object { $_.Trim('"') }
         )
         if ($plainTokens.Count -eq 0) {
-            throw 'An effective systemd support-service command was overridden.'
+            throw 'The effective systemd support-service command is unavailable.'
         }
         $actualPath = $plainTokens[0]
         $actualArguments = $actual.Trim()
