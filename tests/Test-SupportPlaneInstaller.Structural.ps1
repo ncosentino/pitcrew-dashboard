@@ -101,11 +101,13 @@ try {
         -Path $boundaryPaths.AgentStateRoot, $boundaryPaths.BrokerStateRoot `
         -Force |
         Out-Null
+    $pitCrewRoot = '/opt/pitcrew'
     [IO.File]::WriteAllText(
         $boundaryPaths.AgentUnitPath,
         @(
             "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
             'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
+            "ReadWritePaths=$($boundaryPaths.AgentStateRoot)"
         ) -join "`n",
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(
@@ -113,9 +115,10 @@ try {
         @(
             "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
             'RestrictAddressFamilies=AF_UNIX'
+            "ReadWritePaths=/run/pitcrew-support $($boundaryPaths.BrokerStateRoot)"
+            "BindReadOnlyPaths=$pitCrewRoot"
         ) -join "`n",
         [Text.UTF8Encoding]::new($false))
-    $pitCrewRoot = '/opt/pitcrew'
     [IO.File]::WriteAllText(
         (Join-Path $boundaryPaths.BrokerStateRoot 'appsettings.json'),
         (@{
@@ -295,6 +298,7 @@ try {
         'Assert-SystemdProperty',
         'Assert-SystemdSetProperty',
         'Assert-SystemdUnitDirective',
+        'Assert-SystemdUnitDirectiveAbsent',
         'Assert-SystemdExecStart',
         'Assert-EffectiveLinuxServiceBoundary'
     )

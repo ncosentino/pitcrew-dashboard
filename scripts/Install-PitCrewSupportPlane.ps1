@@ -1778,6 +1778,30 @@ function Assert-SystemdUnitDirective {
     }
 }
 
+function Assert-SystemdUnitDirectiveAbsent {
+    param(
+        [Parameter(Mandatory)][string]$Unit,
+        [Parameter(Mandatory)][string]$ExpectedFragmentPath,
+        [Parameter(Mandatory)][string]$Directive
+    )
+
+    $fragmentPath = [string](
+        Get-SystemdProperty -Unit $Unit -Property 'FragmentPath')
+    if ($fragmentPath -cne $ExpectedFragmentPath) {
+        throw 'The effective systemd support-service fragment was overridden.'
+    }
+    if (@(
+        Get-Content -LiteralPath $fragmentPath |
+            Where-Object {
+                $_.StartsWith(
+                    "$Directive=",
+                    [StringComparison]::Ordinal)
+            }
+    ).Count -ne 0) {
+        throw "Systemd directive '$Directive' was unexpectedly configured for '$Unit'."
+    }
+}
+
 function Assert-SystemdExecStart {
     param(
         [Parameter(Mandatory)][string]$Unit,
@@ -1954,10 +1978,11 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -Property 'IPAddressAllow' `
         -Expected ''
-    Assert-SystemdSetProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
-        -Property 'ReadWritePaths' `
-        -Expected @($Paths.AgentStateRoot)
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'ReadWritePaths' `
+        -Expected $Paths.AgentStateRoot
     Assert-SystemdProperty `
         -Unit $linuxAgentService `
         -Property 'RuntimeDirectory' `
@@ -1970,10 +1995,10 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -Property 'ProtectHome' `
         -Expected 'yes'
-    Assert-SystemdSetProperty `
+    Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
-        -Property 'BindReadOnlyPaths' `
-        -Expected @()
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'BindReadOnlyPaths'
 
     Assert-SystemdProperty `
         -Unit $linuxBrokerService `
@@ -2020,13 +2045,11 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -Property 'IPAddressAllow' `
         -Expected ''
-    Assert-SystemdSetProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'ReadWritePaths' `
-        -Expected @(
-            '/run/pitcrew-support',
-            $Paths.BrokerStateRoot
-        )
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'ReadWritePaths' `
+        -Expected "/run/pitcrew-support $($Paths.BrokerStateRoot)"
     Assert-SystemdProperty `
         -Unit $linuxBrokerService `
         -Property 'RuntimeDirectory' `
@@ -2052,10 +2075,11 @@ function Assert-EffectiveLinuxServiceBoundary {
             -Encoding UTF8 |
             ConvertFrom-Json -Depth 10
     ).PitCrewSupport.Broker
-    Assert-SystemdSetProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'BindReadOnlyPaths' `
-        -Expected @([string]$brokerSettings.PitCrewRoot)
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'BindReadOnlyPaths' `
+        -Expected ([string]$brokerSettings.PitCrewRoot)
 
     foreach ($unit in @($linuxAgentService, $linuxBrokerService)) {
         foreach ($property in @(
