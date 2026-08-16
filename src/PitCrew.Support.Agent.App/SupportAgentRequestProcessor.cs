@@ -20,8 +20,7 @@ internal sealed class SupportAgentRequestProcessor(
   {
     using var dashboardSigning = SupportKeyFactory.ImportEcdsaPublicKey(
         _options.DashboardAuthorizationSigningPublicKeySpki);
-    using var nodeEncryption = SupportKeyFactory.ImportRsaPrivateKey(
-        _options.NodeEncryptionPrivateKeyPkcs8);
+    using var nodeEncryption = _options.PrivateKeys.OpenEncryptionKey();
     var payload = SupportEnvelopeCryptography.OpenOrNull(
         envelope,
         dashboardSigning,
@@ -91,8 +90,7 @@ internal sealed class SupportAgentRequestProcessor(
     var canonical = SupportCanonicalJson.SerializeResultAttestationPayload(resultPayload);
     using var dashboardEncryption = SupportKeyFactory.ImportRsaPublicKey(
         _options.DashboardResultEncryptionPublicKeySpki);
-    using var nodeSigning = SupportKeyFactory.ImportEcdsaPrivateKey(
-        _options.NodeSigningPrivateKeyPkcs8);
+    using var nodeSigning = _options.PrivateKeys.OpenSigningKey();
     var payloadSignature = nodeSigning.SignData(
         canonical,
         HashAlgorithmName.SHA256,

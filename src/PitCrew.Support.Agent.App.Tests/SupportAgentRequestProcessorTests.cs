@@ -28,15 +28,17 @@ public sealed class SupportAgentRequestProcessorTests
       var options = new SupportAgentOptions(
           "tenant-a",
           nodeId,
+          new Uri("https://dashboard.example.com"),
           new Uri("https://relay.example.com"),
           "transport",
           dashboardKeys.AuthorizationSigning.PublicKeySubjectPublicKeyInfoBase64Url,
           dashboardKeys.ResultEncryption.PublicKeySubjectPublicKeyInfoBase64Url,
-          nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
-          nodeKeys.Encryption.PrivateKeyPkcs8Base64Url,
           replayRoot,
           "unused",
-          "/unused");
+          "/unused",
+          new LegacySupportNodePrivateKeySource(
+              nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
+              nodeKeys.Encryption.PrivateKeyPkcs8Base64Url));
       var processor = new SupportAgentRequestProcessor(
           options,
           broker,
@@ -115,15 +117,17 @@ public sealed class SupportAgentRequestProcessorTests
       var options = new SupportAgentOptions(
           "tenant-a",
           nodeId,
+          new Uri("https://dashboard.example.com"),
           new Uri("https://relay.example.com"),
           "transport",
           dashboardKeys.AuthorizationSigning.PublicKeySubjectPublicKeyInfoBase64Url,
           dashboardKeys.ResultEncryption.PublicKeySubjectPublicKeyInfoBase64Url,
-          nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
-          nodeKeys.Encryption.PrivateKeyPkcs8Base64Url,
           replayRoot,
           "unused",
-          "/unused");
+          "/unused",
+          new LegacySupportNodePrivateKeySource(
+              nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
+              nodeKeys.Encryption.PrivateKeyPkcs8Base64Url));
       var processor = new SupportAgentRequestProcessor(
           options,
           broker,

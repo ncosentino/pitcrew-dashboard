@@ -1757,5 +1757,93 @@ internal static class SqliteMigrationCatalog
                           'support session pinned contract is immutable');
               END;
               """),
+        new(
+              22,
+              "support-identity-local-enrollment-and-rotation",
+              """
+              CREATE TABLE support_enrollments (
+                  enrollment_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  display_name TEXT NOT NULL
+                      CHECK (length(display_name) BETWEEN 1 AND 128),
+                  enrollment_code_hash TEXT NOT NULL UNIQUE,
+                  created_by_github_user_id TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  consumed_at TEXT NULL,
+                  recovery_expires_at TEXT NULL,
+                  completion_id TEXT NULL UNIQUE,
+                  completed_node_id TEXT NULL UNIQUE,
+                  transport_credential_envelope_json TEXT NULL,
+                  CHECK (
+                      (completion_id IS NULL
+                       AND completed_node_id IS NULL
+                       AND recovery_expires_at IS NULL
+                       AND transport_credential_envelope_json IS NULL)
+                      OR
+                      (length(completion_id) = 36
+                       AND length(completed_node_id) = 36
+                       AND recovery_expires_at IS NOT NULL
+                       AND transport_credential_envelope_json IS NOT NULL)),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (created_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id)
+              );
+
+              CREATE INDEX ix_support_enrollments_tenant_expiry
+                  ON support_enrollments (tenant_id, expires_at)
+                  WHERE consumed_at IS NULL;
+
+              CREATE INDEX ix_support_enrollments_recovery_expiry
+                  ON support_enrollments (recovery_expires_at)
+                  WHERE consumed_at IS NOT NULL;
+
+              CREATE TABLE support_identity_rotations (
+                  rotation_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  node_id TEXT NOT NULL UNIQUE,
+                  expected_transport_credential_hash TEXT NOT NULL,
+                  replacement_transport_credential_hash TEXT NOT NULL,
+                  node_signing_public_key_spki TEXT NOT NULL,
+                  node_encryption_public_key_spki TEXT NOT NULL,
+                  phase TEXT NOT NULL CHECK (phase IN (
+                      'prepared',
+                      'dashboard_promoted',
+                      'finalized')),
+                  created_at TEXT NOT NULL,
+                  dashboard_promoted_at TEXT NULL,
+                  finalized_at TEXT NULL,
+                  FOREIGN KEY (node_id)
+                      REFERENCES support_nodes(node_id) ON DELETE CASCADE,
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_support_identity_rotations_tenant_phase
+                  ON support_identity_rotations (tenant_id, phase, node_id);
+
+              CREATE TABLE support_relay_cleanup (
+                  node_id TEXT PRIMARY KEY,
+                  created_at TEXT NOT NULL,
+                  last_attempt_at TEXT NULL,
+                  attempt_count INTEGER NOT NULL DEFAULT 0
+                      CHECK (attempt_count >= 0),
+                  next_attempt_at TEXT NOT NULL,
+                  lease_id TEXT NULL,
+                  lease_expires_at TEXT NULL,
+                  CHECK (
+                      (lease_id IS NULL AND lease_expires_at IS NULL)
+                      OR
+                      (lease_id IS NOT NULL AND lease_expires_at IS NOT NULL))
+              );
+
+              CREATE INDEX ix_support_relay_cleanup_due
+                  ON support_relay_cleanup (
+                      next_attempt_at,
+                      lease_expires_at,
+                      created_at,
+                      node_id);
+              """),
     ];
 }

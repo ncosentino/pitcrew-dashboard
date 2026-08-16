@@ -13,6 +13,247 @@ namespace PitCrew.Dashboard.Adapters.Sqlite;
 internal sealed class SqliteSupportStore(
     SqliteConnectionFactory _connectionFactory) : ISupportStore
 {
+  public async Task<SupportMutationStatus> CreateEnrollmentAsync(
+      SupportEnrollment enrollment,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        INSERT INTO support_enrollments (
+            enrollment_id,
+            tenant_id,
+            display_name,
+            enrollment_code_hash,
+            created_by_github_user_id,
+            created_at,
+            expires_at)
+        VALUES (
+            $enrollmentId,
+            $tenantId,
+            $displayName,
+            $enrollmentCodeHash,
+            $createdByGitHubUserId,
+            $createdAt,
+            $expiresAt);
+        """;
+    AddEnrollmentParameters(command, enrollment);
+    try
+    {
+      return await command.ExecuteNonQueryAsync(cancellationToken) == 1
+          ? SupportMutationStatus.Succeeded
+          : SupportMutationStatus.Conflict;
+    }
+    catch (SqliteException)
+    {
+      return SupportMutationStatus.Conflict;
+    }
+  }
+
+  public async Task<SupportEnrollment?> GetEnrollmentOrNullAsync(
+      string tenantId,
+      string enrollmentCodeHash,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        SELECT
+            enrollment_id,
+            tenant_id,
+            display_name,
+            enrollment_code_hash,
+            created_by_github_user_id,
+            created_at,
+            expires_at,
+            consumed_at,
+            recovery_expires_at,
+            completion_id,
+            completed_node_id,
+            transport_credential_envelope_json
+        FROM support_enrollments
+        WHERE tenant_id = $tenantId
+          AND enrollment_code_hash = $enrollmentCodeHash;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue("$enrollmentCodeHash", enrollmentCodeHash);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    return await reader.ReadAsync(cancellationToken) ? ReadEnrollment(reader) : null;
+  }
+
+  public async Task PurgeExpiredEnrollmentsAsync(
+      DateTimeOffset now,
+      int limit,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        DELETE FROM support_enrollments
+        WHERE rowid IN (
+            SELECT rowid
+            FROM support_enrollments
+            WHERE (consumed_at IS NULL AND expires_at < $now)
+               OR (consumed_at IS NOT NULL AND recovery_expires_at < $now)
+            ORDER BY COALESCE(recovery_expires_at, expires_at)
+            LIMIT $limit);
+        """;
+    command.Parameters.AddWithValue("$now", Format(now));
+    command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 256));
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  public async Task<SupportMutationStatus> CompleteEnrollmentAsync(
+      Guid enrollmentId,
+      Guid completionId,
+      SupportIdentityWrite write,
+      SupportEnvelope transportCredentialEnvelope,
+      DateTimeOffset consumedAt,
+      DateTimeOffset recoveryExpiresAt,
+      Guid relayCleanupLeaseId,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(
+        cancellationToken);
+    await using var insert = connection.CreateCommand();
+    insert.Transaction = transaction;
+    insert.CommandText =
+        """
+        INSERT INTO support_nodes (
+            node_id,
+            tenant_id,
+            display_name,
+            node_signing_public_key_spki,
+            node_encryption_public_key_spki,
+            transport_credential_hash,
+            enrollment_code_hash,
+            enrollment_expires_at,
+            enrollment_consumed_at,
+            created_by_github_user_id,
+            created_at,
+            capability_version)
+        SELECT
+            $nodeId,
+            $tenantId,
+            $displayName,
+            $nodeSigningPublicKeySpki,
+            $nodeEncryptionPublicKeySpki,
+            $transportCredentialHash,
+            $enrollmentCodeHash,
+            $enrollmentExpiresAt,
+            $consumedAt,
+            $createdByGitHubUserId,
+            $createdAt,
+            $capabilityVersion
+        FROM support_enrollments
+        WHERE enrollment_id = $enrollmentId
+          AND tenant_id = $tenantId
+          AND enrollment_code_hash = $enrollmentCodeHash
+          AND consumed_at IS NULL
+          AND expires_at >= $consumedAt
+          AND NOT EXISTS (
+              SELECT 1
+              FROM support_nodes
+              WHERE node_signing_public_key_spki =
+                        $nodeSigningPublicKeySpki
+                AND node_encryption_public_key_spki =
+                        $nodeEncryptionPublicKeySpki);
+        """;
+    AddIdentityParameters(insert, write);
+    insert.Parameters.AddWithValue("$enrollmentId", enrollmentId.ToString("D"));
+    insert.Parameters.AddWithValue("$consumedAt", Format(consumedAt));
+    try
+    {
+      if (await insert.ExecuteNonQueryAsync(cancellationToken) != 1)
+      {
+        await using var duplicate = connection.CreateCommand();
+        duplicate.Transaction = transaction;
+        duplicate.CommandText =
+            """
+            SELECT 1
+            FROM support_nodes
+            WHERE node_signing_public_key_spki =
+                      $nodeSigningPublicKeySpki
+              AND node_encryption_public_key_spki =
+                      $nodeEncryptionPublicKeySpki;
+            """;
+        duplicate.Parameters.AddWithValue(
+            "$nodeSigningPublicKeySpki",
+            write.Identity.NodeSigningPublicKeySpki);
+        duplicate.Parameters.AddWithValue(
+            "$nodeEncryptionPublicKeySpki",
+            write.Identity.NodeEncryptionPublicKeySpki);
+        var duplicateExists =
+            await duplicate.ExecuteScalarAsync(cancellationToken) is not null;
+        await transaction.RollbackAsync(cancellationToken);
+        return duplicateExists
+            ? SupportMutationStatus.Conflict
+            : SupportMutationStatus.Invalid;
+      }
+      await using var consume = connection.CreateCommand();
+      consume.Transaction = transaction;
+      consume.CommandText =
+          """
+          UPDATE support_enrollments
+          SET consumed_at = $consumedAt,
+              recovery_expires_at = $recoveryExpiresAt,
+              completion_id = $completionId,
+              completed_node_id = $nodeId,
+              transport_credential_envelope_json =
+                  $transportCredentialEnvelopeJson
+          WHERE enrollment_id = $enrollmentId
+            AND consumed_at IS NULL;
+          """;
+      consume.Parameters.AddWithValue("$enrollmentId", enrollmentId.ToString("D"));
+      consume.Parameters.AddWithValue("$consumedAt", Format(consumedAt));
+      consume.Parameters.AddWithValue(
+          "$recoveryExpiresAt",
+          Format(recoveryExpiresAt));
+      consume.Parameters.AddWithValue("$completionId", completionId.ToString("D"));
+      consume.Parameters.AddWithValue("$nodeId", write.Identity.NodeId.ToString("D"));
+      consume.Parameters.AddWithValue(
+          "$transportCredentialEnvelopeJson",
+          JsonSerializer.Serialize(
+              transportCredentialEnvelope,
+              SupportJsonOptions));
+      if (await consume.ExecuteNonQueryAsync(cancellationToken) != 1)
+      {
+        await transaction.RollbackAsync(cancellationToken);
+        return SupportMutationStatus.Conflict;
+      }
+      await using var completeCleanup = connection.CreateCommand();
+      completeCleanup.Transaction = transaction;
+      completeCleanup.CommandText =
+          """
+          DELETE FROM support_relay_cleanup
+          WHERE node_id = $nodeId
+            AND lease_id = $relayCleanupLeaseId;
+          """;
+      completeCleanup.Parameters.AddWithValue(
+          "$nodeId",
+          write.Identity.NodeId.ToString("D"));
+      completeCleanup.Parameters.AddWithValue(
+          "$relayCleanupLeaseId",
+          relayCleanupLeaseId.ToString("D"));
+      if (await completeCleanup.ExecuteNonQueryAsync(cancellationToken) != 1)
+      {
+        await transaction.RollbackAsync(cancellationToken);
+        return SupportMutationStatus.Conflict;
+      }
+      await transaction.CommitAsync(cancellationToken);
+      return SupportMutationStatus.Succeeded;
+    }
+    catch (SqliteException)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return SupportMutationStatus.Conflict;
+    }
+  }
+
   public async Task<SupportMutationStatus> CreateIdentityAsync(
       SupportIdentityWrite write,
       CancellationToken cancellationToken)
@@ -33,7 +274,7 @@ internal sealed class SqliteSupportStore(
             created_by_github_user_id,
             created_at,
             capability_version)
-        VALUES (
+        SELECT
             $nodeId,
             $tenantId,
             $displayName,
@@ -44,7 +285,14 @@ internal sealed class SqliteSupportStore(
             $enrollmentExpiresAt,
             $createdByGitHubUserId,
             $createdAt,
-            $capabilityVersion);
+            $capabilityVersion
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM support_nodes
+            WHERE node_signing_public_key_spki =
+                      $nodeSigningPublicKeySpki
+              AND node_encryption_public_key_spki =
+                      $nodeEncryptionPublicKeySpki);
         """;
     AddIdentityParameters(command, write);
     try
@@ -57,6 +305,171 @@ internal sealed class SqliteSupportStore(
     {
       return SupportMutationStatus.Conflict;
     }
+  }
+
+  public async Task QueueRelayCleanupAsync(
+      Guid nodeId,
+      DateTimeOffset createdAt,
+      Guid leaseId,
+      DateTimeOffset leaseExpiresAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        INSERT INTO support_relay_cleanup (
+            node_id,
+            created_at,
+            next_attempt_at,
+            lease_id,
+            lease_expires_at)
+        VALUES (
+            $nodeId,
+            $createdAt,
+            $createdAt,
+            $leaseId,
+            $leaseExpiresAt)
+        ON CONFLICT (node_id) DO NOTHING;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$createdAt", Format(createdAt));
+    command.Parameters.AddWithValue("$leaseId", leaseId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$leaseExpiresAt",
+        Format(leaseExpiresAt));
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  public async Task<IReadOnlyList<SupportRelayCleanup>> ClaimRelayCleanupAsync(
+      DateTimeOffset now,
+      Guid leaseId,
+      DateTimeOffset leaseExpiresAt,
+      int limit,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        WITH candidates AS (
+            SELECT node_id
+            FROM support_relay_cleanup
+            WHERE next_attempt_at <= $now
+              AND (
+                  lease_id IS NULL
+                  OR lease_expires_at <= $now)
+            ORDER BY next_attempt_at, created_at, node_id
+            LIMIT $limit
+        )
+        UPDATE support_relay_cleanup
+        SET last_attempt_at = $now,
+            attempt_count = attempt_count + 1,
+            lease_id = $leaseId,
+            lease_expires_at = $leaseExpiresAt
+        WHERE node_id IN (SELECT node_id FROM candidates)
+          AND next_attempt_at <= $now
+          AND (
+              lease_id IS NULL
+              OR lease_expires_at <= $now)
+        RETURNING
+            node_id,
+            created_at,
+            last_attempt_at,
+            attempt_count,
+            next_attempt_at,
+            lease_id,
+            lease_expires_at;
+        """;
+    command.Parameters.AddWithValue("$now", Format(now));
+    command.Parameters.AddWithValue("$leaseId", leaseId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$leaseExpiresAt",
+        Format(leaseExpiresAt));
+    command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 32));
+    var cleanup = new List<SupportRelayCleanup>();
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      cleanup.Add(new SupportRelayCleanup(
+          Guid.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+          ParseDate(reader.GetString(1)),
+          ReadNullableDate(reader, 2),
+          reader.GetInt32(3),
+          ParseDate(reader.GetString(4)),
+          Guid.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+          ParseDate(reader.GetString(6))));
+    }
+    return cleanup
+        .OrderBy(static item => item.NextAttemptAt)
+        .ThenBy(static item => item.CreatedAt)
+        .ThenBy(static item => item.NodeId)
+        .ToArray();
+  }
+
+  public async Task<bool> RecordRelayCleanupAttemptAsync(
+      Guid nodeId,
+      Guid leaseId,
+      DateTimeOffset attemptedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE support_relay_cleanup
+        SET last_attempt_at = $attemptedAt,
+            attempt_count = attempt_count + 1
+        WHERE node_id = $nodeId
+          AND lease_id = $leaseId;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$leaseId", leaseId.ToString("D"));
+    command.Parameters.AddWithValue("$attemptedAt", Format(attemptedAt));
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+  }
+
+  public async Task<bool> DeferRelayCleanupAsync(
+      Guid nodeId,
+      Guid leaseId,
+      DateTimeOffset nextAttemptAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE support_relay_cleanup
+        SET next_attempt_at = $nextAttemptAt,
+            lease_id = NULL,
+            lease_expires_at = NULL
+        WHERE node_id = $nodeId
+          AND lease_id = $leaseId;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$leaseId", leaseId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$nextAttemptAt",
+        Format(nextAttemptAt));
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+  }
+
+  public async Task<bool> CompleteRelayCleanupAsync(
+      Guid nodeId,
+      Guid leaseId,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        DELETE FROM support_relay_cleanup
+        WHERE node_id = $nodeId
+          AND lease_id = $leaseId;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$leaseId", leaseId.ToString("D"));
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
   }
 
   public async Task<IReadOnlyList<SupportIdentity>> GetIdentitiesAsync(
@@ -153,8 +566,283 @@ internal sealed class SqliteSupportStore(
         : SupportMutationStatus.NotFound;
   }
 
+  public async Task<SupportIdentityRotationStatus> GetIdentityRotationStatusAsync(
+      SupportIdentityRotation rotation,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    return await GetIdentityRotationStatusAsync(
+        connection,
+        transaction: null,
+        rotation,
+        cancellationToken);
+  }
+
+  public async Task<StoredSupportIdentityRotation?>
+      GetIdentityRotationOrNullAsync(
+          string tenantId,
+          Guid nodeId,
+          Guid rotationId,
+          CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        SELECT
+            expected_transport_credential_hash,
+            replacement_transport_credential_hash,
+            node_signing_public_key_spki,
+            node_encryption_public_key_spki,
+            phase,
+            created_at,
+            dashboard_promoted_at,
+            finalized_at
+        FROM support_identity_rotations
+        WHERE rotation_id = $rotationId
+          AND tenant_id = $tenantId
+          AND node_id = $nodeId;
+        """;
+    command.Parameters.AddWithValue("$rotationId", rotationId.ToString("D"));
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    if (!await reader.ReadAsync(cancellationToken))
+    {
+      return null;
+    }
+    var phase = reader.GetString(4) switch
+    {
+      "prepared" => SupportIdentityRotationPhase.Prepared,
+      "dashboard_promoted" =>
+          SupportIdentityRotationPhase.DashboardPromoted,
+      "finalized" => SupportIdentityRotationPhase.Finalized,
+      _ => throw new InvalidOperationException(
+          "Stored support identity rotation phase is invalid."),
+    };
+    return new StoredSupportIdentityRotation(
+        new SupportIdentityRotation(
+            rotationId,
+            tenantId,
+            nodeId,
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3)),
+        phase,
+        ParseDate(reader.GetString(5)),
+        ReadNullableDate(reader, 6),
+        ReadNullableDate(reader, 7));
+  }
+
+  public async Task<SupportMutationStatus> PrepareIdentityRotationAsync(
+      SupportIdentityRotation rotation,
+      DateTimeOffset createdAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var transaction = (SqliteTransaction)
+        await connection.BeginTransactionAsync(cancellationToken);
+    var status = await GetIdentityRotationStatusAsync(
+        connection,
+        transaction,
+        rotation,
+        cancellationToken);
+    if (status is SupportIdentityRotationStatus.Prepared or
+        SupportIdentityRotationStatus.DashboardPromoted or
+        SupportIdentityRotationStatus.Finalized)
+    {
+      await transaction.CommitAsync(cancellationToken);
+      return SupportMutationStatus.Succeeded;
+    }
+    if (status != SupportIdentityRotationStatus.Authorized)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return MapRotationMutationStatus(status);
+    }
+    await using (var removeFinalized = connection.CreateCommand())
+    {
+      removeFinalized.Transaction = transaction;
+      removeFinalized.CommandText =
+          """
+          DELETE FROM support_identity_rotations
+          WHERE node_id = $nodeId
+            AND phase = 'finalized';
+          """;
+      removeFinalized.Parameters.AddWithValue(
+          "$nodeId",
+          rotation.NodeId.ToString("D"));
+      await removeFinalized.ExecuteNonQueryAsync(cancellationToken);
+    }
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        INSERT INTO support_identity_rotations (
+            rotation_id,
+            tenant_id,
+            node_id,
+            expected_transport_credential_hash,
+            replacement_transport_credential_hash,
+            node_signing_public_key_spki,
+            node_encryption_public_key_spki,
+            phase,
+            created_at)
+        VALUES (
+            $rotationId,
+            $tenantId,
+            $nodeId,
+            $expectedTransportCredentialHash,
+            $replacementTransportCredentialHash,
+            $nodeSigningPublicKeySpki,
+            $nodeEncryptionPublicKeySpki,
+            'prepared',
+            $createdAt);
+        """;
+    AddRotationParameters(command, rotation);
+    command.Parameters.AddWithValue(
+        "$rotationId",
+        rotation.RotationId.ToString("D"));
+    command.Parameters.AddWithValue("$createdAt", Format(createdAt));
+    try
+    {
+      await command.ExecuteNonQueryAsync(cancellationToken);
+      await transaction.CommitAsync(cancellationToken);
+      return SupportMutationStatus.Succeeded;
+    }
+    catch (SqliteException)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return SupportMutationStatus.Conflict;
+    }
+  }
+
+  public async Task<SupportMutationStatus> PromoteIdentityRotationAsync(
+      SupportIdentityRotation rotation,
+      DateTimeOffset promotedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var transaction = (SqliteTransaction)
+        await connection.BeginTransactionAsync(cancellationToken);
+    var status = await GetIdentityRotationStatusAsync(
+        connection,
+        transaction,
+        rotation,
+        cancellationToken);
+    if (status is SupportIdentityRotationStatus.DashboardPromoted or
+        SupportIdentityRotationStatus.Finalized or
+        SupportIdentityRotationStatus.AlreadyApplied)
+    {
+      await transaction.CommitAsync(cancellationToken);
+      return SupportMutationStatus.Succeeded;
+    }
+    if (status != SupportIdentityRotationStatus.Prepared)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return MapRotationMutationStatus(status);
+    }
+    await using (var promoteNode = connection.CreateCommand())
+    {
+      promoteNode.Transaction = transaction;
+      promoteNode.CommandText =
+          """
+          UPDATE support_nodes
+          SET node_signing_public_key_spki = $nodeSigningPublicKeySpki,
+              node_encryption_public_key_spki = $nodeEncryptionPublicKeySpki,
+              transport_credential_hash = $replacementTransportCredentialHash
+          WHERE tenant_id = $tenantId
+            AND node_id = $nodeId
+            AND revoked_at IS NULL
+            AND transport_credential_hash = $expectedTransportCredentialHash
+            AND NOT EXISTS (
+                SELECT 1
+                FROM support_sessions
+                WHERE tenant_id = $tenantId
+                  AND node_id = $nodeId
+                  AND status IN ('queued', 'dispatched'))
+            AND NOT EXISTS (
+                SELECT 1
+                FROM support_nodes AS duplicate
+                WHERE duplicate.node_id <> $nodeId
+                  AND duplicate.node_signing_public_key_spki =
+                          $nodeSigningPublicKeySpki
+                  AND duplicate.node_encryption_public_key_spki =
+                          $nodeEncryptionPublicKeySpki);
+          """;
+      AddRotationParameters(promoteNode, rotation);
+      if (await promoteNode.ExecuteNonQueryAsync(cancellationToken) != 1)
+      {
+        await transaction.RollbackAsync(cancellationToken);
+        return SupportMutationStatus.Conflict;
+      }
+    }
+    await using var promoteRotation = connection.CreateCommand();
+    promoteRotation.Transaction = transaction;
+    promoteRotation.CommandText =
+        """
+        UPDATE support_identity_rotations
+        SET phase = 'dashboard_promoted',
+            dashboard_promoted_at = $promotedAt
+        WHERE rotation_id = $rotationId
+          AND tenant_id = $tenantId
+          AND node_id = $nodeId
+          AND phase = 'prepared';
+        """;
+    promoteRotation.Parameters.AddWithValue(
+        "$rotationId",
+        rotation.RotationId.ToString("D"));
+    promoteRotation.Parameters.AddWithValue("$tenantId", rotation.TenantId);
+    promoteRotation.Parameters.AddWithValue(
+        "$nodeId",
+        rotation.NodeId.ToString("D"));
+    promoteRotation.Parameters.AddWithValue("$promotedAt", Format(promotedAt));
+    if (await promoteRotation.ExecuteNonQueryAsync(cancellationToken) != 1)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return SupportMutationStatus.Conflict;
+    }
+    await transaction.CommitAsync(cancellationToken);
+    return SupportMutationStatus.Succeeded;
+  }
+
+  public async Task<SupportMutationStatus> FinalizeIdentityRotationAsync(
+      SupportIdentityRotation rotation,
+      DateTimeOffset finalizedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE support_identity_rotations
+        SET phase = 'finalized',
+            finalized_at = COALESCE(finalized_at, $finalizedAt)
+        WHERE rotation_id = $rotationId
+          AND tenant_id = $tenantId
+          AND node_id = $nodeId
+          AND expected_transport_credential_hash =
+                  $expectedTransportCredentialHash
+          AND replacement_transport_credential_hash =
+                  $replacementTransportCredentialHash
+          AND node_signing_public_key_spki = $nodeSigningPublicKeySpki
+          AND node_encryption_public_key_spki = $nodeEncryptionPublicKeySpki
+          AND phase IN ('dashboard_promoted', 'finalized');
+        """;
+    AddRotationParameters(command, rotation);
+    command.Parameters.AddWithValue(
+        "$rotationId",
+        rotation.RotationId.ToString("D"));
+    command.Parameters.AddWithValue("$finalizedAt", Format(finalizedAt));
+    return await command.ExecuteNonQueryAsync(cancellationToken) == 1
+        ? SupportMutationStatus.Succeeded
+        : SupportMutationStatus.Conflict;
+  }
+
   public async Task<SupportMutationStatus> CreateSessionAsync(
       SupportDiagnosticSession session,
+      string expectedNodeSigningPublicKeySpki,
+      string expectedNodeEncryptionPublicKeySpki,
       CancellationToken cancellationToken)
   {
     await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
@@ -196,9 +884,25 @@ internal sealed class SqliteSupportStore(
             FROM support_nodes
             WHERE tenant_id = $tenantId
               AND node_id = $nodeId
-              AND revoked_at IS NULL);
+              AND revoked_at IS NULL
+              AND node_signing_public_key_spki =
+                  $expectedNodeSigningPublicKeySpki
+              AND node_encryption_public_key_spki =
+                  $expectedNodeEncryptionPublicKeySpki
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM support_identity_rotations
+                  WHERE tenant_id = $tenantId
+                    AND node_id = $nodeId
+                    AND phase IN ('prepared', 'dashboard_promoted')));
         """;
     AddSessionInsertParameters(command, session);
+    command.Parameters.AddWithValue(
+        "$expectedNodeSigningPublicKeySpki",
+        expectedNodeSigningPublicKeySpki);
+    command.Parameters.AddWithValue(
+        "$expectedNodeEncryptionPublicKeySpki",
+        expectedNodeEncryptionPublicKeySpki);
     return await command.ExecuteNonQueryAsync(cancellationToken) == 1
         ? SupportMutationStatus.Succeeded
         : SupportMutationStatus.NotFound;
@@ -342,6 +1046,176 @@ internal sealed class SqliteSupportStore(
       FROM support_sessions AS s
       """;
 
+  private static async Task<SupportIdentityRotationStatus>
+      GetIdentityRotationStatusAsync(
+          SqliteConnection connection,
+          SqliteTransaction? transaction,
+          SupportIdentityRotation rotation,
+          CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT
+            node.transport_credential_hash,
+            node.node_signing_public_key_spki,
+            node.node_encryption_public_key_spki,
+            node.revoked_at,
+            EXISTS (
+                SELECT 1
+                FROM support_sessions
+                WHERE tenant_id = $tenantId
+                  AND node_id = $nodeId
+                  AND status IN ('queued', 'dispatched')),
+            pending.rotation_id,
+            pending.expected_transport_credential_hash,
+            pending.replacement_transport_credential_hash,
+            pending.node_signing_public_key_spki,
+            pending.node_encryption_public_key_spki,
+            pending.phase,
+            EXISTS (
+                SELECT 1
+                FROM support_nodes AS duplicate
+                WHERE duplicate.node_id <> $nodeId
+                  AND (
+                      duplicate.transport_credential_hash =
+                          $replacementTransportCredentialHash
+                      OR (
+                          duplicate.node_signing_public_key_spki =
+                              $nodeSigningPublicKeySpki
+                          AND duplicate.node_encryption_public_key_spki =
+                              $nodeEncryptionPublicKeySpki)))
+            OR EXISTS (
+                SELECT 1
+                FROM support_identity_rotations AS duplicate_rotation
+                WHERE duplicate_rotation.node_id <> $nodeId
+                  AND duplicate_rotation.replacement_transport_credential_hash =
+                          $replacementTransportCredentialHash)
+        FROM support_nodes AS node
+        LEFT JOIN support_identity_rotations AS pending
+          ON pending.node_id = node.node_id
+        WHERE node.tenant_id = $tenantId
+          AND node.node_id = $nodeId;
+        """;
+    AddRotationParameters(command, rotation);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    if (!await reader.ReadAsync(cancellationToken))
+    {
+      return SupportIdentityRotationStatus.NotFound;
+    }
+    if (!await reader.IsDBNullAsync(3, cancellationToken))
+    {
+      return SupportIdentityRotationStatus.Revoked;
+    }
+    var currentHash = reader.GetString(0);
+    var currentSigningKey = reader.GetString(1);
+    var currentEncryptionKey = reader.GetString(2);
+    if (!await reader.IsDBNullAsync(5, cancellationToken))
+    {
+      var exactRotation =
+          Guid.Parse(
+              reader.GetString(5),
+              CultureInfo.InvariantCulture) == rotation.RotationId &&
+          string.Equals(
+              reader.GetString(6),
+              rotation.ExpectedTransportCredentialHash,
+              StringComparison.Ordinal) &&
+          string.Equals(
+              reader.GetString(7),
+              rotation.ReplacementTransportCredentialHash,
+              StringComparison.Ordinal) &&
+          string.Equals(
+              reader.GetString(8),
+              rotation.NodeSigningPublicKeySpki,
+              StringComparison.Ordinal) &&
+          string.Equals(
+              reader.GetString(9),
+              rotation.NodeEncryptionPublicKeySpki,
+              StringComparison.Ordinal);
+      var phase = reader.GetString(10);
+      if (!exactRotation &&
+          !string.Equals(phase, "finalized", StringComparison.Ordinal))
+      {
+        return SupportIdentityRotationStatus.Conflict;
+      }
+      if (exactRotation)
+      {
+        return phase switch
+        {
+          "prepared" => SupportIdentityRotationStatus.Prepared,
+          "dashboard_promoted" =>
+              SupportIdentityRotationStatus.DashboardPromoted,
+          "finalized" => SupportIdentityRotationStatus.Finalized,
+          _ => SupportIdentityRotationStatus.Conflict,
+        };
+      }
+    }
+    var alreadyApplied =
+        string.Equals(
+            currentHash,
+            rotation.ReplacementTransportCredentialHash,
+            StringComparison.Ordinal) &&
+        string.Equals(
+            currentSigningKey,
+            rotation.NodeSigningPublicKeySpki,
+            StringComparison.Ordinal) &&
+        string.Equals(
+            currentEncryptionKey,
+            rotation.NodeEncryptionPublicKeySpki,
+            StringComparison.Ordinal);
+    if (alreadyApplied)
+    {
+      return SupportIdentityRotationStatus.AlreadyApplied;
+    }
+    if (!string.Equals(
+        currentHash,
+        rotation.ExpectedTransportCredentialHash,
+        StringComparison.Ordinal))
+    {
+      return SupportIdentityRotationStatus.Forbidden;
+    }
+    if (reader.GetBoolean(4))
+    {
+      return SupportIdentityRotationStatus.ActiveSessions;
+    }
+    return reader.GetBoolean(11)
+        ? SupportIdentityRotationStatus.Conflict
+        : SupportIdentityRotationStatus.Authorized;
+  }
+
+  private static SupportMutationStatus MapRotationMutationStatus(
+      SupportIdentityRotationStatus status) =>
+      status switch
+      {
+        SupportIdentityRotationStatus.NotFound =>
+            SupportMutationStatus.NotFound,
+        SupportIdentityRotationStatus.Revoked =>
+            SupportMutationStatus.Revoked,
+        SupportIdentityRotationStatus.Forbidden =>
+            SupportMutationStatus.Forbidden,
+        _ => SupportMutationStatus.Conflict,
+      };
+
+  private static void AddEnrollmentParameters(
+      SqliteCommand command,
+      SupportEnrollment enrollment)
+  {
+    command.Parameters.AddWithValue(
+        "$enrollmentId",
+        enrollment.EnrollmentId.ToString("D"));
+    command.Parameters.AddWithValue("$tenantId", enrollment.TenantId);
+    command.Parameters.AddWithValue("$displayName", enrollment.DisplayName);
+    command.Parameters.AddWithValue(
+        "$enrollmentCodeHash",
+        enrollment.EnrollmentCodeHash);
+    command.Parameters.AddWithValue(
+        "$createdByGitHubUserId",
+        enrollment.CreatedByGitHubUserId);
+    command.Parameters.AddWithValue("$createdAt", Format(enrollment.CreatedAt));
+    command.Parameters.AddWithValue("$expiresAt", Format(enrollment.ExpiresAt));
+  }
+
   private static void AddIdentityParameters(SqliteCommand command, SupportIdentityWrite write)
   {
     command.Parameters.AddWithValue("$nodeId", write.Identity.NodeId.ToString("D"));
@@ -375,6 +1249,49 @@ internal sealed class SqliteSupportStore(
     command.Parameters.AddWithValue("$expiresAt", Format(session.ExpiresAt));
     command.Parameters.AddWithValue("$requestEnvelopeJson", JsonSerializer.Serialize(session.RequestEnvelope, SupportJsonOptions));
   }
+
+  private static void AddRotationParameters(
+      SqliteCommand command,
+      SupportIdentityRotation rotation)
+  {
+    command.Parameters.AddWithValue("$tenantId", rotation.TenantId);
+    command.Parameters.AddWithValue("$nodeId", rotation.NodeId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$expectedTransportCredentialHash",
+        rotation.ExpectedTransportCredentialHash);
+    command.Parameters.AddWithValue(
+        "$replacementTransportCredentialHash",
+        rotation.ReplacementTransportCredentialHash);
+    command.Parameters.AddWithValue(
+        "$nodeSigningPublicKeySpki",
+        rotation.NodeSigningPublicKeySpki);
+    command.Parameters.AddWithValue(
+        "$nodeEncryptionPublicKeySpki",
+        rotation.NodeEncryptionPublicKeySpki);
+  }
+
+  private static SupportEnrollment ReadEnrollment(SqliteDataReader reader) =>
+      new(
+          Guid.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+          reader.GetString(1),
+          reader.GetString(2),
+          reader.GetString(3),
+          reader.GetString(4),
+          ParseDate(reader.GetString(5)),
+          ParseDate(reader.GetString(6)),
+          ReadNullableDate(reader, 7),
+          ReadNullableDate(reader, 8),
+          reader.IsDBNull(9)
+              ? null
+              : Guid.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
+          reader.IsDBNull(10)
+              ? null
+              : Guid.Parse(reader.GetString(10), CultureInfo.InvariantCulture),
+          reader.IsDBNull(11)
+              ? null
+              : JsonSerializer.Deserialize<SupportEnvelope>(
+                  reader.GetString(11),
+                  SupportJsonOptions));
 
   private static SupportIdentity ReadIdentity(SqliteDataReader reader) =>
       new(

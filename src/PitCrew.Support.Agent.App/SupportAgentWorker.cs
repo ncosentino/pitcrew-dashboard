@@ -4,20 +4,55 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 internal sealed partial class SupportAgentWorker(
-    SupportAgentOptions _options,
+    SupportNodeIdentityProvisioner _identityProvisioner,
+    SupportNodeIdentityStore _identityStore,
+    SupportAgentBootstrapOptions _bootstrapOptions,
     SupportRelayTransportClient _relayClient,
-    SupportAgentRequestProcessor _processor,
     TimeProvider _timeProvider,
     ILogger<SupportAgentWorker> _logger) : BackgroundService
 {
   protected override async Task ExecuteAsync(CancellationToken stoppingToken)
   {
+    SupportAgentOptions? options;
+    try
+    {
+      options = await _identityProvisioner.GetRuntimeOptionsAsync(stoppingToken);
+    }
+    catch (HttpRequestException)
+    {
+      LogRelayUnavailable(_logger);
+      return;
+    }
+    if (options is null)
+    {
+      SupportAgentIdentityLog.IdentityUnavailable(_logger);
+      return;
+    }
     using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15), _timeProvider);
     do
     {
       try
       {
-        await PollOnceAsync(stoppingToken);
+        await using var operationLock =
+            await _identityStore.AcquireOperationLockAsync(stoppingToken);
+        var current = await _identityStore.LoadActiveAsync(stoppingToken);
+        if (current is null)
+        {
+          SupportAgentIdentityLog.IdentityUnavailable(_logger);
+          return;
+        }
+        options = SupportAgentOptions.FromStoredIdentity(
+            current,
+            _bootstrapOptions.SocketPath);
+        var processor = new SupportAgentRequestProcessor(
+            options,
+            new PlatformDiagnosticsBroker(options),
+            new AgentReplayCache(options.ReplayRoot),
+            _timeProvider);
+        if (!await PollOnceAsync(options, processor, stoppingToken))
+        {
+          return;
+        }
       }
       catch (HttpRequestException)
       {
@@ -43,27 +78,48 @@ internal sealed partial class SupportAgentWorker(
     while (await timer.WaitForNextTickAsync(stoppingToken));
   }
 
-  private async Task PollOnceAsync(CancellationToken cancellationToken)
+  private async Task<bool> PollOnceAsync(
+      SupportAgentOptions options,
+      SupportAgentRequestProcessor processor,
+      CancellationToken cancellationToken)
   {
-    var polled = await _relayClient.PollAsync(_options.NodeId, cancellationToken);
-    var requestEnvelope = polled?.GetRequestEnvelopeOrNull();
-    if (polled is null || requestEnvelope is null)
+    var poll = await _relayClient.PollAsync(options, cancellationToken);
+    if (!poll.CredentialAccepted)
     {
-      return;
+      await _identityStore.MarkAuthorizationRejectedAsync(cancellationToken);
+      SupportAgentIdentityLog.CredentialRejected(_logger);
+      return false;
     }
-    var result = await _processor.ProcessAsync(
-        polled.SessionId,
+    var requestEnvelope = poll.Response?.GetRequestEnvelopeOrNull();
+    if (poll.Response is null || requestEnvelope is null)
+    {
+      return true;
+    }
+    var result = await processor.ProcessAsync(
+        poll.Response.SessionId,
         requestEnvelope,
         cancellationToken);
-    if (result is not null &&
-        !await _relayClient.UploadResultAsync(
-            _options.NodeId,
-            polled.SessionId,
-            result,
-            cancellationToken))
+    if (result is null)
     {
-      throw new HttpRequestException("The support relay rejected the result upload.");
+      return true;
     }
+    var upload = await _relayClient.UploadResultAsync(
+        options,
+        poll.Response.SessionId,
+        result,
+        cancellationToken);
+    if (upload == SupportRelayUploadOutcome.CredentialRejected)
+    {
+      await _identityStore.MarkAuthorizationRejectedAsync(cancellationToken);
+      SupportAgentIdentityLog.CredentialRejected(_logger);
+      return false;
+    }
+    if (upload != SupportRelayUploadOutcome.Succeeded)
+    {
+      throw new HttpRequestException(
+          "The support relay rejected the result upload.");
+    }
+    return true;
   }
 
   [LoggerMessage(

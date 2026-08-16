@@ -6,8 +6,8 @@ Installs and manages the isolated PitCrew support agent and diagnostics broker.
 .DESCRIPTION
 Uses separate service identities, state roots, and platform IPC controls. Release
 updates are staged before service switching and retain one rollback target.
-Support identity deletion remains owned by issue #119; this installer preserves
-identity state and never reads or rewrites private key values.
+This installer preserves the complete protected support identity state during
+uninstall and never reads or rewrites private key values.
 #>
 [CmdletBinding()]
 param(
@@ -43,8 +43,8 @@ param(
 
     [string]$BrokerChecksumPath = '',
 
-    [ValidateSet('Preserve', 'ExternalDeleteRequired')]
-    [string]$IdentityHandling = 'Preserve',
+    [ValidateSet('PreserveKeys')]
+    [string]$IdentityHandling = 'PreserveKeys',
 
     [switch]$AllowMachineChanges
 )
@@ -76,7 +76,12 @@ function Invoke-Checked {
     $global:LASTEXITCODE = 0
     & $FilePath @ArgumentList | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "'$FilePath' exited with code $LASTEXITCODE."
+        $operation = if ($ArgumentList.Count -gt 0) {
+            " $($ArgumentList[0])"
+        } else {
+            ''
+        }
+        throw "'$FilePath$operation' exited with code $LASTEXITCODE."
     }
 }
 
@@ -266,7 +271,7 @@ function Write-InstallManifest {
         currentVersion = $CurrentVersion
         previousVersion = $PreviousVersion
         enabled = $Enabled
-        identityContract = 'issue-119-pending'
+        identityContract = 'support-node-identity-v1'
     }
     $manifestPath = Get-ManifestPath -Paths $Paths
     $temporaryPath = "$manifestPath.$([Guid]::NewGuid().ToString('N')).tmp"
@@ -424,8 +429,8 @@ function Enter-InstallerLock {
         if ($IsLinux) {
             [IO.File]::SetUnixFileMode(
                 $Paths.LockPath,
-                [UnixFileMode]::UserRead -bor
-                    [UnixFileMode]::UserWrite)
+                [System.IO.UnixFileMode]::UserRead -bor
+                    [System.IO.UnixFileMode]::UserWrite)
         }
         return $stream
     } catch [IO.IOException] {
@@ -989,20 +994,28 @@ function Set-WindowsServiceDefinition {
         Invoke-Checked sc.exe @(
             'create',
             $Name,
-            "binPath= $binaryPath",
-            'start= auto',
-            "obj= NT SERVICE\$Name",
-            "DisplayName= $DisplayName"
+            'binPath=',
+            $binaryPath,
+            'start=',
+            'auto',
+            'obj=',
+            "NT SERVICE\$Name",
+            'DisplayName=',
+            $DisplayName
         )
     } else {
         $service.Dispose()
         Invoke-Checked sc.exe @(
             'config',
             $Name,
-            "binPath= $binaryPath",
-            'start= auto',
-            "obj= NT SERVICE\$Name",
-            "DisplayName= $DisplayName"
+            'binPath=',
+            $binaryPath,
+            'start=',
+            'auto',
+            'obj=',
+            "NT SERVICE\$Name",
+            'DisplayName=',
+            $DisplayName
         )
     }
     Invoke-Checked sc.exe @('sidtype', $Name, 'restricted')
@@ -1010,8 +1023,10 @@ function Set-WindowsServiceDefinition {
     Invoke-Checked sc.exe @(
         'failure',
         $Name,
-        'reset= 86400',
-        'actions= restart/5000/restart/15000/none/0'
+        'reset=',
+        '86400',
+        'actions=',
+        'restart/5000/restart/15000/none/0'
     )
 }
 
@@ -1805,7 +1820,8 @@ function Configure-WindowsVersion {
     Invoke-Checked sc.exe @(
         'config',
         $windowsAgentService,
-        "depend= $windowsBrokerService"
+        'depend=',
+        $windowsBrokerService
     )
     Set-WindowsBrokerFirewall
 }
@@ -2677,22 +2693,9 @@ function Preserve-AgentIdentityState {
     if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
         throw 'The protected support identity settings are missing.'
     }
-    foreach ($item in Get-ChildItem `
-        -LiteralPath $Paths.AgentStateRoot `
-        -Force) {
-        if ($item.Name -notin @(
-                'appsettings.json',
-                'identity-preserved.json'
-            )) {
-            Remove-Item `
-                -LiteralPath $item.FullName `
-                -Recurse `
-                -Force
-        }
-    }
     [IO.File]::WriteAllText(
         (Join-Path $Paths.AgentStateRoot 'identity-preserved.json'),
-        '{"schemaVersion":1,"identityContract":"issue-119-pending"}',
+        '{"schemaVersion":1,"identityHandling":"PreserveKeys"}',
         [Text.UTF8Encoding]::new($false))
     if ($IsWindows) {
         Protect-StateRootsForInstaller -Paths $Paths
@@ -2713,9 +2716,6 @@ function Preserve-AgentIdentityState {
 function Invoke-Uninstall {
     param([Parameter(Mandatory)][hashtable]$Paths)
 
-    if ($IdentityHandling -eq 'ExternalDeleteRequired') {
-        throw 'Identity deletion remains external until issue #119 supplies its preserve/delete contract.'
-    }
     $settings = Get-Content `
         -LiteralPath (Join-Path $Paths.BrokerStateRoot 'appsettings.json') `
         -Raw `

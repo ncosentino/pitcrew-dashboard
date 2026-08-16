@@ -38,8 +38,6 @@ export default function SupportPage() {
   const [profileId, setProfileId] = useState('');
   const [enrollment, setEnrollment] = useState<CreatedSupportEnrollment | null>(null);
   const [displayName, setDisplayName] = useState('Support node');
-  const [signingKey, setSigningKey] = useState('');
-  const [encryptionKey, setEncryptionKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshingSessionId, setRefreshingSessionId] = useState<string | null>(null);
@@ -100,13 +98,7 @@ export default function SupportPage() {
     setBusy(true);
     try {
       setEnrollment(
-        await createSupportEnrollment(
-          tenantId,
-          displayName.trim(),
-          signingKey.trim(),
-          encryptionKey.trim(),
-          session.antiforgeryToken,
-        ),
+        await createSupportEnrollment(tenantId, displayName.trim(), session.antiforgeryToken),
       );
       await load();
       setError(null);
@@ -179,34 +171,26 @@ export default function SupportPage() {
             ))}
           </div>
           <fieldset className="grid gap-3 rounded-lg border p-3">
-            <legend className="px-2 text-sm font-medium">Enroll generated support keys</legend>
-            <FormField label="Display name">
+            <legend className="px-2 text-sm font-medium">Create node enrollment</legend>
+            <p className="max-w-[70ch] text-sm text-muted-foreground">
+              The node generates its private keys locally. Create a one-time code, then provide it
+              to the support-agent enrollment configuration before it expires.
+            </p>
+            <FormField label="Display name" hint="Shown after the node completes enrollment.">
               <input
                 className="h-9 rounded-md border bg-background px-3 text-sm"
+                maxLength={128}
+                required
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
               />
             </FormField>
-            <FormField label="Node signing public key SPKI">
-              <textarea
-                className="min-h-20 rounded-md border bg-background p-3 font-mono text-xs"
-                value={signingKey}
-                onChange={(event) => setSigningKey(event.target.value)}
-              />
-            </FormField>
-            <FormField label="Node encryption public key SPKI">
-              <textarea
-                className="min-h-20 rounded-md border bg-background p-3 font-mono text-xs"
-                value={encryptionKey}
-                onChange={(event) => setEncryptionKey(event.target.value)}
-              />
-            </FormField>
             <Button
               type="button"
-              disabled={busy || !signingKey || !encryptionKey}
+              disabled={busy || displayName.trim().length === 0}
               onClick={() => void enroll()}
             >
-              Create support enrollment
+              Create one-time code
             </Button>
           </fieldset>
           {enrollment ? (
@@ -214,30 +198,14 @@ export default function SupportPage() {
               role="status"
               className="grid gap-2 rounded-lg border border-status-caution-foreground/30 bg-status-caution p-4 text-status-caution-foreground"
             >
-              <strong>Copy support enrollment material now</strong>
-              <span className="text-xs font-medium">Node ID</span>
-              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
-                {enrollment.nodeId}
-              </code>
-              <span className="text-xs font-medium">Enrollment code</span>
-              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
+              <strong>Copy this one-time code now</strong>
+              <p className="text-sm">
+                It expires {formatTime(enrollment.enrollmentExpiresAt)} and can enroll only one node
+                in this tenant.
+              </p>
+              <span className="text-xs font-medium">One-time enrollment code</span>
+              <code className="block overflow-x-auto break-all rounded bg-background p-3 text-xs text-foreground">
                 {enrollment.enrollmentCode}
-              </code>
-              <span className="text-xs font-medium">Transport credential</span>
-              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
-                {enrollment.transportCredential}
-              </code>
-              <span className="text-xs font-medium">Relay URL</span>
-              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
-                {enrollment.relayUrl}
-              </code>
-              <span className="text-xs font-medium">Dashboard authorization signing key</span>
-              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
-                {enrollment.authorizationSigningPublicKeySpki}
-              </code>
-              <span className="text-xs font-medium">Dashboard result encryption key</span>
-              <code className="block overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
-                {enrollment.resultEncryptionPublicKeySpki}
               </code>
             </div>
           ) : null}

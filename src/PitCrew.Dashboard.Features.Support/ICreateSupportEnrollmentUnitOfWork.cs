@@ -6,7 +6,7 @@ namespace PitCrew.Dashboard.Features.Support;
 
 internal interface ICreateSupportEnrollmentUnitOfWork
 {
-  Task<CreatedSupportEnrollment?> CreateAsync(
+  Task<CreatedSupportEnrollmentAuthorization?> CreateAsync(
       ClaimsPrincipal principal,
       string tenantId,
       CreateSupportEnrollmentInput input,

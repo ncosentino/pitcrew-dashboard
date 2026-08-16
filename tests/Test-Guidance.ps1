@@ -418,6 +418,11 @@ try {
         $supportInstruction -match 'SO_PEERCRED' -and
         $supportInstruction -match 'PrivateNetwork=true' -and
         $supportInstruction -match 'atomic-replacement ACL drift' -and
+        $supportInstruction -match 'persisted CNG keys' -and
+        $supportInstruction -match '0700' -and
+        $supportInstruction -match '0600' -and
+        $supportInstruction -match 'never silently re-enroll' -and
+        $supportInstruction -match 'preserve-keys or delete-keys' -and
         $supportInstruction -notmatch 'PipeOptions\.CurrentUserOnly'
     ) 'Support-plane guidance does not contain the required v1 negative boundary rules.'
     Add-Check (

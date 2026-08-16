@@ -433,7 +433,7 @@ public sealed class SupportDiagnosticsBrokerTests
                       "default",
                       "0123456789abcdef"),
                   cancellationToken))
-          .Throws<EndOfStreamException>();
+          .Throws<IOException>();
       await serverTask;
     }
     finally

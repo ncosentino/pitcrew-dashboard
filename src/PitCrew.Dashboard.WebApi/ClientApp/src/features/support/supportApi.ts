@@ -42,14 +42,9 @@ export const supportSessionSchema = z.object({
 });
 export const supportSessionsSchema = z.array(supportSessionSchema);
 export const createdSupportEnrollmentSchema = z.object({
-  nodeId: z.string().uuid(),
   displayName: z.string(),
   enrollmentCode: z.string(),
-  transportCredential: z.string(),
   enrollmentExpiresAt: offsetDateTimeSchema,
-  relayUrl: z.string(),
-  authorizationSigningPublicKeySpki: z.string(),
-  resultEncryptionPublicKeySpki: z.string(),
 });
 
 export type SupportIdentity = z.infer<typeof supportIdentitySchema>;
@@ -121,16 +116,14 @@ export async function createSupportSession(
 export async function createSupportEnrollment(
   tenantId: string,
   displayName: string,
-  nodeSigningPublicKeySpki: string,
-  nodeEncryptionPublicKeySpki: string,
   antiforgeryToken: string,
 ): Promise<CreatedSupportEnrollment> {
   return await client().request(
-    `/api/tenants/${encodeURIComponent(tenantId)}/support/v1/enrollments`,
+    `/api/tenants/${encodeURIComponent(tenantId)}/support/v1/enrollment-authorizations`,
     {
       method: 'POST',
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
-      body: { displayName, nodeSigningPublicKeySpki, nodeEncryptionPublicKeySpki },
+      body: { displayName },
       schema: createdSupportEnrollmentSchema,
     },
   );

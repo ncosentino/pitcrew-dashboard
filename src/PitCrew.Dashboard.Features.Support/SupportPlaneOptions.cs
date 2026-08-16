@@ -16,7 +16,6 @@ public sealed class SupportPlaneOptions
   [MaxLength(2048)]
   public string RelayUrl { get; set; } = "https://support-relay.example.com";
 
-
   /// <summary>
   /// Gets or sets the internal Dashboard-to-relay bearer secret.
   /// Empty disables relay management calls for local development only.
@@ -40,6 +39,25 @@ public sealed class SupportPlaneOptions
   /// </summary>
   [Range(300, 86400)]
   public int EnrollmentLifetimeSeconds { get; set; } = 3600;
+
+  /// <summary>
+  /// Gets or sets how long an exact consumed-enrollment retry may recover its
+  /// encrypted transport-credential envelope.
+  /// </summary>
+  [Range(300, 86400)]
+  public int EnrollmentRecoveryLifetimeSeconds { get; set; } = 3600;
+
+  /// <summary>
+  /// Gets or sets the durable orphan relay cleanup interval in seconds.
+  /// </summary>
+  [Range(1, 3600)]
+  public int RelayCleanupIntervalSeconds { get; set; } = 30;
+
+  /// <summary>
+  /// Gets or sets whether administrators may complete enrollment with manually
+  /// generated public keys instead of node-local provisioning.
+  /// </summary>
+  public bool AllowLegacyManualEnrollment { get; set; }
 
   /// <summary>
   /// Gets or sets the maximum diagnostic session lifetime in seconds.

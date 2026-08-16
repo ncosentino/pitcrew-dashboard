@@ -316,9 +316,18 @@ foreach ($action in @(
 }
 Add-Check (
     $installer.Contains(
-        "'Preserve', 'ExternalDeleteRequired'",
+        "[ValidateSet('PreserveKeys')]",
         [StringComparison]::Ordinal)
-) 'The installer does not expose the pending #119 identity handling interface.'
+) 'The installer does not require explicit protected identity preservation.'
+Add-Check (
+    $installer.Contains(
+        '[System.IO.UnixFileMode]::UserRead',
+        [StringComparison]::Ordinal)
+) 'The installer uses an unqualified UnixFileMode type that fails in PowerShell.'
+Add-Check (
+    $installer -match '''binPath='',\s*\r?\n\s*\$binaryPath' -and
+    $installer -notmatch '"binPath= \$binaryPath"'
+) 'The installer does not pass sc.exe option names and values separately.'
 Add-Check (
     $installer.Contains(
         'PrivateNetwork=true',

@@ -171,7 +171,7 @@ function Invoke-Installer {
         [AllowNull()][hashtable]$Release = $null,
         [AllowEmptyString()][string]$PitCrewRoot = '',
         [AllowEmptyString()][string]$SettingsPath = '',
-        [string]$Identity = 'Preserve'
+        [string]$Identity = 'PreserveKeys'
     )
 
     $parameters = @{
@@ -586,9 +586,16 @@ try {
     }
 
     $settingsPath = Join-Path $testRoot 'agent-settings.json'
+    $identityRoot = Join-Path $paths.AgentStateRoot 'identity'
+    $replayRoot = Join-Path $paths.AgentStateRoot 'replay'
     $agentSettings = @{
         PitCrewSupport = @{
             Agent = @{
+                IdentityRoot = $identityRoot
+                ReplayRoot = $replayRoot
+                PipeName = 'pitcrew-support-broker-v1'
+                SocketPath = '/run/pitcrew-support/broker.sock'
+                DashboardUrl = 'https://127.0.0.1:9/'
                 TenantId = 'installer-test'
                 NodeId = '11111111-1111-1111-1111-111111111111'
                 RelayUrl = 'https://127.0.0.1:9/'
@@ -597,6 +604,7 @@ try {
                 DashboardResultEncryptionPublicKeySpki = 'fixture-result'
                 NodeSigningPrivateKeyPkcs8 = 'fixture-signing'
                 NodeEncryptionPrivateKeyPkcs8 = 'fixture-encryption'
+                AllowLegacyPrivateKeyConfiguration = $true
             }
         }
     }
@@ -1002,30 +1010,21 @@ try {
         }
     }
 
-    $externalDeleteRefused = $false
-    try {
-        Invoke-Installer `
-            -LifecycleAction 'Uninstall' `
-            -Identity 'ExternalDeleteRequired'
-    } catch {
-        $externalDeleteRefused = $_.Exception.Message.Contains(
-            'issue #119',
-            [StringComparison]::Ordinal)
-    }
-    Add-Check (
-        $externalDeleteRefused -and
-        (Test-Path -LiteralPath $paths.AgentInstallRoot)
-    ) 'The pending #119 delete option changed identity or installation state.'
-
     $brokerConfiguration = Get-Content `
         -LiteralPath (Join-Path $paths.BrokerStateRoot 'appsettings.json') `
         -Raw |
         ConvertFrom-Json -Depth 10
     $uninstallBrokerSettings =
         $brokerConfiguration.PitCrewSupport.Broker
+    $agentStateBeforeUninstall = @(
+        Get-ChildItem `
+            -LiteralPath $paths.AgentStateRoot `
+            -Force |
+            Select-Object -ExpandProperty Name
+    )
     Invoke-Installer `
         -LifecycleAction 'Uninstall' `
-        -Identity 'Preserve'
+        -Identity 'PreserveKeys'
     $installed = $false
     Add-Check (
         -not (Test-Path -LiteralPath $paths.AgentInstallRoot) -and
@@ -1048,9 +1047,12 @@ try {
             Sort-Object
     )
     Add-Check (
-        (@($preservedItems) -join ',') -eq
-            'appsettings.json,identity-preserved.json'
-    ) 'Uninstall preserved non-identity agent state.'
+        @(
+            $agentStateBeforeUninstall |
+                Where-Object { $_ -notin $preservedItems }
+        ).Count -eq 0 -and
+        'identity-preserved.json' -in $preservedItems
+    ) 'Uninstall did not preserve the complete protected agent identity state.'
     if ($IsWindows) {
         Add-Check (
             $null -eq (

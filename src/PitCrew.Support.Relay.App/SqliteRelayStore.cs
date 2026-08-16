@@ -38,6 +38,24 @@ internal sealed class SqliteRelayStore(string _databasePath)
 
         CREATE INDEX IF NOT EXISTS ix_relay_sessions_node_status_expiry
             ON relay_sessions (node_id, status, expires_at, session_id);
+
+        CREATE TABLE IF NOT EXISTS relay_credential_rotations (
+            rotation_id TEXT PRIMARY KEY,
+            node_id TEXT NOT NULL UNIQUE,
+            tenant_id TEXT NOT NULL,
+            expected_transport_credential_hash TEXT NOT NULL,
+            replacement_transport_credential_hash TEXT NOT NULL,
+            phase TEXT NOT NULL CHECK (phase IN ('prepared', 'promoted')),
+            created_at TEXT NOT NULL,
+            promoted_at TEXT NULL,
+            FOREIGN KEY (node_id)
+                REFERENCES relay_nodes(node_id) ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS
+            ux_relay_credential_rotations_replacement
+            ON relay_credential_rotations (
+                replacement_transport_credential_hash);
         """;
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
@@ -83,6 +101,168 @@ internal sealed class SqliteRelayStore(string _databasePath)
     command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
     command.Parameters.AddWithValue("$revokedAt", Format(revokedAt));
     return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+  }
+
+  public async Task<RelayCredentialRotationStatus> PrepareNodeCredentialAsync(
+      Guid nodeId,
+      RelayNodeCredentialRotationRequest request,
+      DateTimeOffset createdAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await OpenAsync(cancellationToken);
+    await using var transaction = (SqliteTransaction)
+        await connection.BeginTransactionAsync(cancellationToken);
+    var status = await GetCredentialRotationStatusAsync(
+        connection,
+        transaction,
+        nodeId,
+        request,
+        cancellationToken);
+    if (status is RelayCredentialRotationStatus.Prepared or
+        RelayCredentialRotationStatus.Promoted)
+    {
+      await transaction.CommitAsync(cancellationToken);
+      return status;
+    }
+    if (status != RelayCredentialRotationStatus.Authorized)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return status;
+    }
+    await using (var removePromoted = connection.CreateCommand())
+    {
+      removePromoted.Transaction = transaction;
+      removePromoted.CommandText =
+          """
+          DELETE FROM relay_credential_rotations
+          WHERE node_id = $nodeId
+            AND phase = 'promoted';
+          """;
+      removePromoted.Parameters.AddWithValue(
+          "$nodeId",
+          nodeId.ToString("D"));
+      await removePromoted.ExecuteNonQueryAsync(cancellationToken);
+    }
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        INSERT INTO relay_credential_rotations (
+            rotation_id,
+            node_id,
+            tenant_id,
+            expected_transport_credential_hash,
+            replacement_transport_credential_hash,
+            phase,
+            created_at)
+        VALUES (
+            $rotationId,
+            $nodeId,
+            $tenantId,
+            $expectedHash,
+            $replacementHash,
+            'prepared',
+            $createdAt);
+        """;
+    command.Parameters.AddWithValue(
+        "$rotationId",
+        request.RotationId.ToString("D"));
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue("$tenantId", request.TenantId);
+    command.Parameters.AddWithValue(
+        "$expectedHash",
+        request.ExpectedTransportCredentialHash);
+    command.Parameters.AddWithValue(
+        "$replacementHash",
+        request.ReplacementTransportCredentialHash);
+    command.Parameters.AddWithValue("$createdAt", Format(createdAt));
+    try
+    {
+      await command.ExecuteNonQueryAsync(cancellationToken);
+      await transaction.CommitAsync(cancellationToken);
+      return RelayCredentialRotationStatus.Prepared;
+    }
+    catch (SqliteException)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return RelayCredentialRotationStatus.Conflict;
+    }
+  }
+
+  public async Task<RelayCredentialRotationStatus> PromoteNodeCredentialAsync(
+      Guid nodeId,
+      RelayNodeCredentialRotationRequest request,
+      DateTimeOffset promotedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await OpenAsync(cancellationToken);
+    await using var transaction = (SqliteTransaction)
+        await connection.BeginTransactionAsync(cancellationToken);
+    var status = await GetCredentialRotationStatusAsync(
+        connection,
+        transaction,
+        nodeId,
+        request,
+        cancellationToken);
+    if (status == RelayCredentialRotationStatus.Promoted)
+    {
+      await transaction.CommitAsync(cancellationToken);
+      return status;
+    }
+    if (status != RelayCredentialRotationStatus.Prepared)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return status;
+    }
+    await using (var promoteNode = connection.CreateCommand())
+    {
+      promoteNode.Transaction = transaction;
+      promoteNode.CommandText =
+          """
+          UPDATE relay_nodes
+          SET transport_credential_hash = $replacementHash
+          WHERE node_id = $nodeId
+            AND tenant_id = $tenantId
+            AND revoked_at IS NULL
+            AND transport_credential_hash = $expectedHash;
+          """;
+      promoteNode.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+      promoteNode.Parameters.AddWithValue("$tenantId", request.TenantId);
+      promoteNode.Parameters.AddWithValue(
+          "$expectedHash",
+          request.ExpectedTransportCredentialHash);
+      promoteNode.Parameters.AddWithValue(
+          "$replacementHash",
+          request.ReplacementTransportCredentialHash);
+      if (await promoteNode.ExecuteNonQueryAsync(cancellationToken) != 1)
+      {
+        await transaction.RollbackAsync(cancellationToken);
+        return RelayCredentialRotationStatus.Conflict;
+      }
+    }
+    await using var promoteRotation = connection.CreateCommand();
+    promoteRotation.Transaction = transaction;
+    promoteRotation.CommandText =
+        """
+        UPDATE relay_credential_rotations
+        SET phase = 'promoted',
+            promoted_at = $promotedAt
+        WHERE rotation_id = $rotationId
+          AND node_id = $nodeId
+          AND phase = 'prepared';
+        """;
+    promoteRotation.Parameters.AddWithValue(
+        "$rotationId",
+        request.RotationId.ToString("D"));
+    promoteRotation.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    promoteRotation.Parameters.AddWithValue("$promotedAt", Format(promotedAt));
+    if (await promoteRotation.ExecuteNonQueryAsync(cancellationToken) != 1)
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return RelayCredentialRotationStatus.Conflict;
+    }
+    await transaction.CommitAsync(cancellationToken);
+    return RelayCredentialRotationStatus.Promoted;
   }
 
   public async Task<bool> EnqueueSessionAsync(
@@ -138,7 +318,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
     return await existing.ExecuteScalarAsync(cancellationToken) is not null;
   }
 
-  public async Task<RelaySessionRecord?> PollAsync(
+  public async Task<RelayPollOutcome> PollAsync(
       Guid nodeId,
       string credential,
       DateTimeOffset now,
@@ -149,7 +329,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
     if (!await IsNodeCredentialValidAsync(connection, transaction, nodeId, credential, cancellationToken))
     {
       await transaction.RollbackAsync(cancellationToken);
-      return null;
+      return new RelayPollOutcome(false, null);
     }
     await using (var expire = connection.CreateCommand())
     {
@@ -191,7 +371,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
     if (!await reader.ReadAsync(cancellationToken))
     {
       await transaction.CommitAsync(cancellationToken);
-      return null;
+      return new RelayPollOutcome(true, null);
     }
     var record = ReadRecord(reader);
     await reader.DisposeAsync();
@@ -207,10 +387,12 @@ internal sealed class SqliteRelayStore(string _databasePath)
     update.Parameters.AddWithValue("$sessionId", record.SessionId.ToString("D"));
     await update.ExecuteNonQueryAsync(cancellationToken);
     await transaction.CommitAsync(cancellationToken);
-    return record with { Status = "dispatched" };
+    return new RelayPollOutcome(
+        true,
+        record with { Status = "dispatched" });
   }
 
-  public async Task<bool> UploadResultAsync(
+  public async Task<RelayResultUploadOutcome> UploadResultAsync(
       Guid nodeId,
       Guid sessionId,
       string credential,
@@ -222,7 +404,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
     if (!await IsNodeCredentialValidAsync(connection, transaction, nodeId, credential, cancellationToken))
     {
       await transaction.RollbackAsync(cancellationToken);
-      return false;
+      return RelayResultUploadOutcome.CredentialRejected;
     }
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
@@ -240,7 +422,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
     command.Parameters.AddWithValue("$resultEnvelope", resultEnvelope);
     var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     await transaction.CommitAsync(cancellationToken);
-    return changed;
+    return changed
+        ? RelayResultUploadOutcome.Succeeded
+        : RelayResultUploadOutcome.SessionRejected;
   }
 
   public async Task<RelaySessionRecord?> GetSessionAsync(
@@ -284,6 +468,108 @@ internal sealed class SqliteRelayStore(string _databasePath)
     return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
   }
 
+  private static async Task<RelayCredentialRotationStatus>
+      GetCredentialRotationStatusAsync(
+          SqliteConnection connection,
+          SqliteTransaction transaction,
+          Guid nodeId,
+          RelayNodeCredentialRotationRequest request,
+          CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT
+            node.tenant_id,
+            node.transport_credential_hash,
+            node.revoked_at,
+            rotation.rotation_id,
+            rotation.expected_transport_credential_hash,
+            rotation.replacement_transport_credential_hash,
+            rotation.phase,
+            EXISTS (
+                SELECT 1
+                FROM relay_nodes AS duplicate
+                WHERE duplicate.node_id <> $nodeId
+                  AND duplicate.transport_credential_hash = $replacementHash)
+            OR EXISTS (
+                SELECT 1
+                FROM relay_credential_rotations AS duplicate_rotation
+                WHERE duplicate_rotation.node_id <> $nodeId
+                  AND duplicate_rotation.replacement_transport_credential_hash =
+                          $replacementHash)
+        FROM relay_nodes AS node
+        LEFT JOIN relay_credential_rotations AS rotation
+          ON rotation.node_id = node.node_id
+        WHERE node.node_id = $nodeId;
+        """;
+    command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$replacementHash",
+        request.ReplacementTransportCredentialHash);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    if (!await reader.ReadAsync(cancellationToken))
+    {
+      return RelayCredentialRotationStatus.NotFound;
+    }
+    if (!string.Equals(
+        reader.GetString(0),
+        request.TenantId,
+        StringComparison.Ordinal))
+    {
+      return RelayCredentialRotationStatus.Forbidden;
+    }
+    if (!await reader.IsDBNullAsync(2, cancellationToken))
+    {
+      return RelayCredentialRotationStatus.Revoked;
+    }
+    if (reader.GetBoolean(7))
+    {
+      return RelayCredentialRotationStatus.Conflict;
+    }
+    if (!await reader.IsDBNullAsync(3, cancellationToken))
+    {
+      var exact =
+          Guid.Parse(
+              reader.GetString(3),
+              CultureInfo.InvariantCulture) == request.RotationId &&
+          string.Equals(
+              reader.GetString(4),
+              request.ExpectedTransportCredentialHash,
+              StringComparison.Ordinal) &&
+          string.Equals(
+              reader.GetString(5),
+              request.ReplacementTransportCredentialHash,
+              StringComparison.Ordinal);
+      if (!exact)
+      {
+        if (!string.Equals(
+            reader.GetString(6),
+            "promoted",
+            StringComparison.Ordinal))
+        {
+          return RelayCredentialRotationStatus.Conflict;
+        }
+      }
+      else
+      {
+        return reader.GetString(6) switch
+        {
+          "prepared" => RelayCredentialRotationStatus.Prepared,
+          "promoted" => RelayCredentialRotationStatus.Promoted,
+          _ => RelayCredentialRotationStatus.Conflict,
+        };
+      }
+    }
+    return string.Equals(
+        reader.GetString(1),
+        request.ExpectedTransportCredentialHash,
+        StringComparison.Ordinal)
+        ? RelayCredentialRotationStatus.Authorized
+        : RelayCredentialRotationStatus.Forbidden;
+  }
+
   private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
   {
     var connection = new SqliteConnection($"Data Source={_databasePath};Foreign Keys=True");
@@ -303,10 +589,18 @@ internal sealed class SqliteRelayStore(string _databasePath)
     command.CommandText =
         """
         SELECT 1
-        FROM relay_nodes
-        WHERE node_id = $nodeId
-          AND transport_credential_hash = $hash
-          AND revoked_at IS NULL;
+        FROM relay_nodes AS node
+        WHERE node.node_id = $nodeId
+          AND node.revoked_at IS NULL
+          AND (
+              node.transport_credential_hash = $hash
+              OR EXISTS (
+                  SELECT 1
+                  FROM relay_credential_rotations AS rotation
+                  WHERE rotation.node_id = node.node_id
+                    AND rotation.phase = 'prepared'
+                    AND rotation.replacement_transport_credential_hash =
+                            $hash));
         """;
     command.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
     command.Parameters.AddWithValue("$hash", RelayCredentialHash.Hash(credential));

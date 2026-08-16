@@ -50,20 +50,16 @@ public sealed record SupportIdentityWrite(
     DateTimeOffset EnrollmentExpiresAt);
 
 /// <summary>
-/// Result returned when a support identity is created.
+/// Result returned when a node completes one-time support enrollment.
 /// </summary>
 /// <param name="Identity">Created support identity.</param>
-/// <param name="EnrollmentCode">One-time tenant-bound enrollment code.</param>
 /// <param name="TransportCredential">High-entropy relay bearer credential returned once.</param>
-/// <param name="EnrollmentExpiresAt">Enrollment-code expiry.</param>
 /// <param name="RelayUrl">Relay base URL the support agent should poll.</param>
 /// <param name="AuthorizationSigningPublicKeySpki">Dashboard ECDSA public key pinned by the node.</param>
 /// <param name="ResultEncryptionPublicKeySpki">Dashboard RSA public key used by the node to encrypt results.</param>
 public sealed record CreatedSupportEnrollment(
     SupportIdentity Identity,
-    string EnrollmentCode,
     string TransportCredential,
-    DateTimeOffset EnrollmentExpiresAt,
     string RelayUrl,
     string AuthorizationSigningPublicKeySpki,
     string ResultEncryptionPublicKeySpki);

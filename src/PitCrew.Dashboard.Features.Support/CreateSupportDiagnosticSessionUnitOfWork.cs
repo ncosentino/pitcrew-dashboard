@@ -103,7 +103,11 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         null,
         null,
         null);
-    var status = await _supportStore.CreateSessionAsync(session, cancellationToken);
+    var status = await _supportStore.CreateSessionAsync(
+        session,
+        identity.NodeSigningPublicKeySpki,
+        identity.NodeEncryptionPublicKeySpki,
+        cancellationToken);
     if (status != SupportMutationStatus.Succeeded)
     {
       return new SupportSessionMutation(status, null, null);

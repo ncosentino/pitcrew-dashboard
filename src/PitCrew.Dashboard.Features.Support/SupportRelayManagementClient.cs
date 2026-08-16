@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -51,6 +52,57 @@ internal sealed class SupportRelayManagementClient(
     using var response = await client.PostAsync(
         $"/internal/support/v1/nodes/{nodeId:D}/revoke",
         null,
+        cancellationToken);
+    return response.IsSuccessStatusCode ||
+        response.StatusCode == HttpStatusCode.NotFound
+        ? SupportRelayManagementStatus.Succeeded
+        : SupportRelayManagementStatus.Failed;
+  }
+
+  public async Task<SupportRelayManagementStatus> PrepareNodeCredentialAsync(
+      SupportIdentityRotation rotation,
+      CancellationToken cancellationToken)
+  {
+    if (!IsConfigured)
+    {
+      return SupportRelayManagementStatus.Skipped;
+    }
+    using var client = CreateClient();
+    using var response = await client.PostAsJsonAsync(
+        $"/internal/support/v1/nodes/{rotation.NodeId:D}/prepare-credential",
+        new
+        {
+          rotation.RotationId,
+          rotation.TenantId,
+          rotation.ExpectedTransportCredentialHash,
+          rotation.ReplacementTransportCredentialHash,
+        },
+        _jsonOptions,
+        cancellationToken);
+    return response.IsSuccessStatusCode
+        ? SupportRelayManagementStatus.Succeeded
+        : SupportRelayManagementStatus.Failed;
+  }
+
+  public async Task<SupportRelayManagementStatus> PromoteNodeCredentialAsync(
+      SupportIdentityRotation rotation,
+      CancellationToken cancellationToken)
+  {
+    if (!IsConfigured)
+    {
+      return SupportRelayManagementStatus.Skipped;
+    }
+    using var client = CreateClient();
+    using var response = await client.PostAsJsonAsync(
+        $"/internal/support/v1/nodes/{rotation.NodeId:D}/promote-credential",
+        new
+        {
+          rotation.RotationId,
+          rotation.TenantId,
+          rotation.ExpectedTransportCredentialHash,
+          rotation.ReplacementTransportCredentialHash,
+        },
+        _jsonOptions,
         cancellationToken);
     return response.IsSuccessStatusCode
         ? SupportRelayManagementStatus.Succeeded
@@ -118,7 +170,7 @@ internal sealed class SupportRelayManagementClient(
         : null;
   }
 
-  private bool IsConfigured =>
+  internal bool IsConfigured =>
       _options.Value.RelayInternalBearerSecret.Length is >= 16 and <= 4096 &&
       !_options.Value.RelayInternalBearerSecret.Contains('\r') &&
       !_options.Value.RelayInternalBearerSecret.Contains('\n') &&
