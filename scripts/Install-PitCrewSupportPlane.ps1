@@ -998,10 +998,6 @@ function Set-WindowsServiceDefinition {
             $binaryPath,
             'start=',
             'auto',
-            'obj=',
-            "NT SERVICE\$Name",
-            'password=',
-            '""',
             'DisplayName=',
             $DisplayName
         )
@@ -1014,14 +1010,18 @@ function Set-WindowsServiceDefinition {
             $binaryPath,
             'start=',
             'auto',
-            'obj=',
-            "NT SERVICE\$Name",
-            'password=',
-            '""',
             'DisplayName=',
             $DisplayName
         )
     }
+    Invoke-Checked sc.exe @(
+        'config',
+        $Name,
+        'obj=',
+        "NT SERVICE\$Name",
+        'password=',
+        '""'
+    )
     Invoke-Checked sc.exe @('sidtype', $Name, 'restricted')
     Invoke-Checked sc.exe @('privs', $Name, 'SeChangeNotifyPrivilege')
     Invoke-Checked sc.exe @(
@@ -1666,11 +1666,55 @@ function Assert-SystemdExecStart {
 
     $actual = [string](
         Get-SystemdProperty -Unit $Unit -Property 'ExecStart')
-    if ($actual -notmatch 'path=(?<path>[^ ;]+)' -or
-        $Matches.path -cne $ExpectedExecutable -or
-        $actual -notmatch 'argv\[\]=(?<arguments>[^;]+)' -or
-        $Matches.arguments.Trim() -cne $ExpectedCommand) {
+    if ($actual -notmatch 'path=(?<path>[^ ;]+)') {
         throw 'An effective systemd support-service command was overridden.'
+    }
+    $actualPath = $Matches.path.Trim('"')
+    $resolvedTarget = if (Test-Path -LiteralPath $ExpectedExecutable) {
+        [IO.File]::ResolveLinkTarget(
+            $ExpectedExecutable,
+            $true)
+    } else {
+        $null
+    }
+    $resolvedExpected = if ($null -eq $resolvedTarget) {
+        $ExpectedExecutable
+    } else {
+        $resolvedTarget.FullName
+    }
+    if ($actualPath -cne $ExpectedExecutable -and
+        $actualPath -cne $resolvedExpected) {
+        throw 'An effective systemd support-service command was overridden.'
+    }
+    if ($actual -notmatch 'argv\[\]=(?<arguments>[^;]+)') {
+        throw 'An effective systemd support-service command was overridden.'
+    }
+    $actualTokens = @(
+        $Matches.arguments.Trim().Split(
+            ' ',
+            [StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim('"') }
+    )
+    $expectedTokens = @(
+        $ExpectedCommand.Split(
+            ' ',
+            [StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim('"') }
+    )
+    if ($actualTokens.Count -ne $expectedTokens.Count) {
+        throw 'An effective systemd support-service command was overridden.'
+    }
+    for ($index = 0; $index -lt $expectedTokens.Count; $index++) {
+        if ($index -eq 0) {
+            if ($actualTokens[$index] -cne $ExpectedExecutable -and
+                $actualTokens[$index] -cne $resolvedExpected) {
+                throw 'An effective systemd support-service command was overridden.'
+            }
+            continue
+        }
+        if ($actualTokens[$index] -cne $expectedTokens[$index]) {
+            throw 'An effective systemd support-service command was overridden.'
+        }
     }
 }
 
