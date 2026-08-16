@@ -1672,7 +1672,8 @@ function Assert-SystemdExecStart {
     param(
         [Parameter(Mandatory)][string]$Unit,
         [Parameter(Mandatory)][string]$ExpectedExecutable,
-        [Parameter(Mandatory)][string]$ExpectedCommand
+        [Parameter(Mandatory)][string]$ExpectedCommand,
+        [Parameter(Mandatory)][string]$ExpectedFragmentPath
     )
 
     $actual = [string](
@@ -1680,6 +1681,29 @@ function Assert-SystemdExecStart {
     if ([string]::IsNullOrWhiteSpace($actual)) {
         $actual = [string](
             Get-SystemdProperty -Unit $Unit -Property 'ExecStartEx')
+    }
+    if ([string]::IsNullOrWhiteSpace($actual)) {
+        $fragmentPath = [string](
+            Get-SystemdProperty -Unit $Unit -Property 'FragmentPath')
+        if ($fragmentPath -cne $ExpectedFragmentPath) {
+            throw 'The effective systemd support-service fragment was overridden.'
+        }
+        $execStartLines = @(
+            Get-Content -LiteralPath $fragmentPath |
+                Where-Object { $_.StartsWith('ExecStart=', [StringComparison]::Ordinal) }
+        )
+        if ($execStartLines.Count -ne 1) {
+            throw 'The effective systemd support-service command is unavailable.'
+        }
+        $fragmentCommand = (
+            $execStartLines[0].Substring('ExecStart='.Length).Replace('"', '') -replace
+                '\s+',
+            ' '
+        ).Trim()
+        if ($fragmentCommand -cne $ExpectedCommand) {
+            throw 'An effective systemd support-service command was overridden.'
+        }
+        return
     }
     $actualPath = $null
     $actualArguments = $null
@@ -1796,7 +1820,8 @@ function Assert-EffectiveLinuxServiceBoundary {
     Assert-SystemdExecStart `
         -Unit $linuxAgentService `
         -ExpectedExecutable $agentExecutable `
-        -ExpectedCommand $agentCommand
+        -ExpectedCommand $agentCommand `
+        -ExpectedFragmentPath $Paths.AgentUnitPath
     Assert-SystemdProperty `
         -Unit $linuxAgentService `
         -Property 'WorkingDirectory' `
@@ -1853,7 +1878,8 @@ function Assert-EffectiveLinuxServiceBoundary {
     Assert-SystemdExecStart `
         -Unit $linuxBrokerService `
         -ExpectedExecutable $brokerExecutable `
-        -ExpectedCommand $brokerCommand
+        -ExpectedCommand $brokerCommand `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath
     Assert-SystemdProperty `
         -Unit $linuxBrokerService `
         -Property 'WorkingDirectory' `

@@ -91,6 +91,8 @@ try {
         BrokerInstallRoot = Join-Path $boundaryFixtureRoot 'broker-install'
         AgentStateRoot = Join-Path $boundaryFixtureRoot 'agent-state'
         BrokerStateRoot = Join-Path $boundaryFixtureRoot 'broker-state'
+        AgentUnitPath = Join-Path $boundaryFixtureRoot 'agent.service'
+        BrokerUnitPath = Join-Path $boundaryFixtureRoot 'broker.service'
     }
     New-Item `
         -ItemType Directory `
@@ -244,15 +246,25 @@ try {
                         [StringComparison]::Ordinal)
                 }
         )
+        $unitArgument = @(
+            $arguments |
+                Where-Object {
+                    $_ -cne 'show' -and
+                    $_ -cne '--value' -and
+                    -not $_.StartsWith(
+                        '--property=',
+                        [StringComparison]::Ordinal)
+                }
+        )
         if ($arguments.Count -ne 4 -or
             $arguments[0] -cne 'show' -or
             $propertyArgument.Count -ne 1 -or
-            $arguments[3] -cne '--value') {
+            $unitArgument.Count -ne 1) {
             throw 'The focused systemd verifier received an invalid command.'
         }
         $property = $propertyArgument[0].Substring(
             '--property='.Length)
-        $key = "$($arguments[1])|$property"
+        $key = "$($unitArgument[0])|$property"
         if (-not $script:effectiveSystemdProperties.ContainsKey($key)) {
             throw "The focused systemd verifier omitted '$key'."
         }
