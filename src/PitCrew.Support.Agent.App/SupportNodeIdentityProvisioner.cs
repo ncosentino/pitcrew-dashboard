@@ -19,7 +19,11 @@ internal sealed class SupportNodeIdentityProvisioner(
     if (status.Lifecycle == SupportNodeIdentityLifecycle.Active)
     {
       var active = await _store.LoadActiveAsync(cancellationToken);
-      return active is null ? null : SupportAgentOptions.FromStoredIdentity(active);
+      return active is null
+          ? null
+          : SupportAgentOptions.FromStoredIdentity(
+              active,
+              _bootstrapOptions.SocketPath);
     }
     if (status.Lifecycle is not (
         SupportNodeIdentityLifecycle.Missing or
@@ -56,7 +60,11 @@ internal sealed class SupportNodeIdentityProvisioner(
         return null;
       }
       var active = await _store.LoadActiveAsync(cancellationToken);
-      return active is null ? null : SupportAgentOptions.FromStoredIdentity(active);
+      return active is null
+          ? null
+          : SupportAgentOptions.FromStoredIdentity(
+              active,
+              _bootstrapOptions.SocketPath);
     }
     return _bootstrapOptions.CreateLegacyOrNull(_configuration);
   }

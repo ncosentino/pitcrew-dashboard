@@ -17,6 +17,7 @@ internal enum SupportBrokerStatus
   InvalidMode,
   InvalidProfile,
   ScriptMissing,
+  EvidenceAccessDenied,
   ExecutionFailed,
 }
 

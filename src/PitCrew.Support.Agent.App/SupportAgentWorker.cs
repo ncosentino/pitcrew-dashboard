@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 internal sealed partial class SupportAgentWorker(
     SupportNodeIdentityProvisioner _identityProvisioner,
     SupportNodeIdentityStore _identityStore,
+    SupportAgentBootstrapOptions _bootstrapOptions,
     SupportRelayTransportClient _relayClient,
     TimeProvider _timeProvider,
     ILogger<SupportAgentWorker> _logger) : BackgroundService
@@ -40,10 +41,12 @@ internal sealed partial class SupportAgentWorker(
           SupportAgentIdentityLog.IdentityUnavailable(_logger);
           return;
         }
-        options = SupportAgentOptions.FromStoredIdentity(current);
+        options = SupportAgentOptions.FromStoredIdentity(
+            current,
+            _bootstrapOptions.SocketPath);
         var processor = new SupportAgentRequestProcessor(
             options,
-            new NamedPipeDiagnosticsBroker(options.PipeName),
+            new PlatformDiagnosticsBroker(options),
             new AgentReplayCache(options.ReplayRoot),
             _timeProvider);
         if (!await PollOnceAsync(options, processor, stoppingToken))

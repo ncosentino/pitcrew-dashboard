@@ -39,6 +39,10 @@ builder.Services.AddHttpClient(
 builder.Services.AddSingleton<SupportDashboardIdentityClient>();
 builder.Services.AddSingleton<SupportNodeIdentityProvisioner>();
 builder.Services.AddSingleton<SupportRelayTransportClient>();
+builder.Services.AddWindowsService(service =>
+{
+  service.ServiceName = "PitCrewSupportAgent";
+});
 if (!rotateMode)
 {
   builder.Services.AddHostedService<SupportAgentWorker>();

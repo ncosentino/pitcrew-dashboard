@@ -10,10 +10,12 @@ internal sealed record SupportAgentOptions(
     string DashboardResultEncryptionPublicKeySpki,
     string ReplayRoot,
     string PipeName,
+    string SocketPath,
     ISupportNodePrivateKeySource PrivateKeys)
 {
   public static SupportAgentOptions FromStoredIdentity(
-      StoredSupportNodeIdentity identity) =>
+      StoredSupportNodeIdentity identity,
+      string socketPath) =>
       new(
           identity.TenantId,
           identity.NodeId,
@@ -24,5 +26,6 @@ internal sealed record SupportAgentOptions(
           identity.DashboardResultEncryptionPublicKeySpki,
           identity.ReplayRoot,
           identity.PipeName,
+          socketPath,
           identity);
 }

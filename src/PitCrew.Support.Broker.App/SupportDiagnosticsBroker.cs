@@ -1,13 +1,30 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-using PitCrew.Protocol;
 using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Broker.App;
 
-internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
+internal sealed class SupportDiagnosticsBroker
 {
+  private readonly SupportBrokerOptions _options;
+  private readonly SupportEvidenceAccessValidator _evidenceValidator;
+
+  public SupportDiagnosticsBroker(SupportBrokerOptions options)
+      : this(options, SupportEvidencePolicy.Load())
+  {
+  }
+
+  internal SupportDiagnosticsBroker(
+      SupportBrokerOptions options,
+      SupportEvidencePolicyDocument policy)
+  {
+    _options = options;
+    _evidenceValidator = new SupportEvidenceAccessValidator(
+        options,
+        policy);
+  }
+
   public async Task<SupportBrokerExecution> ExecuteAsync(
       SupportBrokerRequest request,
       CancellationToken cancellationToken)
@@ -19,14 +36,6 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "Diagnostic mode is not allowed.");
     }
-    if (request.ProfileId is not null &&
-        (!PitCrewProfileId.IsValid(request.ProfileId) || !ProfileExists(request.ProfileId)))
-    {
-      return new SupportBrokerExecution(
-          SupportBrokerStatus.InvalidProfile,
-          null,
-          "Profile ID is not locally configured.");
-    }
     if (!IsPackageIdValid(request.PackageId))
     {
       return new SupportBrokerExecution(
@@ -34,28 +43,17 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "Package ID is not a deterministic lowercase hexadecimal identifier.");
     }
-    var scriptPath = Path.Combine(
-        _options.PitCrewRoot,
-        "plugins",
-        "pitcrew-operations",
-        "skills",
-        "pitcrew-remote-diagnostics",
-        "scripts",
-        "Collect-PitCrewDiagnostics.ps1");
-    if (!File.Exists(scriptPath))
+    var evidence = _evidenceValidator.Validate(request.ProfileId);
+    if (!evidence.Succeeded)
     {
       return new SupportBrokerExecution(
-          SupportBrokerStatus.ScriptMissing,
+          evidence.Status,
           null,
-          "The fixed diagnostics collector is not installed.");
+          evidence.Error);
     }
 
     var collectorCommand =
-        $"& {Quote(scriptPath)} -PitCrewRoot {Quote(_options.PitCrewRoot)} -FileOnly -PassThruOnly -DiagnosticMode {Quote(request.DiagnosticMode)} -PackageId {Quote(request.PackageId)}";
-    if (request.ProfileId is not null)
-    {
-      collectorCommand += $" -Profile {Quote(request.ProfileId)}";
-    }
+        $"& {Quote(evidence.CollectorPath!)} -PitCrewRoot {Quote(_options.PitCrewRoot)} -FileOnly -PassThruOnly -DiagnosticMode {Quote(request.DiagnosticMode)} -PackageId {Quote(request.PackageId)} -Profile {Quote(evidence.ProfileId!)}";
     collectorCommand += " | ConvertTo-Json -Depth 100 -Compress";
     var arguments = new List<string>
     {
@@ -118,20 +116,6 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           "The diagnostics collector returned an oversized response.");
     }
     return ParseResponse(output);
-  }
-
-  private bool ProfileExists(string profileId)
-  {
-    var profilesRoot = Path.Combine(_options.PitCrewRoot, ".pitcrew-state");
-    var profileDirectory = Path.Combine(profilesRoot, profileId);
-    var fullProfilesRoot = Path.TrimEndingDirectorySeparator(
-        Path.GetFullPath(profilesRoot)) + Path.DirectorySeparatorChar;
-    var fullProfileDirectory = Path.GetFullPath(profileDirectory);
-    var comparison = OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-    return fullProfileDirectory.StartsWith(fullProfilesRoot, comparison) &&
-        Directory.Exists(fullProfileDirectory);
   }
 
   private static bool IsPackageIdValid(string packageId) =>
