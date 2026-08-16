@@ -22,16 +22,68 @@ ports, tunnels, Docker access, and server-supplied executables.
 ## Identity and enrollment
 
 A support node identity is independent from the normal connector identity. The
-operator generates an ECDSA P-256 signing key and RSA 3072 encryption key on the
-node and submits only their public SPKI values to Dashboard. Dashboard returns
-the support node ID, relay URL, transport credential, Dashboard authorization
-public key, and Dashboard result-encryption public key. The current MVP packages
-do not generate or install private key material; operators must keep exported
-PKCS#8 values in an owner-only local secret store and never submit them to
-Dashboard or the relay.
+agent generates an ECDSA P-256 signing key and RSA-3072 encryption key locally.
+An administrator first creates a one-time tenant-bound enrollment code. The node
+submits that code and only the two public SPKIs to Dashboard. Dashboard consumes
+the code atomically and returns the support node ID, relay URL, a transport
+credential encrypted to the node RSA key, Dashboard authorization public key,
+and Dashboard result-encryption public key. The agent verifies and decrypts the
+credential envelope locally before persisting the returned state. Private keys
+never cross HTTP and Dashboard stores only public SPKIs.
+
+The node persists a random completion ID before its first request. An exact retry
+with the same code, completion ID, and public keys returns the same encrypted
+credential envelope, so a lost response or interrupted local commit is
+recoverable. Reuse with a different completion ID or key pair is rejected as
+replay. A revoked completed identity cannot use this recovery path. Dashboard
+retains consumed enrollment envelopes for
+`EnrollmentRecoveryLifetimeSeconds` (one hour by default), then removes them in
+bounded batches. After that window, recovery requires explicit operator action;
+the agent never silently re-enrolls.
+
+On Windows, the agent creates user-scoped persisted CNG keys under the account
+running the support-agent service. Private export is prohibited and local state
+stores only opaque key names, public metadata, and a transport credential
+encrypted to the non-exportable RSA key. Identity directories and files use a
+protected ACL granting access only to that service identity. Run the service
+under its dedicated service identity so the CNG and ACL boundaries use the
+intended account.
+
+On Linux, the agent uses a dedicated identity directory with mode `0700` and
+PKCS#8 key, transport credential, and manifest files with mode `0600`. Reload
+rejects broader permissions or an owner UID other than the effective support
+agent UID. These are software keys protected by Unix ownership and discretionary
+access control; `root` can still read them. The implementation does not claim
+hardware-backed or root-resistant non-exportability.
 
 Revoking support identity stops the next poll/request exchange. It does not
-revoke or rotate the connector identity.
+revoke or rotate the connector identity. A rejected relay credential marks the
+local identity as requiring explicit operator action; the agent does not silently
+reuse enrollment configuration.
+
+Rotation uses a durable prepare/promote protocol rather than compensating
+rollback. The node stages new keys and a replacement credential while continuing
+to use the old identity. Relay prepare durably accepts both credentials, and
+Dashboard records a `prepared` rotation that blocks new diagnostic sessions.
+Only after both stores acknowledge prepare does the node atomically commit its
+staged identity. The node then finalizes with the replacement credential:
+Dashboard atomically activates the replacement public keys and credential hash,
+the relay promotes the replacement and retires the old credential, and Dashboard
+records `finalized` before sessions resume. Exact retries resume `prepared`,
+`dashboard_promoted`, or `finalized` state. An interruption never depends on
+best-effort rollback: before local commit the old credential remains usable; after
+local commit the replacement is already accepted by the relay. Connector identity
+is not read or changed.
+
+The worker and operator rotation command share a cross-process identity-operation
+lock. The worker reloads protected identity state before each poll, so a completed
+rotation cannot leave it polling with the retired credential.
+
+Local management exposes status, disable, and remove operations. Removal requires
+an explicit preserve-keys or delete-keys choice. Preserving keys removes enrollment
+and transport state but leaves the local key set unusable by the agent; deleting
+keys removes both state and private material. Service stop/start and uninstall
+mechanics remain installer responsibilities.
 
 ## API contract
 
@@ -49,6 +101,86 @@ Content-Type: application/json
   "expiresInSeconds": 300
 }
 ```
+
+Administrators create a one-time node enrollment authorization with:
+
+```http
+POST /api/tenants/{tenantId}/support/v1/enrollment-authorizations
+Authorization: ******
+Content-Type: application/json
+
+{
+  "displayName": "Support node"
+}
+```
+
+The node completes enrollment without a Dashboard user session:
+
+```http
+POST /api/support-agent/v1/enrollments/complete
+Content-Type: application/json
+
+{
+  "tenantId": "<tenant-id>",
+  "enrollmentCode": "<one-time-enrollment-code>",
+  "completionId": "00000000-0000-0000-0000-000000000000",
+  "nodeSigningPublicKeySpki": "<base64url-public-spki>",
+  "nodeEncryptionPublicKeySpki": "<base64url-public-spki>"
+}
+```
+
+The response is cache-disabled and contains the node ID, display name, encrypted
+transport-credential envelope, relay URL, and Dashboard public keys. It contains
+no plaintext transport credential, node private material, or enrollment code.
+Cross-tenant submission, expiry, mismatched retries, and duplicate node key pairs
+fail.
+
+The original `POST /api/tenants/{tenantId}/support/v1/enrollments` manual-key
+contract remains available only when
+`PitCrew__SupportPlane__AllowLegacyManualEnrollment=true`. Its original request
+and response shapes are preserved for compatibility, but it returns plaintext
+bootstrap secrets and is disabled by default. New installations use the
+authorization and node-completion flow above.
+
+Rotation prepare uses:
+
+```http
+POST /api/support-agent/v1/identities/{nodeId}/rotate
+Content-Type: application/json
+
+{
+  "rotationId": "00000000-0000-0000-0000-000000000000",
+  "tenantId": "<tenant-id>",
+  "currentTransportCredential": "<current-credential>",
+  "replacementTransportCredential": "<locally-staged-credential>",
+  "nodeSigningPublicKeySpki": "<base64url-public-spki>",
+  "nodeEncryptionPublicKeySpki": "<base64url-public-spki>"
+}
+```
+
+After local commit, finalization uses:
+
+```http
+POST /api/support-agent/v1/identities/{nodeId}/rotate/finalize
+Content-Type: application/json
+
+{
+  "rotationId": "00000000-0000-0000-0000-000000000000",
+  "tenantId": "<tenant-id>",
+  "currentTransportCredential": "<replacement-credential>"
+}
+```
+
+Neither endpoint accepts private key bytes or connector identity. Anonymous
+enrollment completion and rotation requests are limited in-process to 30 requests
+per minute for each remote network identity and validated functional partition.
+Enrollment partitions use a fixed-size hash of the validated tenant ID. Rotation
+partitions add the validated route node ID, and prepare/finalize share a partition.
+A separate 240-request per-minute remote-network-and-operation ceiling prevents
+partition churn from bypassing abuse protection. Tenant IDs, node IDs, request
+bodies, enrollment codes, and credentials are never used as unbounded counter keys
+or written to rate-limit telemetry. Functional and source counter maps each have a
+hard 1,024-key bound.
 
 `diagnosticMode` is one of `ConnectorOffline`, `CapacityMismatch`,
 `JobNotAssigned`, `HostPressure`, or `Full`. `profileId` is optional and must be
@@ -110,7 +242,15 @@ environment-based:
 | Relay | `SupportRelay__DatabasePath`, `SupportRelay__InternalBearerSecret` |
 | Dashboard | `PitCrew__SupportPlane__RelayUrl`, `PitCrew__SupportPlane__RelayInternalBearerSecret`, `PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8`, `PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8` |
 | Broker | `PitCrewSupport__Broker__PitCrewRoot`, optional `PitCrewSupport__Broker__PipeName` |
-| Agent | `PitCrewSupport__Agent__TenantId`, `NodeId`, `RelayUrl`, `TransportCredential`, both Dashboard public keys, both node private keys, `ReplayRoot`, and optional `PipeName` under the `PitCrewSupport__Agent__` prefix |
+| Agent first enrollment | `PitCrewSupport__Agent__IdentityRoot`, `DashboardUrl`, `TenantId`, `DisplayName`, one-time `EnrollmentCode`, `ReplayRoot`, and optional `PipeName` under the `PitCrewSupport__Agent__` prefix |
+| Agent after enrollment | `PitCrewSupport__Agent__IdentityRoot`; the node ID, relay URL, transport credential, Dashboard public keys, and node key references load from protected local state |
+
+Dashboard optionally accepts
+`PitCrew__SupportPlane__EnrollmentRecoveryLifetimeSeconds`; the validated range
+is 300 through 86,400 seconds and the default is 3,600. Durable relay cleanup runs
+at startup and then every
+`PitCrew__SupportPlane__RelayCleanupIntervalSeconds`; its validated range is 1
+through 3,600 seconds and the default is 30.
 
 Start the relay first, then Dashboard, then the broker and agent. The relay
 serves `/healthz`. The broker resolves profiles only from
@@ -119,20 +259,50 @@ PitCrew root. Keep `ReplayRoot` outside the PitCrew checkout and
 `.pitcrew-state`; the defaults are `%ProgramData%\PitCrew\Support` on Windows
 and `/var/lib/pitcrew-support` on Linux.
 
-`PipeOptions.CurrentUserOnly` means the current MVP agent and broker must run
+The agent archive includes `support-agent.env.example`. Remove the one-time
+enrollment code from the service environment after enrollment. Hardened
+configuration does not accept node private PKCS#8 values. Existing manual
+configuration remains available only when
+`PitCrewSupport__Agent__AllowLegacyPrivateKeyConfiguration=true`; it is a
+compatibility path, not the production default.
+
+Packaged agents expose an installer-consumable rotation mode:
+
+```text
+PitCrew.Support.Agent.App rotate
+```
+
+It writes one JSON outcome containing only `status` and `rotationId`. Exit code
+`0` means rotation finalized, `2` means the locally committed rotation remains
+safe and requires a retry to finalize, and `1` means prepare or local identity
+validation failed. Re-running the same command resumes persisted state.
+
+`PipeOptions.CurrentUserOnly` means the agent and broker must run
 under the same dedicated low-privilege account. Their code and deployment
 artifacts are separate, but filesystem privilege separation is not yet enforced
-by the package. Do not treat the MVP archive as a hardened multi-user-host
-installation; OS-specific service accounts, pipe ACLs, secure key provisioning,
-and install/update/uninstall automation remain required before production
-rollout.
+by the package. Node key provisioning and local identity storage are now
+platform-specific, but service-account creation, stronger pipe ACL packaging,
+and install/update/uninstall lifecycle automation remain owned by the installer
+work.
 
 ## Packaging
 
 Support agent, broker, and relay are separate .NET projects. The deterministic
 packaging script publishes self-contained archives and SHA-256 checksum files for
 `linux-x64`, `linux-arm64`, `win-x64`, and `win-arm64` by default. These archives
-contain binaries and checksums, not hardened service installers.
+contain binaries, checksums, and the agent configuration example, not service
+installers.
 
 The support package does not alter existing connector installation. Operators opt
 in to support identity enrollment separately.
+
+Dashboard durably queues relay registration cleanup before enrollment
+registration. Successful enrollment removes that cleanup record in the same
+SQLite transaction that creates the identity. The enrollment operation owns a
+one-minute durable lease, so maintenance cannot revoke an in-flight registration.
+After interruption or failure, a hosted maintenance worker independently claims
+up to 16 eligible records with a two-minute lease. Failed relay calls release the
+record with exponential backoff starting at 30 seconds and capped at one hour;
+expired leases are reclaimable after process interruption. Confirmed relay
+revocation or absence removes the queue entry. Cleanup logs only generic retry
+state and never tenant IDs, node IDs, credentials, or private host details.

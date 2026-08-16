@@ -31,30 +31,41 @@ internal sealed record AgentRelayPollResponse(
 }
 
 internal sealed class SupportRelayTransportClient(
-    IHttpClientFactory _httpClientFactory,
-    string _transportCredential)
+    IHttpClientFactory _httpClientFactory)
 {
-  public async Task<AgentRelayPollResponse?> PollAsync(
-      Guid nodeId,
+  public async Task<SupportRelayPollOutcome> PollAsync(
+      SupportAgentOptions options,
       CancellationToken cancellationToken)
   {
     using var client = _httpClientFactory.CreateClient(SupportRelayTransportHttpClientOptions.ClientName);
     using var request = new HttpRequestMessage(
         HttpMethod.Get,
-        $"/api/support-relay/v1/nodes/{nodeId:D}/poll");
-    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _transportCredential);
+        new Uri(
+            options.RelayUrl,
+            $"/api/support-relay/v1/nodes/{options.NodeId:D}/poll"));
+    request.Headers.Authorization = new AuthenticationHeaderValue(
+        "Bearer",
+        options.TransportCredential);
     using var response = await client.SendAsync(request, cancellationToken);
+    if (response.StatusCode is
+        System.Net.HttpStatusCode.Unauthorized or
+        System.Net.HttpStatusCode.Forbidden)
+    {
+      return new SupportRelayPollOutcome(false, null);
+    }
     if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
     {
-      return null;
+      return new SupportRelayPollOutcome(true, null);
     }
     response.EnsureSuccessStatusCode();
-    return await response.Content.ReadFromJsonAsync<AgentRelayPollResponse>(
-        cancellationToken: cancellationToken);
+    return new SupportRelayPollOutcome(
+        true,
+        await response.Content.ReadFromJsonAsync<AgentRelayPollResponse>(
+            cancellationToken: cancellationToken));
   }
 
-  public async Task<bool> UploadResultAsync(
-      Guid nodeId,
+  public async Task<SupportRelayUploadOutcome> UploadResultAsync(
+      SupportAgentOptions options,
       Guid sessionId,
       SupportEnvelope resultEnvelope,
       CancellationToken cancellationToken)
@@ -62,15 +73,26 @@ internal sealed class SupportRelayTransportClient(
     using var client = _httpClientFactory.CreateClient(SupportRelayTransportHttpClientOptions.ClientName);
     using var request = new HttpRequestMessage(
         HttpMethod.Post,
-        $"/api/support-relay/v1/nodes/{nodeId:D}/sessions/{sessionId:D}/result")
+        new Uri(
+            options.RelayUrl,
+            $"/api/support-relay/v1/nodes/{options.NodeId:D}/sessions/{sessionId:D}/result"))
     {
       Content = JsonContent.Create(new
       {
         ResultEnvelope = System.Text.Json.JsonSerializer.Serialize(resultEnvelope),
       }),
     };
-    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _transportCredential);
+    request.Headers.Authorization = new AuthenticationHeaderValue(
+        "Bearer",
+        options.TransportCredential);
     using var response = await client.SendAsync(request, cancellationToken);
-    return response.IsSuccessStatusCode;
+    return response.StatusCode switch
+    {
+      System.Net.HttpStatusCode.Unauthorized or
+      System.Net.HttpStatusCode.Forbidden =>
+          SupportRelayUploadOutcome.CredentialRejected,
+      System.Net.HttpStatusCode.NoContent => SupportRelayUploadOutcome.Succeeded,
+      _ => SupportRelayUploadOutcome.SessionRejected,
+    };
   }
 }

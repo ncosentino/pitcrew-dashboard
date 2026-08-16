@@ -46,6 +46,18 @@ static string? ReadBearer(HttpRequest request)
       : null;
 }
 
+static IResult ToRotationResult(RelayCredentialRotationStatus status) =>
+    status switch
+    {
+      RelayCredentialRotationStatus.Prepared or
+      RelayCredentialRotationStatus.Promoted => Results.NoContent(),
+      RelayCredentialRotationStatus.NotFound => Results.NotFound(),
+      RelayCredentialRotationStatus.Forbidden or
+      RelayCredentialRotationStatus.Revoked => Results.StatusCode(
+          StatusCodes.Status403Forbidden),
+      _ => Results.Conflict(),
+    };
+
 var internalApi = app.MapGroup("/internal/support/v1");
 internalApi.MapPost("/nodes", async (
     HttpContext context,
@@ -77,6 +89,44 @@ internalApi.MapPost("/nodes/{nodeId:guid}/revoke", async (
   return await relayStore.RevokeNodeAsync(nodeId, timeProvider.GetUtcNow(), cancellationToken)
       ? Results.NoContent()
       : Results.NotFound();
+});
+internalApi.MapPost("/nodes/{nodeId:guid}/prepare-credential", async (
+    HttpContext context,
+    Guid nodeId,
+    RelayNodeCredentialRotationRequest request,
+    RelayOptions options,
+    SqliteRelayStore relayStore,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken) =>
+{
+  if (!HasInternalBearer(context.Request, options))
+  {
+    return Results.Unauthorized();
+  }
+  return ToRotationResult(await relayStore.PrepareNodeCredentialAsync(
+      nodeId,
+      request,
+      timeProvider.GetUtcNow(),
+      cancellationToken));
+});
+internalApi.MapPost("/nodes/{nodeId:guid}/promote-credential", async (
+    HttpContext context,
+    Guid nodeId,
+    RelayNodeCredentialRotationRequest request,
+    RelayOptions options,
+    SqliteRelayStore relayStore,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken) =>
+{
+  if (!HasInternalBearer(context.Request, options))
+  {
+    return Results.Unauthorized();
+  }
+  return ToRotationResult(await relayStore.PromoteNodeCredentialAsync(
+      nodeId,
+      request,
+      timeProvider.GetUtcNow(),
+      cancellationToken));
 });
 internalApi.MapPost("/sessions", async (
     HttpContext context,
@@ -158,10 +208,21 @@ nodeApi.MapGet("/poll", async (
   {
     return Results.Unauthorized();
   }
-  var session = await relayStore.PollAsync(nodeId, bearer, timeProvider.GetUtcNow(), cancellationToken);
-  return session is null
+  var outcome = await relayStore.PollAsync(
+      nodeId,
+      bearer,
+      timeProvider.GetUtcNow(),
+      cancellationToken);
+  if (!outcome.CredentialAccepted)
+  {
+    return Results.Unauthorized();
+  }
+  return outcome.Session is null
       ? Results.StatusCode((int)HttpStatusCode.NoContent)
-      : Results.Ok(new RelayPollResponse(session.SessionId, session.RequestEnvelope, session.ExpiresAt));
+      : Results.Ok(new RelayPollResponse(
+          outcome.Session.SessionId,
+          outcome.Session.RequestEnvelope,
+          outcome.Session.ExpiresAt));
 });
 nodeApi.MapPost("/sessions/{sessionId:guid}/result", async (
     HttpContext context,
@@ -181,9 +242,18 @@ nodeApi.MapPost("/sessions/{sessionId:guid}/result", async (
   {
     return Results.BadRequest();
   }
-  return await relayStore.UploadResultAsync(nodeId, sessionId, bearer, request.ResultEnvelope, cancellationToken)
-      ? Results.NoContent()
-      : Results.NotFound();
+  var outcome = await relayStore.UploadResultAsync(
+      nodeId,
+      sessionId,
+      bearer,
+      request.ResultEnvelope,
+      cancellationToken);
+  return outcome switch
+  {
+    RelayResultUploadOutcome.Succeeded => Results.NoContent(),
+    RelayResultUploadOutcome.CredentialRejected => Results.Unauthorized(),
+    _ => Results.NotFound(),
+  };
 });
 
 await app.RunAsync();

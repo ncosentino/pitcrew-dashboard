@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
@@ -540,6 +541,12 @@ internal sealed class TestConfigurationScope : IDisposable
       "PitCrew__Authentication__SystemAdministratorGitHubIds__0";
   private const string DatabasePathKey =
       "PitCrew__Sqlite__DatabasePath";
+  private const string RelayUrlKey =
+      "PitCrew__SupportPlane__RelayUrl";
+  private const string RelaySecretKey =
+      "PitCrew__SupportPlane__RelayInternalBearerSecret";
+  private const string RelayCleanupIntervalKey =
+      "PitCrew__SupportPlane__RelayCleanupIntervalSeconds";
   private const string EnvironmentKey =
       "ASPNETCORE_ENVIRONMENT";
   private readonly string? _previousAuthenticationMode =
@@ -554,6 +561,12 @@ internal sealed class TestConfigurationScope : IDisposable
       Environment.GetEnvironmentVariable(SystemAdministratorKey);
   private readonly string? _previousDatabasePath =
       Environment.GetEnvironmentVariable(DatabasePathKey);
+  private readonly string? _previousRelayUrl =
+      Environment.GetEnvironmentVariable(RelayUrlKey);
+  private readonly string? _previousRelaySecret =
+      Environment.GetEnvironmentVariable(RelaySecretKey);
+  private readonly string? _previousRelayCleanupInterval =
+      Environment.GetEnvironmentVariable(RelayCleanupIntervalKey);
   private readonly string? _previousEnvironment =
       Environment.GetEnvironmentVariable(EnvironmentKey);
   private readonly string _dataProtectionKeyPath;
@@ -566,6 +579,21 @@ internal sealed class TestConfigurationScope : IDisposable
           string.Empty,
           string.Empty)
   {
+  }
+
+  public TestConfigurationScope(
+      string databasePath,
+      string relayUrl,
+      string relaySecret,
+      int relayCleanupIntervalSeconds)
+      : this(databasePath)
+  {
+    Environment.SetEnvironmentVariable(RelayUrlKey, relayUrl);
+    Environment.SetEnvironmentVariable(RelaySecretKey, relaySecret);
+    Environment.SetEnvironmentVariable(
+        RelayCleanupIntervalKey,
+        relayCleanupIntervalSeconds.ToString(
+            CultureInfo.InvariantCulture));
   }
 
   public TestConfigurationScope(
@@ -642,6 +670,15 @@ internal sealed class TestConfigurationScope : IDisposable
     Environment.SetEnvironmentVariable(
         DatabasePathKey,
         _previousDatabasePath);
+    Environment.SetEnvironmentVariable(
+        RelayUrlKey,
+        _previousRelayUrl);
+    Environment.SetEnvironmentVariable(
+        RelaySecretKey,
+        _previousRelaySecret);
+    Environment.SetEnvironmentVariable(
+        RelayCleanupIntervalKey,
+        _previousRelayCleanupInterval);
     Environment.SetEnvironmentVariable(
         EnvironmentKey,
         _previousEnvironment);

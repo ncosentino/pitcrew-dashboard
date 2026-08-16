@@ -1,9 +1,11 @@
 using System.Text.Json;
 
+using PitCrew.Support.Protocol;
+
 namespace PitCrew.Dashboard.Features.Support;
 
 /// <summary>
-/// Request to create a support identity and enrollment material.
+/// Legacy request to create a support identity from manually supplied public keys.
 /// </summary>
 /// <param name="DisplayName">Operator-facing support node label.</param>
 /// <param name="NodeSigningPublicKeySpki">Node ECDSA public key as base64url SPKI.</param>
@@ -14,8 +16,16 @@ public sealed record CreateSupportEnrollmentRequest(
     string NodeEncryptionPublicKeySpki);
 
 /// <summary>
-/// Response containing support identity metadata and one-time secret material.
+/// Legacy response containing support identity metadata and one-time secret material.
 /// </summary>
+/// <param name="NodeId">Dashboard-assigned support node identifier.</param>
+/// <param name="DisplayName">Operator-facing support node label.</param>
+/// <param name="EnrollmentCode">One-time tenant-bound enrollment code.</param>
+/// <param name="TransportCredential">Relay bearer credential returned once.</param>
+/// <param name="EnrollmentExpiresAt">Enrollment expiry time.</param>
+/// <param name="RelayUrl">Relay base URL.</param>
+/// <param name="AuthorizationSigningPublicKeySpki">Dashboard request-signing public SPKI.</param>
+/// <param name="ResultEncryptionPublicKeySpki">Dashboard result-encryption public SPKI.</param>
 public sealed record CreatedSupportEnrollmentResponse(
     string NodeId,
     string DisplayName,
@@ -25,6 +35,103 @@ public sealed record CreatedSupportEnrollmentResponse(
     string RelayUrl,
     string AuthorizationSigningPublicKeySpki,
     string ResultEncryptionPublicKeySpki);
+
+/// <summary>
+/// Request to create one tenant-bound support enrollment authorization.
+/// </summary>
+/// <param name="DisplayName">Operator-facing support node label.</param>
+public sealed record CreateSupportEnrollmentAuthorizationRequest(
+    string DisplayName);
+
+/// <summary>
+/// Response containing one-time tenant-bound enrollment material.
+/// </summary>
+/// <param name="DisplayName">Operator-facing support node label.</param>
+/// <param name="EnrollmentCode">One-time tenant-bound enrollment code.</param>
+/// <param name="EnrollmentExpiresAt">Enrollment expiry time.</param>
+public sealed record CreatedSupportEnrollmentAuthorizationResponse(
+    string DisplayName,
+    string EnrollmentCode,
+    DateTimeOffset EnrollmentExpiresAt);
+
+/// <summary>
+/// Request submitted by a node to complete one-time support enrollment.
+/// </summary>
+/// <param name="TenantId">Tenant bound to the one-time enrollment.</param>
+/// <param name="EnrollmentCode">One-time enrollment code.</param>
+/// <param name="CompletionId">Stable node-generated identifier for exact retry recovery.</param>
+/// <param name="NodeSigningPublicKeySpki">Locally generated ECDSA P-256 public SPKI.</param>
+/// <param name="NodeEncryptionPublicKeySpki">Locally generated RSA-3072 public SPKI.</param>
+public sealed record CompleteSupportEnrollmentRequest(
+    string TenantId,
+    string EnrollmentCode,
+    Guid CompletionId,
+    string NodeSigningPublicKeySpki,
+    string NodeEncryptionPublicKeySpki);
+
+/// <summary>
+/// Response returned after successful node enrollment.
+/// </summary>
+/// <param name="NodeId">Dashboard-assigned support node identifier.</param>
+/// <param name="DisplayName">Operator-facing support node label.</param>
+/// <param name="TransportCredentialEnvelope">Credential encrypted to the node RSA key.</param>
+/// <param name="RelayUrl">Relay base URL.</param>
+/// <param name="AuthorizationSigningPublicKeySpki">Dashboard request-signing public SPKI.</param>
+/// <param name="ResultEncryptionPublicKeySpki">Dashboard result-encryption public SPKI.</param>
+public sealed record CompletedSupportEnrollmentResponse(
+    string NodeId,
+    string DisplayName,
+    SupportEnvelope TransportCredentialEnvelope,
+    string RelayUrl,
+    string AuthorizationSigningPublicKeySpki,
+    string ResultEncryptionPublicKeySpki);
+
+/// <summary>
+/// Response returned after successful node rotation.
+/// </summary>
+/// <param name="NodeId">Dashboard-assigned support node identifier.</param>
+/// <param name="DisplayName">Operator-facing support node label.</param>
+/// <param name="TransportCredential">Accepted replacement relay credential.</param>
+/// <param name="RelayUrl">Relay base URL.</param>
+/// <param name="AuthorizationSigningPublicKeySpki">Dashboard request-signing public SPKI.</param>
+/// <param name="ResultEncryptionPublicKeySpki">Dashboard result-encryption public SPKI.</param>
+public sealed record CompletedSupportIdentityResponse(
+    string NodeId,
+    string DisplayName,
+    string TransportCredential,
+    string RelayUrl,
+    string AuthorizationSigningPublicKeySpki,
+    string ResultEncryptionPublicKeySpki);
+
+/// <summary>
+/// Request to atomically rotate one active support identity.
+/// </summary>
+/// <param name="RotationId">Node-generated idempotency identifier.</param>
+/// <param name="TenantId">Tenant that owns the support node.</param>
+/// <param name="CurrentTransportCredential">Current relay credential authorizing rotation.</param>
+/// <param name="ReplacementTransportCredential">Locally staged replacement relay credential.</param>
+/// <param name="NodeSigningPublicKeySpki">Staged ECDSA P-256 public SPKI.</param>
+/// <param name="NodeEncryptionPublicKeySpki">Staged RSA-3072 public SPKI.</param>
+public sealed record RotateSupportIdentityRequest(
+    Guid RotationId,
+    string TenantId,
+    string CurrentTransportCredential,
+    string ReplacementTransportCredential,
+    string NodeSigningPublicKeySpki,
+    string NodeEncryptionPublicKeySpki);
+
+/// <summary>
+/// Request to finalize one prepared support identity rotation.
+/// </summary>
+/// <param name="RotationId">Node-generated rotation identifier.</param>
+/// <param name="TenantId">Tenant that owns the support node.</param>
+/// <param name="CurrentTransportCredential">
+/// Locally committed replacement relay credential.
+/// </param>
+public sealed record FinalizeSupportIdentityRotationRequest(
+    Guid RotationId,
+    string TenantId,
+    string CurrentTransportCredential);
 
 /// <summary>
 /// Support identity metadata safe for Dashboard display.
