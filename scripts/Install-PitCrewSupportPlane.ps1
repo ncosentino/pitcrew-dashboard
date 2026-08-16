@@ -1131,12 +1131,85 @@ function Stop-WindowsSupportServices {
     }
 }
 
+function Get-WindowsServiceFailureDiagnostics {
+    param([Parameter(Mandatory)][string]$Name)
+
+    $parts = [Collections.Generic.List[string]]::new()
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+        $parts.Add('status=unavailable')
+    } else {
+        try {
+            $parts.Add("status=$($service.Status)")
+        } finally {
+            $service.Dispose()
+        }
+    }
+    try {
+        $metadata = Get-CimInstance `
+            -ClassName Win32_Service `
+            -Filter "Name='$Name'" `
+            -ErrorAction Stop
+        if ($null -ne $metadata) {
+            $parts.Add("state=$($metadata.State)")
+            $parts.Add("win32ExitCode=$($metadata.ExitCode)")
+            $parts.Add(
+                "serviceSpecificExitCode=$($metadata.ServiceSpecificExitCode)")
+            $parts.Add("processId=$($metadata.ProcessId)")
+        }
+    } catch {
+        $parts.Add('metadata=unavailable')
+    }
+    try {
+        $eventIds = @(
+            Get-WinEvent `
+                -FilterHashtable @{
+                    LogName = 'System'
+                    ProviderName = 'Service Control Manager'
+                    StartTime = [DateTime]::UtcNow.AddMinutes(-5)
+                } `
+                -MaxEvents 32 `
+                -ErrorAction Stop |
+                Where-Object {
+                    $_.Properties.Count -gt 0 -and
+                    [string]$_.Properties[0].Value -in @(
+                        $Name,
+                        "PitCrew isolated file-only diagnostics broker",
+                        "PitCrew isolated support transport agent"
+                    )
+                } |
+                Select-Object -ExpandProperty Id -Unique
+        )
+        $parts.Add(
+            "serviceControlEventIds=$(if ($eventIds.Count) {
+                $eventIds -join ','
+            } else {
+                'none'
+            })")
+    } catch {
+        $parts.Add('serviceControlEventIds=unavailable')
+    }
+    return $parts -join '; '
+}
+
 function Start-WindowsSupportServices {
-    Start-Service -Name $windowsBrokerService
+    try {
+        Start-Service -Name $windowsBrokerService
+    } catch {
+        $diagnostics = Get-WindowsServiceFailureDiagnostics `
+            -Name $windowsBrokerService
+        throw "The Windows support broker failed to start. Bounded diagnostics: $diagnostics"
+    }
     (Get-Service -Name $windowsBrokerService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,
         [TimeSpan]::FromSeconds(30))
-    Start-Service -Name $windowsAgentService
+    try {
+        Start-Service -Name $windowsAgentService
+    } catch {
+        $diagnostics = Get-WindowsServiceFailureDiagnostics `
+            -Name $windowsAgentService
+        throw "The Windows support agent failed to start. Bounded diagnostics: $diagnostics"
+    }
     (Get-Service -Name $windowsAgentService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,
         [TimeSpan]::FromSeconds(30))
@@ -2519,11 +2592,17 @@ function Revoke-LinuxEvidenceAccess {
     if (Test-Path -LiteralPath $connectorRoot -PathType Container) {
         $roots.Add($connectorRoot)
     }
+    $agentUid = [string]$Settings.ExpectedAgentUid
+    $brokerUid = [string]$Settings.BrokerUid
+    if ($agentUid -notmatch '^[0-9]+$' -or
+        $brokerUid -notmatch '^[0-9]+$') {
+        throw 'Installed Linux support identity metadata is invalid.'
+    }
     foreach ($root in $roots) {
         Invoke-Checked setfacl @(
             '-R',
             '-x',
-            "u:$linuxAgentUser,u:$linuxBrokerUser",
+            "u:$agentUid,u:$brokerUid",
             $root
         )
         $directories = @(
@@ -2538,7 +2617,7 @@ function Revoke-LinuxEvidenceAccess {
         foreach ($directory in $directories) {
             Invoke-Checked setfacl @(
                 '-x',
-                "d:u:$linuxAgentUser,d:u:$linuxBrokerUser",
+                "d:u:$agentUid,d:u:$brokerUid",
                 $directory.FullName
             )
         }

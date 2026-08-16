@@ -951,7 +951,7 @@ try {
                 try {
                     Invoke-Installer `
                         -LifecycleAction 'Uninstall' `
-                        -Identity 'Preserve'
+                        -Identity 'PreserveKeys'
                 } catch {
                     $supplementaryMembershipRejected =
                         $_.Exception.Message.Contains(
@@ -984,7 +984,7 @@ try {
                 try {
                     Invoke-Installer `
                         -LifecycleAction 'Uninstall' `
-                        -Identity 'Preserve'
+                        -Identity 'PreserveKeys'
                 } catch {
                     $primaryGroupUsageRejected =
                         $_.Exception.Message.Contains(
@@ -1097,14 +1097,14 @@ try {
     ) 'Reinstallation did not consume the preserved identity marker.'
     Invoke-Installer `
         -LifecycleAction 'Uninstall' `
-        -Identity 'Preserve'
+        -Identity 'PreserveKeys'
     $installed = $false
 } finally {
     if ($installed) {
         try {
             Invoke-Installer `
                 -LifecycleAction 'Uninstall' `
-                -Identity 'Preserve'
+                -Identity 'PreserveKeys'
         } catch {
             Write-Warning 'Product-owned support services require hosted-runner cleanup.'
         }
