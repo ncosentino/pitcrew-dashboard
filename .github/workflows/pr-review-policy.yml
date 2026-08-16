@@ -12,6 +12,7 @@ permissions:
   checks: write
   contents: read
   pull-requests: read
+  statuses: write
 
 concurrency:
   group: review-policy-${{ github.event.pull_request.number }}
@@ -119,6 +120,19 @@ jobs:
               --method POST \
               "repos/$GH_REPO/check-runs" \
               --input - >/dev/null
+
+          state=success
+          if [ "$conclusion" != 'success' ]; then
+            state=failure
+          fi
+          gh api \
+            --method POST \
+            "repos/$GH_REPO/statuses/$head_sha" \
+            -f state="$state" \
+            -f context='Review policy' \
+            -f description="$title" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            >/dev/null
 
           if [ "$conclusion" != 'success' ]; then
             echo "::error::$summary"
