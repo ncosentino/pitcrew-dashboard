@@ -445,12 +445,12 @@ $installer.Contains(
 ) 'Windows service lifecycle rights depend on an image-default service DACL.'
 Add-Check (
 $installer.Contains(
-    '''password= ""''',
+    "'NT AUTHORITY\LocalService'",
     [StringComparison]::Ordinal) -and
 $installer.Contains(
-    '"NT SERVICE\$Name",',
+    "@('sidtype', `$Name, 'unrestricted')",
     [StringComparison]::Ordinal)
-) 'Windows virtual service account configuration omits the explicit empty password.'
+) 'Windows services do not combine LocalService with distinct unrestricted service SIDs.'
 Add-Check (
     $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',

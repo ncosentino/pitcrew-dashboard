@@ -266,12 +266,12 @@ function Invoke-InstalledBrokerNetworkDenialProbe {
     if (-not (Test-PublicTcpConnection)) {
         throw 'The hosted runner could not establish the public network control connection.'
     }
-    $probePath = Join-Path $Paths.BrokerStateRoot (
-        if ($IsWindows) {
-            'network-denial-probe.ps1'
-        } else {
-            'network-denial-probe.sh'
-        })
+    $probeFileName = if ($IsWindows) {
+        'network-denial-probe.ps1'
+    } else {
+        'network-denial-probe.sh'
+    }
+    $probePath = Join-Path $Paths.BrokerStateRoot $probeFileName
     $resultPath = Join-Path $Paths.BrokerStateRoot 'network-denial-result.txt'
     if ($IsWindows) {
         Write-NetworkProbeScript -Path $probePath
@@ -682,9 +682,17 @@ try {
         $brokerService = Get-CimInstance `
             -ClassName Win32_Service `
             -Filter "Name='PitCrewSupportBroker'"
+        $agentSid = [Security.Principal.NTAccount]::new(
+            'NT SERVICE\PitCrewSupportAgent').Translate(
+                [Security.Principal.SecurityIdentifier])
+        $brokerSid = [Security.Principal.NTAccount]::new(
+            'NT SERVICE\PitCrewSupportBroker').Translate(
+                [Security.Principal.SecurityIdentifier])
         Add-Check (
-            $agentService.StartName -ne $brokerService.StartName
-        ) 'Windows agent and broker use the same service identity.'
+            $agentService.StartName -eq 'NT AUTHORITY\LocalService' -and
+            $brokerService.StartName -eq 'NT AUTHORITY\LocalService' -and
+            $agentSid.Value -ne $brokerSid.Value
+        ) 'Windows services do not use the restricted base account with distinct service SIDs.'
     } else {
         $brokerUser = (& systemctl show `
             pitcrew-support-broker.service `

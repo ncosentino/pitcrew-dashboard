@@ -1081,8 +1081,7 @@ function Set-WindowsServiceDefinition {
         'config',
         $Name,
         'obj=',
-        "NT SERVICE\$Name",
-        'password= ""'
+        'NT AUTHORITY\LocalService'
     )
     Invoke-Checked sc.exe @(
         'sdset',
@@ -1189,7 +1188,8 @@ function Assert-WindowsBrokerHasNoDockerAccess {
     $members = @(
         Get-LocalGroupMember -Group $dockerGroup -ErrorAction Stop
     )
-    if ($members.Name -contains "NT SERVICE\$windowsBrokerService") {
+    if ($members.Name -contains "NT SERVICE\$windowsBrokerService" -or
+        $members.Name -contains 'NT AUTHORITY\LOCAL SERVICE') {
         throw 'The broker service identity belongs to docker-users.'
     }
 }
@@ -1242,7 +1242,7 @@ function Get-WindowsServiceFailureDiagnostics {
             $parts.Add(
                 "serviceSpecificExitCode=$($metadata.ServiceSpecificExitCode)")
             $parts.Add("processId=$($metadata.ProcessId)")
-            $expectedStartName = "NT SERVICE\$Name"
+            $expectedStartName = 'NT AUTHORITY\LocalService'
             $parts.Add(
                 "startNameExpected=$($metadata.StartName -eq $expectedStartName)")
             $parts.Add("startMode=$($metadata.StartMode)")
@@ -4155,10 +4155,9 @@ function Invoke-Verify {
         $broker = Get-CimInstance `
             -ClassName Win32_Service `
             -Filter "Name='$windowsBrokerService'"
-        if ($agent.StartName -eq $broker.StartName -or
-            $agent.StartName -ne "NT SERVICE\$windowsAgentService" -or
-            $broker.StartName -ne "NT SERVICE\$windowsBrokerService") {
-            throw 'The Windows support services do not use separate product identities.'
+        if ($agent.StartName -ne 'NT AUTHORITY\LocalService' -or
+            $broker.StartName -ne 'NT AUTHORITY\LocalService') {
+            throw 'The Windows support services do not use the restricted base identity.'
         }
         $expectedStartMode = if ([bool]$Manifest.enabled) {
             'Auto'

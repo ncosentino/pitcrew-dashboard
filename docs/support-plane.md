@@ -240,8 +240,8 @@ installations that overlap its fixed service names or product roots.
 
 ### Windows
 
-- `PitCrewSupportAgent` and `PitCrewSupportBroker` run as distinct restricted
-  virtual service identities.
+- `PitCrewSupportAgent` and `PitCrewSupportBroker` run under `LocalService` with
+  distinct unrestricted service SIDs as their resource and IPC identities.
 - The broker creates `pitcrew-support-broker-v1` with a protected ACL containing
   only the support-agent service SID, broker service SID, LocalSystem, and local
   Administrators. It impersonates each client and requires the configured agent
