@@ -103,11 +103,17 @@ try {
         Out-Null
     [IO.File]::WriteAllText(
         $boundaryPaths.AgentUnitPath,
-        "WorkingDirectory=$($boundaryPaths.AgentStateRoot)`n",
+        @(
+            "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
+            'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
+        ) -join "`n",
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(
         $boundaryPaths.BrokerUnitPath,
-        "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)`n",
+        @(
+            "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
+            'RestrictAddressFamilies=AF_UNIX'
+        ) -join "`n",
         [Text.UTF8Encoding]::new($false))
     $pitCrewRoot = '/opt/pitcrew'
     [IO.File]::WriteAllText(
@@ -377,6 +383,11 @@ Add-Check (
         "New-ItemProperty",
         [StringComparison]::Ordinal)
 ) 'Windows services do not use protected single-file extraction roots.'
+Add-Check (
+$installer.Contains(
+    'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)',
+    [StringComparison]::Ordinal)
+) 'Windows service lifecycle rights depend on an image-default service DACL.'
 Add-Check (
     $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',

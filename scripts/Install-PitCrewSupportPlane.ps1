@@ -1073,6 +1073,11 @@ function Set-WindowsServiceDefinition {
         'obj=',
         "NT SERVICE\$Name"
     )
+    Invoke-Checked sc.exe @(
+        'sdset',
+        $Name,
+        'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)'
+    )
     New-Item -ItemType Directory -Path $BundleExtractRoot -Force | Out-Null
     New-ItemProperty `
         -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" `
@@ -1936,10 +1941,11 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -Property 'PrivateNetwork' `
         -Expected 'no'
-    Assert-SystemdSetProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
-        -Property 'RestrictAddressFamilies' `
-        -Expected @('AF_INET', 'AF_INET6', 'AF_UNIX')
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'RestrictAddressFamilies' `
+        -Expected 'AF_UNIX AF_INET AF_INET6'
     Assert-SystemdProperty `
         -Unit $linuxAgentService `
         -Property 'IPAddressDeny' `
@@ -1995,10 +2001,11 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -Property 'PrivateNetwork' `
         -Expected 'yes'
-    Assert-SystemdSetProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'RestrictAddressFamilies' `
-        -Expected @('AF_UNIX')
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'RestrictAddressFamilies' `
+        -Expected 'AF_UNIX'
     $ipDeny = [string](Get-SystemdProperty `
         -Unit $linuxBrokerService `
         -Property 'IPAddressDeny')
