@@ -1684,6 +1684,11 @@ WantedBy=multi-user.target
         $Paths.BrokerUnitPath,
         $brokerUnit,
         [Text.UTF8Encoding]::new($false))
+    Invoke-Checked systemd-analyze @(
+        'verify',
+        $Paths.AgentUnitPath,
+        $Paths.BrokerUnitPath
+    )
     Invoke-Checked systemctl @('daemon-reload')
 }
 

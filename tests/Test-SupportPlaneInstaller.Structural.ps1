@@ -449,6 +449,17 @@ Add-Check (
 ) 'The Linux broker unit does not structurally remove network access.'
 Add-Check (
     $installer.Contains(
+        'Invoke-Checked systemd-analyze @(',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        '$Paths.AgentUnitPath,',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        '$Paths.BrokerUnitPath',
+        [StringComparison]::Ordinal)
+) 'Linux units are not parser-verified before service installation.'
+Add-Check (
+    $installer.Contains(
         "-Direction Outbound",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
