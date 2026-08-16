@@ -108,6 +108,7 @@ try {
             "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
             'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
             "ReadWritePaths=$($boundaryPaths.AgentStateRoot)"
+            'UMask=0077'
         ) -join "`n",
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(
@@ -117,6 +118,7 @@ try {
             'RestrictAddressFamilies=AF_UNIX'
             "ReadWritePaths=/run/pitcrew-support $($boundaryPaths.BrokerStateRoot)"
             "BindReadOnlyPaths=$pitCrewRoot"
+            'UMask=0007'
         ) -join "`n",
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(

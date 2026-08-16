@@ -1987,9 +1987,10 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -Property 'RuntimeDirectory' `
         -Expected ''
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
-        -Property 'UMask' `
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'UMask' `
         -Expected '0077'
     Assert-SystemdProperty `
         -Unit $linuxAgentService `
@@ -2058,9 +2059,10 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -Property 'RuntimeDirectoryMode' `
         -Expected '0750'
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'UMask' `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'UMask' `
         -Expected '0007'
     Assert-SystemdProperty `
         -Unit $linuxBrokerService `
