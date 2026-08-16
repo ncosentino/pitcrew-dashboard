@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="NexusLabs.Needlr.Generators.Attributes" />
     <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
   </ItemGroup>
 

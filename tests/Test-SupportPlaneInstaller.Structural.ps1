@@ -17,6 +17,8 @@ $policyPath = Join-Path (
 ) 'assets' 'support-plane' 'support-evidence-policy-v0.10.0.json'
 $brokerRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Broker.App'
 $agentRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Agent.App'
+$brokerProjectPath = Join-Path $brokerRoot 'PitCrew.Support.Broker.App.csproj'
+$agentProjectPath = Join-Path $agentRoot 'PitCrew.Support.Agent.App.csproj'
 $errors = [Collections.Generic.List[string]]::new()
 $checks = 0
 
@@ -368,6 +370,22 @@ Add-Check (
 
 $installer = Get-Content -LiteralPath $installerPath -Raw -Encoding UTF8
 $hostTest = Get-Content -LiteralPath $hostTestPath -Raw -Encoding UTF8
+$brokerProject = Get-Content `
+    -LiteralPath $brokerProjectPath `
+    -Raw `
+    -Encoding UTF8
+$agentProject = Get-Content `
+    -LiteralPath $agentProjectPath `
+    -Raw `
+    -Encoding UTF8
+Add-Check (
+    $brokerProject.Contains(
+        '<NeedlrAutoGenerate>false</NeedlrAutoGenerate>',
+        [StringComparison]::Ordinal) -and
+    $agentProject.Contains(
+        '<PackageReference Include="NexusLabs.Needlr.Generators.Attributes" />',
+        [StringComparison]::Ordinal)
+) 'Support single-file apps do not pin their required Needlr runtime behavior.'
 foreach ($action in @(
     "'Install'",
     "'Update'",

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
