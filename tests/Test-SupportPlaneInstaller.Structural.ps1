@@ -482,15 +482,18 @@ Add-Check (
 ) 'Linux lifecycle verification relies on ambiguous systemctl exit codes.'
 Add-Check (
     $installer.Contains(
-        "'ActiveState',",
+        'function Wait-LinuxSupportServiceActive',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        "'ExecMainStatus'",
+        '($stopwatch.Elapsed - $activeSince).TotalSeconds -ge 1',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'Bounded diagnostics: $diagnostics',
+        'Wait-LinuxSupportServiceActive -Service $service',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'did not stabilize as active. Bounded diagnostics: $diagnostics',
         [StringComparison]::Ordinal)
-) 'Linux service startup failures lack bounded state and exit diagnostics.'
+) 'Linux service startup accepts transitional activation or lacks bounded failure diagnostics.'
 Add-Check (
     $installer.Contains(
         "-Direction Outbound",

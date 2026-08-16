@@ -2173,29 +2173,52 @@ function Stop-LinuxSupportServices {
     }
 }
 
+function Wait-LinuxSupportServiceActive {
+    param(
+        [Parameter(Mandatory)][string]$Service,
+        [int]$TimeoutSeconds = 10
+    )
+
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $activeSince = $null
+    while ($stopwatch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $activeState = [string](
+            Get-SystemdProperty -Unit $Service -Property 'ActiveState')
+        if ($activeState -ceq 'active') {
+            if ($null -eq $activeSince) {
+                $activeSince = $stopwatch.Elapsed
+            } elseif (
+                ($stopwatch.Elapsed - $activeSince).TotalSeconds -ge 1
+            ) {
+                return
+            }
+        } else {
+            $activeSince = $null
+        }
+        Start-Sleep -Milliseconds 100
+    }
+
+    $diagnostics = @(
+        foreach ($property in @(
+            'ActiveState',
+            'SubState',
+            'Result',
+            'ExecMainCode',
+            'ExecMainStatus'
+        )) {
+            $value = [string](
+                Get-SystemdProperty -Unit $Service -Property $property)
+            "$property=$value"
+        }
+    ) -join ';'
+    throw "Linux support service '$Service' did not stabilize as active. Bounded diagnostics: $diagnostics"
+}
+
 function Start-LinuxSupportServices {
     Invoke-Checked systemctl @('start', $linuxBrokerService)
     Invoke-Checked systemctl @('start', $linuxAgentService)
     foreach ($service in @($linuxBrokerService, $linuxAgentService)) {
-        & systemctl is-active --quiet $service
-        if ($LASTEXITCODE -eq 0) {
-            continue
-        }
-
-        $diagnostics = @(
-            foreach ($property in @(
-                'ActiveState',
-                'SubState',
-                'Result',
-                'ExecMainCode',
-                'ExecMainStatus'
-            )) {
-                $value = [string](
-                    Get-SystemdProperty -Unit $service -Property $property)
-                "$property=$value"
-            }
-        ) -join ';'
-        throw "Linux support service '$service' did not remain active. Bounded diagnostics: $diagnostics"
+        Wait-LinuxSupportServiceActive -Service $service
     }
 }
 
