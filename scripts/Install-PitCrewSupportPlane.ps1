@@ -1654,8 +1654,8 @@ After=local-fs.target
 [Service]
 Type=simple
 User=$linuxBrokerUser
-Group=$linuxBrokerUser
-SupplementaryGroups=$linuxIpcGroup
+Group=$linuxIpcGroup
+SupplementaryGroups=$linuxBrokerUser
 WorkingDirectory=$($Paths.BrokerStateRoot)
 ExecStart=$(ConvertTo-SystemdArgument $brokerExecutable) --contentRoot $brokerContentRoot
 Restart=on-failure
@@ -2025,11 +2025,11 @@ function Assert-EffectiveLinuxServiceBoundary {
     Assert-SystemdProperty `
         -Unit $linuxBrokerService `
         -Property 'Group' `
-        -Expected $linuxBrokerUser
+        -Expected $linuxIpcGroup
     Assert-SystemdSetProperty `
         -Unit $linuxBrokerService `
         -Property 'SupplementaryGroups' `
-        -Expected @($linuxIpcGroup)
+        -Expected @($linuxBrokerUser)
     Assert-SystemdExecStart `
         -Unit $linuxBrokerService `
         -ExpectedExecutable $brokerExecutable `
