@@ -812,6 +812,56 @@ function Set-WindowsProtectedDirectoryAcl {
     )
 }
 
+function Grant-WindowsServiceParentTraversal {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][string]$AgentSid,
+        [Parameter(Mandatory)][string]$BrokerSid
+    )
+
+    $parents = @(
+        Split-Path $Paths.AgentInstallRoot -Parent
+        Split-Path (Split-Path $Paths.AgentInstallRoot -Parent) -Parent
+        Split-Path $Paths.AgentStateRoot -Parent
+        Split-Path (Split-Path $Paths.AgentStateRoot -Parent) -Parent
+    ) | Sort-Object -Unique
+    foreach ($parent in $parents) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        Invoke-Checked icacls.exe @(
+            $parent,
+            '/grant',
+            "*$AgentSid`:(X,RA)",
+            "*$BrokerSid`:(X,RA)"
+        )
+    }
+}
+
+function Revoke-WindowsServiceParentTraversal {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][string]$AgentSid,
+        [Parameter(Mandatory)][string]$BrokerSid
+    )
+
+    $parents = @(
+        Split-Path $Paths.AgentInstallRoot -Parent
+        Split-Path (Split-Path $Paths.AgentInstallRoot -Parent) -Parent
+        Split-Path $Paths.AgentStateRoot -Parent
+        Split-Path (Split-Path $Paths.AgentStateRoot -Parent) -Parent
+    ) | Sort-Object -Unique
+    foreach ($parent in $parents) {
+        if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+            continue
+        }
+        Invoke-Checked icacls.exe @(
+            $parent,
+            '/remove:g',
+            "*$AgentSid",
+            "*$BrokerSid"
+        )
+    }
+}
+
 function Protect-StateRootsForInstaller {
     param([Parameter(Mandatory)][hashtable]$Paths)
 
@@ -1639,7 +1689,14 @@ function Assert-SystemdProperty {
 
     $actual = [string](
         Get-SystemdProperty -Unit $Unit -Property $Property)
-    if ($actual -cne $Expected) {
+    $matches = if ($Property -ceq 'WorkingDirectory' -and
+        -not [string]::IsNullOrWhiteSpace($actual)) {
+        [IO.Path]::GetFullPath($actual.Trim('"')).TrimEnd('/') -ceq
+            [IO.Path]::GetFullPath($Expected).TrimEnd('/')
+    } else {
+        $actual -ceq $Expected
+    }
+    if (-not $matches) {
         throw "Effective systemd property '$Property' was overridden for '$Unit'."
     }
 }
@@ -2088,6 +2145,10 @@ function Initialize-WindowsInstallation {
     Assert-WindowsBrokerHasNoDockerAccess
     $agentSid = Get-WindowsServiceSid -ServiceName $windowsAgentService
     $brokerSid = Get-WindowsServiceSid -ServiceName $windowsBrokerService
+    Grant-WindowsServiceParentTraversal `
+        -Paths $Paths `
+        -AgentSid $agentSid `
+        -BrokerSid $brokerSid
     Set-WindowsProtectedDirectoryAcl `
         -Path $Paths.AgentInstallRoot `
         -ServiceSid $agentSid `
@@ -2488,6 +2549,10 @@ function Invoke-InstallOrUpdate {
                     Revoke-WindowsEvidenceAccess `
                         -Paths $Paths `
                         -Settings $failedBrokerSettings
+                    Revoke-WindowsServiceParentTraversal `
+                        -Paths $Paths `
+                        -AgentSid ([string]$failedBrokerSettings.ExpectedAgentSid) `
+                        -BrokerSid ([string]$failedBrokerSettings.BrokerServiceSid)
                 }
                 if (Test-Path `
                         -LiteralPath (
@@ -2971,6 +3036,10 @@ function Invoke-Uninstall {
         Revoke-WindowsEvidenceAccess `
             -Paths $Paths `
             -Settings $brokerSettings
+        Revoke-WindowsServiceParentTraversal `
+            -Paths $Paths `
+            -AgentSid ([string]$brokerSettings.ExpectedAgentSid) `
+            -BrokerSid ([string]$brokerSettings.BrokerServiceSid)
         Preserve-AgentIdentityState -Paths $Paths
         Remove-NetFirewallRule `
             -Name $windowsFirewallRule `

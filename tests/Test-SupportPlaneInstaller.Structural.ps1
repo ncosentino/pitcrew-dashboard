@@ -64,6 +64,8 @@ foreach ($requiredFunction in @(
     'Invoke-RepairEvidenceAcl',
     'Invoke-Verify',
     'Set-WindowsBrokerFirewall',
+    'Grant-WindowsServiceParentTraversal',
+    'Revoke-WindowsServiceParentTraversal',
     'Grant-WindowsBrokerEvidence',
     'Grant-LinuxBrokerEvidence',
     'Write-LinuxUnits',
@@ -340,6 +342,14 @@ Add-Check (
     $installer -match '''binPath='',\s*\r?\n\s*\$binaryPath' -and
     $installer -notmatch '"binPath= \$binaryPath"'
 ) 'The installer does not pass sc.exe option names and values separately.'
+Add-Check (
+    $installer.Contains(
+        '"*$AgentSid`:(X,RA)"',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'Revoke-WindowsServiceParentTraversal',
+        [StringComparison]::Ordinal)
+) 'Restricted Windows service identities lack bounded parent traversal lifecycle.'
 Add-Check (
     $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',
