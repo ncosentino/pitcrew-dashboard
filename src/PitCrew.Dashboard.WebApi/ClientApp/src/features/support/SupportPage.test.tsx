@@ -12,10 +12,12 @@ describe('SupportSessionCard', () => {
           nodeId: '11111111-1111-1111-1111-111111111111',
           diagnosticMode: 'ConnectorOffline',
           profileId: null,
+          capability: 'pitcrew.diagnostics.snapshot.v1',
+          requestDigest: 'b'.repeat(64),
+          nodeSigningKeyFingerprint: 'a'.repeat(64),
           status: 'Completed',
           requestedAt: '2026-08-01T00:00:00+00:00',
           expiresAt: '2026-08-01T00:05:00+00:00',
-          nodeSigningKeyFingerprint: 'a'.repeat(64),
           result: {
             report: { verified: ['connector'], unavailable: [], hypotheses: [] },
             markdown: '<script>alert(1)</script> verified evidence',

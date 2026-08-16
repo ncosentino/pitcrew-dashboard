@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 
 using Microsoft.Extensions.Options;
 
@@ -59,7 +60,7 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         tenantId,
         input.NodeId,
         sessionId,
-        "pitcrew.remote-diagnostics",
+        SupportCapability.DiagnosticsSnapshotV1,
         1,
         input.DiagnosticMode,
         input.ProfileId,
@@ -67,9 +68,17 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         now,
         now.AddSeconds(seconds),
         _secretService.CreateNonce());
+    var requestPayload = SupportCanonicalJson.SerializeRequest(request);
+    var requestDigest = Convert.ToHexString(
+            SHA256.HashData(requestPayload))
+        .ToLowerInvariant();
+    var nodeSigningKeyFingerprint = Convert.ToHexString(
+            SHA256.HashData(SupportBase64Url.Decode(
+                identity.NodeSigningPublicKeySpki)))
+        .ToLowerInvariant();
     using var nodeEncryptionKey = SupportKeyFactory.ImportRsaPublicKey(identity.NodeEncryptionPublicKeySpki);
     var envelope = SupportEnvelopeCryptography.Seal(
-        SupportCanonicalJson.SerializeRequest(request),
+        requestPayload,
         nodeEncryptionKey,
         _keyService.AuthorizationSigningKey,
         "dashboard-support-auth-v1",
@@ -81,6 +90,9 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         input.DiagnosticMode,
         input.ProfileId,
         request.PackageId,
+        SupportCapability.DiagnosticsSnapshotV1,
+        requestDigest,
+        nodeSigningKeyFingerprint,
         SupportDiagnosticSessionStatus.Queued,
         decision.ActorId,
         now,

@@ -46,7 +46,7 @@ public sealed class SupportAgentRequestProcessorTests
           "tenant-a",
           nodeId,
           sessionId,
-          "pitcrew.remote-diagnostics",
+          SupportCapability.DiagnosticsSnapshotV1,
           1,
           SupportDiagnosticModes.Full,
           null,
@@ -113,3 +113,4 @@ public sealed class SupportAgentRequestProcessorTests
     }
   }
 }
+

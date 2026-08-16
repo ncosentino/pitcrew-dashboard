@@ -170,14 +170,12 @@ public sealed class SupportCarterModule : ICarterModule
           session.NodeId.ToString("D"),
           session.DiagnosticMode,
           session.ProfileId,
+          session.Capability,
+          session.RequestDigest,
+          session.NodeSigningKeyFingerprint,
           session.Status.ToString(),
           session.RequestedAt,
           session.ExpiresAt,
-          session.Attestation is null
-              ? null
-              : Convert.ToHexString(SHA256.HashData(
-                  Convert.FromBase64String(session.Attestation.NodeSigningPublicKeySpki)))
-                  .ToLowerInvariant(),
           session.Report is not null &&
           session.Markdown is not null &&
           session.Attestation is not null

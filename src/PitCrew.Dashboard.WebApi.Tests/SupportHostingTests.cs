@@ -79,6 +79,14 @@ public sealed class SupportHostingTests
 
       await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
       await Assert.That(getResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(created.Capability).IsEqualTo(SupportCapability.DiagnosticsSnapshotV1);
+      await Assert.That(created.RequestDigest).Matches("^[a-f0-9]{64}$");
+      await Assert.That(created.NodeSigningKeyFingerprint).Matches("^[a-f0-9]{64}$");
+      await Assert.That(created.ExpiresAt).IsEqualTo(fetched.ExpiresAt);
+      await Assert.That(fetched.Capability).IsEqualTo(created.Capability);
+      await Assert.That(fetched.RequestDigest).IsEqualTo(created.RequestDigest);
+      await Assert.That(fetched.NodeSigningKeyFingerprint)
+          .IsEqualTo(created.NodeSigningKeyFingerprint);
       await Assert.That(fetched.Status).IsEqualTo("Queued");
       await Assert.That(fetched.DiagnosticMode).IsEqualTo(SupportDiagnosticModes.ConnectorOffline);
       await Assert.That(fetched.Result).IsNull();
@@ -178,4 +186,3 @@ public sealed class SupportHostingTests
 
 
 }
-

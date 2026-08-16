@@ -7,7 +7,7 @@ namespace PitCrew.Support.Protocol;
 /// <param name="TenantId">Tenant that owns the support identity.</param>
 /// <param name="NodeId">Dashboard-assigned support node identifier.</param>
 /// <param name="SessionId">Dashboard-assigned diagnostic session identifier.</param>
-/// <param name="CapabilityName">Capability name. V1 uses <c>pitcrew.remote-diagnostics</c>.</param>
+/// <param name="CapabilityName">Capability name. V1 uses <c>pitcrew.diagnostics.snapshot.v1</c>.</param>
 /// <param name="CapabilityVersion">Capability version. V1 uses <c>1</c>.</param>
 /// <param name="DiagnosticMode">Closed diagnostic mode requested by the operator.</param>
 /// <param name="ProfileId">Optional locally configured PitCrew profile identifier.</param>

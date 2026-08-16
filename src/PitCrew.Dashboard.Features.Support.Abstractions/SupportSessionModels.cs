@@ -26,6 +26,9 @@ public sealed record SupportDiagnosticSessionInput(
 /// <param name="DiagnosticMode">Closed diagnostic mode.</param>
 /// <param name="ProfileId">Optional locally configured PitCrew profile identifier.</param>
 /// <param name="PackageId">Stable package identifier sent to the local broker.</param>
+/// <param name="Capability">Support capability authorized at creation.</param>
+/// <param name="RequestDigest">Lowercase SHA-256 digest of the canonical request payload.</param>
+/// <param name="NodeSigningKeyFingerprint">Lowercase SHA-256 fingerprint of the enrolled node signing SPKI.</param>
 /// <param name="Status">Session lifecycle state.</param>
 /// <param name="RequestedByGitHubUserId">Dashboard actor or diagnostic credential identifier.</param>
 /// <param name="RequestedAt">Dashboard authorization time.</param>
@@ -43,6 +46,9 @@ public sealed record SupportDiagnosticSession(
     string DiagnosticMode,
     string? ProfileId,
     string PackageId,
+    string Capability,
+    string RequestDigest,
+    string NodeSigningKeyFingerprint,
     SupportDiagnosticSessionStatus Status,
     string RequestedByGitHubUserId,
     DateTimeOffset RequestedAt,

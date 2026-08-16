@@ -26,7 +26,7 @@ public sealed class SupportEnvelopeCryptographyTests
         "tenant-a",
         Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture),
         Guid.Parse("22222222-2222-2222-2222-222222222222", CultureInfo.InvariantCulture),
-        "pitcrew.remote-diagnostics",
+        SupportCapability.DiagnosticsSnapshotV1,
         1,
         SupportDiagnosticModes.HostPressure,
         "default",
@@ -71,7 +71,7 @@ public sealed class SupportEnvelopeCryptographyTests
         "tenant-a",
         nodeId,
         Guid.Parse("22222222-2222-2222-2222-222222222222", CultureInfo.InvariantCulture),
-        "pitcrew.remote-diagnostics",
+        SupportCapability.DiagnosticsSnapshotV1,
         1,
         SupportDiagnosticModes.Full,
         null,
@@ -122,6 +122,9 @@ public sealed class SupportEnvelopeCryptographyTests
         "tenant-a",
         Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture),
         Guid.Parse("22222222-2222-2222-2222-222222222222", CultureInfo.InvariantCulture),
+        SupportCapability.DiagnosticsSnapshotV1,
+        "b".PadLeft(64, 'b'),
+        DateTimeOffset.Parse("2026-08-01T00:05:00+00:00", CultureInfo.InvariantCulture),
         report.RootElement.Clone(),
         "# Report");
     var canonical = SupportCanonicalJson.SerializeResultAttestationPayload(payload);

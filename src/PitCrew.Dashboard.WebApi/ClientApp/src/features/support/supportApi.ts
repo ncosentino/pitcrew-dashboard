@@ -32,10 +32,12 @@ export const supportSessionSchema = z.object({
   nodeId: z.string().uuid(),
   diagnosticMode: z.string(),
   profileId: z.string().nullable(),
+  capability: z.literal('pitcrew.diagnostics.snapshot.v1'),
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  nodeSigningKeyFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.string(),
   requestedAt: offsetDateTimeSchema,
   expiresAt: offsetDateTimeSchema,
-  nodeSigningKeyFingerprint: z.string().nullable(),
   result: supportResultSchema.nullable(),
 });
 export const supportSessionsSchema = z.array(supportSessionSchema);

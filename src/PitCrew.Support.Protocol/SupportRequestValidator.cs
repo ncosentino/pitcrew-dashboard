@@ -23,7 +23,7 @@ public static class SupportRequestValidator
   {
     ArgumentNullException.ThrowIfNull(nonceWasSeen);
     if (!string.Equals(request.ProtocolVersion, "support-plane-v1", StringComparison.Ordinal) ||
-        !string.Equals(request.CapabilityName, "pitcrew.remote-diagnostics", StringComparison.Ordinal) ||
+        !string.Equals(request.CapabilityName, SupportCapability.DiagnosticsSnapshotV1, StringComparison.Ordinal) ||
         request.CapabilityVersion != 1)
     {
       return SupportRequestValidationStatus.UnsupportedCapability;

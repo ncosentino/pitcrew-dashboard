@@ -60,10 +60,12 @@ public sealed record SupportDiagnosticSessionResponse(
     string NodeId,
     string DiagnosticMode,
     string? ProfileId,
+    string Capability,
+    string RequestDigest,
+    string NodeSigningKeyFingerprint,
     string Status,
     DateTimeOffset RequestedAt,
     DateTimeOffset ExpiresAt,
-    string? NodeSigningKeyFingerprint,
     SupportDiagnosticResultResponse? Result);
 
 /// <summary>

@@ -8,12 +8,18 @@ namespace PitCrew.Support.Protocol;
 /// <param name="TenantId">Tenant that owns the diagnostic session.</param>
 /// <param name="NodeId">Support node that produced the result.</param>
 /// <param name="SessionId">Dashboard diagnostic session identifier.</param>
+/// <param name="Capability">Support capability authorized at session creation.</param>
+/// <param name="RequestDigest">Lowercase SHA-256 digest of the canonical request payload.</param>
+/// <param name="ExpiresAt">Request expiry pinned at session creation.</param>
 /// <param name="Report">Structured report JSON produced by the file-only broker.</param>
 /// <param name="Markdown">Human-readable markdown summary produced by the file-only broker.</param>
 public sealed record SupportResultPayload(
     string TenantId,
     Guid NodeId,
     Guid SessionId,
+    string Capability,
+    string RequestDigest,
+    DateTimeOffset ExpiresAt,
     JsonElement Report,
     string Markdown);
 

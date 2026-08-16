@@ -88,6 +88,9 @@ public static class SupportCanonicalJson
       writer.WriteString("tenantId", payload.TenantId);
       writer.WriteString("nodeId", payload.NodeId.ToString("D"));
       writer.WriteString("sessionId", payload.SessionId.ToString("D"));
+      writer.WriteString("capability", payload.Capability);
+      writer.WriteString("requestDigest", payload.RequestDigest);
+      writer.WriteString("expiresAt", payload.ExpiresAt.ToString("O", CultureInfo.InvariantCulture));
       writer.WritePropertyName("report");
       payload.Report.WriteTo(writer);
       writer.WriteString("markdown", payload.Markdown);

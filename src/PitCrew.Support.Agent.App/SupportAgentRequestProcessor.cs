@@ -59,6 +59,11 @@ internal sealed class SupportAgentRequestProcessor(
         request.TenantId,
         request.NodeId,
         request.SessionId,
+        request.CapabilityName,
+        Convert.ToHexString(
+                SHA256.HashData(SupportCanonicalJson.SerializeRequest(request)))
+            .ToLowerInvariant(),
+        request.ExpiresAt,
         diagnostics.Report,
         diagnostics.Markdown);
     var canonical = SupportCanonicalJson.SerializeResultAttestationPayload(resultPayload);

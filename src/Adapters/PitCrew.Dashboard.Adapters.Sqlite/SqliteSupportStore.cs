@@ -168,6 +168,9 @@ internal sealed class SqliteSupportStore(
             diagnostic_mode,
             profile_id,
             package_id,
+            capability,
+            request_digest,
+            node_signing_key_fingerprint,
             status,
             requested_by_github_user_id,
             requested_at,
@@ -180,6 +183,9 @@ internal sealed class SqliteSupportStore(
             $diagnosticMode,
             $profileId,
             $packageId,
+            $capability,
+            $requestDigest,
+            $nodeSigningKeyFingerprint,
             'queued',
             $requestedByGitHubUserId,
             $requestedAt,
@@ -209,7 +215,10 @@ internal sealed class SqliteSupportStore(
         """
 
         WHERE s.tenant_id = $tenantId
-          AND s.session_id = $sessionId;
+          AND s.session_id = $sessionId
+          AND s.capability = 'pitcrew.diagnostics.snapshot.v1'
+          AND length(s.request_digest) = 64
+          AND length(s.node_signing_key_fingerprint) = 64;
         """;
     command.Parameters.AddWithValue("$tenantId", tenantId);
     command.Parameters.AddWithValue("$sessionId", sessionId.ToString("D"));
@@ -228,6 +237,9 @@ internal sealed class SqliteSupportStore(
         """
 
         WHERE s.tenant_id = $tenantId
+          AND s.capability = 'pitcrew.diagnostics.snapshot.v1'
+          AND length(s.request_digest) = 64
+          AND length(s.node_signing_key_fingerprint) = 64
         ORDER BY s.requested_at DESC, s.session_id DESC
         LIMIT $limit;
         """;
@@ -314,6 +326,9 @@ internal sealed class SqliteSupportStore(
           s.diagnostic_mode,
           s.profile_id,
           s.package_id,
+          s.capability,
+          s.request_digest,
+          s.node_signing_key_fingerprint,
           s.status,
           s.requested_by_github_user_id,
           s.requested_at,
@@ -350,6 +365,11 @@ internal sealed class SqliteSupportStore(
     command.Parameters.AddWithValue("$diagnosticMode", session.DiagnosticMode);
     command.Parameters.AddWithValue("$profileId", (object?)session.ProfileId ?? DBNull.Value);
     command.Parameters.AddWithValue("$packageId", session.PackageId);
+    command.Parameters.AddWithValue("$capability", session.Capability);
+    command.Parameters.AddWithValue("$requestDigest", session.RequestDigest);
+    command.Parameters.AddWithValue(
+        "$nodeSigningKeyFingerprint",
+        session.NodeSigningKeyFingerprint);
     command.Parameters.AddWithValue("$requestedByGitHubUserId", session.RequestedByGitHubUserId);
     command.Parameters.AddWithValue("$requestedAt", Format(session.RequestedAt));
     command.Parameters.AddWithValue("$expiresAt", Format(session.ExpiresAt));
@@ -373,12 +393,12 @@ internal sealed class SqliteSupportStore(
 
   private static SupportDiagnosticSession ReadSession(SqliteDataReader reader)
   {
-    var report = reader.IsDBNull(13)
+    var report = reader.IsDBNull(16)
         ? (JsonElement?)null
-        : JsonDocument.Parse(reader.GetString(13)).RootElement.Clone();
-    var attestation = reader.IsDBNull(15)
+        : JsonDocument.Parse(reader.GetString(16)).RootElement.Clone();
+    var attestation = reader.IsDBNull(18)
         ? null
-        : JsonSerializer.Deserialize<SupportResultAttestation>(reader.GetString(15), SupportJsonOptions);
+        : JsonSerializer.Deserialize<SupportResultAttestation>(reader.GetString(18), SupportJsonOptions);
     return new SupportDiagnosticSession(
         reader.GetString(0),
         Guid.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
@@ -386,18 +406,21 @@ internal sealed class SqliteSupportStore(
         reader.GetString(3),
         reader.IsDBNull(4) ? null : reader.GetString(4),
         reader.GetString(5),
-        ParseStatus(reader.GetString(6)),
+        reader.GetString(6),
         reader.GetString(7),
-        ParseDate(reader.GetString(8)),
-        ParseDate(reader.GetString(9)),
-        JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(10), SupportJsonOptions) ??
+        reader.GetString(8),
+        ParseStatus(reader.GetString(9)),
+        reader.GetString(10),
+        ParseDate(reader.GetString(11)),
+        ParseDate(reader.GetString(12)),
+        JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(13), SupportJsonOptions) ??
             throw new InvalidOperationException("Stored support request envelope was invalid."),
-        ReadNullableDate(reader, 11),
-        reader.IsDBNull(12)
+        ReadNullableDate(reader, 14),
+        reader.IsDBNull(15)
             ? null
-            : JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(12), SupportJsonOptions),
+            : JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(15), SupportJsonOptions),
         report,
-        reader.IsDBNull(14) ? null : reader.GetString(14),
+        reader.IsDBNull(17) ? null : reader.GetString(17),
         attestation);
   }
 

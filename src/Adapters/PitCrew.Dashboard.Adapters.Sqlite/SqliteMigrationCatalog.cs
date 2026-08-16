@@ -1721,5 +1721,41 @@ internal static class SqliteMigrationCatalog
                       occurred_at DESC,
                       event_id DESC);
               """),
+        new(
+              21,
+              "support-session-pinned-client-contract",
+              """
+              ALTER TABLE support_sessions
+                      ADD COLUMN capability TEXT NOT NULL DEFAULT ''
+                          CHECK (capability = ''
+                              OR capability = 'pitcrew.diagnostics.snapshot.v1');
+
+              ALTER TABLE support_sessions
+                      ADD COLUMN request_digest TEXT NOT NULL DEFAULT ''
+                          CHECK (request_digest = ''
+                              OR (length(request_digest) = 64
+                                  AND request_digest NOT GLOB '*[^0-9a-f]*'));
+
+              ALTER TABLE support_sessions
+                      ADD COLUMN node_signing_key_fingerprint TEXT NOT NULL DEFAULT ''
+                          CHECK (node_signing_key_fingerprint = ''
+                              OR (length(node_signing_key_fingerprint) = 64
+                                  AND node_signing_key_fingerprint
+                                      NOT GLOB '*[^0-9a-f]*'));
+
+              CREATE TRIGGER trg_support_sessions_pinned_contract_immutable
+              BEFORE UPDATE ON support_sessions
+              FOR EACH ROW
+              WHEN OLD.capability <> NEW.capability
+                OR OLD.request_digest <> NEW.request_digest
+                OR OLD.node_signing_key_fingerprint
+                        <> NEW.node_signing_key_fingerprint
+                OR OLD.expires_at <> NEW.expires_at
+              BEGIN
+                      SELECT RAISE(
+                          ABORT,
+                          'support session pinned contract is immutable');
+              END;
+              """),
     ];
 }

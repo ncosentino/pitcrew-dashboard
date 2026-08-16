@@ -63,7 +63,11 @@ internal sealed class SupportRelayResultIngestor(
     if (payload is null ||
         !string.Equals(payload.TenantId, session.TenantId, StringComparison.Ordinal) ||
         payload.NodeId != session.NodeId ||
-        payload.SessionId != session.SessionId)
+        payload.SessionId != session.SessionId ||
+        !string.Equals(payload.Capability, session.Capability, StringComparison.Ordinal) ||
+        !string.Equals(payload.RequestDigest, session.RequestDigest, StringComparison.Ordinal) ||
+        payload.ExpiresAt != session.ExpiresAt ||
+        !IsReportValid(payload.Report, session))
     {
       return session;
     }
@@ -92,4 +96,61 @@ internal sealed class SupportRelayResultIngestor(
         session.SessionId,
         cancellationToken) ?? session;
   }
+
+  private static bool IsReportValid(
+      JsonElement report,
+      SupportDiagnosticSession session)
+  {
+    if (!ReadInt32(report, "schemaVersion", out var schemaVersion) ||
+        schemaVersion != 1 ||
+        !ReadString(report, "collectionScope", out var collectionScope) ||
+        !string.Equals(collectionScope, "file-only", StringComparison.Ordinal) ||
+        !ReadString(report, "diagnosticMode", out var diagnosticMode) ||
+        !string.Equals(diagnosticMode, session.DiagnosticMode, StringComparison.Ordinal) ||
+        !ReadString(report, "pitcrewRoot", out var pitCrewRoot) ||
+        !string.Equals(pitCrewRoot, "<pitcrew-root>", StringComparison.Ordinal) ||
+        !ReadString(report, "packageId", out var packageId) ||
+        !string.Equals(packageId, session.PackageId, StringComparison.Ordinal) ||
+        !ReadString(report, "collectorSha256", out var collectorSha256) ||
+        !IsLowercaseSha256(collectorSha256))
+    {
+      return false;
+    }
+    if (session.ProfileId is null)
+    {
+      return true;
+    }
+    return ReadString(report, "profile", out var profile) &&
+        string.Equals(profile, session.ProfileId, StringComparison.Ordinal);
+  }
+
+  private static bool ReadString(
+      JsonElement value,
+      string propertyName,
+      out string result)
+  {
+    result = string.Empty;
+    if (!value.TryGetProperty(propertyName, out var property) ||
+        property.ValueKind != JsonValueKind.String)
+    {
+      return false;
+    }
+    result = property.GetString() ?? string.Empty;
+    return !string.IsNullOrWhiteSpace(result);
+  }
+
+  private static bool ReadInt32(
+      JsonElement value,
+      string propertyName,
+      out int result)
+  {
+    result = 0;
+    return value.TryGetProperty(propertyName, out var property) &&
+        property.TryGetInt32(out result);
+  }
+
+  private static bool IsLowercaseSha256(string value) =>
+      value.Length == 64 &&
+      value.All(character =>
+          character is >= '0' and <= '9' or >= 'a' and <= 'f');
 }

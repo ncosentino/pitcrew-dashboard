@@ -59,10 +59,14 @@ GET /api/tenants/{tenantId}/support/v1/sessions/{sessionId}
 Authorization: Bearer <diagnostic-credential-or-browser-session>
 ```
 
-A completed response includes `report`, `markdown`, and:
+Creation and completed reads include the pinned session values a client must
+retain for resume and signature verification:
 
 ```json
 {
+  "capability": "pitcrew.diagnostics.snapshot.v1",
+  "requestDigest": "<lowercase-sha256-of-canonical-request>",
+  "expiresAt": "2026-08-01T00:05:00.0000000+00:00",
   "nodeSigningKeyFingerprint": "<lowercase-sha256-of-spki>",
   "result": {
     "report": {
@@ -86,8 +90,9 @@ A completed response includes `report`, `markdown`, and:
 ```
 
 The attestation payload is canonical UTF-8 JSON containing `tenantId`, `nodeId`,
-`sessionId`, `report`, and `markdown`. The PitCrew PowerShell diagnostic skill
-can verify the signature without scraping Dashboard pages.
+`sessionId`, `capability`, `requestDigest`, `expiresAt`, `report`, and
+`markdown`. The PitCrew PowerShell diagnostic skill can verify the signature
+without scraping Dashboard pages.
 
 ## Packaging
 

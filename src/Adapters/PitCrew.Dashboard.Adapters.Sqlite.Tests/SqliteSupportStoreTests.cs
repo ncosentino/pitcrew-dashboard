@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 using Microsoft.Data.Sqlite;
@@ -192,7 +193,7 @@ public sealed class SqliteSupportStoreTests
         tenantId,
         nodeId,
         Guid.NewGuid(),
-        "pitcrew.remote-diagnostics",
+        SupportCapability.DiagnosticsSnapshotV1,
         1,
         SupportDiagnosticModes.Full,
         null,
@@ -200,8 +201,9 @@ public sealed class SqliteSupportStoreTests
         requestedAt,
         requestedAt.AddMinutes(10),
         "nonce-abcdefghijklmnopqrstuvwxyz0123456789");
+    var requestPayload = SupportCanonicalJson.SerializeRequest(request);
     var envelope = SupportEnvelopeCryptography.Seal(
-        SupportCanonicalJson.SerializeRequest(request),
+        requestPayload,
         nodeEncryption,
         signing,
         "dashboard",
@@ -213,6 +215,10 @@ public sealed class SqliteSupportStoreTests
         SupportDiagnosticModes.Full,
         null,
         request.PackageId,
+        SupportCapability.DiagnosticsSnapshotV1,
+        Convert.ToHexString(SHA256.HashData(requestPayload)).ToLowerInvariant(),
+        Convert.ToHexString(SHA256.HashData(SupportBase64Url.Decode(
+            nodeKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url))).ToLowerInvariant(),
         SupportDiagnosticSessionStatus.Queued,
         "1",
         requestedAt,
@@ -225,4 +231,3 @@ public sealed class SqliteSupportStoreTests
         null);
   }
 }
-
