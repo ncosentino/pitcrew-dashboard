@@ -371,6 +371,14 @@ Add-Check (
 ) 'Windows service SID or named-pipe impersonation privileges are incomplete.'
 Add-Check (
     $installer.Contains(
+        'DOTNET_BUNDLE_EXTRACT_BASE_DIR=',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "New-ItemProperty",
+        [StringComparison]::Ordinal)
+) 'Windows services do not use protected single-file extraction roots.'
+Add-Check (
+    $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',
         [StringComparison]::Ordinal) -and
     $installer.Contains(

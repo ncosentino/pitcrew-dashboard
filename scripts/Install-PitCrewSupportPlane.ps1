@@ -1036,6 +1036,7 @@ function Set-WindowsServiceDefinition {
         [Parameter(Mandatory)][string]$DisplayName,
         [Parameter(Mandatory)][string]$Executable,
         [Parameter(Mandatory)][string]$Arguments,
+        [Parameter(Mandatory)][string]$BundleExtractRoot,
         [Parameter(Mandatory)]
         [string[]]$RequiredPrivileges
     )
@@ -1072,6 +1073,14 @@ function Set-WindowsServiceDefinition {
         'obj=',
         "NT SERVICE\$Name"
     )
+    New-Item -ItemType Directory -Path $BundleExtractRoot -Force | Out-Null
+    New-ItemProperty `
+        -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" `
+        -Name 'Environment' `
+        -PropertyType MultiString `
+        -Value @("DOTNET_BUNDLE_EXTRACT_BASE_DIR=$BundleExtractRoot") `
+        -Force |
+        Out-Null
     Invoke-Checked sc.exe @('sidtype', $Name, 'unrestricted')
     Invoke-Checked sc.exe @(
         'privs',
@@ -1730,7 +1739,7 @@ function Assert-SystemdSetProperty {
     $expectedSorted = @($Expected | Sort-Object)
     if ((@($actual) -join "`n") -cne
         (@($expectedSorted) -join "`n")) {
-        throw "Effective systemd set '$Property' was overridden for '$Unit'."
+        throw "Effective systemd set '$Property' was overridden for '$Unit'. Actual='$(@($actual) -join ',')'; expected='$(@($expectedSorted) -join ',')'."
     }
 }
 
@@ -2139,12 +2148,14 @@ function Configure-WindowsVersion {
         -DisplayName 'PitCrew isolated support transport agent' `
         -Executable $agentExecutable `
         -Arguments "--contentRoot `"$($Paths.AgentStateRoot)`" --PitCrewSupport:Agent:PipeName=$pipeName --PitCrewSupport:Agent:ReplayRoot=`"$(Join-Path $Paths.AgentStateRoot 'replay')`"" `
+        -BundleExtractRoot (Join-Path $Paths.AgentStateRoot 'bundle') `
         -RequiredPrivileges @('SeChangeNotifyPrivilege')
     Set-WindowsServiceDefinition `
         -Name $windowsBrokerService `
         -DisplayName 'PitCrew isolated file-only diagnostics broker' `
         -Executable $brokerExecutable `
         -Arguments "--contentRoot `"$($Paths.BrokerStateRoot)`"" `
+        -BundleExtractRoot (Join-Path $Paths.BrokerStateRoot 'bundle') `
         -RequiredPrivileges @(
             'SeChangeNotifyPrivilege',
             'SeImpersonatePrivilege'
@@ -4044,6 +4055,25 @@ function Invoke-Verify {
             if ((@($privileges) -join ',') -cne
                 (@($expectedPrivileges) -join ',')) {
                 throw 'A Windows support service has unexpected privileges.'
+            }
+            $serviceStateRoot = if ($serviceName -ceq $windowsAgentService) {
+                $Paths.AgentStateRoot
+            } else {
+                $Paths.BrokerStateRoot
+            }
+            $environment = @(
+                (
+                    Get-ItemProperty `
+                        -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" `
+                        -Name 'Environment' `
+                        -ErrorAction Stop
+                ).Environment
+            )
+            $expectedEnvironment =
+                "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $serviceStateRoot 'bundle')"
+            if ($environment.Count -ne 1 -or
+                $environment[0] -cne $expectedEnvironment) {
+                throw 'A Windows support service has an unexpected runtime environment.'
             }
         }
         $rule = Get-NetFirewallRule -Name $windowsFirewallRule
