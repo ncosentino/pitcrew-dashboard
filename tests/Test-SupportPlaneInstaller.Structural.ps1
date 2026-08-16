@@ -128,6 +128,7 @@ try {
         $boundaryPaths.AgentUnitPath,
         (@(
             "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
+            "Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $boundaryPaths.AgentStateRoot 'bundle')"
             'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
             "ReadWritePaths=$agentStateArgument"
             'UMask=0077'
@@ -138,6 +139,7 @@ try {
         $boundaryPaths.BrokerUnitPath,
         (@(
             "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
+            "Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $boundaryPaths.BrokerStateRoot 'bundle')"
             'PrivateNetwork=true'
             'RestrictAddressFamilies=AF_UNIX'
             'IPAddressDeny=any'

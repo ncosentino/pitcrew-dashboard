@@ -1606,6 +1606,8 @@ function Write-LinuxUnits {
     ).PitCrewSupport.Broker
     $agentContentRoot = ConvertTo-SystemdArgument $Paths.AgentStateRoot
     $brokerContentRoot = ConvertTo-SystemdArgument $Paths.BrokerStateRoot
+    $agentBundleRoot = Join-Path $Paths.AgentStateRoot 'bundle'
+    $brokerBundleRoot = Join-Path $Paths.BrokerStateRoot 'bundle'
     $pitCrewRoot = ConvertTo-SystemdArgument (
         [string]$brokerSettings.PitCrewRoot)
     $agentUnit = @"
@@ -1621,6 +1623,7 @@ User=$linuxAgentUser
 Group=$linuxAgentUser
 SupplementaryGroups=$linuxIpcGroup
 WorkingDirectory=$($Paths.AgentStateRoot)
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$agentBundleRoot
 ExecStart=$(ConvertTo-SystemdArgument $agentExecutable) --contentRoot $agentContentRoot --PitCrewSupport:Agent:SocketPath=$socketPath --PitCrewSupport:Agent:ReplayRoot=$(ConvertTo-SystemdArgument (Join-Path $Paths.AgentStateRoot 'replay'))
 Restart=on-failure
 RestartSec=5
@@ -1657,6 +1660,7 @@ User=$linuxBrokerUser
 Group=$linuxIpcGroup
 SupplementaryGroups=$linuxBrokerUser
 WorkingDirectory=$($Paths.BrokerStateRoot)
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$brokerBundleRoot
 ExecStart=$(ConvertTo-SystemdArgument $brokerExecutable) --contentRoot $brokerContentRoot
 Restart=on-failure
 RestartSec=5
@@ -1977,6 +1981,11 @@ function Assert-EffectiveLinuxServiceBoundary {
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'WorkingDirectory' `
         -Expected $Paths.AgentStateRoot
+    Assert-SystemdUnitDirective `
+        -Unit $linuxAgentService `
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'Environment' `
+        -Expected "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $Paths.AgentStateRoot 'bundle')"
     Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
@@ -2040,6 +2049,11 @@ function Assert-EffectiveLinuxServiceBoundary {
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'WorkingDirectory' `
         -Expected $Paths.BrokerStateRoot
+    Assert-SystemdUnitDirective `
+        -Unit $linuxBrokerService `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'Environment' `
+        -Expected "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $Paths.BrokerStateRoot 'bundle')"
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
@@ -2110,7 +2124,6 @@ function Assert-EffectiveLinuxServiceBoundary {
         $unit = $serviceBoundary[0]
         $fragmentPath = $serviceBoundary[1]
         foreach ($directive in @(
-            'Environment',
             'EnvironmentFile',
             'PassEnvironment',
             'ExecCondition',
@@ -2409,6 +2422,13 @@ function Initialize-LinuxInstallation {
     )) {
         New-Item -ItemType Directory -Path $root -Force | Out-Null
     }
+    New-Item `
+        -ItemType Directory `
+        -Path `
+            (Join-Path $Paths.AgentStateRoot 'bundle'),
+            (Join-Path $Paths.BrokerStateRoot 'bundle') `
+        -Force |
+        Out-Null
     Invoke-Checked chown @(
         '-R',
         "root`:$linuxAgentUser",
