@@ -1772,7 +1772,7 @@ function Assert-SystemdUnitDirective {
     if ($lines.Count -ne 1) {
         throw "Systemd directive '$Directive' is missing or duplicated for '$Unit'."
     }
-    $actual = $lines[0].Substring($Directive.Length + 1).Trim('"')
+    $actual = $lines[0].Substring($Directive.Length + 1)
     if ($actual -cne $Expected) {
         throw "Systemd directive '$Directive' was overridden for '$Unit'."
     }
@@ -1960,7 +1960,7 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'WorkingDirectory' `
-        -Expected $Paths.AgentStateRoot
+        -Expected (ConvertTo-SystemdArgument $Paths.AgentStateRoot)
     Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
@@ -1982,7 +1982,7 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'ReadWritePaths' `
-        -Expected $Paths.AgentStateRoot
+        -Expected (ConvertTo-SystemdArgument $Paths.AgentStateRoot)
     Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
@@ -2023,7 +2023,7 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'WorkingDirectory' `
-        -Expected $Paths.BrokerStateRoot
+        -Expected (ConvertTo-SystemdArgument $Paths.BrokerStateRoot)
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
@@ -2047,7 +2047,9 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'ReadWritePaths' `
-        -Expected "/run/pitcrew-support $($Paths.BrokerStateRoot)"
+        -Expected (
+            "/run/pitcrew-support $(ConvertTo-SystemdArgument $Paths.BrokerStateRoot)"
+        )
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
@@ -2081,7 +2083,9 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'BindReadOnlyPaths' `
-        -Expected ([string]$brokerSettings.PitCrewRoot)
+        -Expected (
+            ConvertTo-SystemdArgument ([string]$brokerSettings.PitCrewRoot)
+        )
 
     foreach ($serviceBoundary in @(
         @($linuxAgentService, $Paths.AgentUnitPath),

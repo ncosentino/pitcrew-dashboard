@@ -102,6 +102,12 @@ try {
         -Force |
         Out-Null
     $pitCrewRoot = '/opt/pitcrew'
+    $agentStateArgument = '"' +
+        $boundaryPaths.AgentStateRoot.Replace('\', '\\').Replace('"', '\"') +
+        '"'
+    $brokerStateArgument = '"' +
+        $boundaryPaths.BrokerStateRoot.Replace('\', '\\').Replace('"', '\"') +
+        '"'
     $commonBoundaryDirectives = @(
         'NoNewPrivileges=true'
         'PrivateDevices=true'
@@ -121,9 +127,9 @@ try {
     [IO.File]::WriteAllText(
         $boundaryPaths.AgentUnitPath,
         (@(
-            "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
+            "WorkingDirectory=$agentStateArgument"
             'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
-            "ReadWritePaths=$($boundaryPaths.AgentStateRoot)"
+            "ReadWritePaths=$agentStateArgument"
             'UMask=0077'
             'ProtectHome=true'
         ) + $commonBoundaryDirectives) -join "`n",
@@ -131,14 +137,14 @@ try {
     [IO.File]::WriteAllText(
         $boundaryPaths.BrokerUnitPath,
         (@(
-            "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
+            "WorkingDirectory=$brokerStateArgument"
             'PrivateNetwork=true'
             'RestrictAddressFamilies=AF_UNIX'
             'IPAddressDeny=any'
             'RuntimeDirectory=pitcrew-support'
             'RuntimeDirectoryMode=0750'
-            "ReadWritePaths=/run/pitcrew-support $($boundaryPaths.BrokerStateRoot)"
-            "BindReadOnlyPaths=$pitCrewRoot"
+            "ReadWritePaths=/run/pitcrew-support $brokerStateArgument"
+            "BindReadOnlyPaths=`"$pitCrewRoot`""
             'UMask=0007'
             'ProtectHome=tmpfs'
         ) + $commonBoundaryDirectives) -join "`n",
@@ -318,6 +324,7 @@ try {
     }
 
     $boundaryFunctionNames = @(
+        'ConvertTo-SystemdArgument',
         'Get-SystemdProperty',
         'Assert-SystemdProperty',
         'Assert-SystemdSetProperty',
