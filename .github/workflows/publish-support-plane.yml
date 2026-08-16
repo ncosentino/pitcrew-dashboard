@@ -37,13 +37,13 @@ jobs:
       - name: Test support projects
         shell: pwsh
         run: |
-          dotnet test src/PitCrew.Support.Protocol.Tests/PitCrew.Support.Protocol.Tests.csproj --configuration Release
+          dotnet test --project src/PitCrew.Support.Protocol.Tests/PitCrew.Support.Protocol.Tests.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/PitCrew.Support.Relay.App.Tests/PitCrew.Support.Relay.App.Tests.csproj --configuration Release
+          dotnet test --project src/PitCrew.Support.Relay.App.Tests/PitCrew.Support.Relay.App.Tests.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/PitCrew.Support.Agent.App.Tests/PitCrew.Support.Agent.App.Tests.csproj --configuration Release
+          dotnet test --project src/PitCrew.Support.Agent.App.Tests/PitCrew.Support.Agent.App.Tests.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test src/PitCrew.Support.Broker.App.Tests/PitCrew.Support.Broker.App.Tests.csproj --configuration Release
+          dotnet test --project src/PitCrew.Support.Broker.App.Tests/PitCrew.Support.Broker.App.Tests.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package support plane
