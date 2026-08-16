@@ -1001,7 +1001,7 @@ function Set-WindowsServiceDefinition {
             'obj=',
             "NT SERVICE\$Name",
             'password=',
-            '',
+            '""',
             'DisplayName=',
             $DisplayName
         )
@@ -1017,7 +1017,7 @@ function Set-WindowsServiceDefinition {
             'obj=',
             "NT SERVICE\$Name",
             'password=',
-            '',
+            '""',
             'DisplayName=',
             $DisplayName
         )
@@ -1384,6 +1384,10 @@ function Grant-LinuxBrokerEvidence {
     )
 
     $policy = Get-EvidencePolicy
+    Grant-LinuxTraverse `
+        -Path $ResolvedPitCrewRoot `
+        -User ([string]$BrokerUid) `
+        -EvidenceRoot ([IO.Path]::GetPathRoot($ResolvedPitCrewRoot))
     Deny-LinuxTreeAccess `
         -Root $ResolvedPitCrewRoot `
         -AgentUid $AgentUid `
@@ -1437,6 +1441,10 @@ function Grant-LinuxBrokerEvidence {
     )
     $connectorRoot = Split-Path $Paths.ConnectorHealthRoot -Parent
     if (Test-Path -LiteralPath $connectorRoot -PathType Container) {
+        Grant-LinuxTraverse `
+            -Path $connectorRoot `
+            -User ([string]$BrokerUid) `
+            -EvidenceRoot ([IO.Path]::GetPathRoot($connectorRoot))
         Deny-LinuxTreeAccess `
             -Root $connectorRoot `
             -AgentUid $AgentUid `

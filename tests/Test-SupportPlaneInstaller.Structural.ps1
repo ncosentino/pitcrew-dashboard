@@ -327,7 +327,7 @@ Add-Check (
 Add-Check (
     $installer -match '''binPath='',\s*\r?\n\s*\$binaryPath' -and
     $installer -notmatch '"binPath= \$binaryPath"' -and
-    $installer -match '''password='',\s*\r?\n\s*'''
+    $installer -match '''password='',\s*\r?\n\s*''""'''
 ) 'The installer does not pass sc.exe option names and values separately.'
 Add-Check (
     $installer.Contains(
@@ -337,6 +337,11 @@ Add-Check (
         '"d:u:$AgentUid`:---,d:u:$BrokerUid`:---"',
         [StringComparison]::Ordinal)
 ) 'The installer passes multiple setfacl modification specs as filenames.'
+Add-Check (
+    $installer.Contains(
+        '-EvidenceRoot ([IO.Path]::GetPathRoot($ResolvedPitCrewRoot))',
+        [StringComparison]::Ordinal)
+) 'The installer does not grant execute-only traversal to the selected PitCrew root.'
 Add-Check (
     $installer.Contains(
         'PrivateNetwork=true',
