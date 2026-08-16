@@ -1161,6 +1161,10 @@ function Get-WindowsServiceFailureDiagnostics {
             $parts.Add(
                 "serviceSpecificExitCode=$($metadata.ServiceSpecificExitCode)")
             $parts.Add("processId=$($metadata.ProcessId)")
+            $expectedStartName = "NT SERVICE\$Name"
+            $parts.Add(
+                "startNameExpected=$($metadata.StartName -eq $expectedStartName)")
+            $parts.Add("startMode=$($metadata.StartMode)")
         }
     } catch {
         $parts.Add('metadata=unavailable')
@@ -1232,23 +1236,23 @@ function Get-WindowsServiceFailureDiagnostics {
 
 function Start-WindowsSupportServices {
     $paths = Get-PlatformPaths
-    try {
-        Start-Service -Name $windowsBrokerService
-    } catch {
+    & sc.exe start $windowsBrokerService | Out-Null
+    $brokerStartExitCode = $LASTEXITCODE
+    if ($brokerStartExitCode -ne 0) {
         $diagnostics = Get-WindowsServiceFailureDiagnostics `
             -Name $windowsBrokerService `
             -StateRoot $paths.BrokerStateRoot
-        throw "The Windows support broker failed to start. Bounded diagnostics: $diagnostics"
+        throw "The Windows support broker failed to start with SCM code $brokerStartExitCode. Bounded diagnostics: $diagnostics"
     }
     (Get-Service -Name $windowsBrokerService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,
         [TimeSpan]::FromSeconds(30))
-    try {
-        Start-Service -Name $windowsAgentService
-    } catch {
+    & sc.exe start $windowsAgentService | Out-Null
+    $agentStartExitCode = $LASTEXITCODE
+    if ($agentStartExitCode -ne 0) {
         $diagnostics = Get-WindowsServiceFailureDiagnostics `
             -Name $windowsAgentService
-        throw "The Windows support agent failed to start. Bounded diagnostics: $diagnostics"
+        throw "The Windows support agent failed to start with SCM code $agentStartExitCode. Bounded diagnostics: $diagnostics"
     }
     (Get-Service -Name $windowsAgentService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,
@@ -1636,7 +1640,7 @@ function Assert-SystemdProperty {
     $actual = [string](
         Get-SystemdProperty -Unit $Unit -Property $Property)
     if ($actual -cne $Expected) {
-        throw 'An effective systemd support-service boundary was overridden.'
+        throw "Effective systemd property '$Property' was overridden for '$Unit'."
     }
 }
 
@@ -1664,7 +1668,7 @@ function Assert-SystemdSetProperty {
     $expectedSorted = @($Expected | Sort-Object)
     if ((@($actual) -join "`n") -cne
         (@($expectedSorted) -join "`n")) {
-        throw 'An effective systemd support-service boundary was overridden.'
+        throw "Effective systemd set '$Property' was overridden for '$Unit'."
     }
 }
 
