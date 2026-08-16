@@ -2,7 +2,9 @@ using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
+using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Text;
 using System.Text.Json;
 
 using PitCrew.Support.Broker.App;
@@ -139,6 +141,67 @@ public sealed class SupportDiagnosticsBrokerTests
 
       await Assert.That(result.Status)
           .IsEqualTo(SupportBrokerStatus.EvidenceAccessDenied);
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
+  }
+
+  [Test]
+  public async Task Broker_Rejects_Oversized_Collector_Output(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    try
+    {
+      var options = SupportBrokerTestHost.CreateOptions(root, "unused");
+      var policy = SupportEvidencePolicy.Load();
+      var collectorPath = Path.Combine(
+          root,
+          policy.CollectorRelativePath.Replace(
+              '/',
+              Path.DirectorySeparatorChar));
+      const string collector =
+          """
+          param(
+              [string]$PitCrewRoot,
+              [switch]$FileOnly,
+              [switch]$PassThruOnly,
+              [string]$DiagnosticMode,
+              [string]$PackageId,
+              [string]$Profile)
+          [pscustomobject]@{
+              report = [pscustomobject]@{ payload = 'x' * 4194304 }
+              markdown = '# Diagnostics'
+          }
+          """;
+      await File.WriteAllTextAsync(
+          collectorPath,
+          collector,
+          new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+          cancellationToken);
+      var hash = Convert.ToHexString(
+          SHA256.HashData(
+              await File.ReadAllBytesAsync(
+                  collectorPath,
+                  cancellationToken)))
+          .ToLowerInvariant();
+      var broker = new SupportDiagnosticsBroker(
+          options,
+          policy with { CollectorSha256 = hash });
+
+      var result = await broker.ExecuteAsync(
+          new SupportBrokerRequest(
+              SupportDiagnosticModes.Full,
+              "default",
+              "0123456789abcdef"),
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(SupportBrokerStatus.ExecutionFailed);
+      await Assert.That(result.Error)
+          .IsEqualTo("The diagnostics collector returned an oversized response.");
     }
     finally
     {

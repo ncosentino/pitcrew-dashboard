@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 using PitCrew.Support.Protocol;
@@ -7,6 +9,8 @@ namespace PitCrew.Support.Broker.App;
 
 internal sealed class SupportDiagnosticsBroker
 {
+  private const int MaximumCollectorOutputBytes = 4_194_304;
+
   private readonly SupportBrokerOptions _options;
   private readonly SupportEvidenceAccessValidator _evidenceValidator;
 
@@ -83,8 +87,13 @@ internal sealed class SupportDiagnosticsBroker
           null,
           "The diagnostics collector could not be started.");
     }
-    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+    var outputTask = ReadBoundedUtf8Async(
+        process.StandardOutput.BaseStream,
+        MaximumCollectorOutputBytes,
+        cancellationToken);
+    var errorTask = DrainAsync(
+        process.StandardError.BaseStream,
+        cancellationToken);
     try
     {
       await Task.WhenAll(
@@ -108,7 +117,7 @@ internal sealed class SupportDiagnosticsBroker
           "The diagnostics collector failed.");
     }
     var output = await outputTask;
-    if (output.Length > 4_194_304)
+    if (output is null)
     {
       return new SupportBrokerExecution(
           SupportBrokerStatus.ExecutionFailed,
@@ -116,6 +125,71 @@ internal sealed class SupportDiagnosticsBroker
           "The diagnostics collector returned an oversized response.");
     }
     return ParseResponse(output);
+  }
+
+  private static async Task<string?> ReadBoundedUtf8Async(
+      Stream stream,
+      int maximumBytes,
+      CancellationToken cancellationToken)
+  {
+    var buffer = ArrayPool<byte>.Shared.Rent(8192);
+    using var output = new MemoryStream(
+        Math.Min(maximumBytes, 65_536));
+    var exceeded = false;
+    try
+    {
+      while (true)
+      {
+        var read = await stream.ReadAsync(
+            buffer.AsMemory(),
+            cancellationToken);
+        if (read == 0)
+        {
+          break;
+        }
+        if (exceeded)
+        {
+          continue;
+        }
+        if (output.Length + read > maximumBytes)
+        {
+          exceeded = true;
+          continue;
+        }
+        await output.WriteAsync(
+            buffer.AsMemory(0, read),
+            cancellationToken);
+      }
+      return exceeded
+          ? null
+          : Encoding.UTF8.GetString(
+              output.GetBuffer(),
+              0,
+              checked((int)output.Length));
+    }
+    finally
+    {
+      ArrayPool<byte>.Shared.Return(buffer);
+    }
+  }
+
+  private static async Task DrainAsync(
+      Stream stream,
+      CancellationToken cancellationToken)
+  {
+    var buffer = ArrayPool<byte>.Shared.Rent(4096);
+    try
+    {
+      while (await stream.ReadAsync(
+          buffer.AsMemory(),
+          cancellationToken) != 0)
+      {
+      }
+    }
+    finally
+    {
+      ArrayPool<byte>.Shared.Return(buffer);
+    }
   }
 
   private static bool IsPackageIdValid(string packageId) =>
