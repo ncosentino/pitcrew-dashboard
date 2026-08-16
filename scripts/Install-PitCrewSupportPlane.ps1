@@ -2174,9 +2174,29 @@ function Stop-LinuxSupportServices {
     }
 }
 
+function Get-BrokerStartupExceptionType {
+    param([Parameter(Mandatory)][string]$StatusPath)
+
+    if (-not (Test-Path -LiteralPath $StatusPath -PathType Leaf)) {
+        return 'unavailable'
+    }
+    $status = Get-Content `
+        -LiteralPath $StatusPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json -Depth 5
+    if ($status.schemaVersion -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$status.exceptionType) -or
+        [string]$status.exceptionType -cnotmatch '^[A-Za-z][A-Za-z0-9.]+$') {
+        return 'invalid'
+    }
+    return [string]$status.exceptionType
+}
+
 function Wait-LinuxSupportServiceActive {
     param(
         [Parameter(Mandatory)][string]$Service,
+        [AllowEmptyString()][string]$StartupStatusPath = '',
         [int]$TimeoutSeconds = 10
     )
 
@@ -2212,14 +2232,28 @@ function Wait-LinuxSupportServiceActive {
             "$property=$value"
         }
     ) -join ';'
+    if (-not [string]::IsNullOrWhiteSpace($StartupStatusPath)) {
+        $startupExceptionType = Get-BrokerStartupExceptionType `
+            -StatusPath $StartupStatusPath
+        $diagnostics += ";StartupExceptionType=$startupExceptionType"
+    }
     throw "Linux support service '$Service' did not stabilize as active. Bounded diagnostics: $diagnostics"
 }
 
 function Start-LinuxSupportServices {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
     Invoke-Checked systemctl @('start', $linuxBrokerService)
     Invoke-Checked systemctl @('start', $linuxAgentService)
     foreach ($service in @($linuxBrokerService, $linuxAgentService)) {
-        Wait-LinuxSupportServiceActive -Service $service
+        $startupStatusPath = if ($service -ceq $linuxBrokerService) {
+            Join-Path $Paths.BrokerStateRoot 'broker-startup-status.json'
+        } else {
+            ''
+        }
+        Wait-LinuxSupportServiceActive `
+            -Service $service `
+            -StartupStatusPath $startupStatusPath
     }
 }
 
@@ -2620,7 +2654,7 @@ function Invoke-InstallOrUpdate {
                     $linuxBrokerService,
                     $linuxAgentService
                 )
-                Start-LinuxSupportServices
+                Start-LinuxSupportServices -Paths $Paths
             }
         } elseif ($IsWindows) {
             Set-WindowsSupportStartup -Enabled $false
@@ -2675,7 +2709,7 @@ function Invoke-InstallOrUpdate {
                     -ResolvedPitCrewRoot $resolvedPitCrewRoot `
                     -AllowedProfiles $Profiles
                 if ($wasEnabled) {
-                    Start-LinuxSupportServices
+                    Start-LinuxSupportServices -Paths $Paths
                 }
             }
         } else {
@@ -2774,7 +2808,7 @@ function Invoke-Enable {
                 $linuxBrokerService,
                 $linuxAgentService
             )
-            Start-LinuxSupportServices
+            Start-LinuxSupportServices -Paths $Paths
         }
     } catch {
         if ($IsWindows) {
@@ -2826,7 +2860,7 @@ function Invoke-Disable {
                 $linuxBrokerService,
                 $linuxAgentService
             )
-            Start-LinuxSupportServices
+            Start-LinuxSupportServices -Paths $Paths
         }
         throw
     }
@@ -2868,7 +2902,7 @@ function Invoke-Rollback {
                 -Paths $Paths `
                 -SelectedVersion $previousVersion
             if ([bool]$Manifest.enabled) {
-                Start-LinuxSupportServices
+                Start-LinuxSupportServices -Paths $Paths
             }
         }
     } catch {
@@ -2888,7 +2922,7 @@ function Invoke-Rollback {
                 -Paths $Paths `
                 -SelectedVersion $currentVersion
             if ([bool]$Manifest.enabled) {
-                Start-LinuxSupportServices
+                Start-LinuxSupportServices -Paths $Paths
             }
         }
         throw

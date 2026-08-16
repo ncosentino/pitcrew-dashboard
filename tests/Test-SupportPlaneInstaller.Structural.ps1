@@ -488,10 +488,16 @@ Add-Check (
         '($stopwatch.Elapsed - $activeSince).TotalSeconds -ge 1',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'Wait-LinuxSupportServiceActive -Service $service',
+        '-StartupStatusPath $startupStatusPath',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
         'did not stabilize as active. Bounded diagnostics: $diagnostics',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'broker-startup-status.json'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'StartupExceptionType=$startupExceptionType',
         [StringComparison]::Ordinal)
 ) 'Linux service startup accepts transitional activation or lacks bounded failure diagnostics.'
 Add-Check (
