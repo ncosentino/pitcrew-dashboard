@@ -1000,6 +1000,8 @@ function Set-WindowsServiceDefinition {
             'auto',
             'obj=',
             "NT SERVICE\$Name",
+            'password=',
+            '',
             'DisplayName=',
             $DisplayName
         )
@@ -1014,6 +1016,8 @@ function Set-WindowsServiceDefinition {
             'auto',
             'obj=',
             "NT SERVICE\$Name",
+            'password=',
+            '',
             'DisplayName=',
             $DisplayName
         )
@@ -1350,8 +1354,7 @@ function Deny-LinuxTreeAccess {
     Invoke-Checked setfacl @(
         '-R',
         '-m',
-        "u:$AgentUid`:---",
-        "u:$BrokerUid`:---",
+        "u:$AgentUid`:---,u:$BrokerUid`:---",
         $Root
     )
     $directories = @(
@@ -1365,8 +1368,7 @@ function Deny-LinuxTreeAccess {
     foreach ($directory in $directories) {
         Invoke-Checked setfacl @(
             '-m',
-            "d:u:$AgentUid`:---",
-            "d:u:$BrokerUid`:---",
+            "d:u:$AgentUid`:---,d:u:$BrokerUid`:---",
             $directory.FullName
         )
     }
