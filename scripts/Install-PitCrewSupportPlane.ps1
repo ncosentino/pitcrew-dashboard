@@ -1753,7 +1753,7 @@ function Assert-SystemdUnitDirective {
         [Parameter(Mandatory)][string]$Unit,
         [Parameter(Mandatory)][string]$ExpectedFragmentPath,
         [Parameter(Mandatory)][string]$Directive,
-        [Parameter(Mandatory)][string]$Expected
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Expected
     )
 
     $fragmentPath = [string](
@@ -1961,41 +1961,42 @@ function Assert-EffectiveLinuxServiceBoundary {
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'WorkingDirectory' `
         -Expected $Paths.AgentStateRoot
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
-        -Property 'PrivateNetwork' `
-        -Expected 'no'
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'PrivateNetwork'
     Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'RestrictAddressFamilies' `
         -Expected 'AF_UNIX AF_INET AF_INET6'
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
-        -Property 'IPAddressDeny' `
-        -Expected ''
-    Assert-SystemdProperty `
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'IPAddressDeny'
+    Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
-        -Property 'IPAddressAllow' `
-        -Expected ''
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'IPAddressAllow'
     Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'ReadWritePaths' `
         -Expected $Paths.AgentStateRoot
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
-        -Property 'RuntimeDirectory' `
-        -Expected ''
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'RuntimeDirectory'
     Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'UMask' `
         -Expected '0077'
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
-        -Property 'ProtectHome' `
-        -Expected 'yes'
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'ProtectHome' `
+        -Expected 'true'
     Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
@@ -2023,50 +2024,49 @@ function Assert-EffectiveLinuxServiceBoundary {
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'WorkingDirectory' `
         -Expected $Paths.BrokerStateRoot
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'PrivateNetwork' `
-        -Expected 'yes'
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'PrivateNetwork' `
+        -Expected 'true'
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'RestrictAddressFamilies' `
         -Expected 'AF_UNIX'
-    $ipDeny = [string](Get-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'IPAddressDeny')
-    if ($ipDeny -notin @(
-            'any',
-            '0.0.0.0/0 ::/0',
-            '::/0 0.0.0.0/0'
-        )) {
-        throw 'An effective systemd support-service boundary was overridden.'
-    }
-    Assert-SystemdProperty `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'IPAddressDeny' `
+        -Expected 'any'
+    Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxBrokerService `
-        -Property 'IPAddressAllow' `
-        -Expected ''
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'IPAddressAllow'
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'ReadWritePaths' `
         -Expected "/run/pitcrew-support $($Paths.BrokerStateRoot)"
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'RuntimeDirectory' `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'RuntimeDirectory' `
         -Expected 'pitcrew-support'
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'RuntimeDirectoryMode' `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'RuntimeDirectoryMode' `
         -Expected '0750'
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'UMask' `
         -Expected '0007'
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'ProtectHome' `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'ProtectHome' `
         -Expected 'tmpfs'
     $brokerSettings = (
         Get-Content `
@@ -2083,10 +2083,15 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Directive 'BindReadOnlyPaths' `
         -Expected ([string]$brokerSettings.PitCrewRoot)
 
-    foreach ($unit in @($linuxAgentService, $linuxBrokerService)) {
-        foreach ($property in @(
+    foreach ($serviceBoundary in @(
+        @($linuxAgentService, $Paths.AgentUnitPath),
+        @($linuxBrokerService, $Paths.BrokerUnitPath)
+    )) {
+        $unit = $serviceBoundary[0]
+        $fragmentPath = $serviceBoundary[1]
+        foreach ($directive in @(
             'Environment',
-            'EnvironmentFiles',
+            'EnvironmentFile',
             'PassEnvironment',
             'ExecCondition',
             'ExecStartPre',
@@ -2098,12 +2103,12 @@ function Assert-EffectiveLinuxServiceBoundary {
             'RootImage',
             'BindPaths'
         )) {
-            Assert-SystemdProperty `
+            Assert-SystemdUnitDirectiveAbsent `
                 -Unit $unit `
-                -Property $property `
-                -Expected ''
+                -ExpectedFragmentPath $fragmentPath `
+                -Directive $directive
         }
-        foreach ($property in @(
+        foreach ($directive in @(
             'NoNewPrivileges',
             'PrivateDevices',
             'PrivateTmp',
@@ -2116,22 +2121,26 @@ function Assert-EffectiveLinuxServiceBoundary {
             'RestrictSUIDSGID',
             'LockPersonality'
         )) {
-            Assert-SystemdProperty `
+            Assert-SystemdUnitDirective `
                 -Unit $unit `
-                -Property $property `
-                -Expected 'yes'
+                -ExpectedFragmentPath $fragmentPath `
+                -Directive $directive `
+                -Expected 'true'
         }
-        Assert-SystemdProperty `
+        Assert-SystemdUnitDirective `
             -Unit $unit `
-            -Property 'ProtectSystem' `
+            -ExpectedFragmentPath $fragmentPath `
+            -Directive 'ProtectSystem' `
             -Expected 'strict'
-        Assert-SystemdProperty `
+        Assert-SystemdUnitDirective `
             -Unit $unit `
-            -Property 'CapabilityBoundingSet' `
+            -ExpectedFragmentPath $fragmentPath `
+            -Directive 'CapabilityBoundingSet' `
             -Expected ''
-        Assert-SystemdProperty `
+        Assert-SystemdUnitDirective `
             -Unit $unit `
-            -Property 'AmbientCapabilities' `
+            -ExpectedFragmentPath $fragmentPath `
+            -Directive 'AmbientCapabilities' `
             -Expected ''
     }
 }

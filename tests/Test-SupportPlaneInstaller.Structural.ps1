@@ -102,24 +102,46 @@ try {
         -Force |
         Out-Null
     $pitCrewRoot = '/opt/pitcrew'
+    $commonBoundaryDirectives = @(
+        'NoNewPrivileges=true'
+        'PrivateDevices=true'
+        'PrivateTmp=true'
+        'ProtectSystem=strict'
+        'ProtectKernelTunables=true'
+        'ProtectKernelModules=true'
+        'ProtectKernelLogs=true'
+        'ProtectControlGroups=true'
+        'RestrictNamespaces=true'
+        'RestrictRealtime=true'
+        'RestrictSUIDSGID=true'
+        'LockPersonality=true'
+        'CapabilityBoundingSet='
+        'AmbientCapabilities='
+    )
     [IO.File]::WriteAllText(
         $boundaryPaths.AgentUnitPath,
-        @(
+        (@(
             "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
             'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
             "ReadWritePaths=$($boundaryPaths.AgentStateRoot)"
             'UMask=0077'
-        ) -join "`n",
+            'ProtectHome=true'
+        ) + $commonBoundaryDirectives) -join "`n",
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(
         $boundaryPaths.BrokerUnitPath,
-        @(
+        (@(
             "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
+            'PrivateNetwork=true'
             'RestrictAddressFamilies=AF_UNIX'
+            'IPAddressDeny=any'
+            'RuntimeDirectory=pitcrew-support'
+            'RuntimeDirectoryMode=0750'
             "ReadWritePaths=/run/pitcrew-support $($boundaryPaths.BrokerStateRoot)"
             "BindReadOnlyPaths=$pitCrewRoot"
             'UMask=0007'
-        ) -join "`n",
+            'ProtectHome=tmpfs'
+        ) + $commonBoundaryDirectives) -join "`n",
         [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText(
         (Join-Path $boundaryPaths.BrokerStateRoot 'appsettings.json'),
