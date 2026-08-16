@@ -31,6 +31,7 @@
         "frontend",
         "build",
         "test",
+        "support-package",
         "linux-installer",
         "windows-installer",
         "deployment-config",
