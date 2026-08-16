@@ -1610,7 +1610,7 @@ Type=simple
 User=$linuxAgentUser
 Group=$linuxAgentUser
 SupplementaryGroups=$linuxIpcGroup
-WorkingDirectory=$agentContentRoot
+WorkingDirectory=$($Paths.AgentStateRoot)
 ExecStart=$(ConvertTo-SystemdArgument $agentExecutable) --contentRoot $agentContentRoot --PitCrewSupport:Agent:SocketPath=$socketPath --PitCrewSupport:Agent:ReplayRoot=$(ConvertTo-SystemdArgument (Join-Path $Paths.AgentStateRoot 'replay'))
 Restart=on-failure
 RestartSec=5
@@ -1645,7 +1645,7 @@ After=local-fs.target
 Type=simple
 User=$linuxBrokerUser
 Group=$linuxIpcGroup
-WorkingDirectory=$brokerContentRoot
+WorkingDirectory=$($Paths.BrokerStateRoot)
 ExecStart=$(ConvertTo-SystemdArgument $brokerExecutable) --contentRoot $brokerContentRoot
 Restart=on-failure
 RestartSec=5
@@ -1965,7 +1965,7 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
         -Directive 'WorkingDirectory' `
-        -Expected (ConvertTo-SystemdArgument $Paths.AgentStateRoot)
+        -Expected $Paths.AgentStateRoot
     Assert-SystemdUnitDirectiveAbsent `
         -Unit $linuxAgentService `
         -ExpectedFragmentPath $Paths.AgentUnitPath `
@@ -2028,7 +2028,7 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'WorkingDirectory' `
-        -Expected (ConvertTo-SystemdArgument $Paths.BrokerStateRoot)
+        -Expected $Paths.BrokerStateRoot
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `

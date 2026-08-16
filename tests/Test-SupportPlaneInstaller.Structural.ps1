@@ -127,7 +127,7 @@ try {
     [IO.File]::WriteAllText(
         $boundaryPaths.AgentUnitPath,
         (@(
-            "WorkingDirectory=$agentStateArgument"
+            "WorkingDirectory=$($boundaryPaths.AgentStateRoot)"
             'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'
             "ReadWritePaths=$agentStateArgument"
             'UMask=0077'
@@ -137,7 +137,7 @@ try {
     [IO.File]::WriteAllText(
         $boundaryPaths.BrokerUnitPath,
         (@(
-            "WorkingDirectory=$brokerStateArgument"
+            "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
             'PrivateNetwork=true'
             'RestrictAddressFamilies=AF_UNIX'
             'IPAddressDeny=any'
