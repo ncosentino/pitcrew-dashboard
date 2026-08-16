@@ -1035,7 +1035,9 @@ function Set-WindowsServiceDefinition {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$DisplayName,
         [Parameter(Mandatory)][string]$Executable,
-        [Parameter(Mandatory)][string]$Arguments
+        [Parameter(Mandatory)][string]$Arguments,
+        [Parameter(Mandatory)]
+        [string[]]$RequiredPrivileges
     )
 
     $binaryPath = "`"$Executable`" $Arguments"
@@ -1070,8 +1072,12 @@ function Set-WindowsServiceDefinition {
         'obj=',
         "NT SERVICE\$Name"
     )
-    Invoke-Checked sc.exe @('sidtype', $Name, 'restricted')
-    Invoke-Checked sc.exe @('privs', $Name, 'SeChangeNotifyPrivilege')
+    Invoke-Checked sc.exe @('sidtype', $Name, 'unrestricted')
+    Invoke-Checked sc.exe @(
+        'privs',
+        $Name,
+        ($RequiredPrivileges -join '/')
+    )
     Invoke-Checked sc.exe @(
         'failure',
         $Name,
@@ -1729,6 +1735,36 @@ function Assert-SystemdSetProperty {
     }
 }
 
+function Assert-SystemdUnitDirective {
+    param(
+        [Parameter(Mandatory)][string]$Unit,
+        [Parameter(Mandatory)][string]$ExpectedFragmentPath,
+        [Parameter(Mandatory)][string]$Directive,
+        [Parameter(Mandatory)][string]$Expected
+    )
+
+    $fragmentPath = [string](
+        Get-SystemdProperty -Unit $Unit -Property 'FragmentPath')
+    if ($fragmentPath -cne $ExpectedFragmentPath) {
+        throw 'The effective systemd support-service fragment was overridden.'
+    }
+    $lines = @(
+        Get-Content -LiteralPath $fragmentPath |
+            Where-Object {
+                $_.StartsWith(
+                    "$Directive=",
+                    [StringComparison]::Ordinal)
+            }
+    )
+    if ($lines.Count -ne 1) {
+        throw "Systemd directive '$Directive' is missing or duplicated for '$Unit'."
+    }
+    $actual = $lines[0].Substring($Directive.Length + 1).Trim('"')
+    if ($actual -cne $Expected) {
+        throw "Systemd directive '$Directive' was overridden for '$Unit'."
+    }
+}
+
 function Assert-SystemdExecStart {
     param(
         [Parameter(Mandatory)][string]$Unit,
@@ -1883,9 +1919,10 @@ function Assert-EffectiveLinuxServiceBoundary {
         -ExpectedExecutable $agentExecutable `
         -ExpectedCommand $agentCommand `
         -ExpectedFragmentPath $Paths.AgentUnitPath
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxAgentService `
-        -Property 'WorkingDirectory' `
+        -ExpectedFragmentPath $Paths.AgentUnitPath `
+        -Directive 'WorkingDirectory' `
         -Expected $Paths.AgentStateRoot
     Assert-SystemdProperty `
         -Unit $linuxAgentService `
@@ -1941,9 +1978,10 @@ function Assert-EffectiveLinuxServiceBoundary {
         -ExpectedExecutable $brokerExecutable `
         -ExpectedCommand $brokerCommand `
         -ExpectedFragmentPath $Paths.BrokerUnitPath
-    Assert-SystemdProperty `
+    Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
-        -Property 'WorkingDirectory' `
+        -ExpectedFragmentPath $Paths.BrokerUnitPath `
+        -Directive 'WorkingDirectory' `
         -Expected $Paths.BrokerStateRoot
     Assert-SystemdProperty `
         -Unit $linuxBrokerService `
@@ -2101,12 +2139,17 @@ function Configure-WindowsVersion {
         -Name $windowsAgentService `
         -DisplayName 'PitCrew isolated support transport agent' `
         -Executable $agentExecutable `
-        -Arguments "--contentRoot `"$($Paths.AgentStateRoot)`" --PitCrewSupport:Agent:PipeName=$pipeName --PitCrewSupport:Agent:ReplayRoot=`"$(Join-Path $Paths.AgentStateRoot 'replay')`""
+        -Arguments "--contentRoot `"$($Paths.AgentStateRoot)`" --PitCrewSupport:Agent:PipeName=$pipeName --PitCrewSupport:Agent:ReplayRoot=`"$(Join-Path $Paths.AgentStateRoot 'replay')`"" `
+        -RequiredPrivileges @('SeChangeNotifyPrivilege')
     Set-WindowsServiceDefinition `
         -Name $windowsBrokerService `
         -DisplayName 'PitCrew isolated file-only diagnostics broker' `
         -Executable $brokerExecutable `
-        -Arguments "--contentRoot `"$($Paths.BrokerStateRoot)`""
+        -Arguments "--contentRoot `"$($Paths.BrokerStateRoot)`"" `
+        -RequiredPrivileges @(
+            'SeChangeNotifyPrivilege',
+            'SeImpersonatePrivilege'
+        )
     Invoke-Checked sc.exe @(
         'config',
         $windowsAgentService,
@@ -3966,14 +4009,24 @@ function Invoke-Verify {
         }
         $agentSidType = (& sc.exe qsidtype $windowsAgentService | Out-String)
         $brokerSidType = (& sc.exe qsidtype $windowsBrokerService | Out-String)
-        if ($agentSidType -notmatch 'RESTRICTED' -or
-            $brokerSidType -notmatch 'RESTRICTED') {
-            throw 'The Windows support service SIDs are not restricted.'
+        if ($agentSidType -notmatch 'UNRESTRICTED' -or
+            $brokerSidType -notmatch 'UNRESTRICTED') {
+            throw 'The Windows support service SIDs are not enabled.'
         }
-        foreach ($serviceName in @(
-            $windowsAgentService,
-            $windowsBrokerService
+        foreach ($serviceContract in @(
+            [PSCustomObject]@{
+                Name = $windowsAgentService
+                Privileges = @('SeChangeNotifyPrivilege')
+            },
+            [PSCustomObject]@{
+                Name = $windowsBrokerService
+                Privileges = @(
+                    'SeChangeNotifyPrivilege',
+                    'SeImpersonatePrivilege'
+                )
+            }
         )) {
+            $serviceName = [string]$serviceContract.Name
             $privilegeOutput = & sc.exe qprivs $serviceName | Out-String
             if ($LASTEXITCODE -ne 0) {
                 throw 'Could not inspect the Windows support service privileges.'
@@ -3985,8 +4038,12 @@ function Invoke-Verify {
                     ForEach-Object Value |
                     Sort-Object -Unique
             )
+            $expectedPrivileges = @(
+                $serviceContract.Privileges |
+                    Sort-Object
+            )
             if ((@($privileges) -join ',') -cne
-                'SeChangeNotifyPrivilege') {
+                (@($expectedPrivileges) -join ',')) {
                 throw 'A Windows support service has unexpected privileges.'
             }
         }

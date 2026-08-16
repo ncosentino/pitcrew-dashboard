@@ -101,6 +101,14 @@ try {
         -Path $boundaryPaths.AgentStateRoot, $boundaryPaths.BrokerStateRoot `
         -Force |
         Out-Null
+    [IO.File]::WriteAllText(
+        $boundaryPaths.AgentUnitPath,
+        "WorkingDirectory=$($boundaryPaths.AgentStateRoot)`n",
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        $boundaryPaths.BrokerUnitPath,
+        "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)`n",
+        [Text.UTF8Encoding]::new($false))
     $pitCrewRoot = '/opt/pitcrew'
     [IO.File]::WriteAllText(
         (Join-Path $boundaryPaths.BrokerStateRoot 'appsettings.json'),
@@ -196,6 +204,7 @@ try {
         @($linuxAgentService, 'User', $linuxAgentUser),
         @($linuxAgentService, 'Group', $linuxAgentUser),
         @($linuxAgentService, 'SupplementaryGroups', $linuxIpcGroup),
+        @($linuxAgentService, 'FragmentPath', $boundaryPaths.AgentUnitPath),
         @($linuxAgentService, 'ExecStart',
             "{ path=$agentExecutable ; argv[]=$agentCommand ; }"),
         @($linuxAgentService, 'WorkingDirectory',
@@ -215,6 +224,7 @@ try {
         @($linuxBrokerService, 'User', $linuxBrokerUser),
         @($linuxBrokerService, 'Group', $linuxIpcGroup),
         @($linuxBrokerService, 'SupplementaryGroups', ''),
+        @($linuxBrokerService, 'FragmentPath', $boundaryPaths.BrokerUnitPath),
         @($linuxBrokerService, 'ExecStart',
             "{ path=$brokerExecutable ; argv[]=$brokerCommand ; }"),
         @($linuxBrokerService, 'WorkingDirectory',
@@ -278,6 +288,7 @@ try {
         'Get-SystemdProperty',
         'Assert-SystemdProperty',
         'Assert-SystemdSetProperty',
+        'Assert-SystemdUnitDirective',
         'Assert-SystemdExecStart',
         'Assert-EffectiveLinuxServiceBoundary'
     )
@@ -349,7 +360,15 @@ Add-Check (
     $installer.Contains(
         'Revoke-WindowsServiceParentTraversal',
         [StringComparison]::Ordinal)
-) 'Restricted Windows service identities lack bounded parent traversal lifecycle.'
+) 'Windows service identities lack bounded parent traversal lifecycle.'
+Add-Check (
+    $installer.Contains(
+        "@('sidtype', `$Name, 'unrestricted')",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'SeImpersonatePrivilege'",
+        [StringComparison]::Ordinal)
+) 'Windows service SID or named-pipe impersonation privileges are incomplete.'
 Add-Check (
     $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',
