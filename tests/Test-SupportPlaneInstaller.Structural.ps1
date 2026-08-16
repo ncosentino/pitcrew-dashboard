@@ -444,6 +444,14 @@ $installer.Contains(
     [StringComparison]::Ordinal)
 ) 'Windows service lifecycle rights depend on an image-default service DACL.'
 Add-Check (
+$installer.Contains(
+    "'password=',",
+    [StringComparison]::Ordinal) -and
+$installer.Contains(
+    '"NT SERVICE\$Name",',
+    [StringComparison]::Ordinal)
+) 'Windows virtual service account configuration omits the explicit empty password.'
+Add-Check (
     $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',
         [StringComparison]::Ordinal) -and
@@ -702,6 +710,9 @@ Add-Check (
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         "'denied'",
+        [StringComparison]::Ordinal) -and
+    $hostTest.Contains(
+        'The Linux broker network probe produced no result.',
         [StringComparison]::Ordinal)
 ) 'Hosted installer tests do not attempt and reject public outbound broker access.'
 Add-Check (

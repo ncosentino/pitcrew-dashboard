@@ -312,10 +312,24 @@ Restart=no
                 [Text.UTF8Encoding]::new($false))
             & systemctl daemon-reload | Out-Null
             & systemctl start pitcrew-support-broker.service | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                $result = (& systemctl show `
+                    pitcrew-support-broker.service `
+                    --property=ActiveState,SubState,Result,ExecMainStatus `
+                    --value) -join ','
+                throw "The Linux broker network probe could not start. Bounded diagnostics: $result"
+            }
             $deadline = [DateTime]::UtcNow.AddSeconds(20)
             while (-not (Test-Path -LiteralPath $resultPath) -and
                 [DateTime]::UtcNow -lt $deadline) {
                 Start-Sleep -Milliseconds 250
+            }
+            if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+                $result = (& systemctl show `
+                    pitcrew-support-broker.service `
+                    --property=ActiveState,SubState,Result,ExecMainStatus `
+                    --value) -join ','
+                throw "The Linux broker network probe produced no result. Bounded diagnostics: $result"
             }
         } finally {
             & systemctl stop pitcrew-support-broker.service | Out-Null

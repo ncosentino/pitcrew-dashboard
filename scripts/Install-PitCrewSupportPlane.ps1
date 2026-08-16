@@ -1081,7 +1081,9 @@ function Set-WindowsServiceDefinition {
         'config',
         $Name,
         'obj=',
-        "NT SERVICE\$Name"
+        "NT SERVICE\$Name",
+        'password=',
+        ''
     )
     Invoke-Checked sc.exe @(
         'sdset',
