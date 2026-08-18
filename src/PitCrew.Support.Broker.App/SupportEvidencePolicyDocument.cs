@@ -6,6 +6,7 @@ internal sealed record SupportEvidencePolicyDocument(
     string PitCrewCommit,
     string CollectorRelativePath,
     string CollectorSha256,
+    string CollectorHashCanonicalization,
     string ProfileStateRootAccess,
     IReadOnlyList<string> InstallationSentinels,
     IReadOnlyList<string> ProfileProjectionFiles,

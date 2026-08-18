@@ -17,7 +17,7 @@ $networkProbePath = Join-Path (
 ) 'tests' 'PitCrew.Support.NetworkProbe.App' 'Program.cs'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.0.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.1.json'
 $brokerRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Broker.App'
 $agentRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Agent.App'
 $brokerProjectPath = Join-Path $brokerRoot 'PitCrew.Support.Broker.App.csproj'
@@ -702,7 +702,7 @@ Add-Check (
         'getfacl',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'evidence-metadata-v0.10.0.json',
+        'evidence-metadata-v0.10.1.json',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         ':(OI)(CI)F',
@@ -866,16 +866,17 @@ $policy = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json -Depth 10
 Add-Check (
-    $policy.pitCrewVersion -eq '0.10.0'
-) 'The evidence ACL policy is not pinned to PitCrew v0.10.0.'
+    $policy.pitCrewVersion -eq '0.10.1'
+) 'The evidence ACL policy is not pinned to PitCrew v0.10.1.'
 Add-Check (
-    $policy.pitCrewCommit -eq '4d30a031'
-) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.0 collector commit.'
+    $policy.pitCrewCommit -eq '0672c34c'
+) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.1 collector commit.'
 Add-Check (
     $policy.collectorSha256 -eq
         '01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3' -and
+    $policy.collectorHashCanonicalization -eq 'utf8-lf' -and
     $installer.Contains(
-        'Get-FileHash -LiteralPath $collector -Algorithm SHA256',
+        'Get-CanonicalTextSha256 -LiteralPath $collector',
         [StringComparison]::Ordinal)
 ) 'The fixed collector content is not cryptographically pinned by policy and installer.'
 Add-Check (
