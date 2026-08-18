@@ -358,6 +358,10 @@ messages, paths, arguments, settings, identities, or credentials. Read it with:
 ./Install-PitCrewSupportPlane.ps1 -Action DiagnoseFailure
 ```
 
+Evidence verification operations distinguish tree enumeration, unexpected or
+malformed broker ACEs, agent denial count/shape, root metadata, selected evidence
+reads, and prohibited environment access without recording the affected path.
+
 A later successful install, update, rollback, or uninstall removes the prior
 failure record. Updates extract both components
 into staging, verify their checksums/executables, switch service definitions only

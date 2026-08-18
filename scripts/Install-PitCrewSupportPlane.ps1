@@ -3805,6 +3805,9 @@ function Assert-WindowsEvidenceAclsExact {
     $profiles = ([string]$Settings.AllowedProfiles).Split(',')
     $brokerSid = [string]$Settings.BrokerServiceSid
     $agentSid = [string]$Settings.ExpectedAgentSid
+    Set-InstallerFailureContext `
+        -Phase 'windows-evidence-verification' `
+        -Operation 'build-expected-evidence-acls'
     $expected = Get-WindowsExpectedEvidenceAces `
         -Paths $Paths `
         -PitCrewRoot $pitCrewRoot `
@@ -3816,6 +3819,9 @@ function Assert-WindowsEvidenceAclsExact {
         $scanRoots.Add($connectorRoot)
     }
     foreach ($scanRoot in $scanRoots) {
+        Set-InstallerFailureContext `
+            -Phase 'windows-evidence-verification' `
+            -Operation 'enumerate-evidence-tree'
         $items = @(
             Get-Item -LiteralPath $scanRoot -Force
             Get-ChildItem `
@@ -3840,9 +3846,15 @@ function Assert-WindowsEvidenceAclsExact {
             )
             if (-not $expected.ContainsKey($fullPath)) {
                 if ($brokerRules.Count -gt 0) {
+                    Set-InstallerFailureContext `
+                        -Phase 'windows-evidence-verification' `
+                        -Operation 'reject-unexpected-broker-ace'
                     throw 'Support evidence ACL drift was detected: the broker has an unexpected evidence ACE.'
                 }
             } elseif ($brokerRules.Count -ne 1) {
+                Set-InstallerFailureContext `
+                    -Phase 'windows-evidence-verification' `
+                    -Operation 'verify-broker-ace-count'
                 throw 'Support evidence ACL drift was detected: the broker evidence ACE count is not exact.'
             } else {
                 $rule = $brokerRules[0]
@@ -3856,6 +3868,9 @@ function Assert-WindowsEvidenceAclsExact {
                     $rule.PropagationFlags -ne
                         [Security.AccessControl.PropagationFlags]::None -or
                     $actualRights -ne $expected[$fullPath]) {
+                    Set-InstallerFailureContext `
+                        -Phase 'windows-evidence-verification' `
+                        -Operation 'verify-broker-ace-shape'
                     throw 'Support evidence ACL drift was detected: the broker evidence ACE rights or inheritance are not exact.'
                 }
             }
@@ -3866,6 +3881,9 @@ function Assert-WindowsEvidenceAclsExact {
                     }
             )
             if ($agentRules.Count -ne 1) {
+                Set-InstallerFailureContext `
+                    -Phase 'windows-evidence-verification' `
+                    -Operation 'verify-agent-deny-count'
                 throw 'The support agent evidence denial count is not exact.'
             }
             $agentRule = $agentRules[0]
@@ -3895,6 +3913,9 @@ function Assert-WindowsEvidenceAclsExact {
                 $agentRule.InheritanceFlags -ne $expectedInheritance -or
                 $agentRule.PropagationFlags -ne
                     [Security.AccessControl.PropagationFlags]::None) {
+                Set-InstallerFailureContext `
+                    -Phase 'windows-evidence-verification' `
+                    -Operation 'verify-agent-deny-shape'
                 throw 'The support agent evidence denial is not exact.'
             }
         }
@@ -3919,6 +3940,9 @@ function Assert-WindowsEvidenceAclsExact {
                 [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
                 [Security.AccessControl.InheritanceFlags]::ObjectInherit
             )) {
+            Set-InstallerFailureContext `
+                -Phase 'windows-evidence-verification' `
+                -Operation 'verify-agent-root-deny'
             throw 'The support agent root evidence denial is not exact.'
         }
     }
@@ -4329,6 +4353,9 @@ function Assert-EvidenceFilesReadable {
         [Parameter(Mandatory)][object]$Settings
     )
 
+    Set-InstallerFailureContext `
+        -Phase 'evidence-verification' `
+        -Operation 'load-evidence-policy'
     $policy = Get-EvidencePolicy
     $pitCrewRoot = [string]$Settings.PitCrewRoot
     $profiles = ([string]$Settings.AllowedProfiles).Split(',')
@@ -4340,6 +4367,9 @@ function Assert-EvidenceFilesReadable {
         [IO.Path]::DirectorySeparatorChar)
     $files = [Collections.Generic.List[string]]::new()
     $files.Add($collector)
+    Set-InstallerFailureContext `
+        -Phase 'evidence-verification' `
+        -Operation 'verify-collector-hash'
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
         throw 'The fixed PitCrew v0.10.1 diagnostics collector hash is invalid.'
@@ -4363,11 +4393,17 @@ function Assert-EvidenceFilesReadable {
         }
     }
     if ($IsWindows) {
+        Set-InstallerFailureContext `
+            -Phase 'windows-evidence-verification' `
+            -Operation 'verify-exact-evidence-acls'
         Assert-WindowsEvidenceAclsExact `
             -Paths $Paths `
             -Settings $Settings
         $brokerSid = [string]$Settings.BrokerServiceSid
         $agentSid = [string]$Settings.ExpectedAgentSid
+        Set-InstallerFailureContext `
+            -Phase 'windows-evidence-verification' `
+            -Operation 'verify-state-root-enumeration'
         $stateEnumerationRule = @(
             (Get-Acl -LiteralPath $stateRoot).GetAccessRules(
                 $true,
@@ -4387,6 +4423,9 @@ function Assert-EvidenceFilesReadable {
             throw 'The broker cannot enumerate the PitCrew profile-state root.'
         }
         foreach ($sentinel in $policy.installationSentinels) {
+            Set-InstallerFailureContext `
+                -Phase 'windows-evidence-verification' `
+                -Operation 'verify-root-metadata-acl'
             $sentinelRules = @(
                 (Get-Acl `
                     -LiteralPath (
@@ -4410,6 +4449,9 @@ function Assert-EvidenceFilesReadable {
             }
         }
         foreach ($path in $files) {
+            Set-InstallerFailureContext `
+                -Phase 'windows-evidence-verification' `
+                -Operation 'verify-evidence-read-acl'
             $acl = Get-Acl -LiteralPath $path
             $readRule = @(
                 $acl.GetAccessRules(
@@ -4428,6 +4470,9 @@ function Assert-EvidenceFilesReadable {
                 throw 'Support evidence ACL drift was detected; reapply the exact file ACLs after atomic replacement.'
             }
         }
+        Set-InstallerFailureContext `
+            -Phase 'windows-evidence-verification' `
+            -Operation 'verify-agent-evidence-deny'
         $agentDenied = @(
             (Get-Acl -LiteralPath $files[0]).GetAccessRules(
                 $true,
@@ -4446,6 +4491,9 @@ function Assert-EvidenceFilesReadable {
         }
         $environmentPath = Join-Path $pitCrewRoot '.env'
         if (Test-Path -LiteralPath $environmentPath -PathType Leaf) {
+            Set-InstallerFailureContext `
+                -Phase 'windows-evidence-verification' `
+                -Operation 'verify-prohibited-environment-deny'
             $environmentAcl = Get-Acl -LiteralPath $environmentPath
             $prohibitedRule = @(
                 $environmentAcl.GetAccessRules(
