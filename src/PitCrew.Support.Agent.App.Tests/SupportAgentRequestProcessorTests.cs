@@ -35,6 +35,7 @@ public sealed class SupportAgentRequestProcessorTests
           dashboardKeys.ResultEncryption.PublicKeySubjectPublicKeyInfoBase64Url,
           replayRoot,
           "unused",
+          "/unused",
           new LegacySupportNodePrivateKeySource(
               nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
               nodeKeys.Encryption.PrivateKeyPkcs8Base64Url));
@@ -123,6 +124,7 @@ public sealed class SupportAgentRequestProcessorTests
           dashboardKeys.ResultEncryption.PublicKeySubjectPublicKeyInfoBase64Url,
           replayRoot,
           "unused",
+          "/unused",
           new LegacySupportNodePrivateKeySource(
               nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
               nodeKeys.Encryption.PrivateKeyPkcs8Base64Url));

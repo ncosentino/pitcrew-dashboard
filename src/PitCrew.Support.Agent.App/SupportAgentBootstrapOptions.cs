@@ -8,6 +8,7 @@ internal sealed record SupportAgentBootstrapOptions(
     string IdentityRoot,
     string ReplayRoot,
     string PipeName,
+    string SocketPath,
     Uri? DashboardUrl,
     string? TenantId,
     string? DisplayName,
@@ -23,6 +24,8 @@ internal sealed record SupportAgentBootstrapOptions(
         Path.Combine(DefaultSupportRoot(), "replay");
     var pipeName = configuration["PitCrewSupport:Agent:PipeName"] ??
         "pitcrew-support-broker-v1";
+    var socketPath = configuration["PitCrewSupport:Agent:SocketPath"] ??
+        "/run/pitcrew-support/broker.sock";
     var dashboardUrlValue = configuration["PitCrewSupport:Agent:DashboardUrl"];
     Uri? dashboardUrl = null;
     if (!string.IsNullOrWhiteSpace(dashboardUrlValue) &&
@@ -37,7 +40,11 @@ internal sealed record SupportAgentBootstrapOptions(
     if (!Path.IsPathFullyQualified(identityRoot) ||
         !Path.IsPathFullyQualified(replayRoot) ||
         string.IsNullOrWhiteSpace(pipeName) ||
-        pipeName.Length > 128)
+        pipeName.Length > 128 ||
+        string.IsNullOrWhiteSpace(socketPath) ||
+        socketPath.Length > 512 ||
+        OperatingSystem.IsLinux() &&
+        !Path.IsPathFullyQualified(socketPath))
     {
       return null;
     }
@@ -45,6 +52,7 @@ internal sealed record SupportAgentBootstrapOptions(
         identityRoot,
         replayRoot,
         pipeName,
+        socketPath,
         dashboardUrl,
         configuration["PitCrewSupport:Agent:TenantId"],
         configuration["PitCrewSupport:Agent:DisplayName"],
@@ -102,6 +110,7 @@ internal sealed record SupportAgentBootstrapOptions(
         resultPublicKey!,
         ReplayRoot,
         PipeName,
+        SocketPath,
         new LegacySupportNodePrivateKeySource(
             signingPrivateKey!,
             encryptionPrivateKey!));

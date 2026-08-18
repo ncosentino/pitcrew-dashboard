@@ -1,13 +1,34 @@
+using System.Buffers;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
-using PitCrew.Protocol;
 using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Broker.App;
 
-internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
+internal sealed class SupportDiagnosticsBroker
 {
+  private const int MaximumCollectorOutputBytes = 4_194_304;
+
+  private readonly SupportBrokerOptions _options;
+  private readonly SupportEvidenceAccessValidator _evidenceValidator;
+
+  public SupportDiagnosticsBroker(SupportBrokerOptions options)
+      : this(options, SupportEvidencePolicy.Load())
+  {
+  }
+
+  internal SupportDiagnosticsBroker(
+      SupportBrokerOptions options,
+      SupportEvidencePolicyDocument policy)
+  {
+    _options = options;
+    _evidenceValidator = new SupportEvidenceAccessValidator(
+        options,
+        policy);
+  }
+
   public async Task<SupportBrokerExecution> ExecuteAsync(
       SupportBrokerRequest request,
       CancellationToken cancellationToken)
@@ -19,14 +40,6 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "Diagnostic mode is not allowed.");
     }
-    if (request.ProfileId is not null &&
-        (!PitCrewProfileId.IsValid(request.ProfileId) || !ProfileExists(request.ProfileId)))
-    {
-      return new SupportBrokerExecution(
-          SupportBrokerStatus.InvalidProfile,
-          null,
-          "Profile ID is not locally configured.");
-    }
     if (!IsPackageIdValid(request.PackageId))
     {
       return new SupportBrokerExecution(
@@ -34,28 +47,17 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "Package ID is not a deterministic lowercase hexadecimal identifier.");
     }
-    var scriptPath = Path.Combine(
-        _options.PitCrewRoot,
-        "plugins",
-        "pitcrew-operations",
-        "skills",
-        "pitcrew-remote-diagnostics",
-        "scripts",
-        "Collect-PitCrewDiagnostics.ps1");
-    if (!File.Exists(scriptPath))
+    var evidence = _evidenceValidator.Validate(request.ProfileId);
+    if (!evidence.Succeeded)
     {
       return new SupportBrokerExecution(
-          SupportBrokerStatus.ScriptMissing,
+          evidence.Status,
           null,
-          "The fixed diagnostics collector is not installed.");
+          evidence.Error);
     }
 
     var collectorCommand =
-        $"& {Quote(scriptPath)} -PitCrewRoot {Quote(_options.PitCrewRoot)} -FileOnly -PassThruOnly -DiagnosticMode {Quote(request.DiagnosticMode)} -PackageId {Quote(request.PackageId)}";
-    if (request.ProfileId is not null)
-    {
-      collectorCommand += $" -Profile {Quote(request.ProfileId)}";
-    }
+        $"& {Quote(evidence.CollectorPath!)} -PitCrewRoot {Quote(_options.PitCrewRoot)} -FileOnly -PassThruOnly -DiagnosticMode {Quote(request.DiagnosticMode)} -PackageId {Quote(request.PackageId)} -Profile {Quote(evidence.ProfileId!)}";
     collectorCommand += " | ConvertTo-Json -Depth 100 -Compress";
     var arguments = new List<string>
     {
@@ -85,8 +87,13 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           null,
           "The diagnostics collector could not be started.");
     }
-    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+    var outputTask = ReadBoundedUtf8Async(
+        process.StandardOutput.BaseStream,
+        MaximumCollectorOutputBytes,
+        cancellationToken);
+    var errorTask = DrainAsync(
+        process.StandardError.BaseStream,
+        cancellationToken);
     try
     {
       await Task.WhenAll(
@@ -110,7 +117,7 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
           "The diagnostics collector failed.");
     }
     var output = await outputTask;
-    if (output.Length > 4_194_304)
+    if (output is null)
     {
       return new SupportBrokerExecution(
           SupportBrokerStatus.ExecutionFailed,
@@ -120,18 +127,69 @@ internal sealed class SupportDiagnosticsBroker(SupportBrokerOptions _options)
     return ParseResponse(output);
   }
 
-  private bool ProfileExists(string profileId)
+  private static async Task<string?> ReadBoundedUtf8Async(
+      Stream stream,
+      int maximumBytes,
+      CancellationToken cancellationToken)
   {
-    var profilesRoot = Path.Combine(_options.PitCrewRoot, ".pitcrew-state");
-    var profileDirectory = Path.Combine(profilesRoot, profileId);
-    var fullProfilesRoot = Path.TrimEndingDirectorySeparator(
-        Path.GetFullPath(profilesRoot)) + Path.DirectorySeparatorChar;
-    var fullProfileDirectory = Path.GetFullPath(profileDirectory);
-    var comparison = OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-    return fullProfileDirectory.StartsWith(fullProfilesRoot, comparison) &&
-        Directory.Exists(fullProfileDirectory);
+    var buffer = ArrayPool<byte>.Shared.Rent(8192);
+    using var output = new MemoryStream(
+        Math.Min(maximumBytes, 65_536));
+    var exceeded = false;
+    try
+    {
+      while (true)
+      {
+        var read = await stream.ReadAsync(
+            buffer.AsMemory(),
+            cancellationToken);
+        if (read == 0)
+        {
+          break;
+        }
+        if (exceeded)
+        {
+          continue;
+        }
+        if (output.Length + read > maximumBytes)
+        {
+          exceeded = true;
+          continue;
+        }
+        await output.WriteAsync(
+            buffer.AsMemory(0, read),
+            cancellationToken);
+      }
+      return exceeded
+          ? null
+          : Encoding.UTF8.GetString(
+              output.GetBuffer(),
+              0,
+              checked((int)output.Length));
+    }
+    finally
+    {
+      ArrayPool<byte>.Shared.Return(buffer);
+    }
+  }
+
+  private static async Task DrainAsync(
+      Stream stream,
+      CancellationToken cancellationToken)
+  {
+    var buffer = ArrayPool<byte>.Shared.Rent(4096);
+    try
+    {
+      while (await stream.ReadAsync(
+          buffer.AsMemory(),
+          cancellationToken) != 0)
+      {
+      }
+    }
+    finally
+    {
+      ArrayPool<byte>.Shared.Return(buffer);
+    }
   }
 
   private static bool IsPackageIdValid(string packageId) =>

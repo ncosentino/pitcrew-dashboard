@@ -1,20 +1,28 @@
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 using PitCrew.Support.Broker.App;
 
-var configuration = new ConfigurationBuilder()
-    .AddEnvironmentVariables()
-    .AddCommandLine(args)
-    .Build();
-var options = SupportBrokerOptions.FromConfiguration(configuration);
+var builder = Host.CreateApplicationBuilder(args);
+var options = SupportBrokerOptions.FromConfiguration(builder.Configuration) ??
+    throw new InvalidOperationException(
+        "PitCrew support broker configuration is incomplete.");
 var broker = new SupportDiagnosticsBroker(options);
-var server = new SupportBrokerPipeServer(options, broker);
+var server = SupportBrokerServerFactory.Create(options, broker);
 if (args.Contains("--run-once", StringComparer.Ordinal))
 {
-  await server.RunOnceAsync(CancellationToken.None);
+  using (server)
+  {
+    await server.RunOnceAsync(CancellationToken.None);
+  }
   return;
 }
-while (true)
+builder.Services.AddSingleton(options);
+builder.Services.AddSingleton(broker);
+builder.Services.AddSingleton<ISupportBrokerServer>(server);
+builder.Services.AddHostedService<SupportBrokerWorker>();
+builder.Services.AddWindowsService(service =>
 {
-  await server.RunOnceAsync(CancellationToken.None);
-}
+  service.ServiceName = "PitCrewSupportBroker";
+});
+await builder.Build().RunAsync();
