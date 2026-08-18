@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support;
@@ -18,22 +17,6 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class SupportHostingTests
 {
-  [Test]
-  public async Task Relay_Management_Rejects_Insecure_External_Internal_Origin()
-  {
-    var client = new SupportRelayManagementClient(
-        new ThrowingHttpClientFactory(),
-        Options.Create(new SupportPlaneOptions
-        {
-          RelayUrl = "https://relay.example.com/",
-          RelayInternalUrl = "http://relay.example.com/",
-          RelayInternalBearerSecret = "relay-secret-for-tests",
-        }),
-        TimeProvider.System);
-
-    await Assert.That(client.IsConfigured).IsFalse();
-  }
-
   [Test]
   public async Task Diagnostic_Credential_Can_Create_And_Read_Support_Session(
       CancellationToken cancellationToken)
@@ -664,7 +647,7 @@ public sealed class SupportHostingTests
   }
 
   [Test]
-  public async Task Hosted_Maintenance_Preserves_Unconfigured_Cleanup_And_Retries_Later(
+  public async Task Hosted_Maintenance_Preserves_Invalid_Relay_Configuration_And_Retries_Later(
       CancellationToken cancellationToken)
   {
     var databasePath = DashboardTestHelpers.CreateDatabasePath();
@@ -676,8 +659,9 @@ public sealed class SupportHostingTests
       using (var configuration = new TestConfigurationScope(
           databasePath,
           "https://relay.test/",
-          string.Empty,
-          relayCleanupIntervalSeconds: 1))
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 1,
+          relayInternalUrl: "http://relay.example.com/"))
       {
         await using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
@@ -886,10 +870,4 @@ public sealed class SupportHostingTests
     }
   }
 
-  private sealed class ThrowingHttpClientFactory : IHttpClientFactory
-  {
-    public HttpClient CreateClient(string name) =>
-        throw new InvalidOperationException(
-            "The rejected relay origin must not create an HTTP client.");
-  }
 }

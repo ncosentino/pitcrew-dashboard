@@ -87,7 +87,7 @@ if ([Uri]::CheckHostName($RelayDomain) -ne [UriHostNameType]::Dns -or
 }
 
 $resolvedEnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
-$envItem = Get-Item -LiteralPath $resolvedEnvFile
+$envItem = Get-Item -LiteralPath $resolvedEnvFile -Force
 if (($envItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw 'The hosted environment file cannot be a symbolic link or reparse point.'
 }

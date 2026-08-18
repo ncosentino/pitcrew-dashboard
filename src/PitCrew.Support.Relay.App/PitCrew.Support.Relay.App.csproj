@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <ServerGarbageCollection>true</ServerGarbageCollection>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
   </PropertyGroup>
 
   <ItemGroup>
