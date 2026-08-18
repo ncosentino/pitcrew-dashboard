@@ -292,8 +292,8 @@ try {
         'Instruction and generated mirror counts differ.')
     Add-Check ($result.instructions -ge 130) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 44) (
-        'The documentation map does not contain the expected 44 maintained pages.')
+    Add-Check ($result.docs -eq 45) (
+        'The documentation map does not contain the expected 45 maintained pages.')
     Add-Check ($result.adrs -eq 8) (
         'The ADR index does not contain eight accepted records.')
 

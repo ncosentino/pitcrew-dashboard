@@ -31,6 +31,7 @@ This map is the canonical entry point for maintained Dashboard documentation.
 - [Hosted deployment](hosted-deployment.md)
 - [Caddy ingress](hosting/caddy.md)
 - [Cloudflare Tunnel ingress](hosting/cloudflare-tunnel.md)
+- [Hosted support relay](hosting/support-relay.md)
 - [Custom ingress contract](hosting/custom-ingress.md)
 - [Container packaging](container/README.md)
 - [ASP.NET Core container](container/aspnet.md)

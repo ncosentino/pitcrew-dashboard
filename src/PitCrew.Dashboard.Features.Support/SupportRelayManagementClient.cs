@@ -170,18 +170,29 @@ internal sealed class SupportRelayManagementClient(
         : null;
   }
 
-  internal bool IsConfigured =>
-      _options.Value.RelayInternalBearerSecret.Length is >= 16 and <= 4096 &&
-      !_options.Value.RelayInternalBearerSecret.Contains('\r') &&
-      !_options.Value.RelayInternalBearerSecret.Contains('\n') &&
-      Uri.TryCreate(_options.Value.RelayUrl, UriKind.Absolute, out var relayUrl) &&
-      IsAllowedRelayOrigin(relayUrl);
+  internal bool IsConfigured
+  {
+    get
+    {
+      return _options.Value.RelayInternalBearerSecret.Length is >= 16 and <= 4096 &&
+          !_options.Value.RelayInternalBearerSecret.Contains('\r') &&
+          !_options.Value.RelayInternalBearerSecret.Contains('\n') &&
+          Uri.TryCreate(
+              _options.Value.RelayUrl,
+              UriKind.Absolute,
+              out var relayUrl) &&
+          IsAllowedRelayOrigin(relayUrl) &&
+          GetManagementOriginOrNull() is not null;
+    }
+  }
 
   private HttpClient CreateClient()
   {
     var client = _httpClientFactory.CreateClient(
         SupportRelayManagementHttpClientOptions.ClientName);
-    client.BaseAddress = new Uri(_options.Value.RelayUrl, UriKind.Absolute);
+    client.BaseAddress = GetManagementOriginOrNull() ??
+        throw new InvalidOperationException(
+            "The support relay management origin is invalid.");
     client.MaxResponseContentBufferSize = 4_194_304;
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
         "Bearer",
@@ -190,13 +201,34 @@ internal sealed class SupportRelayManagementClient(
     return client;
   }
 
+  private Uri? GetManagementOriginOrNull()
+  {
+    var value = string.IsNullOrWhiteSpace(_options.Value.RelayInternalUrl)
+        ? _options.Value.RelayUrl
+        : _options.Value.RelayInternalUrl;
+    return Uri.TryCreate(value, UriKind.Absolute, out var relayUrl) &&
+        IsAllowedManagementOrigin(relayUrl)
+            ? relayUrl
+            : null;
+  }
+
+  private static bool IsAllowedManagementOrigin(Uri relayUrl) =>
+      IsAllowedRelayOrigin(relayUrl) ||
+      IsOriginOnly(relayUrl) &&
+      relayUrl.Scheme == Uri.UriSchemeHttp &&
+      relayUrl.HostNameType == UriHostNameType.Dns &&
+      !relayUrl.Host.Contains('.', StringComparison.Ordinal);
+
   private static bool IsAllowedRelayOrigin(Uri relayUrl) =>
+      IsOriginOnly(relayUrl) &&
+      (relayUrl.Scheme == Uri.UriSchemeHttps ||
+       relayUrl.Scheme == Uri.UriSchemeHttp && relayUrl.IsLoopback);
+
+  private static bool IsOriginOnly(Uri relayUrl) =>
       string.IsNullOrEmpty(relayUrl.UserInfo) &&
       string.IsNullOrEmpty(relayUrl.Query) &&
       string.IsNullOrEmpty(relayUrl.Fragment) &&
-      relayUrl.AbsolutePath == "/" &&
-      (relayUrl.Scheme == Uri.UriSchemeHttps ||
-       relayUrl.Scheme == Uri.UriSchemeHttp && relayUrl.IsLoopback);
+      relayUrl.AbsolutePath == "/";
 }
 
 internal enum SupportRelayManagementStatus

@@ -458,7 +458,8 @@ public sealed class SupportHostingTests
           databasePath,
           "https://relay.test/",
           "relay-secret-for-tests",
-          relayCleanupIntervalSeconds: 1);
+          relayCleanupIntervalSeconds: 1,
+          relayInternalUrl: "http://support-relay-internal:8080/");
       var relayHandler = new RecordingRelayHandler();
       await using var factory = new WebApplicationFactory<Program>()
           .WithWebHostBuilder(
@@ -518,6 +519,10 @@ public sealed class SupportHostingTests
       }
 
       await Assert.That(relayHandler.RequestCount).IsEqualTo(1);
+      await Assert.That(
+              relayHandler.LastRequestUri?.GetLeftPart(
+                  UriPartial.Authority))
+              .IsEqualTo("http://support-relay-internal:8080");
       await Assert.That(remaining).IsEqualTo(0);
     }
     finally
@@ -642,7 +647,7 @@ public sealed class SupportHostingTests
   }
 
   [Test]
-  public async Task Hosted_Maintenance_Preserves_Unconfigured_Cleanup_And_Retries_Later(
+  public async Task Hosted_Maintenance_Preserves_Invalid_Relay_Configuration_And_Retries_Later(
       CancellationToken cancellationToken)
   {
     var databasePath = DashboardTestHelpers.CreateDatabasePath();
@@ -654,8 +659,9 @@ public sealed class SupportHostingTests
       using (var configuration = new TestConfigurationScope(
           databasePath,
           "https://relay.test/",
-          string.Empty,
-          relayCleanupIntervalSeconds: 1))
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 1,
+          relayInternalUrl: "http://relay.example.com/"))
       {
         await using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
@@ -848,15 +854,20 @@ public sealed class SupportHostingTests
       HttpStatusCode _statusCode = HttpStatusCode.NotFound) : HttpMessageHandler
   {
     private int _requestCount;
+    private Uri? _lastRequestUri;
 
     public int RequestCount => Volatile.Read(ref _requestCount);
+
+    public Uri? LastRequestUri => Volatile.Read(ref _lastRequestUri);
 
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
       Interlocked.Increment(ref _requestCount);
-        return Task.FromResult(new HttpResponseMessage(_statusCode));
+      Interlocked.Exchange(ref _lastRequestUri, request.RequestUri);
+      return Task.FromResult(new HttpResponseMessage(_statusCode));
     }
   }
+
 }

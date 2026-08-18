@@ -543,6 +543,8 @@ internal sealed class TestConfigurationScope : IDisposable
       "PitCrew__Sqlite__DatabasePath";
   private const string RelayUrlKey =
       "PitCrew__SupportPlane__RelayUrl";
+  private const string RelayInternalUrlKey =
+      "PitCrew__SupportPlane__RelayInternalUrl";
   private const string RelaySecretKey =
       "PitCrew__SupportPlane__RelayInternalBearerSecret";
   private const string RelayCleanupIntervalKey =
@@ -563,6 +565,8 @@ internal sealed class TestConfigurationScope : IDisposable
       Environment.GetEnvironmentVariable(DatabasePathKey);
   private readonly string? _previousRelayUrl =
       Environment.GetEnvironmentVariable(RelayUrlKey);
+  private readonly string? _previousRelayInternalUrl =
+      Environment.GetEnvironmentVariable(RelayInternalUrlKey);
   private readonly string? _previousRelaySecret =
       Environment.GetEnvironmentVariable(RelaySecretKey);
   private readonly string? _previousRelayCleanupInterval =
@@ -585,10 +589,14 @@ internal sealed class TestConfigurationScope : IDisposable
       string databasePath,
       string relayUrl,
       string relaySecret,
-      int relayCleanupIntervalSeconds)
+      int relayCleanupIntervalSeconds,
+      string? relayInternalUrl = null)
       : this(databasePath)
   {
     Environment.SetEnvironmentVariable(RelayUrlKey, relayUrl);
+    Environment.SetEnvironmentVariable(
+        RelayInternalUrlKey,
+        relayInternalUrl);
     Environment.SetEnvironmentVariable(RelaySecretKey, relaySecret);
     Environment.SetEnvironmentVariable(
         RelayCleanupIntervalKey,
@@ -673,6 +681,9 @@ internal sealed class TestConfigurationScope : IDisposable
     Environment.SetEnvironmentVariable(
         RelayUrlKey,
         _previousRelayUrl);
+    Environment.SetEnvironmentVariable(
+        RelayInternalUrlKey,
+        _previousRelayInternalUrl);
     Environment.SetEnvironmentVariable(
         RelaySecretKey,
         _previousRelaySecret);

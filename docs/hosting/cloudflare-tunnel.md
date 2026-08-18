@@ -58,6 +58,12 @@ docker compose `
 The `cloudflared` health check reports ready only after an edge connection is
 established.
 
+For support-plane v1, add a second published application route from the relay
+hostname to `http://support-relay:8080`, then include
+`deploy/support-relay.compose.yml` in every command. The complete procedure,
+secret initialization, backup, and rollback contract is in
+[Hosted support relay](support-relay.md).
+
 ## Firewall
 
 No inbound rule or router port forwarding is required. A restrictive outbound

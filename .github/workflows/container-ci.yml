@@ -76,18 +76,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate hosted support-plane configuration
+        shell: pwsh
+        run: ./tests/Test-HostedSupportPlaneConfiguration.ps1
+
       - name: Validate Compose deployment contracts
         env:
           PITCREW_ENROLLMENT_CODE: validation-only
           PITCREW_STATE_ROOT: /tmp/pitcrew-state
           PITCREW_DASHBOARD_PORT: '5080'
           PITCREW_SERVER_NAME: validation
-          PITCREW_DASHBOARD_VERSION: 0.2.0
+          PITCREW_DASHBOARD_VERSION: 0.12.2
           PITCREW_DASHBOARD_DOMAIN: pitcrew.example.com
           PITCREW_GITHUB_CLIENT_ID: validation
           PITCREW_GITHUB_CLIENT_SECRET: validation
           PITCREW_SYSTEM_ADMIN_GITHUB_ID: '123'
           PITCREW_CLOUDFLARE_TUNNEL_TOKEN_FILE: ./secrets/cloudflare-tunnel-token
+          PITCREW_SUPPORT_RELAY_VERSION: 0.12.2
+          PITCREW_SUPPORT_RELAY_DOMAIN: relay.example.com
+          PITCREW_SUPPORT_RELAY_INTERNAL_BEARER_SECRET: validation-only-support-relay-secret
+          PITCREW_SUPPORT_AUTHORIZATION_SIGNING_PRIVATE_KEY_PKCS8: validation-only-signing-key
+          PITCREW_SUPPORT_RESULT_DECRYPTION_PRIVATE_KEY_PKCS8: validation-only-decryption-key
         run: |
           mkdir -p secrets
           printf '%s' 'validation-only' > secrets/cloudflare-tunnel-token
@@ -103,6 +112,21 @@ jobs:
             --file docker-compose.hosted.yml \
             --file deploy/cloudflare-tunnel.compose.yml \
             config --format json > /tmp/pitcrew-cloudflare.json
+          docker compose \
+            --file docker-compose.hosted.yml \
+            --file deploy/support-relay.compose.yml \
+            config --format json > /tmp/pitcrew-support-relay.json
+          docker compose \
+            --file docker-compose.hosted.yml \
+            --file deploy/caddy.compose.yml \
+            --file deploy/support-relay.compose.yml \
+            --file deploy/support-relay-caddy.compose.yml \
+            config --format json > /tmp/pitcrew-caddy-support-relay.json
+          docker compose \
+            --file docker-compose.hosted.yml \
+            --file deploy/cloudflare-tunnel.compose.yml \
+            --file deploy/support-relay.compose.yml \
+            config --format json > /tmp/pitcrew-cloudflare-support-relay.json
 
           python3 - <<'PY'
           import json
@@ -113,6 +137,18 @@ jobs:
               caddy = json.load(handle)
           with open('/tmp/pitcrew-cloudflare.json', encoding='utf-8') as handle:
               cloudflare = json.load(handle)
+          with open('/tmp/pitcrew-support-relay.json', encoding='utf-8') as handle:
+              support_relay = json.load(handle)
+          with open(
+              '/tmp/pitcrew-caddy-support-relay.json',
+              encoding='utf-8',
+          ) as handle:
+              caddy_support_relay = json.load(handle)
+          with open(
+              '/tmp/pitcrew-cloudflare-support-relay.json',
+              encoding='utf-8',
+          ) as handle:
+              cloudflare_support_relay = json.load(handle)
 
           assert sorted(base['services']) == ['dashboard']
           assert base['services']['dashboard'].get('ports') is None
@@ -169,6 +205,102 @@ jobs:
               cloudflare['services']['cloudflared']['depends_on']['dashboard']['restart']
               is True
           )
+
+          assert sorted(support_relay['services']) == ['dashboard', 'support-relay']
+          relay = support_relay['services']['support-relay']
+          assert relay['image'] == (
+              'ghcr.io/ncosentino/'
+              'pitcrew-dashboard-support-relay:0.12.2'
+          )
+          assert relay.get('ports') is None
+          assert relay['expose'] == ['8080']
+          assert relay['read_only'] is True
+          assert relay['cap_drop'] == ['ALL']
+          assert relay['security_opt'] == ['no-new-privileges:true']
+          assert relay['tmpfs'] == ['/tmp:size=64m,noexec,nosuid,nodev']
+          assert relay['environment'] == {
+              'ASPNETCORE_ENVIRONMENT': 'Production',
+              'SupportRelay__DatabasePath':
+                  '/var/lib/pitcrew-support-relay/support-relay.db',
+              'SupportRelay__InternalBearerSecret':
+                  'validation-only-support-relay-secret',
+          }
+          assert relay['volumes'] == [{
+              'type': 'volume',
+              'source': 'support-relay-data',
+              'target': '/var/lib/pitcrew-support-relay',
+              'volume': {},
+          }]
+          support_dashboard = support_relay['services']['dashboard']
+          assert support_dashboard['depends_on']['support-relay'] == {
+              'condition': 'service_healthy',
+              'required': True,
+              'restart': True,
+          }
+          support_environment = support_dashboard['environment']
+          assert support_environment[
+              'PitCrew__SupportPlane__RelayUrl'
+          ] == 'https://relay.example.com'
+          assert support_environment[
+              'PitCrew__SupportPlane__RelayInternalUrl'
+          ] == 'http://support-relay-internal:8080'
+          assert support_environment[
+              'PitCrew__SupportPlane__RelayInternalBearerSecret'
+          ] == 'validation-only-support-relay-secret'
+          assert support_environment[
+              'PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8'
+          ] == 'validation-only-signing-key'
+          assert support_environment[
+              'PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8'
+          ] == 'validation-only-decryption-key'
+          assert support_relay['networks'][
+              'pitcrew-support-internal'
+          ]['internal'] is True
+          assert 'pitcrew-support-internal' in support_dashboard['networks']
+          assert (
+              relay['networks']['pitcrew-support-internal']['aliases']
+              == ['support-relay-internal']
+          )
+
+          assert sorted(caddy_support_relay['services']) == [
+              'caddy',
+              'dashboard',
+              'support-relay',
+          ]
+          assert (
+              caddy_support_relay['services']['caddy']
+              ['depends_on']['support-relay']['condition']
+              == 'service_healthy'
+          )
+          assert (
+              'pitcrew-support-internal'
+              not in caddy_support_relay['services']['caddy']['networks']
+          )
+          caddy_mounts = {
+              entry['target']: entry['source']
+              for entry in caddy_support_relay['services']['caddy']['volumes']
+          }
+          assert caddy_mounts['/etc/caddy/Caddyfile'].endswith(
+              '/deploy/caddy/Caddyfile.support-relay'
+          )
+
+          assert sorted(cloudflare_support_relay['services']) == [
+              'cloudflared',
+              'dashboard',
+              'support-relay',
+          ]
+          assert (
+              cloudflare_support_relay['services']['cloudflared'].get('ports')
+              is None
+          )
+          assert (
+              cloudflare_support_relay['services']['support-relay'].get('ports')
+              is None
+          )
+          assert (
+              'pitcrew-support-internal'
+              not in cloudflare_support_relay['services']['cloudflared']['networks']
+          )
           PY
 
       - name: Validate Caddy configuration
@@ -176,6 +308,12 @@ jobs:
           docker run --rm \
             --env PITCREW_DASHBOARD_DOMAIN=pitcrew.example.com \
             --volume "$PWD/deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.4-alpine \
+            caddy validate --config /etc/caddy/Caddyfile
+          docker run --rm \
+            --env PITCREW_DASHBOARD_DOMAIN=pitcrew.example.com \
+            --env PITCREW_SUPPORT_RELAY_DOMAIN=relay.example.com \
+            --volume "$PWD/deploy/caddy/Caddyfile.support-relay:/etc/caddy/Caddyfile:ro" \
             caddy:2.11.4-alpine \
             caddy validate --config /etc/caddy/Caddyfile
 
@@ -199,6 +337,8 @@ jobs:
             config: .container/image.json
           - name: connector
             config: .container/connector-image.json
+          - name: support-relay
+            config: .container/support-relay-image.json
 
     steps:
       - uses: actions/checkout@v7

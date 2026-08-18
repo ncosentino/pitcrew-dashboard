@@ -1,0 +1,10 @@
+services:
+  caddy:
+    depends_on:
+      support-relay:
+        condition: service_healthy
+        restart: true
+    environment:
+      PITCREW_SUPPORT_RELAY_DOMAIN: ${PITCREW_SUPPORT_RELAY_DOMAIN:?Set PITCREW_SUPPORT_RELAY_DOMAIN}
+    volumes:
+      - ./deploy/caddy/Caddyfile.support-relay:/etc/caddy/Caddyfile:ro

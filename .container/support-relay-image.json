@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "imageName": "PitCrew.Support.Relay",
+  "dockerfile": "src/PitCrew.Support.Relay.App/Dockerfile",
+  "runEnvironment": {
+    "ASPNETCORE_ENVIRONMENT": "Production",
+    "SupportRelay__DatabasePath": "/tmp/pitcrew-support-relay.db",
+    "SupportRelay__InternalBearerSecret": "container-validation-secret"
+  },
+  "smoke": {
+    "kind": "http",
+    "containerPort": 8080,
+    "healthPath": "/healthz",
+    "execCommands": [
+      {
+        "arguments": [
+          "/app/tools/database/PitCrew.Dashboard.DatabaseTool",
+          "backup",
+          "--database",
+          "/tmp/pitcrew-support-relay.db",
+          "--output",
+          "/tmp/pitcrew-support-relay-smoke.db"
+        ]
+      },
+      {
+        "arguments": [
+          "/app/tools/database/PitCrew.Dashboard.DatabaseTool",
+          "verify",
+          "--input",
+          "/tmp/pitcrew-support-relay-smoke.db"
+        ]
+      }
+    ]
+  }
+}
