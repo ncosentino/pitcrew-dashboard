@@ -210,7 +210,7 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
-  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_0()
+  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_1()
   {
     var policy = SupportEvidencePolicy.Load();
     var allPaths = policy.InstallationSentinels
@@ -219,11 +219,13 @@ public sealed class SupportDiagnosticsBrokerTests
         .Append(policy.CollectorRelativePath)
         .ToArray();
 
-    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.0");
-    await Assert.That(policy.PitCrewCommit).IsEqualTo("4d30a031");
+    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.1");
+    await Assert.That(policy.PitCrewCommit).IsEqualTo("0672c34c");
     await Assert.That(policy.CollectorSha256)
         .IsEqualTo(
             "01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3");
+    await Assert.That(policy.CollectorHashCanonicalization)
+        .IsEqualTo("utf8-lf");
     await Assert.That(policy.ProfileStateRootAccess)
         .IsEqualTo("enumerate-profile-directories-only");
     await Assert.That(policy.ProfileProjectionFiles)
@@ -248,6 +250,45 @@ public sealed class SupportDiagnosticsBrokerTests
         path => path.Contains("docker.sock", StringComparison.OrdinalIgnoreCase)))
         .IsFalse()
         .Because("the broker must never receive Docker access");
+  }
+
+  [Test]
+  public async Task Collector_Hash_Canonicalizes_Line_Endings(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    var collectorPath = Path.Combine(
+        root,
+        SupportEvidencePolicy.Load().CollectorRelativePath.Replace(
+            '/',
+            Path.DirectorySeparatorChar));
+    try
+    {
+      var text = await File.ReadAllTextAsync(
+          collectorPath,
+          cancellationToken);
+      await File.WriteAllTextAsync(
+          collectorPath,
+          text.Replace("\r\n", "\n", StringComparison.Ordinal),
+          new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+          cancellationToken);
+      var lfHash =
+          SupportEvidenceAccessValidator.ComputeCollectorSha256(collectorPath);
+      await File.WriteAllTextAsync(
+          collectorPath,
+          text.Replace("\r\n", "\n", StringComparison.Ordinal)
+              .Replace("\n", "\r\n", StringComparison.Ordinal),
+          new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+          cancellationToken);
+      var crlfHash =
+          SupportEvidenceAccessValidator.ComputeCollectorSha256(collectorPath);
+
+      await Assert.That(crlfHash).IsEqualTo(lfHash);
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
   }
 
   [Test]

@@ -19,7 +19,7 @@ applyTo: "src/PitCrew.Support.Protocol/**/*.cs,src/PitCrew.Support.Agent.App/**/
 - The transport process may use the network but cannot read PitCrew state; the broker may read only allowlisted local evidence and owns no outbound network behavior.
 - Production packages use separate identities. Windows pipe ACLs and peer checks allow only product/SYSTEM lifecycle SIDs; Linux requires socket mode `0660`, ownership, `SO_PEERCRED`, and the configured agent UID.
 - The broker has no outbound network. The fixed collector runs in-process. Windows owns enabled service-, service-SID-, and exact-program firewall blocks. Linux requires `PrivateNetwork=true`, `AF_UNIX` only, and no capabilities. Verify effective firewall/systemd state and reject drop-ins.
-- Keep the PitCrew v0.10.0 evidence ACL exact: metadata-only access to its three
+- Keep the PitCrew v0.10.1 evidence ACL exact: metadata-only access to its three
   root-validation files; non-inherited profile-directory enumeration on
   `.pitcrew-state`; the fixed collector; the four `.pitcrew-state/<profile>`
   projections; and connector-health snapshot/event journal. Do not grant `.env`,

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Security.Principal;
 
 using PitCrew.Support.Broker.App;
@@ -76,9 +75,8 @@ internal static class SupportBrokerTestHost
         SupportEvidencePolicy.Load().CollectorRelativePath.Replace(
             '/',
             Path.DirectorySeparatorChar));
-    using var stream = File.OpenRead(collectorPath);
-    var collectorHash = Convert.ToHexString(SHA256.HashData(stream))
-        .ToLowerInvariant();
+    var collectorHash =
+        SupportEvidenceAccessValidator.ComputeCollectorSha256(collectorPath);
     var policy = SupportEvidencePolicy.Load() with
     {
       CollectorSha256 = collectorHash,

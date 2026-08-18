@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace PitCrew.Support.Broker.App;
 
@@ -157,7 +158,7 @@ internal sealed class SupportEvidenceAccessValidator
           SupportBrokerStatus.ExecutionFailed,
           null,
           null,
-          "PitCrewRoot does not match the supported v0.10.0 installation contract.");
+          "PitCrewRoot does not match the supported v0.10.1 installation contract.");
 
   private static string ResolveChild(string root, string relativePath)
   {
@@ -231,19 +232,26 @@ internal sealed class SupportEvidenceAccessValidator
       string collectorPath,
       string expectedSha256)
   {
-    using var stream = new FileStream(
-        collectorPath,
-        FileMode.Open,
-        FileAccess.Read,
-        FileShare.Read,
-        bufferSize: 4096,
-        FileOptions.SequentialScan);
-    var actual = Convert.ToHexString(SHA256.HashData(stream))
-        .ToLowerInvariant();
+    var actual = ComputeCollectorSha256(collectorPath);
     if (!string.Equals(actual, expectedSha256, StringComparison.Ordinal))
     {
       throw new IOException(
           "The fixed diagnostics collector hash does not match the packaged policy.");
     }
+  }
+
+  internal static string ComputeCollectorSha256(string collectorPath)
+  {
+    var text = File.ReadAllText(
+        collectorPath,
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true));
+    var canonical = text
+        .Replace("\r\n", "\n", StringComparison.Ordinal)
+        .Replace('\r', '\n');
+    return Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+        .ToLowerInvariant();
   }
 }

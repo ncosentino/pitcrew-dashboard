@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
-  "pitCrewVersion": "0.10.0",
-  "pitCrewCommit": "4d30a031",
+  "pitCrewVersion": "0.10.1",
+  "pitCrewCommit": "0672c34c",
   "collectorRelativePath": "plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1",
   "collectorSha256": "01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3",
+  "collectorHashCanonicalization": "utf8-lf",
   "profileStateRootAccess": "enumerate-profile-directories-only",
   "installationSentinels": [
     "Setup-Runner.ps1",

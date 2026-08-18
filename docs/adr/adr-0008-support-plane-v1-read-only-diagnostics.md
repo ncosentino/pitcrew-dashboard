@@ -193,7 +193,7 @@ revocation, and cached duplicate delivery.
 
 The production node package now fulfills the deferred hardening through separate
 Windows service SIDs or Linux system users, peer-authenticated platform IPC,
-exact PitCrew v0.10.0 evidence ACLs, broker network isolation, and staged
+exact PitCrew v0.10.1 evidence ACLs, broker network isolation, and staged
 lifecycle automation. The local framing and support protocol remain unchanged.
 Support identity deletion remains delegated to the #119 preserve/delete contract.
 
