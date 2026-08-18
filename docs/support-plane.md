@@ -13,8 +13,8 @@ separate from connector capacity and manager-recovery operations.
 - The native support transport agent owns outbound HTTPS and request/result
   cryptography. It does not read PitCrew state directly.
 - The diagnostics broker owns local file-only PitCrew evidence collection. It has
-  no network role and receives only a closed diagnostic mode, optional local
-  profile ID, and package ID over authenticated named-pipe IPC.
+  no outbound network capability and receives only a closed diagnostic mode,
+  optional local profile ID, and package ID over peer-authenticated platform IPC.
 
 V1 forbids mutations, shells, generic commands, arbitrary paths, URLs, scripts,
 ports, tunnels, Docker access, and server-supplied executables.
@@ -232,17 +232,153 @@ The Dashboard session list does not decrypt relay results implicitly. Select
 **Check result** on a pending session, or use the single-session API, to fetch,
 verify, decrypt, and persist the completed result.
 
-## MVP process configuration
+## Production node isolation
 
-The support archives are self-contained binaries. V1 MVP configuration is
-environment-based:
+The support agent and broker use a separate explicit installer. The connector
+installer is not extended, and the support installer refuses unmanaged or partial
+installations that overlap its fixed service names or product roots.
+
+### Windows
+
+- `PitCrewSupportAgent` and `PitCrewSupportBroker` run as distinct restricted
+  virtual service identities with unrestricted service SIDs.
+- The broker creates `pitcrew-support-broker-v1` with a protected ACL containing
+  only the support-agent service SID, broker service SID, LocalSystem, and local
+  Administrators. It impersonates each client and requires the configured agent
+  service SID before reading a request.
+- The fixed collector runs in-process inside the broker. Installer-owned outbound
+  firewall blocks are scoped independently to the broker service, service SID,
+  and exact executable path. Verification rejects missing, disabled,
+  non-blocking, non-outbound, or incorrectly scoped rules.
+- Agent, broker, and installer state use separate roots below
+  `%ProgramData%\PitCrew\Support`; versioned binaries use separate agent and
+  broker roots below `%ProgramFiles%\PitCrew\Support`.
+
+### Linux
+
+- `pitcrew-support-agent` and `pitcrew-support-broker` are separate system users.
+  A product-owned IPC group grants only those identities access to
+  `/run/pitcrew-support/broker.sock`.
+- The broker requires socket owner/group to match its configured UID/GID, requires
+  mode `0660`, reads `SO_PEERCRED`, and rejects a peer whose UID is not the
+  configured support-agent UID.
+- The broker unit uses `PrivateNetwork=true`,
+  `RestrictAddressFamilies=AF_UNIX`, `IPAddressDeny=any`, an empty capability
+  bounding set, and read-only system protection. `ProtectHome=tmpfs` hides home
+  trees while an exact read-only bind exposes the locally configured PitCrew
+  root when it is located beneath one. The agent retains only `AF_UNIX`,
+  `AF_INET`, and `AF_INET6`.
+- Lifecycle verification reads effective properties with `systemctl show`,
+  rather than trusting the base unit text. The current installer owns no
+  drop-ins, so any non-empty effective `DropInPaths` fails verification, as do
+  overrides of identity, command, network, capability, filesystem,
+  runtime-directory, or hardening properties.
+- Agent and broker state use `/var/lib/pitcrew-support-agent` and
+  `/var/lib/pitcrew-support-broker`; versioned binaries use separate roots below
+  `/opt`.
+
+## Exact PitCrew v0.10.0 evidence ACL
+
+The package-owned
+`support-evidence-policy-v0.10.0.json` is the shared runtime, installer, and test
+contract, verified against PitCrew v0.10.0 commit `4d30a031` and collector
+SHA-256
+`01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3`.
+Installer and runtime both reject collector content drift. The broker receives only:
+
+- the fixed
+  `plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1`
+  collector;
+- attribute/traverse access needed to validate `Setup-Runner.ps1`,
+  `RunnerProfiles.Functions.ps1`, and `docker-compose.yml`;
+- non-inherited list/traverse/attribute access on `.pitcrew-state` solely to
+  enumerate profile directory names as required by the fixed collector;
+- `desired-capacity.json`, `acknowledged-capacity.json`,
+  `static-profile.json`, and `observed-state.json` for installer-selected local
+  profiles;
+- `connector-health.json` and `connector-events.jsonl` from the standard connector
+  health root.
+
+The profile-state root grant does not inherit to profiles or files. Selected
+profile directories receive traverse/attribute access only, and only the four
+named projections receive content read. The policy does not grant `.env`,
+connector identity, checkout-wide read, Docker socket, arbitrary file, arbitrary
+script, URL, port, or command access. Profile IDs come from installer-local
+configuration; a server-supplied path never crosses IPC.
+
+Projection and journal writers may replace files atomically without retaining a
+per-file ACL. The installer intentionally does not solve this by adding inherited
+directory-wide read. `Verify` and broker preflight instead report exact evidence
+ACL drift. Run `-Action RepairEvidenceAcl -AllowMachineChanges` to reapply only
+the pinned file ACLs after replacement.
+
+Verification compares the complete product-owned Windows ACE shape, including
+rights and inheritance, and the effective Linux named/default entries and masks.
+Linux installation records a protected hash of the fixed PitCrew directories,
+sentinels, and collector's owner, group, file type, special bits, owner mode, and
+other mode. Replaceable projections, connector-health paths, and journals are
+instead checked against the exact named/default ACL, ownership exclusion, and
+safe-mode policy so newly created allowlisted evidence can be repaired explicitly.
+Group mode is represented by the POSIX ACL mask and is compared through the exact
+ACL contract instead of the metadata hash.
+
+## Install and lifecycle
+
+Prepare an agent `appsettings.json` through the support identity workflow, then
+install the matching agent and broker archives:
+
+```powershell
+./Install-PitCrewSupportPlane.ps1 `
+  -Action Install `
+  -Version <version> `
+  -PitCrewRoot <pitcrew-root> `
+  -Profiles default `
+  -AgentSettingsPath ./appsettings.json `
+  -AllowMachineChanges
+```
+
+Linux PitCrew roots must use a systemd-safe absolute path without whitespace,
+colon, or percent characters so the effective read-only bind can be verified
+without ambiguous escaping.
+
+When local archive paths are omitted, the installer downloads only the fixed
+release asset names for the selected version and native architecture. Every
+archive is verified against its SHA-256 sidecar before extraction.
+
+Lifecycle actions are `Update`, `Disable`, `Enable`, `Rollback`,
+`RepairEvidenceAcl`, `Verify`, and `Uninstall`. Updates extract both components
+into staging, verify their checksums/executables, switch service definitions only
+after staging succeeds, and restore the prior version if either service fails to
+start. Binary updates must retain the installed PitCrew root and local profile
+allowlist. One previous version remains the explicit rollback target; older
+version directories are removed after a successful switch. A rollback that
+cannot start its target restores the current service definitions before failing.
+Every lifecycle action, including `Verify`, holds a privileged installer lock.
+The empty lock remains after uninstall so releasing one lifecycle action cannot
+race creation of a second lock inode; it contains no installation or identity
+data.
+
+Uninstall currently requires the explicit
+`-IdentityHandling PreserveKeys` choice. It retains the complete protected agent
+state without reading or rewriting private key material. Before deleting
+installer state, uninstall removes every product agent/broker ACE or
+named/default ACL from PitCrew and connector-health trees and removes Windows
+services or validated Linux system users/groups.
+Linux uninstall refuses before mutation when any external account is a
+supplementary member of, or uses as its primary GID, any product-owned group.
+Typed `DeleteKeys` integration requires invoking the #119 identity manager under
+the agent service identity and remains a follow-up stacked on this installer
+change. The installer never reads, rewrites, prints, or selectively deletes
+private key values.
+
+The relay and Dashboard configuration remains environment-based:
 
 | Process | Required configuration |
 | --- | --- |
 | Relay | `SupportRelay__DatabasePath`, `SupportRelay__InternalBearerSecret` |
 | Dashboard | `PitCrew__SupportPlane__RelayUrl`, `PitCrew__SupportPlane__RelayInternalBearerSecret`, `PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8`, `PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8` |
 | Broker | `PitCrewSupport__Broker__PitCrewRoot`, optional `PitCrewSupport__Broker__PipeName` |
-| Agent first enrollment | `PitCrewSupport__Agent__IdentityRoot`, `DashboardUrl`, `TenantId`, `DisplayName`, one-time `EnrollmentCode`, `ReplayRoot`, and optional `PipeName` under the `PitCrewSupport__Agent__` prefix |
+| Agent first enrollment | `PitCrewSupport__Agent__IdentityRoot`, `DashboardUrl`, `TenantId`, `DisplayName`, one-time `EnrollmentCode`, `ReplayRoot`, and optional `PipeName`/`SocketPath` under the `PitCrewSupport__Agent__` prefix |
 | Agent after enrollment | `PitCrewSupport__Agent__IdentityRoot`; the node ID, relay URL, transport credential, Dashboard public keys, and node key references load from protected local state |
 
 Dashboard optionally accepts
@@ -277,21 +413,24 @@ It writes one JSON outcome containing only `status` and `rotationId`. Exit code
 safe and requires a retry to finalize, and `1` means prepare or local identity
 validation failed. Re-running the same command resumes persisted state.
 
-`PipeOptions.CurrentUserOnly` means the agent and broker must run
-under the same dedicated low-privilege account. Their code and deployment
-artifacts are separate, but filesystem privilege separation is not yet enforced
-by the package. Node key provisioning and local identity storage are now
-platform-specific, but service-account creation, stronger pipe ACL packaging,
-and install/update/uninstall lifecycle automation remain owned by the installer
-work.
+Production packages run the agent and broker under separate service identities.
+Windows uses a protected named-pipe ACL plus exact agent SID validation. Linux
+uses an owner-controlled Unix socket plus `SO_PEERCRED`, and the broker service
+has no network namespace.
 
 ## Packaging
 
-Support agent, broker, and relay are separate .NET projects. The deterministic
-packaging script publishes self-contained archives and SHA-256 checksum files for
-`linux-x64`, `linux-arm64`, `win-x64`, and `win-arm64` by default. These archives
-contain binaries, checksums, and the agent configuration example, not service
-installers.
+Support agent, broker, and relay remain separate .NET projects. The deterministic
+packaging script publishes their self-contained archives plus a platform-tagged
+installer archive and SHA-256 sidecars for `linux-x64`, `linux-arm64`,
+`win-x64`, and `win-arm64` by default. The installer archive contains the
+lifecycle script, agent configuration example, and pinned PitCrew v0.10.0
+evidence policy.
+
+Hosted Windows and Linux lifecycle jobs establish a public `example.com:443`
+control connection, then repeat the fixed TCP attempt from the installed broker
+service context and require denial. No application data or host identifiers are
+sent.
 
 The support package does not alter existing connector installation. Operators opt
 in to support identity enrollment separately.

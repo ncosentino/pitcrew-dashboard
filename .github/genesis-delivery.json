@@ -90,6 +90,15 @@
       ],
       "draftBehavior": "not-applicable",
       "requiredChecks": []
+    },
+    {
+      "source": "repository",
+      "path": ".github/workflows/publish-support-plane.yml",
+      "roles": [
+        "release-deploy"
+      ],
+      "draftBehavior": "not-applicable",
+      "requiredChecks": []
     }
   ],
   "pullRequestTitle": {

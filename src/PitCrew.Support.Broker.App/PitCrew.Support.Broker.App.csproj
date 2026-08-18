@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Microsoft.PowerShell.SDK" />
     <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
     <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
     <EmbeddedResource
