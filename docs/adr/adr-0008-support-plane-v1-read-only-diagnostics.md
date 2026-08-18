@@ -191,10 +191,11 @@ cannot inspect diagnostic content. Dashboard and node implementations must retai
 protocol tests for canonicalization, tampering, expiry, replay, tenant isolation,
 revocation, and cached duplicate delivery.
 
-MVP named-pipe IPC is useful for cross-platform local development and packaging,
-but it is not the final least-privilege packaging story. Production hardening
-requires service accounts and ACLs that keep the transport process from reading
-PitCrew state and keep the broker from acquiring network or Docker capabilities.
+The production node package now fulfills the deferred hardening through separate
+Windows service SIDs or Linux system users, peer-authenticated platform IPC,
+exact PitCrew v0.10.0 evidence ACLs, broker network isolation, and staged
+lifecycle automation. The local framing and support protocol remain unchanged.
+Support identity deletion remains delegated to the #119 preserve/delete contract.
 
 # Confirmation
 
@@ -211,8 +212,14 @@ Confirmation requires all of the following:
   access while preserving antiforgery for browser mutations.
 - Agent tests prove duplicate requests return cached sealed results without
   rerunning diagnostics.
-- Broker tests prove closed-mode/profile validation, named-pipe IPC, and fixed
-  file-only collector invocation.
+- Broker tests prove closed-mode/profile validation, named-pipe impersonation,
+  Unix peer credentials, socket mode enforcement, exact evidence access, and
+  fixed file-only collector invocation.
+- Hosted installer tests prove separate service identities, broker network
+  isolation, staged update/rollback, enable/disable/uninstall, Docker exclusion,
+  prohibited-file denial, effective systemd/drop-in enforcement, disabled
+  firewall rejection, exact ACL drift and uninstall revocation, and a denied
+  public outbound connection attempt from the installed broker context.
 - Frontend tests cover safe untrusted rendering and support status separation.
 - Guidance tests cover positive and negative support-plane instruction matches
   and generated Claude mirror synchronization.

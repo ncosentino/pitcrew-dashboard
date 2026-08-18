@@ -46,6 +46,10 @@ jobs:
           dotnet test --project src/PitCrew.Support.Broker.App.Tests/PitCrew.Support.Broker.App.Tests.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Validate support installer structure
+        shell: pwsh
+        run: ./tests/Test-SupportPlaneInstaller.Structural.ps1
+
       - name: Package support plane
         shell: pwsh
         env:
