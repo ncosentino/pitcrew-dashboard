@@ -26,9 +26,17 @@ docker compose `
 The dashboard remains private at `dashboard:8080`. Caddy is the only service
 with host ports.
 
+For support-plane v1, create DNS for the relay hostname and add both
+`deploy/support-relay.compose.yml` and
+`deploy/support-relay-caddy.compose.yml`. The latter selects the two-site
+Caddyfile while keeping both application services private. See
+[Hosted support relay](support-relay.md).
+
 ## Persistent state
 
 - `dashboard-data`: SQLite and ASP.NET data-protection keys.
+- `support-relay-data`: opaque support envelopes and hashed relay credentials
+  when the optional support overlay is enabled.
 - `caddy-data`: certificates and ACME state.
 - `caddy-config`: Caddy runtime configuration.
 

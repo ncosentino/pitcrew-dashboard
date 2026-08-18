@@ -166,6 +166,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/hosting/support-relay.md",
+        "title": "Hosted support relay",
+        "section": "Deployment",
+        "order": 325,
+        "owner": "repository"
+      },
+      {
         "path": "docs/hosting/custom-ingress.md",
         "title": "Custom ingress contract",
         "section": "Deployment",

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support;
@@ -17,6 +18,22 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class SupportHostingTests
 {
+  [Test]
+  public async Task Relay_Management_Rejects_Insecure_External_Internal_Origin()
+  {
+    var client = new SupportRelayManagementClient(
+        new ThrowingHttpClientFactory(),
+        Options.Create(new SupportPlaneOptions
+        {
+          RelayUrl = "https://relay.example.com/",
+          RelayInternalUrl = "http://relay.example.com/",
+          RelayInternalBearerSecret = "relay-secret-for-tests",
+        }),
+        TimeProvider.System);
+
+    await Assert.That(client.IsConfigured).IsFalse();
+  }
+
   [Test]
   public async Task Diagnostic_Credential_Can_Create_And_Read_Support_Session(
       CancellationToken cancellationToken)
@@ -458,7 +475,8 @@ public sealed class SupportHostingTests
           databasePath,
           "https://relay.test/",
           "relay-secret-for-tests",
-          relayCleanupIntervalSeconds: 1);
+          relayCleanupIntervalSeconds: 1,
+          relayInternalUrl: "http://support-relay-internal:8080/");
       var relayHandler = new RecordingRelayHandler();
       await using var factory = new WebApplicationFactory<Program>()
           .WithWebHostBuilder(
@@ -518,6 +536,10 @@ public sealed class SupportHostingTests
       }
 
       await Assert.That(relayHandler.RequestCount).IsEqualTo(1);
+      await Assert.That(
+              relayHandler.LastRequestUri?.GetLeftPart(
+                  UriPartial.Authority))
+              .IsEqualTo("http://support-relay-internal:8080");
       await Assert.That(remaining).IsEqualTo(0);
     }
     finally
@@ -848,15 +870,26 @@ public sealed class SupportHostingTests
       HttpStatusCode _statusCode = HttpStatusCode.NotFound) : HttpMessageHandler
   {
     private int _requestCount;
+    private Uri? _lastRequestUri;
 
     public int RequestCount => Volatile.Read(ref _requestCount);
+
+    public Uri? LastRequestUri => Volatile.Read(ref _lastRequestUri);
 
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
       Interlocked.Increment(ref _requestCount);
-        return Task.FromResult(new HttpResponseMessage(_statusCode));
+      Interlocked.Exchange(ref _lastRequestUri, request.RequestUri);
+      return Task.FromResult(new HttpResponseMessage(_statusCode));
     }
+  }
+
+  private sealed class ThrowingHttpClientFactory : IHttpClientFactory
+  {
+    public HttpClient CreateClient(string name) =>
+        throw new InvalidOperationException(
+            "The rejected relay origin must not create an HTTP client.");
   }
 }

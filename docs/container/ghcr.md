@@ -7,9 +7,11 @@ ASP.NET application or worker produced the Dockerfile.
 Publishing a GitHub release with a canonical semantic version tag such as `v1.2.3`
 (the leading `v` is required and build metadata is rejected):
 
-1. Smoke-tests the dashboard and connector `linux/amd64` images before authenticating.
-2. Publishes separate dashboard and connector `linux/amd64` + `linux/arm64` indexes.
-3. Adds immutable semantic-version and source-SHA tags to both packages.
+1. Smoke-tests the dashboard, connector, and support-relay `linux/amd64` images
+   before authenticating.
+2. Publishes separate dashboard, connector, and support-relay `linux/amd64` +
+   `linux/arm64` indexes.
+3. Adds immutable semantic-version and source-SHA tags to all three packages.
 4. Generates SBOMs and, for public repositories, GitHub artifact attestations.
 
 The workflow uses `GITHUB_TOKEN`; no registry password is required. New GHCR packages

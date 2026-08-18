@@ -378,7 +378,7 @@ The relay and Dashboard configuration remains environment-based:
 | Process | Required configuration |
 | --- | --- |
 | Relay | `SupportRelay__DatabasePath`, `SupportRelay__InternalBearerSecret` |
-| Dashboard | `PitCrew__SupportPlane__RelayUrl`, `PitCrew__SupportPlane__RelayInternalBearerSecret`, `PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8`, `PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8` |
+| Dashboard | public `PitCrew__SupportPlane__RelayUrl`, optional private `PitCrew__SupportPlane__RelayInternalUrl`, `PitCrew__SupportPlane__RelayInternalBearerSecret`, `PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8`, `PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8` |
 | Broker | `PitCrewSupport__Broker__PitCrewRoot`, optional `PitCrewSupport__Broker__PipeName` |
 | Agent first enrollment | `PitCrewSupport__Agent__IdentityRoot`, `DashboardUrl`, `TenantId`, `DisplayName`, one-time `EnrollmentCode`, `ReplayRoot`, and optional `PipeName`/`SocketPath` under the `PitCrewSupport__Agent__` prefix |
 | Agent after enrollment | `PitCrewSupport__Agent__IdentityRoot`; the node ID, relay URL, transport credential, Dashboard public keys, and node key references load from protected local state |
@@ -396,6 +396,11 @@ serves `/healthz`. The broker resolves profiles only from
 PitCrew root. Keep `ReplayRoot` outside the PitCrew checkout and
 `.pitcrew-state`; the defaults are `%ProgramData%\PitCrew\Support` on Windows
 and `/var/lib/pitcrew-support` on Linux.
+
+Hosted deployments use the independently versioned, non-root relay image and
+optional private-network Compose overlay described in
+[Hosted support relay](hosting/support-relay.md). Dashboard keys remain outside
+the relay container; only the shared internal bearer crosses that boundary.
 
 The agent archive includes `support-agent.env.example`. Remove the one-time
 enrollment code from the service environment after enrollment. Hardened

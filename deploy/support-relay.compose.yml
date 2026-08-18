@@ -1,0 +1,46 @@
+services:
+  dashboard:
+    depends_on:
+      support-relay:
+        condition: service_healthy
+        restart: true
+    environment:
+      PitCrew__SupportPlane__RelayUrl: https://${PITCREW_SUPPORT_RELAY_DOMAIN:?Set PITCREW_SUPPORT_RELAY_DOMAIN}
+      PitCrew__SupportPlane__RelayInternalUrl: http://support-relay-internal:8080
+      PitCrew__SupportPlane__RelayInternalBearerSecret: ${PITCREW_SUPPORT_RELAY_INTERNAL_BEARER_SECRET:?Set PITCREW_SUPPORT_RELAY_INTERNAL_BEARER_SECRET}
+      PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8: ${PITCREW_SUPPORT_AUTHORIZATION_SIGNING_PRIVATE_KEY_PKCS8:?Set PITCREW_SUPPORT_AUTHORIZATION_SIGNING_PRIVATE_KEY_PKCS8}
+      PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8: ${PITCREW_SUPPORT_RESULT_DECRYPTION_PRIVATE_KEY_PKCS8:?Set PITCREW_SUPPORT_RESULT_DECRYPTION_PRIVATE_KEY_PKCS8}
+    networks:
+      pitcrew-support-internal:
+
+  support-relay:
+    image: ghcr.io/ncosentino/pitcrew-dashboard-support-relay:${PITCREW_SUPPORT_RELAY_VERSION:?Set PITCREW_SUPPORT_RELAY_VERSION}
+    restart: unless-stopped
+    read_only: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      SupportRelay__DatabasePath: /var/lib/pitcrew-support-relay/support-relay.db
+      SupportRelay__InternalBearerSecret: ${PITCREW_SUPPORT_RELAY_INTERNAL_BEARER_SECRET:?Set PITCREW_SUPPORT_RELAY_INTERNAL_BEARER_SECRET}
+    expose:
+      - "8080"
+    volumes:
+      - support-relay-data:/var/lib/pitcrew-support-relay
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      pitcrew-hosted:
+        ipv4_address: 172.31.0.4
+      pitcrew-support-internal:
+        aliases:
+          - support-relay-internal
+
+networks:
+  pitcrew-support-internal:
+    internal: true
+
+volumes:
+  support-relay-data:

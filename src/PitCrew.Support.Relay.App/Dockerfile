@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-noble AS publish
+ARG TARGETARCH
+WORKDIR /src
+COPY . .
+RUN target_arch="$TARGETARCH"; \
+    if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
+    dotnet restore src/PitCrew.Support.Relay.App/PitCrew.Support.Relay.App.csproj \
+        --runtime "linux-musl-$target_arch" \
+        -p:SelfContained=false
+RUN target_arch="$TARGETARCH"; \
+    if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
+    dotnet restore src/PitCrew.Dashboard.DatabaseTool/PitCrew.Dashboard.DatabaseTool.csproj \
+        --runtime "linux-musl-$target_arch" \
+        -p:SelfContained=false
+RUN target_arch="$TARGETARCH"; \
+    if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
+    dotnet publish src/PitCrew.Support.Relay.App/PitCrew.Support.Relay.App.csproj \
+        --configuration Release \
+        --runtime "linux-musl-$target_arch" \
+        --self-contained false \
+        --no-restore \
+        --output /out
+RUN target_arch="$TARGETARCH"; \
+    if [ "$target_arch" = "amd64" ]; then target_arch="x64"; fi; \
+    dotnet publish src/PitCrew.Dashboard.DatabaseTool/PitCrew.Dashboard.DatabaseTool.csproj \
+        --configuration Release \
+        --runtime "linux-musl-$target_arch" \
+        --self-contained false \
+        --no-restore \
+        --output /dbtool
+RUN mkdir -p /relay-data
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
+WORKDIR /app
+ENV ASPNETCORE_HTTP_PORTS=8080 \
+    DOTNET_EnableDiagnostics=0
+EXPOSE 8080
+COPY --from=publish --chown=$APP_UID:$APP_UID /out/ ./
+COPY --from=publish --chown=$APP_UID:$APP_UID /dbtool/ /app/tools/database/
+COPY --from=publish --chown=$APP_UID:$APP_UID /relay-data/ /var/lib/pitcrew-support-relay/
+USER $APP_UID
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --quiet --spider http://127.0.0.1:8080/healthz || exit 1
+ENTRYPOINT ["./PitCrew.Support.Relay.App"]

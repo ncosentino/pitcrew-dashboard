@@ -17,6 +17,13 @@ public sealed class SupportPlaneOptions
   public string RelayUrl { get; set; } = "https://support-relay.example.com";
 
   /// <summary>
+  /// Gets or sets the private Dashboard-to-relay origin. Empty uses
+  /// <see cref="RelayUrl"/>.
+  /// </summary>
+  [MaxLength(2048)]
+  public string RelayInternalUrl { get; set; } = string.Empty;
+
+  /// <summary>
   /// Gets or sets the internal Dashboard-to-relay bearer secret.
   /// Empty disables relay management calls for local development only.
   /// </summary>

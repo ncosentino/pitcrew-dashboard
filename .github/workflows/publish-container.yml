@@ -29,6 +29,9 @@ jobs:
           - name: connector
             config: .container/connector-image.json
             suffix: "-connector"
+          - name: support-relay
+            config: .container/support-relay-image.json
+            suffix: "-support-relay"
 
     steps:
       - uses: actions/checkout@v7

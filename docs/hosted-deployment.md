@@ -9,6 +9,8 @@ The hosted deployment is composed from:
   private network, authentication, and container hardening.
 - One ingress adapter that publishes HTTPS and forwards to
   `http://dashboard:8080`.
+- Optional `deploy/support-relay.compose.yml`: opaque support relay, independent
+  SQLite volume, Dashboard support keys, and private-network startup ordering.
 
 ## Choose an ingress adapter
 
@@ -20,7 +22,7 @@ The hosted deployment is composed from:
 
 Caddy and Cloudflare Tunnel are the officially validated adapters. Additional
 adapters can implement the documented custom-ingress contract without changing
-the dashboard or connector images.
+the dashboard, connector, or support-relay images.
 
 ## Shared security model
 
@@ -42,6 +44,8 @@ the dashboard or connector images.
   temporary data there, so free space on the persistent dashboard volume does
   not replace this bounded temporary capacity. The cap is not allocated
   eagerly and retains `noexec`, `nosuid`, and `nodev`.
+- The optional relay remains a separate process and database. It receives no
+  Dashboard authorization-signing or result-decryption private key.
 
 ## Common configuration
 
@@ -80,6 +84,11 @@ Set:
 Then follow the selected adapter's startup instructions. SQLite remains
 single-replica; do not scale the dashboard service horizontally.
 
+To enable support-plane v1, follow the
+[hosted support relay](hosting/support-relay.md) runbook. It initializes the
+support secrets without printing them and adds the optional relay overlay to the
+complete Compose model.
+
 If the fixed `172.31.0.0/24` Compose subnet conflicts with the host, choose a
 different private subnet and update the dashboard and ingress adapter addresses
 together. The ingress adapter must remain the only trusted proxy.
@@ -101,9 +110,9 @@ Caddy deployments add `--file deploy/caddy.compose.yml`; no application data or
 SQLite migration is required. The overlays require dashboard image v0.2.0 or
 later because browser security headers moved from Caddy into ASP.NET.
 
-Use the base file and selected overlay together for every hosted `up`, `restart`,
-or `down` operation. Replacing the dashboard container directly with `docker`
-commands bypasses Compose dependency coordination.
+Use the base file, selected ingress overlay, and any enabled optional overlay
+together for every hosted lifecycle operation. Replacing one container directly
+with `docker` commands bypasses dependency coordination.
 
 ## Tenant and membership workflow
 
