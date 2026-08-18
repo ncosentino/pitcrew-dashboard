@@ -670,6 +670,27 @@ Add-Check (
         'StackTrace',
         [StringComparison]::Ordinal)
 ) 'The installer does not persist and expose a bounded secret-free failure journal.'
+foreach ($operation in @(
+    'verify-exact-evidence-acls',
+    'enumerate-evidence-tree',
+    'reject-unexpected-broker-ace',
+    'verify-broker-ace-count',
+    'verify-broker-ace-shape',
+    'verify-agent-deny-count',
+    'verify-agent-deny-shape',
+    'verify-agent-root-deny',
+    'verify-state-root-enumeration',
+    'verify-root-metadata-acl',
+    'verify-evidence-read-acl',
+    'verify-agent-evidence-deny',
+    'verify-prohibited-environment-deny'
+)) {
+    Add-Check (
+        $installer.Contains(
+            "-Operation '$operation'",
+            [StringComparison]::Ordinal)
+    ) "The installer failure journal does not distinguish '$operation'."
+}
 Add-Check (
     $installer.Contains(
         '"*$BrokerSid`:(RD,X,RA)"',
