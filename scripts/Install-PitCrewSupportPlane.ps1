@@ -20,7 +20,8 @@ param(
         'Uninstall',
         'Rollback',
         'RepairEvidenceAcl',
-        'Verify'
+        'Verify',
+        'DiagnoseFailure'
     )]
     [string]$Action,
 
@@ -69,6 +70,11 @@ $linuxBrokerUser = 'pitcrew-support-broker'
 $linuxIpcGroup = 'pitcrew-support-ipc'
 $pipeName = 'pitcrew-support-broker-v1'
 $socketPath = '/run/pitcrew-support/broker.sock'
+$script:installerFailurePhase = 'preflight'
+$script:installerFailureOperation = 'input-validation'
+$script:installerRollbackStatus = 'not-required'
+$script:installerPrimaryExceptionType = $null
+$script:installerPrimaryNativeExitCode = $null
 
 function Invoke-Checked {
     param(
@@ -88,7 +94,10 @@ function Invoke-Checked {
         } else {
             ''
         }
-        throw "'$FilePath$operation' exited with code $LASTEXITCODE."
+        $exception = [InvalidOperationException]::new(
+            "'$FilePath$operation' exited with a nonzero code.")
+        $exception.Data['NativeExitCode'] = $LASTEXITCODE
+        throw $exception
     }
 }
 
@@ -274,6 +283,163 @@ function Get-IdentityPreservationMarkerPath {
             'identity-preserved.json'
     }
     return Join-Path $Paths.AgentStateRoot 'identity-preserved.json'
+}
+
+function Get-InstallerFailurePath {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    if ($IsWindows) {
+        return Join-Path (
+            Split-Path $Paths.LockPath -Parent
+        ) 'last-install-failure.json'
+    }
+    return '/var/lib/pitcrew-support-last-install-failure.json'
+}
+
+function Set-InstallerFailureContext {
+    param(
+        [Parameter(Mandatory)][string]$Phase,
+        [Parameter(Mandatory)][string]$Operation
+    )
+
+    $script:installerFailurePhase = $Phase
+    $script:installerFailureOperation = $Operation
+}
+
+function Get-InstallerNativeExitCode {
+    param([Parameter(Mandatory)][Exception]$Exception)
+
+    if ($Exception.Data.Contains('NativeExitCode')) {
+        return [int]$Exception.Data['NativeExitCode']
+    }
+    return $null
+}
+
+function Protect-InstallerFailureFile {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if ($IsWindows) {
+        Invoke-Checked icacls.exe @(
+            $Path,
+            '/inheritance:r',
+            '/grant:r',
+            '*S-1-5-18:F',
+            '*S-1-5-32-544:F'
+        )
+        return
+    }
+    Invoke-Checked chown @('root:root', $Path)
+    Invoke-Checked chmod @('600', $Path)
+}
+
+function Write-InstallerFailureRecord {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][string]$LifecycleAction,
+        [Parameter(Mandatory)][Exception]$Exception
+    )
+
+    $failurePath = Get-InstallerFailurePath -Paths $Paths
+    $directory = Split-Path $failurePath -Parent
+    $null = New-Item -ItemType Directory -Path $directory -Force
+    $temporaryPath = Join-Path (
+        $directory
+    ) ".$([IO.Path]::GetFileName($failurePath)).$([Guid]::NewGuid().ToString('N')).tmp"
+    $primaryExceptionType = if (
+        [string]::IsNullOrWhiteSpace(
+            [string]$script:installerPrimaryExceptionType)
+    ) {
+        $Exception.GetType().Name
+    } else {
+        [string]$script:installerPrimaryExceptionType
+    }
+    $primaryNativeExitCode = if (
+        $null -ne $script:installerPrimaryNativeExitCode
+    ) {
+        [int]$script:installerPrimaryNativeExitCode
+    } else {
+        Get-InstallerNativeExitCode -Exception $Exception
+    }
+    $record = [ordered]@{
+        schemaVersion = 1
+        action = $LifecycleAction
+        phase = $script:installerFailurePhase
+        operation = $script:installerFailureOperation
+        exceptionType = $primaryExceptionType
+        nativeExitCode = $primaryNativeExitCode
+        terminalExceptionType = $Exception.GetType().Name
+        rollbackStatus = $script:installerRollbackStatus
+        occurredAt = [DateTimeOffset]::UtcNow
+    }
+    try {
+        [IO.File]::WriteAllText(
+            $temporaryPath,
+            ($record | ConvertTo-Json -Depth 4),
+            [Text.UTF8Encoding]::new($false))
+        Protect-InstallerFailureFile -Path $temporaryPath
+        Move-Item `
+            -LiteralPath $temporaryPath `
+            -Destination $failurePath `
+            -Force
+        Protect-InstallerFailureFile -Path $failurePath
+    } finally {
+        Remove-Item `
+            -LiteralPath $temporaryPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-InstallerFailureRecord {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    $failurePath = Get-InstallerFailurePath -Paths $Paths
+    if (Test-Path -LiteralPath $failurePath -PathType Leaf) {
+        Remove-Item `
+            -LiteralPath $failurePath `
+            -Force `
+            -ErrorAction Stop
+    }
+}
+
+function Get-InstallerFailureRecord {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    $failurePath = Get-InstallerFailurePath -Paths $Paths
+    if (-not (Test-Path -LiteralPath $failurePath -PathType Leaf)) {
+        throw 'No bounded support installer failure record exists.'
+    }
+    $record = Get-Content `
+        -LiteralPath $failurePath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json -Depth 4
+    if ($record.schemaVersion -ne 1 -or
+        [string]$record.action -notin @(
+            'Install',
+            'Update',
+            'Enable',
+            'Disable',
+            'Uninstall',
+            'Rollback',
+            'RepairEvidenceAcl',
+            'Verify'
+        ) -or
+        [string]$record.phase -notmatch '^[a-z][a-z0-9-]{0,63}$' -or
+        [string]$record.operation -notmatch '^[a-z][a-z0-9-]{0,95}$' -or
+        [string]$record.exceptionType -notmatch
+            '^[A-Za-z][A-Za-z0-9]{0,127}$' -or
+        [string]$record.terminalExceptionType -notmatch
+            '^[A-Za-z][A-Za-z0-9]{0,127}$' -or
+        [string]$record.rollbackStatus -notin @(
+            'not-required',
+            'in-progress',
+            'succeeded',
+            'failed'
+        )) {
+        throw 'The bounded support installer failure record is invalid.'
+    }
+    return $record
 }
 
 function Get-InstallManifest {
@@ -1114,8 +1280,18 @@ function Set-WindowsServiceDefinition {
     )
 
     $binaryPath = "`"$Executable`" $Arguments"
+    $serviceRole = if ($Name -ceq $windowsAgentService) {
+        'agent'
+    } elseif ($Name -ceq $windowsBrokerService) {
+        'broker'
+    } else {
+        'unknown'
+    }
     $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($null -eq $service) {
+        Set-InstallerFailureContext `
+            -Phase 'windows-service-definition' `
+            -Operation "${serviceRole}-service-create"
         Invoke-Checked sc.exe @(
             'create',
             $Name,
@@ -1128,6 +1304,9 @@ function Set-WindowsServiceDefinition {
         )
     } else {
         $service.Dispose()
+        Set-InstallerFailureContext `
+            -Phase 'windows-service-definition' `
+            -Operation "${serviceRole}-service-configure"
         Invoke-Checked sc.exe @(
             'config',
             $Name,
@@ -1139,17 +1318,26 @@ function Set-WindowsServiceDefinition {
             $DisplayName
         )
     }
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation "${serviceRole}-service-account"
     Invoke-Checked sc.exe @(
         'config',
         $Name,
         'obj=',
         "NT SERVICE\$Name"
     )
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation "${serviceRole}-service-security-descriptor"
     Invoke-Checked sc.exe @(
         'sdset',
         $Name,
         'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)'
     )
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation "${serviceRole}-service-environment"
     New-Item -ItemType Directory -Path $BundleExtractRoot -Force | Out-Null
     New-ItemProperty `
         -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" `
@@ -1158,12 +1346,21 @@ function Set-WindowsServiceDefinition {
         -Value @("DOTNET_BUNDLE_EXTRACT_BASE_DIR=$BundleExtractRoot") `
         -Force |
         Out-Null
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation "${serviceRole}-service-sidtype"
     Invoke-Checked sc.exe @('sidtype', $Name, 'unrestricted')
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation "${serviceRole}-service-privileges"
     Invoke-Checked sc.exe @(
         'privs',
         $Name,
         ($RequiredPrivileges -join '/')
     )
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation "${serviceRole}-service-failure-actions"
     Invoke-Checked sc.exe @(
         'failure',
         $Name,
@@ -1210,13 +1407,22 @@ function Write-BrokerSettings {
 function Set-WindowsBrokerFirewall {
     param([Parameter(Mandatory)][string]$Executable)
 
+    Set-InstallerFailureContext `
+        -Phase 'windows-firewall-boundary' `
+        -Operation 'firewall-remove-prior-rules'
     Remove-NetFirewallRule `
         -Name `
             $windowsServiceFirewallRule,
             $windowsIdentityFirewallRule,
             $windowsProgramFirewallRule `
         -ErrorAction SilentlyContinue
+    Set-InstallerFailureContext `
+        -Phase 'windows-firewall-boundary' `
+        -Operation 'broker-service-sid-translation'
     $brokerSid = Get-WindowsServiceSid -ServiceName $windowsBrokerService
+    Set-InstallerFailureContext `
+        -Phase 'windows-firewall-boundary' `
+        -Operation 'firewall-service-rule-create'
     New-NetFirewallRule `
         -Name $windowsServiceFirewallRule `
         -DisplayName 'PitCrew support broker outbound service isolation' `
@@ -1226,6 +1432,9 @@ function Set-WindowsBrokerFirewall {
         -Profile Any `
         -Service $windowsBrokerService |
         Out-Null
+    Set-InstallerFailureContext `
+        -Phase 'windows-firewall-boundary' `
+        -Operation 'firewall-identity-rule-create'
     New-NetFirewallRule `
         -Name $windowsIdentityFirewallRule `
         -DisplayName 'PitCrew support broker outbound identity isolation' `
@@ -1235,6 +1444,9 @@ function Set-WindowsBrokerFirewall {
         -Profile Any `
         -LocalUser "D:(A;;CC;;;$brokerSid)" |
         Out-Null
+    Set-InstallerFailureContext `
+        -Phase 'windows-firewall-boundary' `
+        -Operation 'firewall-program-rule-create'
     New-NetFirewallRule `
         -Name $windowsProgramFirewallRule `
         -DisplayName 'PitCrew support broker outbound program isolation' `
@@ -1245,6 +1457,9 @@ function Set-WindowsBrokerFirewall {
         -Program $Executable |
         Out-Null
 
+    Set-InstallerFailureContext `
+        -Phase 'windows-firewall-boundary' `
+        -Operation 'firewall-structural-verification'
     $serviceRule = Get-NetFirewallRule -Name $windowsServiceFirewallRule
     $serviceFilter = $serviceRule | Get-NetFirewallServiceFilter
     $identityRule = Get-NetFirewallRule -Name $windowsIdentityFirewallRule
@@ -2353,6 +2568,9 @@ function Configure-WindowsVersion {
             Join-Path $Paths.BrokerInstallRoot 'versions'
         ) $SelectedVersion
     ) 'PitCrew.Support.Broker.App.exe'
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation 'agent-service-definition'
     Set-WindowsServiceDefinition `
         -Name $windowsAgentService `
         -DisplayName 'PitCrew isolated support transport agent' `
@@ -2360,6 +2578,9 @@ function Configure-WindowsVersion {
         -Arguments "--contentRoot `"$($Paths.AgentStateRoot)`" --PitCrewSupport:Agent:PipeName=$pipeName --PitCrewSupport:Agent:ReplayRoot=`"$(Join-Path $Paths.AgentStateRoot 'replay')`"" `
         -BundleExtractRoot (Join-Path $Paths.AgentStateRoot 'bundle') `
         -RequiredPrivileges @('SeChangeNotifyPrivilege')
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation 'broker-service-definition'
     Set-WindowsServiceDefinition `
         -Name $windowsBrokerService `
         -DisplayName 'PitCrew isolated file-only diagnostics broker' `
@@ -2370,6 +2591,9 @@ function Configure-WindowsVersion {
             'SeChangeNotifyPrivilege',
             'SeImpersonatePrivilege'
         )
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation 'agent-service-dependency'
     Invoke-Checked sc.exe @(
         'config',
         $windowsAgentService,
@@ -2402,34 +2626,64 @@ function Initialize-WindowsInstallation {
         [Parameter(Mandatory)][string[]]$AllowedProfiles
     )
 
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-definition' `
+        -Operation 'configure-windows-version'
     Configure-WindowsVersion `
         -Paths $Paths `
         -SelectedVersion $SelectedVersion
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'broker-docker-group-check'
     Assert-WindowsBrokerHasNoDockerAccess
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'agent-service-sid-translation'
     $agentSid = Get-WindowsServiceSid -ServiceName $windowsAgentService
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'broker-service-sid-translation'
     $brokerSid = Get-WindowsServiceSid -ServiceName $windowsBrokerService
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'service-parent-traversal'
     Grant-WindowsServiceParentTraversal `
         -Paths $Paths `
         -AgentSid $agentSid `
         -BrokerSid $brokerSid
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'agent-install-acl'
     Set-WindowsProtectedDirectoryAcl `
         -Path $Paths.AgentInstallRoot `
         -ServiceSid $agentSid `
         -ServiceRights 'RX' `
         -Recurse
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'broker-install-acl'
     Set-WindowsProtectedDirectoryAcl `
         -Path $Paths.BrokerInstallRoot `
         -ServiceSid $brokerSid `
         -ServiceRights 'RX' `
         -Recurse
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'agent-state-acl'
     Set-WindowsProtectedDirectoryAcl `
         -Path $Paths.AgentStateRoot `
         -ServiceSid $agentSid `
         -ServiceRights 'F'
+    Set-InstallerFailureContext `
+        -Phase 'windows-service-boundary' `
+        -Operation 'broker-state-acl'
     Set-WindowsProtectedDirectoryAcl `
         -Path $Paths.BrokerStateRoot `
         -ServiceSid $brokerSid `
         -ServiceRights 'F'
+    Set-InstallerFailureContext `
+        -Phase 'windows-evidence-boundary' `
+        -Operation 'write-broker-settings'
     Write-BrokerSettings `
         -Paths $Paths `
         -ResolvedPitCrewRoot $ResolvedPitCrewRoot `
@@ -2439,6 +2693,9 @@ function Initialize-WindowsInstallation {
         -AgentUid $null `
         -BrokerUid $null `
         -IpcGroupGid $null
+    Set-InstallerFailureContext `
+        -Phase 'windows-evidence-boundary' `
+        -Operation 'grant-broker-evidence'
     Grant-WindowsBrokerEvidence `
         -ResolvedPitCrewRoot $ResolvedPitCrewRoot `
         -AllowedProfiles $AllowedProfiles `
@@ -2450,6 +2707,9 @@ function Initialize-WindowsInstallation {
         -Raw `
         -Encoding UTF8 |
         ConvertFrom-Json -Depth 10
+    Set-InstallerFailureContext `
+        -Phase 'windows-evidence-boundary' `
+        -Operation 'verify-broker-evidence'
     Assert-EvidenceFilesReadable `
         -Paths $Paths `
         -Settings $installedSettings.PitCrewSupport.Broker
@@ -2633,6 +2893,9 @@ function Invoke-InstallOrUpdate {
         [Parameter(Mandatory)][bool]$IsUpdate
     )
 
+    Set-InstallerFailureContext `
+        -Phase 'install-preflight' `
+        -Operation 'validate-install-inputs'
     Assert-InstallInputs `
         -RequiresSettings (-not $IsUpdate) `
         -Paths $Paths
@@ -2689,6 +2952,9 @@ function Invoke-InstallOrUpdate {
     } else {
         $null
     }
+    Set-InstallerFailureContext `
+        -Phase 'release-staging' `
+        -Operation 'stage-release'
     try {
         $staged = Stage-Release -Paths $Paths
     } catch {
@@ -2706,6 +2972,9 @@ function Invoke-InstallOrUpdate {
         throw
     }
     try {
+        Set-InstallerFailureContext `
+            -Phase 'installation' `
+            -Operation 'stop-existing-services'
         if ($IsWindows) {
             Stop-WindowsSupportServices
         } else {
@@ -2726,6 +2995,9 @@ function Invoke-InstallOrUpdate {
         } elseif (-not $hasPreservedIdentity) {
             Protect-StateRootsForInstaller -Paths $Paths
         }
+        Set-InstallerFailureContext `
+            -Phase 'installation' `
+            -Operation 'copy-agent-settings'
         Copy-AgentSettings -Paths $Paths -Required (-not $IsUpdate)
         if ($IsWindows) {
             Initialize-WindowsInstallation `
@@ -2741,6 +3013,9 @@ function Invoke-InstallOrUpdate {
                 -AllowedProfiles $Profiles
         }
         if ($wasEnabled) {
+            Set-InstallerFailureContext `
+                -Phase 'service-startup' `
+                -Operation 'start-support-services'
             if ($IsWindows) {
                 Start-WindowsSupportServices
             } else {
@@ -2765,9 +3040,15 @@ function Invoke-InstallOrUpdate {
         if (-not [string]::IsNullOrWhiteSpace($previousVersion)) {
             $keepVersions.Add($previousVersion)
         }
+        Set-InstallerFailureContext `
+            -Phase 'installation-finalization' `
+            -Operation 'remove-obsolete-versions'
         Remove-ObsoleteSupportVersions `
             -Paths $Paths `
             -KeepVersions $keepVersions
+        Set-InstallerFailureContext `
+            -Phase 'installation-finalization' `
+            -Operation 'write-install-manifest'
         Write-InstallManifest `
             -Paths $Paths `
             -CurrentVersion $Version `
@@ -2780,110 +3061,131 @@ function Invoke-InstallOrUpdate {
             -Force `
             -ErrorAction SilentlyContinue
     } catch {
-        if (-not [string]::IsNullOrWhiteSpace($previousVersion)) {
-            if ($null -ne $previousBrokerSettings) {
-                [IO.File]::WriteAllBytes(
-                    $brokerSettingsPath,
-                    $previousBrokerSettings)
-            }
-            if ($IsWindows) {
-                Initialize-WindowsInstallation `
-                    -Paths $Paths `
-                    -SelectedVersion $previousVersion `
-                    -ResolvedPitCrewRoot $resolvedPitCrewRoot `
-                    -AllowedProfiles $Profiles
-                if ($wasEnabled) {
-                    Start-WindowsSupportServices
+        $installError = $_
+        $failurePhase = $script:installerFailurePhase
+        $failureOperation = $script:installerFailureOperation
+        $script:installerPrimaryExceptionType =
+            $installError.Exception.GetType().Name
+        $script:installerPrimaryNativeExitCode =
+            Get-InstallerNativeExitCode -Exception $installError.Exception
+        $script:installerRollbackStatus = 'in-progress'
+        Set-InstallerFailureContext `
+            -Phase 'rollback' `
+            -Operation 'restore-pre-install-state'
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($previousVersion)) {
+                if ($null -ne $previousBrokerSettings) {
+                    [IO.File]::WriteAllBytes(
+                        $brokerSettingsPath,
+                        $previousBrokerSettings)
+                }
+                if ($IsWindows) {
+                    Initialize-WindowsInstallation `
+                        -Paths $Paths `
+                        -SelectedVersion $previousVersion `
+                        -ResolvedPitCrewRoot $resolvedPitCrewRoot `
+                        -AllowedProfiles $Profiles
+                    if ($wasEnabled) {
+                        Start-WindowsSupportServices
+                    } else {
+                        Set-WindowsSupportStartup -Enabled $false
+                    }
                 } else {
-                    Set-WindowsSupportStartup -Enabled $false
+                    Initialize-LinuxInstallation `
+                        -Paths $Paths `
+                        -SelectedVersion $previousVersion `
+                        -ResolvedPitCrewRoot $resolvedPitCrewRoot `
+                        -AllowedProfiles $Profiles
+                    if ($wasEnabled) {
+                        Start-LinuxSupportServices
+                    }
                 }
             } else {
-                Initialize-LinuxInstallation `
-                    -Paths $Paths `
-                    -SelectedVersion $previousVersion `
-                    -ResolvedPitCrewRoot $resolvedPitCrewRoot `
-                    -AllowedProfiles $Profiles
-                if ($wasEnabled) {
-                    Start-LinuxSupportServices
+                $failedBrokerSettings = if (
+                    Test-Path -LiteralPath $brokerSettingsPath -PathType Leaf
+                ) {
+                    (
+                        Get-Content `
+                            -LiteralPath $brokerSettingsPath `
+                            -Raw `
+                            -Encoding UTF8 |
+                            ConvertFrom-Json -Depth 10
+                    ).PitCrewSupport.Broker
+                } else {
+                    $null
                 }
-            }
-        } else {
-            $failedBrokerSettings = if (
-                Test-Path -LiteralPath $brokerSettingsPath -PathType Leaf
-            ) {
-                (
-                    Get-Content `
-                        -LiteralPath $brokerSettingsPath `
-                        -Raw `
-                        -Encoding UTF8 |
-                        ConvertFrom-Json -Depth 10
-                ).PitCrewSupport.Broker
-            } else {
-                $null
-            }
-            if ($IsWindows) {
-                Stop-WindowsSupportServices
-                if ($null -ne $failedBrokerSettings) {
-                    Revoke-WindowsEvidenceAccess `
-                        -Paths $Paths `
-                        -Settings $failedBrokerSettings
-                    Revoke-WindowsServiceParentTraversal `
-                        -Paths $Paths `
-                        -AgentSid ([string]$failedBrokerSettings.ExpectedAgentSid) `
-                        -BrokerSid ([string]$failedBrokerSettings.BrokerServiceSid)
-                }
-                if (Test-Path `
-                        -LiteralPath (
-                            Join-Path $Paths.AgentStateRoot 'appsettings.json'
-                        ) `
-                        -PathType Leaf) {
-                    Preserve-AgentIdentityState -Paths $Paths
-                }
-                Remove-NetFirewallRule `
-                    -Name `
-                        $windowsServiceFirewallRule,
-                        $windowsIdentityFirewallRule,
-                        $windowsProgramFirewallRule `
-                    -ErrorAction SilentlyContinue
-                Remove-WindowsService -Name $windowsAgentService
-                Remove-WindowsService -Name $windowsBrokerService
-            } else {
-                Stop-LinuxSupportServices
-                if ($null -ne $failedBrokerSettings) {
-                    Revoke-LinuxEvidenceAccess `
-                        -Paths $Paths `
-                        -Settings $failedBrokerSettings
-                }
-                if (Test-Path `
-                        -LiteralPath (
-                            Join-Path $Paths.AgentStateRoot 'appsettings.json'
-                        ) `
-                        -PathType Leaf) {
-                    Preserve-AgentIdentityState -Paths $Paths
+                if ($IsWindows) {
+                    Stop-WindowsSupportServices
+                    if ($null -ne $failedBrokerSettings) {
+                        Revoke-WindowsEvidenceAccess `
+                            -Paths $Paths `
+                            -Settings $failedBrokerSettings
+                        Revoke-WindowsServiceParentTraversal `
+                            -Paths $Paths `
+                            -AgentSid ([string]$failedBrokerSettings.ExpectedAgentSid) `
+                            -BrokerSid ([string]$failedBrokerSettings.BrokerServiceSid)
+                    }
+                    if (Test-Path `
+                            -LiteralPath (
+                                Join-Path $Paths.AgentStateRoot 'appsettings.json'
+                            ) `
+                            -PathType Leaf) {
+                        Preserve-AgentIdentityState -Paths $Paths
+                    }
+                    Remove-NetFirewallRule `
+                        -Name `
+                            $windowsServiceFirewallRule,
+                            $windowsIdentityFirewallRule,
+                            $windowsProgramFirewallRule `
+                        -ErrorAction SilentlyContinue
+                    Remove-WindowsService -Name $windowsAgentService
+                    Remove-WindowsService -Name $windowsBrokerService
+                } else {
+                    Stop-LinuxSupportServices
+                    if ($null -ne $failedBrokerSettings) {
+                        Revoke-LinuxEvidenceAccess `
+                            -Paths $Paths `
+                            -Settings $failedBrokerSettings
+                    }
+                    if (Test-Path `
+                            -LiteralPath (
+                                Join-Path $Paths.AgentStateRoot 'appsettings.json'
+                            ) `
+                            -PathType Leaf) {
+                        Preserve-AgentIdentityState -Paths $Paths
+                    }
+                    Remove-Item `
+                        -LiteralPath $Paths.AgentUnitPath, $Paths.BrokerUnitPath `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+                    Invoke-Checked systemctl @('daemon-reload')
+                    Remove-LinuxProductIdentities
                 }
                 Remove-Item `
-                    -LiteralPath $Paths.AgentUnitPath, $Paths.BrokerUnitPath `
+                    -LiteralPath `
+                        $Paths.AgentInstallRoot,
+                        $Paths.BrokerInstallRoot,
+                        $Paths.BrokerStateRoot,
+                        $Paths.InstallerStateRoot `
+                    -Recurse `
                     -Force `
                     -ErrorAction SilentlyContinue
-                Invoke-Checked systemctl @('daemon-reload')
-                Remove-LinuxProductIdentities
             }
             Remove-Item `
-                -LiteralPath `
-                    $Paths.AgentInstallRoot,
-                    $Paths.BrokerInstallRoot,
-                    $Paths.BrokerStateRoot,
-                    $Paths.InstallerStateRoot `
+                -LiteralPath $staged.AgentVersionRoot, $staged.BrokerVersionRoot `
                 -Recurse `
                 -Force `
                 -ErrorAction SilentlyContinue
+            $script:installerRollbackStatus = 'succeeded'
+        } catch {
+            $script:installerRollbackStatus = 'failed'
+            $script:installerFailurePhase = $failurePhase
+            $script:installerFailureOperation = $failureOperation
+            throw
         }
-        Remove-Item `
-            -LiteralPath $staged.AgentVersionRoot, $staged.BrokerVersionRoot `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-        throw
+        $script:installerFailurePhase = $failurePhase
+        $script:installerFailureOperation = $failureOperation
+        throw $installError
     }
 }
 
@@ -4481,46 +4783,48 @@ if ($Action -in $mutatingActions) {
 Assert-PlatformAdministrator
 
 $requiredCommands = [Collections.Generic.List[string]]::new()
-$requiredCommands.Add('tar')
-if ($IsWindows) {
-    $requiredCommands.Add('icacls.exe')
-    $requiredCommands.Add('sc.exe')
-    foreach ($cmdlet in @(
-        'Get-LocalGroup',
-        'Get-LocalGroupMember',
-        'Get-NetFirewallRule',
-        'Get-NetFirewallAddressFilter',
-        'Get-NetFirewallPortFilter',
-        'Get-NetFirewallServiceFilter',
-        'Get-NetFirewallSecurityFilter',
-        'Get-NetFirewallApplicationFilter',
-        'New-NetFirewallRule',
-        'Remove-NetFirewallRule'
-    )) {
-        if ($null -eq (Get-Command $cmdlet -ErrorAction SilentlyContinue)) {
-            throw "Required Windows command '$cmdlet' is unavailable."
+if ($Action -ne 'DiagnoseFailure') {
+    $requiredCommands.Add('tar')
+    if ($IsWindows) {
+        $requiredCommands.Add('icacls.exe')
+        $requiredCommands.Add('sc.exe')
+        foreach ($cmdlet in @(
+            'Get-LocalGroup',
+            'Get-LocalGroupMember',
+            'Get-NetFirewallRule',
+            'Get-NetFirewallAddressFilter',
+            'Get-NetFirewallPortFilter',
+            'Get-NetFirewallServiceFilter',
+            'Get-NetFirewallSecurityFilter',
+            'Get-NetFirewallApplicationFilter',
+            'New-NetFirewallRule',
+            'Remove-NetFirewallRule'
+        )) {
+            if ($null -eq (Get-Command $cmdlet -ErrorAction SilentlyContinue)) {
+                throw "Required Windows command '$cmdlet' is unavailable."
+            }
         }
-    }
-} else {
-    foreach ($command in @(
-        'chown',
-        'chmod',
-        'getfacl',
-        'getent',
-        'groupdel',
-        'groupadd',
-        'id',
-        'ln',
-        'mv',
-        'runuser',
-        'setfacl',
-        'stat',
-        'systemctl',
-        'userdel',
-        'useradd',
-        'usermod'
-    )) {
-        $requiredCommands.Add($command)
+    } else {
+        foreach ($command in @(
+            'chown',
+            'chmod',
+            'getfacl',
+            'getent',
+            'groupdel',
+            'groupadd',
+            'id',
+            'ln',
+            'mv',
+            'runuser',
+            'setfacl',
+            'stat',
+            'systemctl',
+            'userdel',
+            'useradd',
+            'usermod'
+        )) {
+            $requiredCommands.Add($command)
+        }
     }
 }
 foreach ($command in $requiredCommands) {
@@ -4536,6 +4840,9 @@ try {
     $manifest = Get-InstallManifest -Paths $paths
     switch ($Action) {
         'Install' {
+            Set-InstallerFailureContext `
+                -Phase 'install' `
+                -Operation 'install-dispatch'
             Assert-NoAmbiguousInstallation -Paths $paths -Manifest $manifest
             if ($null -ne $manifest) {
                 throw 'Use Update for an existing managed support installation.'
@@ -4546,6 +4853,9 @@ try {
                 -IsUpdate $false
         }
         'Update' {
+            Set-InstallerFailureContext `
+                -Phase 'update' `
+                -Operation 'update-dispatch'
             if ($null -eq $manifest) {
                 throw 'Update requires an existing managed support installation.'
             }
@@ -4555,24 +4865,36 @@ try {
                 -IsUpdate $true
         }
         'Enable' {
+            Set-InstallerFailureContext `
+                -Phase 'enable' `
+                -Operation 'enable-support-services'
             if ($null -eq $manifest) {
                 throw 'Enable requires an existing managed support installation.'
             }
             Invoke-Enable -Paths $paths -Manifest $manifest
         }
         'Disable' {
+            Set-InstallerFailureContext `
+                -Phase 'disable' `
+                -Operation 'disable-support-services'
             if ($null -eq $manifest) {
                 throw 'Disable requires an existing managed support installation.'
             }
             Invoke-Disable -Paths $paths -Manifest $manifest
         }
         'Rollback' {
+            Set-InstallerFailureContext `
+                -Phase 'rollback' `
+                -Operation 'rollback-support-version'
             if ($null -eq $manifest) {
                 throw 'Rollback requires an existing managed support installation.'
             }
             Invoke-Rollback -Paths $paths -Manifest $manifest
         }
         'Uninstall' {
+            Set-InstallerFailureContext `
+                -Phase 'uninstall' `
+                -Operation 'uninstall-support-plane'
             if ($null -eq $manifest) {
                 throw 'Uninstall requires an existing managed support installation.'
             }
@@ -4580,18 +4902,49 @@ try {
             $removeInstallerStateAfterUnlock = $true
         }
         'RepairEvidenceAcl' {
+            Set-InstallerFailureContext `
+                -Phase 'repair-evidence-acl' `
+                -Operation 'repair-evidence-acl'
             if ($null -eq $manifest) {
                 throw 'ACL repair requires an existing managed support installation.'
             }
             Invoke-RepairEvidenceAcl -Paths $paths
         }
         'Verify' {
+            Set-InstallerFailureContext `
+                -Phase 'verify' `
+                -Operation 'verify-support-plane'
             if ($null -eq $manifest) {
                 throw 'Verify requires an existing managed support installation.'
             }
             Invoke-Verify -Paths $paths -Manifest $manifest
         }
+        'DiagnoseFailure' {
+            Get-InstallerFailureRecord -Paths $paths |
+                ConvertTo-Json -Depth 4 -Compress
+        }
     }
+    if ($Action -in $mutatingActions) {
+        Set-InstallerFailureContext `
+            -Phase 'installation-finalization' `
+            -Operation 'remove-prior-failure-record'
+        Remove-InstallerFailureRecord -Paths $paths
+    }
+} catch {
+    if ($Action -ne 'DiagnoseFailure') {
+        try {
+            Write-InstallerFailureRecord `
+                -Paths $paths `
+                -LifecycleAction $Action `
+                -Exception $_.Exception
+        } catch {
+            Write-Warning (
+                'The bounded support installer failure record could not be ' +
+                'persisted.'
+            )
+        }
+    }
+    throw
 } finally {
     $installerLock.Dispose()
 }

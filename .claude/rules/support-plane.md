@@ -48,6 +48,9 @@ paths:
   verify the collector content hash. Treat broader, writable, inherited, masked,
   ownership, mode, and default-ACL drift as failures.
 - Install separately from the connector; refuse partial overlap. Stage updates, retain rollback, support lifecycle actions under a privileged lock, revoke evidence ACLs, safely remove service identities, and preserve protected identity unless typed removal runs as the agent. Installer code never reads private keys.
+- Persist failed installer mutations as a protected bounded phase/operation,
+  exception-type, native-exit-code, and rollback-status record. Never persist
+  exception messages, paths, arguments, settings, identities, or credentials.
 - The broker executes only
   `<PitCrewRoot>\plugins\pitcrew-operations\skills\pitcrew-remote-diagnostics\scripts\Collect-PitCrewDiagnostics.ps1`
   with fixed `-FileOnly -PassThruOnly`, closed diagnostic mode, optional locally

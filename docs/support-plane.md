@@ -348,7 +348,18 @@ release asset names for the selected version and native architecture. Every
 archive is verified against its SHA-256 sidecar before extraction.
 
 Lifecycle actions are `Update`, `Disable`, `Enable`, `Rollback`,
-`RepairEvidenceAcl`, `Verify`, and `Uninstall`. Updates extract both components
+`RepairEvidenceAcl`, `Verify`, `DiagnoseFailure`, and `Uninstall`.
+Failed lifecycle mutations persist one protected bounded record containing only
+the lifecycle action, phase, operation, exception type, native exit code when
+available, rollback status, and occurrence time. It never contains exception
+messages, paths, arguments, settings, identities, or credentials. Read it with:
+
+```powershell
+./Install-PitCrewSupportPlane.ps1 -Action DiagnoseFailure
+```
+
+A later successful install, update, rollback, or uninstall removes the prior
+failure record. Updates extract both components
 into staging, verify their checksums/executables, switch service definitions only
 after staging succeeds, and restore the prior version if either service fails to
 start. Binary updates must retain the installed PitCrew root and local profile
