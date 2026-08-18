@@ -39,14 +39,14 @@ paths:
 - The transport process may use the network but cannot read PitCrew state; the broker may read only allowlisted local evidence and owns no outbound network behavior.
 - Production packages use separate identities. Windows pipe ACLs and peer checks allow only product/SYSTEM lifecycle SIDs; Linux requires socket mode `0660`, ownership, `SO_PEERCRED`, and the configured agent UID.
 - The broker has no outbound network. The fixed collector runs in-process. Windows owns enabled service-, service-SID-, and exact-program firewall blocks. Linux requires `PrivateNetwork=true`, `AF_UNIX` only, and no capabilities. Verify effective firewall/systemd state and reject drop-ins.
-- Keep the PitCrew v0.10.1 evidence ACL exact: metadata-only access to its three
-  root-validation files; non-inherited profile-directory enumeration on
-  `.pitcrew-state`; the fixed collector; the four `.pitcrew-state/<profile>`
-  projections; and connector-health snapshot/event journal. Do not grant `.env`,
-  Docker socket, checkout-wide, or arbitrary-file reads. Detect
-  atomic-replacement ACL drift instead of adding inheritable broad reads. Pin and
-  verify the collector content hash. Treat broader, writable, inherited, masked,
-  ownership, mode, and default-ACL drift as failures.
+- Keep the PitCrew v0.10.3 evidence ACL exact: metadata-only access to its three
+  root-validation files; non-inherited profile-directory enumeration and
+  traversal; the fixed collector; object-inherited/default file read only inside
+  each selected profile's `support-evidence` directory and connector health.
+  Never inherit broker read across the profile root or grant `.env`, Docker
+  socket, checkout-wide, or arbitrary-file reads. Pin and verify the collector
+  content hash. Treat broader, writable, masked, ownership, mode, and
+  unexpected inheritance/default-ACL drift as failures.
 - Install separately from the connector; refuse partial overlap. Stage updates, retain rollback, support lifecycle actions under a privileged lock, revoke evidence ACLs, safely remove service identities, and preserve protected identity unless typed removal runs as the agent. Installer code never reads private keys.
 - Persist failed installer mutations as a protected bounded phase/operation,
   exception-type, native-exit-code, and rollback-status record. Never persist

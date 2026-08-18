@@ -114,6 +114,117 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
+  public async Task Broker_Rejects_Missing_Dedicated_Evidence_Directory(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    try
+    {
+      var policy = SupportEvidencePolicy.Load();
+      Directory.Delete(
+          Path.Combine(
+              root,
+              ".pitcrew-state",
+              "default",
+              policy.ProfileEvidenceDirectory),
+          recursive: true);
+      File.WriteAllText(
+          Path.Combine(
+              root,
+              ".pitcrew-state",
+              "default",
+              "observed-state.json"),
+          "{}");
+      var options = SupportBrokerTestHost.CreateOptions(root, "unused");
+      var broker = SupportBrokerTestHost.CreateBroker(options);
+
+      var result = await broker.ExecuteAsync(
+          new SupportBrokerRequest(
+              SupportDiagnosticModes.Full,
+              "default",
+              "0123456789abcdef"),
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(SupportBrokerStatus.EvidenceAccessDenied);
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
+  }
+
+  [Test]
+  public async Task Broker_Allows_Atomic_Temporary_Evidence_File(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    try
+    {
+      var policy = SupportEvidencePolicy.Load();
+      File.WriteAllText(
+          Path.Combine(
+              root,
+              ".pitcrew-state",
+              "default",
+              policy.ProfileEvidenceDirectory,
+              ".observed-state.test.tmp"),
+          "{}");
+      var options = SupportBrokerTestHost.CreateOptions(root, "unused");
+      var broker = SupportBrokerTestHost.CreateBroker(options);
+
+      var result = await broker.ExecuteAsync(
+          new SupportBrokerRequest(
+              SupportDiagnosticModes.Full,
+              "default",
+              "0123456789abcdef"),
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(SupportBrokerStatus.Succeeded);
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
+  }
+
+  [Test]
+  public async Task Broker_Rejects_Unexpected_Persistent_Evidence_File(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    try
+    {
+      var policy = SupportEvidencePolicy.Load();
+      File.WriteAllText(
+          Path.Combine(
+              root,
+              ".pitcrew-state",
+              "default",
+              policy.ProfileEvidenceDirectory,
+              "unexpected-state.json"),
+          "{}");
+      var options = SupportBrokerTestHost.CreateOptions(root, "unused");
+      var broker = SupportBrokerTestHost.CreateBroker(options);
+
+      var result = await broker.ExecuteAsync(
+          new SupportBrokerRequest(
+              SupportDiagnosticModes.Full,
+              "default",
+              "0123456789abcdef"),
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(SupportBrokerStatus.EvidenceAccessDenied);
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
+  }
+
+  [Test]
   public async Task Broker_Rejects_Collector_Content_Hash_Drift(
       CancellationToken cancellationToken)
   {
@@ -210,24 +321,32 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
-  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_1()
+  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_3()
   {
     var policy = SupportEvidencePolicy.Load();
     var allPaths = policy.InstallationSentinels
         .Concat(policy.ProfileProjectionFiles)
         .Concat(policy.ConnectorHealthFiles)
+        .Append(policy.ProfileEvidenceDirectory)
         .Append(policy.CollectorRelativePath)
         .ToArray();
 
-    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.1");
-    await Assert.That(policy.PitCrewCommit).IsEqualTo("0672c34c");
+    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.3");
+    await Assert.That(policy.PitCrewCommit)
+        .IsEqualTo("c41931e6a8028b44bedeca3aedeac4753db4c849");
     await Assert.That(policy.CollectorSha256)
         .IsEqualTo(
-            "01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3");
+            "18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580");
     await Assert.That(policy.CollectorHashCanonicalization)
         .IsEqualTo("utf8-lf");
     await Assert.That(policy.ProfileStateRootAccess)
         .IsEqualTo("enumerate-profile-directories-only");
+    await Assert.That(policy.ProfileEvidenceDirectory)
+        .IsEqualTo("support-evidence");
+    await Assert.That(policy.WindowsEvidenceInheritance)
+        .IsEqualTo("object-inherit-read-ace");
+    await Assert.That(policy.LinuxEvidenceInheritance)
+        .IsEqualTo("directory-read-and-default-file-read-acl");
     await Assert.That(policy.ProfileProjectionFiles)
         .IsEquivalentTo(
         [

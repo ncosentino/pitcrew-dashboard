@@ -173,15 +173,15 @@ function Get-RuntimeIdentifier {
 }
 
 function Get-EvidencePolicyPath {
-    $packaged = Join-Path $PSScriptRoot 'support-evidence-policy-v0.10.1.json'
+    $packaged = Join-Path $PSScriptRoot 'support-evidence-policy-v0.10.3.json'
     if (Test-Path -LiteralPath $packaged -PathType Leaf) {
         return $packaged
     }
     $repositoryPolicy = Join-Path (
         Resolve-Path (Join-Path $PSScriptRoot '..')
-    ).Path 'assets' 'support-plane' 'support-evidence-policy-v0.10.1.json'
+    ).Path 'assets' 'support-plane' 'support-evidence-policy-v0.10.3.json'
     if (-not (Test-Path -LiteralPath $repositoryPolicy -PathType Leaf)) {
-        throw 'The product-owned PitCrew v0.10.1 evidence policy is missing.'
+        throw 'The product-owned PitCrew v0.10.3 evidence policy is missing.'
     }
     return $repositoryPolicy
 }
@@ -192,23 +192,29 @@ function Get-EvidencePolicy {
         -Raw `
         -Encoding UTF8 |
         ConvertFrom-Json -Depth 10
-    if ($policy.schemaVersion -ne 1 -or
-        $policy.pitCrewVersion -ne '0.10.1' -or
-        $policy.pitCrewCommit -ne '0672c34c' -or
+    if ($policy.schemaVersion -ne 2 -or
+        $policy.pitCrewVersion -ne '0.10.3' -or
+        $policy.pitCrewCommit -ne
+            'c41931e6a8028b44bedeca3aedeac4753db4c849' -or
         $policy.collectorRelativePath -ne
             'plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1' -or
         $policy.collectorSha256 -ne
-            '01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3' -or
+            '18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580' -or
         $policy.collectorHashCanonicalization -ne 'utf8-lf' -or
         $policy.profileStateRootAccess -ne
             'enumerate-profile-directories-only' -or
+        $policy.profileEvidenceDirectory -ne 'support-evidence' -or
+        $policy.windowsEvidenceInheritance -ne
+            'object-inherit-read-ace' -or
+        $policy.linuxEvidenceInheritance -ne
+            'directory-read-and-default-file-read-acl' -or
         (@($policy.installationSentinels) -join ',') -ne
             'Setup-Runner.ps1,RunnerProfiles.Functions.ps1,docker-compose.yml' -or
         (@($policy.profileProjectionFiles) -join ',') -ne
             'desired-capacity.json,acknowledged-capacity.json,static-profile.json,observed-state.json' -or
         (@($policy.connectorHealthFiles) -join ',') -ne
             'connector-health.json,connector-events.jsonl') {
-        throw 'The product-owned PitCrew v0.10.1 evidence policy is invalid.'
+        throw 'The product-owned PitCrew v0.10.3 evidence policy is invalid.'
     }
     return $policy
 }
@@ -684,7 +690,7 @@ function Assert-InstallInputs {
         if (-not (Test-Path `
                 -LiteralPath $sentinelPath `
                 -PathType Leaf)) {
-            throw 'PitCrewRoot does not match the supported v0.10.1 installation contract.'
+            throw 'PitCrewRoot does not match the supported v0.10.3 installation contract.'
         }
         if (Test-LinkedPathComponent -Root $PitCrewRoot -Path $sentinelPath) {
             throw 'Linked PitCrew installation evidence is not supported.'
@@ -701,11 +707,11 @@ function Assert-InstallInputs {
         '/',
         [IO.Path]::DirectorySeparatorChar)
     if (-not (Test-Path -LiteralPath $collector -PathType Leaf)) {
-        throw 'The fixed PitCrew v0.10.1 diagnostics collector is missing.'
+        throw 'The fixed PitCrew v0.10.3 diagnostics collector is missing.'
     }
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
-        throw 'The fixed PitCrew v0.10.1 diagnostics collector hash is invalid.'
+        throw 'The fixed PitCrew v0.10.3 diagnostics collector hash is invalid.'
     }
     if (Test-LinkedPathComponent -Root $PitCrewRoot -Path $collector) {
         throw 'Linked PitCrew installation evidence is not supported.'
@@ -727,6 +733,26 @@ function Assert-InstallInputs {
             -Root $connectorAnchor `
             -Path $Paths.ConnectorHealthRoot) {
         throw 'Linked connector-health evidence paths are not supported.'
+    }
+    $comparison = if ($IsWindows) {
+        [StringComparison]::OrdinalIgnoreCase
+    } else {
+        [StringComparison]::Ordinal
+    }
+    $pitCrewFullPath = [IO.Path]::TrimEndingDirectorySeparator(
+        [IO.Path]::GetFullPath($PitCrewRoot))
+    $connectorRoot = [IO.Path]::TrimEndingDirectorySeparator(
+        [IO.Path]::GetFullPath(
+            (Split-Path $Paths.ConnectorHealthRoot -Parent)))
+    $separator = [IO.Path]::DirectorySeparatorChar
+    if ($pitCrewFullPath.Equals($connectorRoot, $comparison) -or
+        $pitCrewFullPath.StartsWith(
+            "$connectorRoot$separator",
+            $comparison) -or
+        $connectorRoot.StartsWith(
+            "$pitCrewFullPath$separator",
+            $comparison)) {
+        throw 'PitCrew and connector-health evidence roots must not overlap.'
     }
 }
 
@@ -1125,6 +1151,87 @@ function Protect-StateRootsForInstaller {
     }
 }
 
+function Set-WindowsAgentEvidenceDeny {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$AgentSid
+    )
+
+    $protectedDirectories = [Collections.Generic.List[string]]::new()
+    $protectedFiles = [Collections.Generic.List[string]]::new()
+    $items = @(
+        Get-ChildItem `
+            -LiteralPath $Root `
+            -Recurse `
+            -Force `
+            -ErrorAction Stop |
+            Sort-Object {
+                $_.FullName.Length
+            }
+    )
+    foreach ($item in $items) {
+        try {
+            $acl = Get-Acl -LiteralPath $item.FullName
+            if ($acl.AreAccessRulesProtected) {
+                if ($item.PSIsContainer) {
+                    $protectedDirectories.Add($item.FullName)
+                } else {
+                    $protectedFiles.Add($item.FullName)
+                }
+            }
+        } catch {
+            if (-not (Test-Path -LiteralPath $item.FullName)) {
+                continue
+            }
+            throw
+        }
+    }
+    $inheritanceRoots = @(
+        @($Root) +
+        @(
+            $protectedDirectories |
+                Sort-Object {
+                    $_.Length
+                }
+        )
+    )
+    foreach ($inheritanceRoot in $inheritanceRoots) {
+        Invoke-Checked icacls.exe @(
+            $inheritanceRoot,
+            '/deny',
+            "*$AgentSid`:(OI)(CI)(F)",
+            '/T',
+            '/C'
+        )
+        Invoke-Checked icacls.exe @(
+            $inheritanceRoot,
+            '/remove:d',
+            "*$AgentSid",
+            '/T',
+            '/C'
+        )
+        Invoke-Checked icacls.exe @(
+            $inheritanceRoot,
+            '/deny',
+            "*$AgentSid`:(OI)(CI)(F)"
+        )
+    }
+    foreach ($protectedFile in $protectedFiles) {
+        try {
+            Invoke-Checked icacls.exe @(
+                $protectedFile,
+                '/deny',
+                "*$AgentSid`:(F)"
+            )
+        } catch {
+            if (-not (Test-Path -LiteralPath $protectedFile)) {
+                continue
+            }
+            throw
+        }
+    }
+}
+
 function Grant-WindowsBrokerEvidence {
     param(
         [Parameter(Mandatory)][string]$ResolvedPitCrewRoot,
@@ -1143,18 +1250,9 @@ function Grant-WindowsBrokerEvidence {
         '/T',
         '/C'
     )
-    Invoke-Checked icacls.exe @(
-        $ResolvedPitCrewRoot,
-        '/remove:d',
-        "*$AgentSid",
-        '/T',
-        '/C'
-    )
-    Invoke-Checked icacls.exe @(
-        $ResolvedPitCrewRoot,
-        '/deny',
-        "*$AgentSid`:(OI)(CI)(F)"
-    )
+    Set-WindowsAgentEvidenceDeny `
+        -Root $ResolvedPitCrewRoot `
+        -AgentSid $AgentSid
     Invoke-Checked icacls.exe @(
         $ResolvedPitCrewRoot,
         '/grant',
@@ -1184,16 +1282,25 @@ function Grant-WindowsBrokerEvidence {
             '/grant',
             "*$BrokerSid`:(X,RA)"
         )
-        foreach ($fileName in $policy.profileProjectionFiles) {
-            $path = Join-Path $profileRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Invoke-Checked icacls.exe @(
-                    $path,
-                    '/grant',
-                    "*$BrokerSid`:(R)"
-                )
-            }
+        $evidenceRoot = Join-Path (
+            $profileRoot
+        ) ([string]$policy.profileEvidenceDirectory)
+        if (-not (Test-Path `
+                -LiteralPath $evidenceRoot `
+                -PathType Container)) {
+            throw 'The dedicated PitCrew support evidence directory is missing.'
         }
+        $evidenceRootItem = Get-Item -LiteralPath $evidenceRoot -Force
+        if (($evidenceRootItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked PitCrew support evidence directories are prohibited.'
+        }
+        Invoke-Checked icacls.exe @(
+            $evidenceRoot,
+            '/grant',
+            "*$BrokerSid`:(RD,X,RA)",
+            "*$BrokerSid`:(OI)(IO)(R)"
+        )
     }
     $collector = Join-Path (
         $ResolvedPitCrewRoot
@@ -1231,18 +1338,9 @@ function Grant-WindowsBrokerEvidence {
             '/T',
             '/C'
         )
-        Invoke-Checked icacls.exe @(
-            $connectorRoot,
-            '/remove:d',
-            "*$AgentSid",
-            '/T',
-            '/C'
-        )
-        Invoke-Checked icacls.exe @(
-            $connectorRoot,
-            '/deny',
-            "*$AgentSid`:(OI)(CI)(F)"
-        )
+        Set-WindowsAgentEvidenceDeny `
+            -Root $connectorRoot `
+            -AgentSid $AgentSid
         Invoke-Checked icacls.exe @(
             $connectorRoot,
             '/grant',
@@ -1250,21 +1348,19 @@ function Grant-WindowsBrokerEvidence {
         )
     }
     if (Test-Path -LiteralPath $Paths.ConnectorHealthRoot) {
+        $healthRootItem = Get-Item `
+            -LiteralPath $Paths.ConnectorHealthRoot `
+            -Force
+        if (($healthRootItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked connector-health evidence directories are prohibited.'
+        }
         Invoke-Checked icacls.exe @(
             $Paths.ConnectorHealthRoot,
             '/grant',
-            "*$BrokerSid`:(X,RA)"
+            "*$BrokerSid`:(RD,X,RA)",
+            "*$BrokerSid`:(OI)(IO)(R)"
         )
-        foreach ($fileName in $policy.connectorHealthFiles) {
-            $path = Join-Path $Paths.ConnectorHealthRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Invoke-Checked icacls.exe @(
-                    $path,
-                    '/grant',
-                    "*$BrokerSid`:(R)"
-                )
-            }
-        }
     }
 }
 
@@ -1825,15 +1921,37 @@ function Grant-LinuxBrokerEvidence {
             "u:$BrokerUid`:--x",
             $profileRoot
         )
-        foreach ($fileName in $policy.profileProjectionFiles) {
-            $path = Join-Path $profileRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Invoke-Checked setfacl @(
-                    '-m',
-                    "u:$BrokerUid`:r--",
-                    $path
-                )
+        $evidenceRoot = Join-Path (
+            $profileRoot
+        ) ([string]$policy.profileEvidenceDirectory)
+        if (-not (Test-Path `
+                -LiteralPath $evidenceRoot `
+                -PathType Container)) {
+            throw 'The dedicated PitCrew support evidence directory is missing.'
+        }
+        $evidenceRootItem = Get-Item -LiteralPath $evidenceRoot -Force
+        if (($evidenceRootItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked PitCrew support evidence directories are prohibited.'
+        }
+        Invoke-Checked setfacl @(
+            '-m',
+            "u:$BrokerUid`:r-x,d:u:$BrokerUid`:r--",
+            $evidenceRoot
+        )
+        foreach ($item in Get-ChildItem `
+                -LiteralPath $evidenceRoot `
+                -File `
+                -Force) {
+            if (($item.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Linked support evidence is prohibited.'
             }
+            Invoke-Checked setfacl @(
+                '-m',
+                "u:$BrokerUid`:r--",
+                $item.FullName
+            )
         }
     }
     $collector = Join-Path (
@@ -1867,20 +1985,31 @@ function Grant-LinuxBrokerEvidence {
         )
     }
     if (Test-Path -LiteralPath $Paths.ConnectorHealthRoot -PathType Container) {
+        $healthRootItem = Get-Item `
+            -LiteralPath $Paths.ConnectorHealthRoot `
+            -Force
+        if (($healthRootItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked connector-health evidence directories are prohibited.'
+        }
         Invoke-Checked setfacl @(
             '-m',
-            "u:$BrokerUid`:--x",
+            "u:$BrokerUid`:r-x,d:u:$BrokerUid`:r--",
             $Paths.ConnectorHealthRoot
         )
-        foreach ($fileName in $policy.connectorHealthFiles) {
-            $path = Join-Path $Paths.ConnectorHealthRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Invoke-Checked setfacl @(
-                    '-m',
-                    "u:$BrokerUid`:r--",
-                    $path
-                )
+        foreach ($item in Get-ChildItem `
+                -LiteralPath $Paths.ConnectorHealthRoot `
+                -File `
+                -Force) {
+            if (($item.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Linked connector-health evidence is prohibited.'
             }
+            Invoke-Checked setfacl @(
+                '-m',
+                "u:$BrokerUid`:r--",
+                $item.FullName
+            )
         }
     }
 }
@@ -3700,6 +3829,9 @@ function Get-WindowsExpectedEvidenceAces {
 
     $expected = [Collections.Generic.Dictionary[string, long]]::new(
         [StringComparer]::OrdinalIgnoreCase)
+    $inheritedRoots =
+        [Collections.Generic.Dictionary[string, object]]::new(
+        [StringComparer]::OrdinalIgnoreCase)
     $traverseRights =
         [Security.AccessControl.FileSystemRights]::ExecuteFile -bor
         [Security.AccessControl.FileSystemRights]::ReadAttributes
@@ -3730,17 +3862,17 @@ function Get-WindowsExpectedEvidenceAces {
             -Expected $expected `
             -Path $profileRoot `
             -Rights $traverseRights
-        foreach ($fileName in $policy.profileProjectionFiles) {
-            $path = Join-Path $profileRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Add-WindowsExpectedEvidenceAce `
-                    -Expected $expected `
-                    -Path $path `
-                    -Rights (
-                        [Security.AccessControl.FileSystemRights]::Read
-                    )
-            }
+        $evidenceRoot = Join-Path (
+            $profileRoot
+        ) ([string]$policy.profileEvidenceDirectory)
+        if (-not (Test-Path `
+                -LiteralPath $evidenceRoot `
+                -PathType Container)) {
+            throw 'The dedicated PitCrew support evidence directory is missing.'
         }
+        $inheritedRoots[
+            [IO.Path]::GetFullPath($evidenceRoot)
+        ] = @($policy.profileProjectionFiles)
     }
     $collector = Join-Path (
         $PitCrewRoot
@@ -3776,23 +3908,14 @@ function Get-WindowsExpectedEvidenceAces {
     if (Test-Path `
             -LiteralPath $Paths.ConnectorHealthRoot `
             -PathType Container) {
-        Add-WindowsExpectedEvidenceAce `
-            -Expected $expected `
-            -Path $Paths.ConnectorHealthRoot `
-            -Rights $traverseRights
-        foreach ($fileName in $policy.connectorHealthFiles) {
-            $path = Join-Path $Paths.ConnectorHealthRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Add-WindowsExpectedEvidenceAce `
-                    -Expected $expected `
-                    -Path $path `
-                    -Rights (
-                        [Security.AccessControl.FileSystemRights]::Read
-                    )
-            }
-        }
+        $inheritedRoots[
+            [IO.Path]::GetFullPath($Paths.ConnectorHealthRoot)
+        ] = @($policy.connectorHealthFiles)
     }
-    return ,$expected
+    return [PSCustomObject]@{
+        Explicit = $expected
+        InheritedRoots = $inheritedRoots
+    }
 }
 
 function Assert-WindowsEvidenceAclsExact {
@@ -3808,10 +3931,20 @@ function Assert-WindowsEvidenceAclsExact {
     Set-InstallerFailureContext `
         -Phase 'windows-evidence-verification' `
         -Operation 'build-expected-evidence-acls'
-    $expected = Get-WindowsExpectedEvidenceAces `
+    $contract = Get-WindowsExpectedEvidenceAces `
         -Paths $Paths `
         -PitCrewRoot $pitCrewRoot `
         -Profiles $profiles
+    $expected = $contract.Explicit
+    $inheritedRoots = $contract.InheritedRoots
+    $enumerateRights = Get-WindowsNormalizedRights -Rights (
+        [Security.AccessControl.FileSystemRights]::ReadData -bor
+        [Security.AccessControl.FileSystemRights]::ExecuteFile -bor
+        [Security.AccessControl.FileSystemRights]::ReadAttributes
+    )
+    $readRights = Get-WindowsNormalizedRights -Rights (
+        [Security.AccessControl.FileSystemRights]::Read
+    )
     $scanRoots = [Collections.Generic.List[string]]::new()
     $scanRoots.Add($pitCrewRoot)
     $connectorRoot = Split-Path $Paths.ConnectorHealthRoot -Parent
@@ -3832,8 +3965,45 @@ function Assert-WindowsEvidenceAclsExact {
         )
         foreach ($item in $items) {
             $fullPath = [IO.Path]::GetFullPath($item.FullName)
+            $isInheritedRoot = $inheritedRoots.ContainsKey($fullPath)
+            $parentPath = Split-Path $fullPath -Parent
+            $isInheritedFile =
+                -not $item.PSIsContainer -and
+                $inheritedRoots.ContainsKey($parentPath)
+            if ($item.PSIsContainer -and
+                $inheritedRoots.ContainsKey($parentPath)) {
+                Set-InstallerFailureContext `
+                    -Phase 'windows-evidence-verification' `
+                    -Operation 'reject-unexpected-broker-ace'
+                throw 'A dedicated support evidence directory contains an unexpected child directory.'
+            }
+            $isTransientEvidenceFile =
+                $isInheritedFile -and
+                $item.Name.StartsWith(
+                    '.',
+                    [StringComparison]::Ordinal) -and
+                $item.Name.EndsWith(
+                    '.tmp',
+                    [StringComparison]::Ordinal)
+            if ($isInheritedFile -and
+                -not $isTransientEvidenceFile -and
+                $item.Name -notin @($inheritedRoots[$parentPath])) {
+                Set-InstallerFailureContext `
+                    -Phase 'windows-evidence-verification' `
+                    -Operation 'reject-unexpected-broker-ace'
+                throw 'A dedicated support evidence directory contains an unexpected persistent file.'
+            }
+            try {
+                $acl = Get-Acl -LiteralPath $fullPath
+            } catch {
+                if ($isInheritedFile -and
+                    -not (Test-Path -LiteralPath $fullPath)) {
+                    continue
+                }
+                throw
+            }
             $rules = @(
-                (Get-Acl -LiteralPath $fullPath).GetAccessRules(
+                $acl.GetAccessRules(
                     $true,
                     $true,
                     [Security.Principal.SecurityIdentifier])
@@ -3844,7 +4014,74 @@ function Assert-WindowsEvidenceAclsExact {
                         $_.IdentityReference.Value -eq $brokerSid
                     }
             )
-            if (-not $expected.ContainsKey($fullPath)) {
+            if ($isInheritedRoot) {
+                if ($brokerRules.Count -ne 2) {
+                    Set-InstallerFailureContext `
+                        -Phase 'windows-evidence-verification' `
+                        -Operation 'verify-broker-ace-count'
+                    throw 'Support evidence ACL drift was detected: an evidence directory ACE count is not exact.'
+                }
+                $directRules = @(
+                    $brokerRules |
+                        Where-Object {
+                            $_.AccessControlType -eq
+                                [Security.AccessControl.AccessControlType]::Allow -and
+                            -not $_.IsInherited -and
+                            $_.InheritanceFlags -eq
+                                [Security.AccessControl.InheritanceFlags]::None -and
+                            $_.PropagationFlags -eq
+                                [Security.AccessControl.PropagationFlags]::None -and
+                            (Get-WindowsNormalizedRights `
+                                -Rights $_.FileSystemRights) -eq
+                                $enumerateRights
+                        }
+                )
+                $inheritanceRules = @(
+                    $brokerRules |
+                        Where-Object {
+                            $_.AccessControlType -eq
+                                [Security.AccessControl.AccessControlType]::Allow -and
+                            -not $_.IsInherited -and
+                            $_.InheritanceFlags -eq
+                                [Security.AccessControl.InheritanceFlags]::ObjectInherit -and
+                            $_.PropagationFlags -eq
+                                [Security.AccessControl.PropagationFlags]::InheritOnly -and
+                            (Get-WindowsNormalizedRights `
+                                -Rights $_.FileSystemRights) -eq
+                                $readRights
+                        }
+                )
+                if ($directRules.Count -ne 1 -or
+                    $inheritanceRules.Count -ne 1) {
+                    Set-InstallerFailureContext `
+                        -Phase 'windows-evidence-verification' `
+                        -Operation 'verify-broker-ace-shape'
+                    throw 'Support evidence ACL drift was detected: an evidence directory ACE shape is not exact.'
+                }
+            } elseif ($isInheritedFile) {
+                if ($brokerRules.Count -ne 1) {
+                    Set-InstallerFailureContext `
+                        -Phase 'windows-evidence-verification' `
+                        -Operation 'verify-broker-ace-count'
+                    throw 'Support evidence ACL drift was detected: an inherited file ACE count is not exact.'
+                }
+                $rule = $brokerRules[0]
+                $actualRights =
+                    Get-WindowsNormalizedRights -Rights $rule.FileSystemRights
+                if ($rule.AccessControlType -ne
+                        [Security.AccessControl.AccessControlType]::Allow -or
+                    -not $rule.IsInherited -or
+                    $rule.InheritanceFlags -ne
+                        [Security.AccessControl.InheritanceFlags]::None -or
+                    $rule.PropagationFlags -ne
+                        [Security.AccessControl.PropagationFlags]::None -or
+                    $actualRights -ne $readRights) {
+                    Set-InstallerFailureContext `
+                        -Phase 'windows-evidence-verification' `
+                        -Operation 'verify-broker-ace-shape'
+                    throw 'Support evidence ACL drift was detected: an inherited file ACE shape is not exact.'
+                }
+            } elseif (-not $expected.ContainsKey($fullPath)) {
                 if ($brokerRules.Count -gt 0) {
                     Set-InstallerFailureContext `
                         -Phase 'windows-evidence-verification' `
@@ -3900,6 +4137,9 @@ function Assert-WindowsEvidenceAclsExact {
                 $fullPath.Equals(
                     $connectorRoot,
                     [StringComparison]::OrdinalIgnoreCase)
+            $expectedAgentInherited =
+                -not $isEvidenceRoot -and
+                -not $acl.AreAccessRulesProtected
             $expectedInheritance = if ($item.PSIsContainer) {
                 [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
                     [Security.AccessControl.InheritanceFlags]::ObjectInherit
@@ -3909,7 +4149,7 @@ function Assert-WindowsEvidenceAclsExact {
             if ($agentRule.AccessControlType -ne
                     [Security.AccessControl.AccessControlType]::Deny -or
                 $agentRights -ne $fullControl -or
-                $agentRule.IsInherited -eq $isEvidenceRoot -or
+            $agentRule.IsInherited -ne $expectedAgentInherited -or
                 $agentRule.InheritanceFlags -ne $expectedInheritance -or
                 $agentRule.PropagationFlags -ne
                     [Security.AccessControl.PropagationFlags]::None) {
@@ -4018,6 +4258,9 @@ function Get-LinuxExpectedEvidenceAccess {
 
     $expected = [Collections.Generic.Dictionary[string, string]]::new(
         [StringComparer]::Ordinal)
+    $inheritedRoots =
+        [Collections.Generic.Dictionary[string, object]]::new(
+        [StringComparer]::Ordinal)
     $policy = Get-EvidencePolicy
     Add-LinuxExpectedEvidenceAccess `
         -Expected $expected `
@@ -4040,15 +4283,21 @@ function Get-LinuxExpectedEvidenceAccess {
             -Expected $expected `
             -Path $profileRoot `
             -Permissions '--x'
-        foreach ($fileName in $policy.profileProjectionFiles) {
-            $path = Join-Path $profileRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Add-LinuxExpectedEvidenceAccess `
-                    -Expected $expected `
-                    -Path $path `
-                    -Permissions 'r--'
-            }
+        $evidenceRoot = Join-Path (
+            $profileRoot
+        ) ([string]$policy.profileEvidenceDirectory)
+        if (-not (Test-Path `
+                -LiteralPath $evidenceRoot `
+                -PathType Container)) {
+            throw 'The dedicated PitCrew support evidence directory is missing.'
         }
+        Add-LinuxExpectedEvidenceAccess `
+            -Expected $expected `
+            -Path $evidenceRoot `
+            -Permissions 'r-x'
+        $inheritedRoots[
+            [IO.Path]::GetFullPath($evidenceRoot)
+        ] = @($policy.profileProjectionFiles)
     }
     $collector = Join-Path (
         $PitCrewRoot
@@ -4085,18 +4334,15 @@ function Get-LinuxExpectedEvidenceAccess {
         Add-LinuxExpectedEvidenceAccess `
             -Expected $expected `
             -Path $Paths.ConnectorHealthRoot `
-            -Permissions '--x'
-        foreach ($fileName in $policy.connectorHealthFiles) {
-            $path = Join-Path $Paths.ConnectorHealthRoot $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                Add-LinuxExpectedEvidenceAccess `
-                    -Expected $expected `
-                    -Path $path `
-                    -Permissions 'r--'
-            }
-        }
+            -Permissions 'r-x'
+        $inheritedRoots[
+            [IO.Path]::GetFullPath($Paths.ConnectorHealthRoot)
+        ] = @($policy.connectorHealthFiles)
     }
-    return ,$expected
+    return [PSCustomObject]@{
+        Explicit = $expected
+        InheritedRoots = $inheritedRoots
+    }
 }
 
 function Get-LinuxEvidenceMetadataFingerprint {
@@ -4106,37 +4352,13 @@ function Get-LinuxEvidenceMetadataFingerprint {
         [Parameter(Mandatory)][string[]]$Profiles
     )
 
-    $expected = Get-LinuxExpectedEvidenceAccess `
+    $contract = Get-LinuxExpectedEvidenceAccess `
         -Paths $Paths `
         -PitCrewRoot $PitCrewRoot `
         -Profiles $Profiles
-    $policy = Get-EvidencePolicy
-    $replaceableFiles =
-        [Collections.Generic.HashSet[string]]::new(
-            [StringComparer]::Ordinal)
-    foreach ($profile in $Profiles) {
-        foreach ($fileName in $policy.profileProjectionFiles) {
-            $replaceableFiles.Add(
-                [IO.Path]::GetFullPath(
-                    (Join-Path (
-                        Join-Path (
-                            Join-Path $PitCrewRoot '.pitcrew-state'
-                        ) $profile
-                    ) $fileName))) |
-                Out-Null
-        }
-    }
-    foreach ($fileName in $policy.connectorHealthFiles) {
-        $replaceableFiles.Add(
-            [IO.Path]::GetFullPath(
-                (Join-Path $Paths.ConnectorHealthRoot $fileName))) |
-            Out-Null
-    }
+    $expected = $contract.Explicit
     $lines = [Collections.Generic.List[string]]::new()
     foreach ($path in @($expected.Keys | Sort-Object)) {
-        if ($replaceableFiles.Contains($path)) {
-            continue
-        }
         $metadata = (& stat '--format=%u:%g:%a:%f' -- $path).Trim()
         if ($LASTEXITCODE -ne 0) {
             throw 'Could not inspect evidence ownership and mode.'
@@ -4163,7 +4385,7 @@ function Get-LinuxEvidenceMetadataPath {
 
     return Join-Path `
         $Paths.InstallerStateRoot `
-        'evidence-metadata-v0.10.1.json'
+        'evidence-metadata-v0.10.3.json'
 }
 
 function Assert-LinuxEvidenceMetadataExact {
@@ -4250,10 +4472,12 @@ function Assert-LinuxEvidenceAclsExact {
     if ($ipcGroupGid -notin $productGroupIds) {
         throw 'The configured support IPC group is invalid.'
     }
-    $expected = Get-LinuxExpectedEvidenceAccess `
+    $contract = Get-LinuxExpectedEvidenceAccess `
         -Paths $Paths `
         -PitCrewRoot $pitCrewRoot `
         -Profiles $profiles
+    $expected = $contract.Explicit
+    $inheritedRoots = $contract.InheritedRoots
     Assert-LinuxEvidenceMetadataExact `
         -Paths $Paths `
         -PitCrewRoot $pitCrewRoot `
@@ -4275,11 +4499,46 @@ function Assert-LinuxEvidenceAclsExact {
         )
         foreach ($item in $items) {
             $fullPath = [IO.Path]::GetFullPath($item.FullName)
-            $entries = Get-LinuxAclEntries -Path $fullPath
+            $parentPath = Split-Path $fullPath -Parent
+            $isInheritedRoot = $inheritedRoots.ContainsKey($fullPath)
+            $isInheritedFile =
+                -not $item.PSIsContainer -and
+                $inheritedRoots.ContainsKey($parentPath)
+            if ($item.PSIsContainer -and
+                $inheritedRoots.ContainsKey($parentPath)) {
+                throw 'A dedicated support evidence directory contains an unexpected child directory.'
+            }
+            $isTransientEvidenceFile =
+                $isInheritedFile -and
+                $item.Name.StartsWith(
+                    '.',
+                    [StringComparison]::Ordinal) -and
+                $item.Name.EndsWith(
+                    '.tmp',
+                    [StringComparison]::Ordinal)
+            if ($isInheritedFile -and
+                -not $isTransientEvidenceFile -and
+                $item.Name -cnotin @($inheritedRoots[$parentPath])) {
+                throw 'A dedicated support evidence directory contains an unexpected persistent file.'
+            }
+            if ($isTransientEvidenceFile) {
+                continue
+            }
+            try {
+                $entries = Get-LinuxAclEntries -Path $fullPath
+            } catch {
+                if ($isInheritedFile -and
+                    -not (Test-Path -LiteralPath $fullPath)) {
+                    continue
+                }
+                throw
+            }
             $brokerKey = "user:$brokerUid"
             $agentKey = "user:$agentUid"
             $expectedBroker = if ($expected.ContainsKey($fullPath)) {
                 $expected[$fullPath]
+            } elseif ($isInheritedFile) {
+                'r--'
             } else {
                 '---'
             }
@@ -4310,14 +4569,21 @@ function Assert-LinuxEvidenceAclsExact {
             if ($item.PSIsContainer) {
                 $defaultBrokerKey = "default:user:$brokerUid"
                 $defaultAgentKey = "default:user:$agentUid"
+                $expectedDefaultBroker = if ($isInheritedRoot) {
+                    'r--'
+                } else {
+                    '---'
+                }
                 if (-not $entries.ContainsKey($defaultBrokerKey) -or
-                    $entries[$defaultBrokerKey] -cne '---' -or
+                    $entries[$defaultBrokerKey] -cne
+                        $expectedDefaultBroker -or
                     -not $entries.ContainsKey($defaultAgentKey) -or
                     $entries[$defaultAgentKey] -cne '---' -or
                     -not $entries.ContainsKey('default:mask:') -or
                     (Get-LinuxEffectivePermissions `
                         -Permissions $entries[$defaultBrokerKey] `
-                        -Mask $entries['default:mask:']) -cne '---' -or
+                        -Mask $entries['default:mask:']) -cne
+                        $expectedDefaultBroker -or
                     (Get-LinuxEffectivePermissions `
                         -Permissions $entries[$defaultAgentKey] `
                         -Mask $entries['default:mask:']) -cne '---') {
@@ -4337,7 +4603,8 @@ function Assert-LinuxEvidenceAclsExact {
             if ($metadataParts.Count -ne 3 -or
                 $metadataParts[0] -in @($agentUid, $brokerUid) -or
                 $metadataParts[1] -in $productGroupIds -or
-                ($expected.ContainsKey($fullPath) -and (
+                (($expected.ContainsKey($fullPath) -or
+                    $isInheritedFile) -and (
                     ($mode -band [Convert]::ToInt32('7000', 8)) -ne 0 -or
                     ($mode -band [Convert]::ToInt32('0022', 8)) -ne 0
                 ))) {
@@ -4372,23 +4639,44 @@ function Assert-EvidenceFilesReadable {
         -Operation 'verify-collector-hash'
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
-        throw 'The fixed PitCrew v0.10.1 diagnostics collector hash is invalid.'
+        throw 'The fixed PitCrew v0.10.3 diagnostics collector hash is invalid.'
     }
     foreach ($profile in $profiles) {
+        $profileRoot = Join-Path $stateRoot $profile
+        $evidenceRoot = Join-Path (
+            $profileRoot
+        ) ([string]$policy.profileEvidenceDirectory)
+        if (-not (Test-Path `
+                -LiteralPath $evidenceRoot `
+                -PathType Container)) {
+            throw 'The dedicated PitCrew support evidence directory is missing.'
+        }
+        $evidenceRootItem = Get-Item -LiteralPath $evidenceRoot -Force
+        if (($evidenceRootItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked PitCrew support evidence directories are prohibited.'
+        }
         foreach ($fileName in $policy.profileProjectionFiles) {
-            $path = Join-Path (
-                Join-Path (
-                    Join-Path $pitCrewRoot '.pitcrew-state'
-                ) $profile
-            ) $fileName
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                $files.Add($path)
+            $path = Join-Path $evidenceRoot $fileName
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw 'The dedicated PitCrew support evidence projection is incomplete.'
             }
+            $item = Get-Item -LiteralPath $path -Force
+            if (($item.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Linked PitCrew support evidence is prohibited.'
+            }
+            $files.Add($path)
         }
     }
     foreach ($fileName in $policy.connectorHealthFiles) {
         $path = Join-Path $Paths.ConnectorHealthRoot $fileName
         if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $item = Get-Item -LiteralPath $path -Force
+            if (($item.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw 'Linked connector-health evidence is prohibited.'
+            }
             $files.Add($path)
         }
     }
@@ -4467,7 +4755,7 @@ function Assert-EvidenceFilesReadable {
                     }
             )
             if ($readRule.Count -eq 0) {
-                throw 'Support evidence ACL drift was detected; reapply the exact file ACLs after atomic replacement.'
+                throw 'Support evidence ACL drift was detected; restore the dedicated evidence-directory contract.'
             }
         }
         Set-InstallerFailureContext `
@@ -4533,7 +4821,7 @@ function Assert-EvidenceFilesReadable {
         foreach ($path in $files) {
             & runuser -u $linuxBrokerUser -- test -r $path
             if ($LASTEXITCODE -ne 0) {
-                throw 'Support evidence ACL drift was detected; reapply the exact file ACLs after atomic replacement.'
+                throw 'Support evidence ACL drift was detected; restore the dedicated evidence-directory contract.'
             }
         }
         foreach ($prohibited in @(

@@ -277,13 +277,14 @@ installations that overlap its fixed service names or product roots.
   `/var/lib/pitcrew-support-broker`; versioned binaries use separate roots below
   `/opt`.
 
-## Exact PitCrew v0.10.1 evidence ACL
+## Exact PitCrew v0.10.3 evidence ACL
 
 The package-owned
-`support-evidence-policy-v0.10.1.json` is the shared runtime, installer, and test
-contract, verified against PitCrew v0.10.1 commit `0672c34c` and collector
+`support-evidence-policy-v0.10.3.json` is the shared runtime, installer, and test
+contract, verified against PitCrew v0.10.3 commit
+`c41931e6a8028b44bedeca3aedeac4753db4c849` and collector
 SHA-256
-`01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3`.
+`18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580`.
 Installer and runtime canonicalize UTF-8 line endings to LF before hashing, so
 Git checkouts and release assets remain equivalent while semantic content drift
 is rejected. The broker receives only:
@@ -295,32 +296,41 @@ is rejected. The broker receives only:
   `RunnerProfiles.Functions.ps1`, and `docker-compose.yml`;
 - non-inherited list/traverse/attribute access on `.pitcrew-state` solely to
   enumerate profile directory names as required by the fixed collector;
-- `desired-capacity.json`, `acknowledged-capacity.json`,
-  `static-profile.json`, and `observed-state.json` for installer-selected local
-  profiles;
+- traverse-only access on each selected profile directory;
+- object-inherited/default file read inside each selected profile's dedicated
+  `support-evidence` directory, which contains only `desired-capacity.json`,
+  `acknowledged-capacity.json`, `static-profile.json`, and
+  `observed-state.json`;
 - `connector-health.json` and `connector-events.jsonl` from the standard connector
-  health root.
+  health root through the same dedicated-directory inheritance contract.
 
-The profile-state root grant does not inherit to profiles or files. Selected
-profile directories receive traverse/attribute access only, and only the four
-named projections receive content read. The policy does not grant `.env`,
-connector identity, checkout-wide read, Docker socket, arbitrary file, arbitrary
-script, URL, port, or command access. Profile IDs come from installer-local
-configuration; a server-supplied path never crosses IPC.
+The profile-state root grant does not inherit to profiles or files. Managers
+atomically mirror only the four approved projections into `support-evidence`;
+unrelated manager state remains outside the broker-readable directory. The
+connector health directory likewise contains only its two approved projections.
+The policy does not grant `.env`, connector identity, checkout-wide read, Docker
+socket, arbitrary file, arbitrary script, URL, port, or command access. Profile
+IDs come from installer-local configuration; a server-supplied path never
+crosses IPC.
 
-Projection and journal writers may replace files atomically without retaining a
-per-file ACL. The installer intentionally does not solve this by adding inherited
-directory-wide read. `Verify` and broker preflight instead report exact evidence
-ACL drift. Run `-Action RepairEvidenceAcl -AllowMachineChanges` to reapply only
-the pinned file ACLs after replacement.
+Installer verification and broker preflight reject nested, linked, or unexpected
+persistent directory entries. They permit only the fixed final names and
+dot-prefixed `.tmp` files used during same-directory atomic replacement.
+
+Projection and journal writers replace files atomically inside their dedicated
+evidence directories. Windows object-inherit read ACEs and Linux default
+file-read ACLs therefore survive replacement without granting inherited read on
+the broader profile directory. `Verify` rejects per-file-only, broad-profile,
+writable, malformed, or masked access. Run
+`-Action RepairEvidenceAcl -AllowMachineChanges` only to restore this exact
+directory contract after external ACL drift.
 
 Verification compares the complete product-owned Windows ACE shape, including
 rights and inheritance, and the effective Linux named/default entries and masks.
 Linux installation records a protected hash of the fixed PitCrew directories,
 sentinels, and collector's owner, group, file type, special bits, owner mode, and
-other mode. Replaceable projections, connector-health paths, and journals are
-instead checked against the exact named/default ACL, ownership exclusion, and
-safe-mode policy so newly created allowlisted evidence can be repaired explicitly.
+other mode. Replaceable projection and connector-health files are checked
+against inherited named/default ACLs, ownership exclusion, and safe-mode policy.
 Group mode is represented by the POSIX ACL mask and is compared through the exact
 ACL contract instead of the metadata hash.
 
@@ -446,7 +456,7 @@ Support agent, broker, and relay remain separate .NET projects. The deterministi
 packaging script publishes their self-contained archives plus a platform-tagged
 installer archive and SHA-256 sidecars for `linux-x64`, `linux-arm64`,
 `win-x64`, and `win-arm64` by default. The installer archive contains the
-lifecycle script, agent configuration example, and pinned PitCrew v0.10.1
+lifecycle script, agent configuration example, and pinned PitCrew v0.10.3
 evidence policy.
 
 Hosted Windows and Linux lifecycle jobs establish a public `example.com:443`

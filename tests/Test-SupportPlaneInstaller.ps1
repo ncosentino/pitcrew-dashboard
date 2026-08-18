@@ -588,12 +588,17 @@ try {
 
     $pitCrewRoot = Join-Path $testRoot 'pitcrew'
     $profileRoot = Join-Path $pitCrewRoot '.pitcrew-state' 'default'
+    $profileEvidenceRoot = Join-Path $profileRoot 'support-evidence'
     $collectorPath = Join-Path (
         $pitCrewRoot
     ) 'plugins' 'pitcrew-operations' 'skills' `
         'pitcrew-remote-diagnostics' 'scripts' `
         'Collect-PitCrewDiagnostics.ps1'
-    New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+    New-Item `
+        -ItemType Directory `
+        -Path $profileRoot, $profileEvidenceRoot `
+        -Force |
+        Out-Null
     New-Item `
         -ItemType Directory `
         -Path (Split-Path $collectorPath -Parent) `
@@ -619,6 +624,22 @@ try {
             (Join-Path $profileRoot $projection),
             '{}',
             [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText(
+            (Join-Path $profileEvidenceRoot $projection),
+            '{}',
+            [Text.UTF8Encoding]::new($false))
+    }
+    if ($IsWindows) {
+        & icacls.exe `
+            (Join-Path $profileRoot 'static-profile.json') `
+            /inheritance:r `
+            /grant:r `
+            '*S-1-5-18:F' `
+            '*S-1-5-32-544:F' |
+            Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not create the protected evidence-deny fixture.'
+        }
     }
     [IO.File]::WriteAllText(
         (Join-Path $pitCrewRoot '.env'),
@@ -652,7 +673,8 @@ try {
     Invoke-WebRequest `
         -Uri (
             'https://raw.githubusercontent.com/ncosentino/pitcrew/' +
-            '0672c34c/plugins/pitcrew-operations/skills/' +
+            'c41931e6a8028b44bedeca3aedeac4753db4c849/' +
+            'plugins/pitcrew-operations/skills/' +
             'pitcrew-remote-diagnostics/scripts/' +
             'Collect-PitCrewDiagnostics.ps1'
         ) `
@@ -661,7 +683,7 @@ try {
         Get-FileHash -LiteralPath $collectorPath -Algorithm SHA256
     ).Hash.ToLowerInvariant()
     if ($collectorHash -cne
-        '01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3') {
+        '18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580') {
         throw 'The hosted collector fixture did not match the pinned policy.'
     }
 
@@ -827,37 +849,107 @@ try {
     ) 'Enable did not persist enabled lifecycle state.'
     Invoke-Installer -LifecycleAction 'Verify'
 
-    $replacementPath = Join-Path $profileRoot 'observed-state.new'
-    [IO.File]::WriteAllText(
-        $replacementPath,
-        '{}',
-        [Text.UTF8Encoding]::new($false))
-    Move-Item `
-        -LiteralPath $replacementPath `
-        -Destination (Join-Path $profileRoot 'observed-state.json') `
-        -Force
-    $aclDriftDetected = $false
-    $aclDriftError = ''
-    try {
-        Invoke-Installer -LifecycleAction 'Verify'
-    } catch {
-        $aclDriftError = $_.Exception.Message
-        $aclDriftDetected = $_.Exception.Message.Contains(
-            'ACL drift',
-            [StringComparison]::Ordinal)
-    }
-    Add-Check (
-        $aclDriftDetected
-    ) "Atomic projection replacement ACL drift was not reported. Verifier result: $aclDriftError"
-    Invoke-Installer -LifecycleAction 'RepairEvidenceAcl'
-    Invoke-Installer -LifecycleAction 'Verify'
-
     $brokerConfiguration = Get-Content `
         -LiteralPath (Join-Path $paths.BrokerStateRoot 'appsettings.json') `
         -Raw |
         ConvertFrom-Json -Depth 10
     $brokerSettings = $brokerConfiguration.PitCrewSupport.Broker
-    $projectionPath = Join-Path $profileRoot 'observed-state.json'
+    $operationalProjectionPath = Join-Path $profileRoot 'observed-state.json'
+    $projectionPath = Join-Path $profileEvidenceRoot 'observed-state.json'
+    if ($IsWindows) {
+        $operationalBrokerRules = @(
+            (Get-Acl -LiteralPath $operationalProjectionPath).GetAccessRules(
+                $true,
+                $true,
+                [Security.Principal.SecurityIdentifier]) |
+                Where-Object {
+                    $_.IdentityReference.Value -eq
+                        [string]$brokerSettings.BrokerServiceSid -and
+                    $_.AccessControlType -eq
+                        [Security.AccessControl.AccessControlType]::Allow
+                }
+        )
+        Add-Check (
+            $operationalBrokerRules.Count -eq 0
+        ) 'The Windows broker can read operational profile state outside support-evidence.'
+        $protectedAgentRules = @(
+            (Get-Acl `
+                -LiteralPath (
+                    Join-Path $profileRoot 'static-profile.json'
+                )).GetAccessRules(
+                $true,
+                $false,
+                [Security.Principal.SecurityIdentifier]) |
+                Where-Object {
+                    $_.IdentityReference.Value -eq
+                        [string]$brokerSettings.ExpectedAgentSid -and
+                    $_.AccessControlType -eq
+                        [Security.AccessControl.AccessControlType]::Deny
+                }
+        )
+        Add-Check (
+            $protectedAgentRules.Count -eq 1
+        ) 'A protected Windows evidence file did not receive one explicit agent denial.'
+    } else {
+        & runuser -u pitcrew-support-broker -- test -r $operationalProjectionPath
+        Add-Check (
+            $LASTEXITCODE -ne 0
+        ) 'The Linux broker can read operational profile state outside support-evidence.'
+    }
+
+    $replacementPath = Join-Path $profileEvidenceRoot '.observed-state.test.tmp'
+    [IO.File]::WriteAllText(
+        $replacementPath,
+        '{}',
+        [Text.UTF8Encoding]::new($false))
+    if ($IsLinux) {
+        & chmod 0640 $replacementPath
+    }
+    Move-Item `
+        -LiteralPath $replacementPath `
+        -Destination $projectionPath `
+        -Force
+    $healthReplacementPath = Join-Path `
+        $paths.ConnectorHealthRoot `
+        '.connector-health.test.tmp'
+    [IO.File]::WriteAllText(
+        $healthReplacementPath,
+        '{}',
+        [Text.UTF8Encoding]::new($false))
+    if ($IsLinux) {
+        & chmod 0640 $healthReplacementPath
+    }
+    Move-Item `
+        -LiteralPath $healthReplacementPath `
+        -Destination (
+            Join-Path $paths.ConnectorHealthRoot 'connector-health.json'
+        ) `
+        -Force
+    Invoke-Installer -LifecycleAction 'Verify'
+
+    $unexpectedEvidencePath = Join-Path `
+        $profileEvidenceRoot `
+        'unexpected-state.json'
+    [IO.File]::WriteAllText(
+        $unexpectedEvidencePath,
+        '{}',
+        [Text.UTF8Encoding]::new($false))
+    if ($IsLinux) {
+        & chmod 0640 $unexpectedEvidencePath
+    }
+    $unexpectedEvidenceRejected = $false
+    try {
+        Invoke-Installer -LifecycleAction 'Verify'
+    } catch {
+        $unexpectedEvidenceRejected = $true
+    } finally {
+        Remove-Item -LiteralPath $unexpectedEvidencePath -Force
+    }
+    Add-Check (
+        $unexpectedEvidenceRejected
+    ) 'An unexpected persistent file passed the dedicated evidence-directory contract.'
+    Invoke-Installer -LifecycleAction 'Verify'
+
     if ($IsWindows) {
         & icacls.exe $projectionPath /grant `
             "*$([string]$brokerSettings.BrokerServiceSid):(F)" |

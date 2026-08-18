@@ -605,8 +605,9 @@ internal sealed partial class ConnectorHealthJournal(
     var directory = Path.GetDirectoryName(path) ??
         throw new InvalidOperationException(
             $"Connector health path '{path}' has no parent directory.");
+    var directoryCreated = !Directory.Exists(directory);
     Directory.CreateDirectory(directory);
-    if (!OperatingSystem.IsWindows())
+    if (!OperatingSystem.IsWindows() && directoryCreated)
     {
       File.SetUnixFileMode(
           directory,
@@ -637,7 +638,9 @@ internal sealed partial class ConnectorHealthJournal(
       {
         File.SetUnixFileMode(
             stagingPath,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.GroupRead);
       }
       File.Move(stagingPath, path, overwrite: true);
     }
