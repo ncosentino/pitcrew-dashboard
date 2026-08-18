@@ -78,6 +78,16 @@ $invokeVerifyText = (
         $true
     )
 ).Extent.Text
+$writeFailureText = (
+    $ast.Find(
+        {
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -ceq 'Write-InstallerFailureRecord'
+        },
+        $true
+    )
+).Extent.Text
 foreach ($requiredFunction in @(
     'Stage-Release',
     'Remove-ObsoleteSupportVersions',
@@ -89,6 +99,10 @@ foreach ($requiredFunction in @(
     'Invoke-Uninstall',
     'Invoke-RepairEvidenceAcl',
     'Invoke-Verify',
+    'Write-InstallerFailureRecord',
+    'Get-InstallerFailureRecord',
+    'Remove-InstallerFailureRecord',
+    'Set-InstallerFailureContext',
     'Set-WindowsBrokerFirewall',
     'Grant-WindowsServiceParentTraversal',
     'Revoke-WindowsServiceParentTraversal',
@@ -633,6 +647,29 @@ Add-Check (
         'An unmanaged or partial privileged support installation already exists.',
         [StringComparison]::Ordinal)
 ) 'The installer does not refuse ambiguous privileged support installations.'
+Add-Check (
+    $installer.Contains(
+        '''DiagnoseFailure''',
+        [StringComparison]::Ordinal) -and
+    $writeFailureText.Contains(
+        'phase = $script:installerFailurePhase',
+        [StringComparison]::Ordinal) -and
+    $writeFailureText.Contains(
+        'operation = $script:installerFailureOperation',
+        [StringComparison]::Ordinal) -and
+    $writeFailureText.Contains(
+        'nativeExitCode = $primaryNativeExitCode',
+        [StringComparison]::Ordinal) -and
+    $writeFailureText.Contains(
+        'rollbackStatus = $script:installerRollbackStatus',
+        [StringComparison]::Ordinal) -and
+    -not $writeFailureText.Contains(
+        '.Message',
+        [StringComparison]::Ordinal) -and
+    -not $writeFailureText.Contains(
+        'StackTrace',
+        [StringComparison]::Ordinal)
+) 'The installer does not persist and expose a bounded secret-free failure journal.'
 Add-Check (
     $installer.Contains(
         '"*$BrokerSid`:(RD,X,RA)"',
