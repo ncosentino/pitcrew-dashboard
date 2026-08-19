@@ -282,7 +282,7 @@ installations that overlap its fixed service names or product roots.
 The package-owned
 `support-evidence-policy-v0.10.3.json` is the shared runtime, installer, and test
 contract, verified against PitCrew v0.10.3 commit
-`c41931e6a8028b44bedeca3aedeac4753db4c849` and collector
+`4fbafcafca1aa659a07b2f5deb96edc5d3eb3269` and collector
 SHA-256
 `18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580`.
 Installer and runtime canonicalize UTF-8 line endings to LF before hashing, so

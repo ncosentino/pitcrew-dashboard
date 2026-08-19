@@ -673,7 +673,7 @@ try {
     Invoke-WebRequest `
         -Uri (
             'https://raw.githubusercontent.com/ncosentino/pitcrew/' +
-            'c41931e6a8028b44bedeca3aedeac4753db4c849/' +
+            '4fbafcafca1aa659a07b2f5deb96edc5d3eb3269/' +
             'plugins/pitcrew-operations/skills/' +
             'pitcrew-remote-diagnostics/scripts/' +
             'Collect-PitCrewDiagnostics.ps1'

@@ -958,7 +958,7 @@ Add-Check (
 ) 'The evidence ACL policy is not pinned to PitCrew v0.10.3 contract v2.'
 Add-Check (
     $policy.pitCrewCommit -eq
-        'c41931e6a8028b44bedeca3aedeac4753db4c849'
+        '4fbafcafca1aa659a07b2f5deb96edc5d3eb3269'
 ) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.3 collector commit.'
 Add-Check (
     $policy.collectorSha256 -eq

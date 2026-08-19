@@ -195,7 +195,7 @@ function Get-EvidencePolicy {
     if ($policy.schemaVersion -ne 2 -or
         $policy.pitCrewVersion -ne '0.10.3' -or
         $policy.pitCrewCommit -ne
-            'c41931e6a8028b44bedeca3aedeac4753db4c849' -or
+            '4fbafcafca1aa659a07b2f5deb96edc5d3eb3269' -or
         $policy.collectorRelativePath -ne
             'plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1' -or
         $policy.collectorSha256 -ne
