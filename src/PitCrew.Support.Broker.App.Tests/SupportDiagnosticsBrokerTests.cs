@@ -128,13 +128,14 @@ public sealed class SupportDiagnosticsBrokerTests
               "default",
               policy.ProfileEvidenceDirectory),
           recursive: true);
-      File.WriteAllText(
+      await File.WriteAllTextAsync(
           Path.Combine(
               root,
               ".pitcrew-state",
               "default",
               "observed-state.json"),
-          "{}");
+          "{}",
+          cancellationToken);
       var options = SupportBrokerTestHost.CreateOptions(root, "unused");
       var broker = SupportBrokerTestHost.CreateBroker(options);
 
@@ -162,14 +163,15 @@ public sealed class SupportDiagnosticsBrokerTests
     try
     {
       var policy = SupportEvidencePolicy.Load();
-      File.WriteAllText(
+      await File.WriteAllTextAsync(
           Path.Combine(
               root,
               ".pitcrew-state",
               "default",
               policy.ProfileEvidenceDirectory,
               ".observed-state.test.tmp"),
-          "{}");
+          "{}",
+          cancellationToken);
       var options = SupportBrokerTestHost.CreateOptions(root, "unused");
       var broker = SupportBrokerTestHost.CreateBroker(options);
 
@@ -197,14 +199,15 @@ public sealed class SupportDiagnosticsBrokerTests
     try
     {
       var policy = SupportEvidencePolicy.Load();
-      File.WriteAllText(
+      await File.WriteAllTextAsync(
           Path.Combine(
               root,
               ".pitcrew-state",
               "default",
               policy.ProfileEvidenceDirectory,
               "unexpected-state.json"),
-          "{}");
+          "{}",
+          cancellationToken);
       var options = SupportBrokerTestHost.CreateOptions(root, "unused");
       var broker = SupportBrokerTestHost.CreateBroker(options);
 
