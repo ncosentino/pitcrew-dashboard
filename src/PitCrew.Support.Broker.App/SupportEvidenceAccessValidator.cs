@@ -203,7 +203,7 @@ internal sealed class SupportEvidenceAccessValidator
       }
       var name = Path.GetFileName(path);
       var temporary = name.StartsWith(
-              '.',
+              ".",
               StringComparison.Ordinal) &&
           name.EndsWith(
               ".tmp",

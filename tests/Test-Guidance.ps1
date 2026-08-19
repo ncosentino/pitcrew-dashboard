@@ -417,7 +417,9 @@ try {
         $supportInstruction -match 'Docker\s+access' -and
         $supportInstruction -match 'SO_PEERCRED' -and
         $supportInstruction -match 'PrivateNetwork=true' -and
-        $supportInstruction -match 'atomic-replacement ACL drift' -and
+        $supportInstruction -match 'support-evidence' -and
+        $supportInstruction -match
+            'Never inherit broker read across the profile root' -and
         $supportInstruction -match 'persisted CNG keys' -and
         $supportInstruction -match '0700' -and
         $supportInstruction -match '0600' -and
