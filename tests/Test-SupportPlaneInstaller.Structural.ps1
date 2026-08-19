@@ -17,7 +17,10 @@ $networkProbePath = Join-Path (
 ) 'tests' 'PitCrew.Support.NetworkProbe.App' 'Program.cs'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.1.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.3.json'
+$connectorHealthJournalPath = Join-Path (
+    $repositoryRoot
+) 'src' 'PitCrew.Connector.Features.Sync' 'ConnectorHealthJournal.cs'
 $brokerRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Broker.App'
 $agentRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Agent.App'
 $brokerProjectPath = Join-Path $brokerRoot 'PitCrew.Support.Broker.App.csproj'
@@ -25,6 +28,9 @@ $agentProjectPath = Join-Path $agentRoot 'PitCrew.Support.Agent.App.csproj'
 $errors = [Collections.Generic.List[string]]::new()
 $checks = 0
 $networkProbe = Get-Content -LiteralPath $networkProbePath -Raw
+$connectorHealthJournal = Get-Content `
+    -LiteralPath $connectorHealthJournalPath `
+    -Raw
 
 function Add-Check {
     param(
@@ -106,6 +112,7 @@ foreach ($requiredFunction in @(
     'Set-WindowsBrokerFirewall',
     'Grant-WindowsServiceParentTraversal',
     'Revoke-WindowsServiceParentTraversal',
+    'Set-WindowsAgentEvidenceDeny',
     'Grant-WindowsBrokerEvidence',
     'Grant-LinuxBrokerEvidence',
     'Write-LinuxUnits',
@@ -649,6 +656,11 @@ Add-Check (
 ) 'The installer does not refuse ambiguous privileged support installations.'
 Add-Check (
     $installer.Contains(
+        'PitCrew and connector-health evidence roots must not overlap.',
+        [StringComparison]::Ordinal)
+) 'The installer does not reject overlapping evidence trust roots.'
+Add-Check (
+    $installer.Contains(
         '''DiagnoseFailure''',
         [StringComparison]::Ordinal) -and
     $writeFailureText.Contains(
@@ -696,12 +708,29 @@ Add-Check (
         '"*$BrokerSid`:(RD,X,RA)"',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
+        '"*$BrokerSid`:(OI)(IO)(R)"',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
         '"u:$BrokerUid`:r-x"',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        '"u:$BrokerUid`:r-x,d:u:$BrokerUid`:r--"',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
         '"*$BrokerSid`:(RA)"',
         [StringComparison]::Ordinal)
-) 'The installer does not explicitly separate profile enumeration from metadata-only root validation.'
+) 'The installer does not separate profile enumeration from dedicated inherited evidence read.'
+Add-Check (
+    $connectorHealthJournal.Contains(
+        'var directoryCreated = !Directory.Exists(directory);',
+        [StringComparison]::Ordinal) -and
+    $connectorHealthJournal.Contains(
+        'if (!OperatingSystem.IsWindows() && directoryCreated)',
+        [StringComparison]::Ordinal) -and
+    $connectorHealthJournal.Contains(
+        'UnixFileMode.GroupRead',
+        [StringComparison]::Ordinal)
+) 'Connector-health atomic replacement can reset the installed directory ACL or mask broker file read.'
 Add-Check (
     $installer.Contains(
         'systemctl show',
@@ -760,7 +789,7 @@ Add-Check (
         'getfacl',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'evidence-metadata-v0.10.1.json',
+        'evidence-metadata-v0.10.3.json',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         ':(OI)(CI)F',
@@ -924,14 +953,16 @@ $policy = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json -Depth 10
 Add-Check (
-    $policy.pitCrewVersion -eq '0.10.1'
-) 'The evidence ACL policy is not pinned to PitCrew v0.10.1.'
+    $policy.schemaVersion -eq 2 -and
+    $policy.pitCrewVersion -eq '0.10.3'
+) 'The evidence ACL policy is not pinned to PitCrew v0.10.3 contract v2.'
 Add-Check (
-    $policy.pitCrewCommit -eq '0672c34c'
-) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.1 collector commit.'
+    $policy.pitCrewCommit -eq
+        '4fbafcafca1aa659a07b2f5deb96edc5d3eb3269'
+) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.3 collector commit.'
 Add-Check (
     $policy.collectorSha256 -eq
-        '01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3' -and
+        '18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580' -and
     $policy.collectorHashCanonicalization -eq 'utf8-lf' -and
     $installer.Contains(
         'Get-CanonicalTextSha256 -LiteralPath $collector',
@@ -939,8 +970,13 @@ Add-Check (
 ) 'The fixed collector content is not cryptographically pinned by policy and installer.'
 Add-Check (
     $policy.profileStateRootAccess -eq
-        'enumerate-profile-directories-only'
-) 'The evidence ACL policy does not explicitly model profile-directory enumeration.'
+        'enumerate-profile-directories-only' -and
+    $policy.profileEvidenceDirectory -eq 'support-evidence' -and
+    $policy.windowsEvidenceInheritance -eq
+        'object-inherit-read-ace' -and
+    $policy.linuxEvidenceInheritance -eq
+        'directory-read-and-default-file-read-acl'
+) 'The evidence ACL policy does not model dedicated evidence-directory inheritance.'
 Add-Check (
     (@($policy.profileProjectionFiles) -join ',') -eq
         'desired-capacity.json,acknowledged-capacity.json,static-profile.json,observed-state.json'

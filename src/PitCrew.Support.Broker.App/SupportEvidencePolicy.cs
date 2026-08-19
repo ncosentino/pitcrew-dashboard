@@ -6,7 +6,7 @@ namespace PitCrew.Support.Broker.App;
 internal static class SupportEvidencePolicy
 {
   private const string ResourceName =
-      "PitCrew.Support.Broker.App.support-evidence-policy-v0.10.1.json";
+      "PitCrew.Support.Broker.App.support-evidence-policy-v0.10.3.json";
   private static readonly string[] _installationSentinels =
       ["Setup-Runner.ps1", "RunnerProfiles.Functions.ps1", "docker-compose.yml"];
   private static readonly string[] _profileProjectionFiles =
@@ -30,14 +30,14 @@ internal static class SupportEvidencePolicy
         new JsonSerializerOptions(JsonSerializerDefaults.Web)) ??
         throw new InvalidOperationException(
             "The embedded support evidence policy is invalid.");
-    if (policy.SchemaVersion != 1 ||
+    if (policy.SchemaVersion != 2 ||
         !string.Equals(
             policy.PitCrewVersion,
-            "0.10.1",
+            "0.10.3",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.PitCrewCommit,
-            "0672c34c",
+            "4fbafcafca1aa659a07b2f5deb96edc5d3eb3269",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.CollectorRelativePath,
@@ -45,7 +45,7 @@ internal static class SupportEvidencePolicy
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.CollectorSha256,
-            "01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3",
+            "18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.CollectorHashCanonicalization,
@@ -54,6 +54,18 @@ internal static class SupportEvidencePolicy
         !string.Equals(
             policy.ProfileStateRootAccess,
             "enumerate-profile-directories-only",
+            StringComparison.Ordinal) ||
+        !string.Equals(
+            policy.ProfileEvidenceDirectory,
+            "support-evidence",
+            StringComparison.Ordinal) ||
+        !string.Equals(
+            policy.WindowsEvidenceInheritance,
+            "object-inherit-read-ace",
+            StringComparison.Ordinal) ||
+        !string.Equals(
+            policy.LinuxEvidenceInheritance,
+            "directory-read-and-default-file-read-acl",
             StringComparison.Ordinal) ||
         !policy.InstallationSentinels.SequenceEqual(
             _installationSentinels,

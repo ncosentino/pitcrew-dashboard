@@ -1,11 +1,14 @@
 {
-  "schemaVersion": 1,
-  "pitCrewVersion": "0.10.1",
-  "pitCrewCommit": "0672c34c",
+  "schemaVersion": 2,
+  "pitCrewVersion": "0.10.3",
+  "pitCrewCommit": "4fbafcafca1aa659a07b2f5deb96edc5d3eb3269",
   "collectorRelativePath": "plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1",
-  "collectorSha256": "01e8fbcb54ec7f79d8403284d521c0d98956be2f4a617aa881d490b28f88e0a3",
+  "collectorSha256": "18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580",
   "collectorHashCanonicalization": "utf8-lf",
   "profileStateRootAccess": "enumerate-profile-directories-only",
+  "profileEvidenceDirectory": "support-evidence",
+  "windowsEvidenceInheritance": "object-inherit-read-ace",
+  "linuxEvidenceInheritance": "directory-read-and-default-file-read-acl",
   "installationSentinels": [
     "Setup-Runner.ps1",
     "RunnerProfiles.Functions.ps1",

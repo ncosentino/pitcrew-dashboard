@@ -377,7 +377,7 @@ try {
             'src/PitCrew.Support.Agent.App/SupportAgentRequestProcessor.cs', `
             'src/PitCrew.Support.Broker.App/SupportDiagnosticsBroker.cs', `
             'src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx', `
-            'assets/support-plane/support-evidence-policy-v0.10.1.json', `
+            'assets/support-plane/support-evidence-policy-v0.10.3.json', `
             'scripts/Install-PitCrewSupportPlane.ps1', `
             'tests/Test-SupportPlaneInstaller.Structural.ps1', `
             '.github/workflows/ci.yml' `
@@ -417,7 +417,9 @@ try {
         $supportInstruction -match 'Docker\s+access' -and
         $supportInstruction -match 'SO_PEERCRED' -and
         $supportInstruction -match 'PrivateNetwork=true' -and
-        $supportInstruction -match 'atomic-replacement ACL drift' -and
+        $supportInstruction -match 'support-evidence' -and
+        $supportInstruction -match
+            'Never inherit broker read across the profile root' -and
         $supportInstruction -match 'persisted CNG keys' -and
         $supportInstruction -match '0700' -and
         $supportInstruction -match '0600' -and

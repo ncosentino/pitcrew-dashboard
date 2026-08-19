@@ -12,7 +12,11 @@ internal static class SupportBrokerTestHost
         AppContext.BaseDirectory,
         $"pitcrew-root-{Guid.NewGuid():N}");
     Directory.CreateDirectory(
-        Path.Combine(root, ".pitcrew-state", "default"));
+        Path.Combine(
+            root,
+            ".pitcrew-state",
+            "default",
+            SupportEvidencePolicy.Load().ProfileEvidenceDirectory));
     foreach (var sentinel in new[]
     {
         "Setup-Runner.ps1",
@@ -104,7 +108,12 @@ internal static class SupportBrokerTestHost
   public static void WriteProjection(string root, string name)
   {
     File.WriteAllText(
-        Path.Combine(root, ".pitcrew-state", "default", name),
+        Path.Combine(
+            root,
+            ".pitcrew-state",
+            "default",
+            SupportEvidencePolicy.Load().ProfileEvidenceDirectory,
+            name),
         "{}");
   }
 

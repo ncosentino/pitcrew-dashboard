@@ -5,6 +5,7 @@ namespace PitCrew.Support.Broker.App;
 
 internal sealed class SupportEvidenceAccessValidator
 {
+  private const int MaximumEvidenceDirectoryEntries = 32;
   private readonly SupportBrokerOptions _options;
   private readonly SupportEvidencePolicyDocument _policy;
 
@@ -78,13 +79,31 @@ internal sealed class SupportEvidenceAccessValidator
             null,
             "Profile ID is not locally configured.");
       }
+      var evidenceRoot = ResolveChild(
+          profileRoot,
+          _policy.ProfileEvidenceDirectory);
+      if (!Directory.Exists(evidenceRoot) ||
+          HasLinkedComponent(profileRoot, evidenceRoot))
+      {
+        throw new IOException(
+            "The dedicated support evidence projection is unavailable.");
+      }
+      VerifyDedicatedEvidenceDirectory(
+          evidenceRoot,
+          _policy.ProfileProjectionFiles);
 
       VerifyReadable(collectorPath, required: true);
       VerifyCollectorHash(collectorPath, _policy.CollectorSha256);
       foreach (var fileName in _policy.ProfileProjectionFiles)
       {
+        var evidencePath = ResolveChild(evidenceRoot, fileName);
+        if (HasLinkedComponent(evidenceRoot, evidencePath))
+        {
+          throw new IOException(
+              "Linked support evidence is prohibited.");
+        }
         VerifyReadable(
-            ResolveChild(profileRoot, fileName),
+            evidencePath,
             required: false);
       }
       var healthRoot = OperatingSystem.IsWindows()
@@ -102,6 +121,12 @@ internal sealed class SupportEvidenceAccessValidator
       {
         throw new IOException(
             "Linked connector-health evidence is prohibited.");
+      }
+      if (Directory.Exists(healthRoot))
+      {
+        VerifyDedicatedEvidenceDirectory(
+            healthRoot,
+            _policy.ConnectorHealthFiles);
       }
       foreach (var fileName in _policy.ConnectorHealthFiles)
       {
@@ -158,7 +183,59 @@ internal sealed class SupportEvidenceAccessValidator
           SupportBrokerStatus.ExecutionFailed,
           null,
           null,
-          "PitCrewRoot does not match the supported v0.10.1 installation contract.");
+          "PitCrewRoot does not match the supported v0.10.3 installation contract.");
+
+  private static void VerifyDedicatedEvidenceDirectory(
+      string root,
+      IReadOnlyList<string> allowedFiles)
+  {
+    var comparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+    var entryCount = 0;
+    foreach (var path in Directory.EnumerateFileSystemEntries(root))
+    {
+      entryCount++;
+      if (entryCount > MaximumEvidenceDirectoryEntries)
+      {
+        throw new IOException(
+            "A dedicated support evidence directory exceeds its entry limit.");
+      }
+      var name = Path.GetFileName(path);
+      var temporary = name.StartsWith(
+              ".",
+              StringComparison.Ordinal) &&
+          name.EndsWith(
+              ".tmp",
+              StringComparison.Ordinal);
+      FileAttributes attributes;
+      try
+      {
+        attributes = File.GetAttributes(path);
+      }
+      catch (FileNotFoundException) when (temporary)
+      {
+        continue;
+      }
+      catch (DirectoryNotFoundException) when (temporary)
+      {
+        continue;
+      }
+      if ((attributes & FileAttributes.ReparsePoint) != 0 ||
+          (attributes & FileAttributes.Directory) != 0)
+      {
+        throw new IOException(
+            "A dedicated support evidence directory contains an unsupported entry.");
+      }
+      var allowed = allowedFiles.Any(
+          candidate => string.Equals(candidate, name, comparison));
+      if (!allowed && !temporary)
+      {
+        throw new IOException(
+            "A dedicated support evidence directory contains an unexpected persistent file.");
+      }
+    }
+  }
 
   private static string ResolveChild(string root, string relativePath)
   {
