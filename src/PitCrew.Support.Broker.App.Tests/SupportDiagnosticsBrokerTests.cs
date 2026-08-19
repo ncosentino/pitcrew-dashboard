@@ -469,6 +469,7 @@ public sealed class SupportDiagnosticsBrokerTests
           root,
           ".pitcrew-state",
           "default",
+          SupportEvidencePolicy.Load().ProfileEvidenceDirectory,
           projection);
       File.SetUnixFileMode(projectionPath, UnixFileMode.None);
       var options = SupportBrokerTestHost.CreateOptions(root, "unused");
@@ -515,6 +516,7 @@ public sealed class SupportDiagnosticsBrokerTests
               root,
               ".pitcrew-state",
               "default",
+              SupportEvidencePolicy.Load().ProfileEvidenceDirectory,
               "observed-state.json"),
           outsidePath);
       var broker = SupportBrokerTestHost.CreateBroker(
