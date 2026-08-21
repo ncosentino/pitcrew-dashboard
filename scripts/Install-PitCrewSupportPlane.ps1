@@ -213,7 +213,7 @@ function Get-EvidencePolicy {
         (@($policy.profileProjectionFiles) -join ',') -ne
             'desired-capacity.json,acknowledged-capacity.json,static-profile.json,observed-state.json' -or
         (@($policy.connectorHealthFiles) -join ',') -ne
-            'connector-health.json,connector-events.jsonl') {
+            'connector-health.json,connector-events.jsonl,connector-health-acknowledgement.json') {
         throw 'The product-owned PitCrew v0.10.3 evidence policy is invalid.'
     }
     return $policy
