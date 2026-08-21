@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -14,6 +15,15 @@ internal sealed class AccessPlugin : IServiceCollectionPlugin
 {
   public void Configure(ServiceCollectionPluginOptions options)
   {
+    var authenticationOptions = options.Config
+        .GetSection("PitCrew:Authentication")
+        .Get<DashboardAuthenticationOptions>() ??
+        new DashboardAuthenticationOptions();
+    var browserAuthenticationScheme =
+        authenticationOptions.Mode == DashboardAuthenticationMode.Development
+            ? DashboardAuthenticationSchemes.Development
+            : DashboardAuthenticationSchemes.Cookie;
+
     options.Services.TryAddSingleton(TimeProvider.System);
     options.Services.AddSingleton<AccessContextService>();
     options.Services.AddSingleton<
@@ -73,8 +83,7 @@ internal sealed class AccessPlugin : IServiceCollectionPlugin
             policy => policy
                 .AddAuthenticationSchemes(
                     DiagnosticAuthenticationDefaults.Scheme,
-                    "PitCrewCookie",
-                    "PitCrewDevelopment")
+                    browserAuthenticationScheme)
                 .RequireAuthenticatedUser()
                 .AddRequirements(
                     new SupportDiagnosticAccessRequirement()));
