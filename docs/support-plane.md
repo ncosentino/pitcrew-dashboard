@@ -372,6 +372,13 @@ messages, paths, arguments, settings, identities, or credentials. Read it with:
 ./Install-PitCrewSupportPlane.ps1 -Action DiagnoseFailure
 ```
 
+The support agent also atomically records a protected
+`agent-startup-status.json` containing only schema version, startup phase,
+terminal disposition, exception type when one exists, and occurrence time.
+`Verify` includes those bounded fields when the Windows agent stops. The agent
+clears the status after its first relay poll is accepted; no message, stack,
+path, setting, identity, credential, or payload is persisted.
+
 Evidence verification operations distinguish tree enumeration, unexpected or
 malformed broker ACEs, agent denial count/shape, root metadata, selected evidence
 reads, and prohibited environment access without recording the affected path.

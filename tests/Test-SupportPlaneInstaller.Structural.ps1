@@ -21,6 +21,12 @@ $policyPath = Join-Path (
 $connectorHealthJournalPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Connector.Features.Sync' 'ConnectorHealthJournal.cs'
+$agentWorkerPath = Join-Path (
+    $repositoryRoot
+) 'src' 'PitCrew.Support.Agent.App' 'SupportAgentWorker.cs'
+$agentStartupStatusWriterPath = Join-Path (
+    $repositoryRoot
+) 'src' 'PitCrew.Support.Agent.App' 'SupportAgentStartupStatusWriter.cs'
 $brokerRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Broker.App'
 $agentRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Agent.App'
 $brokerProjectPath = Join-Path $brokerRoot 'PitCrew.Support.Broker.App.csproj'
@@ -30,6 +36,10 @@ $checks = 0
 $networkProbe = Get-Content -LiteralPath $networkProbePath -Raw
 $connectorHealthJournal = Get-Content `
     -LiteralPath $connectorHealthJournalPath `
+    -Raw
+$agentWorker = Get-Content -LiteralPath $agentWorkerPath -Raw
+$agentStartupStatusWriter = Get-Content `
+    -LiteralPath $agentStartupStatusWriterPath `
     -Raw
 
 function Add-Check {
@@ -682,6 +692,32 @@ Add-Check (
         'StackTrace',
         [StringComparison]::Ordinal)
 ) 'The installer does not persist and expose a bounded secret-free failure journal.'
+Add-Check (
+    $installer.Contains(
+        "'agent-startup-status.json'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'startupDisposition=',
+        [StringComparison]::Ordinal) -and
+    $agentWorker.Contains(
+        '"identity-unavailable"',
+        [StringComparison]::Ordinal) -and
+    $agentWorker.Contains(
+        '"unhandled-exception"',
+        [StringComparison]::Ordinal) -and
+    $agentWorker.Contains(
+        '_startupStatus.Clear()',
+        [StringComparison]::Ordinal) -and
+    $agentStartupStatusWriter.Contains(
+        'exceptionType?.Name',
+        [StringComparison]::Ordinal) -and
+    -not $agentStartupStatusWriter.Contains(
+        '.Message',
+        [StringComparison]::Ordinal) -and
+    -not $agentStartupStatusWriter.Contains(
+        'StackTrace',
+        [StringComparison]::Ordinal)
+) 'Stopped support-agent startup cannot be diagnosed through a bounded secret-free status.'
 foreach ($operation in @(
     'verify-exact-evidence-acls',
     'enumerate-evidence-tree',

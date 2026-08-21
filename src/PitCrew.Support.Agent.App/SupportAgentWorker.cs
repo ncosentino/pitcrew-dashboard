@@ -8,74 +8,117 @@ internal sealed partial class SupportAgentWorker(
     SupportNodeIdentityStore _identityStore,
     SupportAgentBootstrapOptions _bootstrapOptions,
     SupportRelayTransportClient _relayClient,
+    SupportAgentStartupStatusWriter _startupStatus,
     TimeProvider _timeProvider,
     ILogger<SupportAgentWorker> _logger) : BackgroundService
 {
   protected override async Task ExecuteAsync(CancellationToken stoppingToken)
   {
-    SupportAgentOptions? options;
+    const string identityPhase = "identity-provisioning";
+    var phase = identityPhase;
+    _startupStatus.Clear();
     try
     {
-      options = await _identityProvisioner.GetRuntimeOptionsAsync(stoppingToken);
-    }
-    catch (HttpRequestException)
-    {
-      LogRelayUnavailable(_logger);
-      return;
-    }
-    if (options is null)
-    {
-      SupportAgentIdentityLog.IdentityUnavailable(_logger);
-      return;
-    }
-    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15), _timeProvider);
-    do
-    {
+      SupportAgentOptions? options;
       try
       {
-        await using var operationLock =
-            await _identityStore.AcquireOperationLockAsync(stoppingToken);
-        var current = await _identityStore.LoadActiveAsync(stoppingToken);
-        if (current is null)
-        {
-          SupportAgentIdentityLog.IdentityUnavailable(_logger);
-          return;
-        }
-        options = SupportAgentOptions.FromStoredIdentity(
-            current,
-            _bootstrapOptions.SocketPath);
-        var processor = new SupportAgentRequestProcessor(
-            options,
-            new PlatformDiagnosticsBroker(options),
-            new AgentReplayCache(options.ReplayRoot),
-            _timeProvider);
-        if (!await PollOnceAsync(options, processor, stoppingToken))
-        {
-          return;
-        }
+        options = await _identityProvisioner.GetRuntimeOptionsAsync(stoppingToken);
       }
-      catch (HttpRequestException)
+      catch (HttpRequestException exception)
       {
+        _startupStatus.Write(
+            identityPhase,
+            "dashboard-unavailable",
+            exception.GetType());
         LogRelayUnavailable(_logger);
+        return;
       }
-      catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+      if (options is null)
       {
-        LogRelayUnavailable(_logger);
+        _startupStatus.Write(
+            identityPhase,
+            "identity-unavailable",
+            exceptionType: null);
+        SupportAgentIdentityLog.IdentityUnavailable(_logger);
+        return;
       }
-      catch (IOException)
+      using var timer = new PeriodicTimer(
+          TimeSpan.FromSeconds(15),
+          _timeProvider);
+      var firstPollAccepted = false;
+      do
       {
-        LogBrokerUnavailable(_logger);
+        phase = "relay-poll";
+        try
+        {
+          await using var operationLock =
+              await _identityStore.AcquireOperationLockAsync(stoppingToken);
+          var current = await _identityStore.LoadActiveAsync(stoppingToken);
+          if (current is null)
+          {
+            _startupStatus.Write(
+                "local-identity",
+                "identity-unavailable",
+                exceptionType: null);
+            SupportAgentIdentityLog.IdentityUnavailable(_logger);
+            return;
+          }
+          options = SupportAgentOptions.FromStoredIdentity(
+              current,
+              _bootstrapOptions.SocketPath);
+          var processor = new SupportAgentRequestProcessor(
+              options,
+              new PlatformDiagnosticsBroker(options),
+              new AgentReplayCache(options.ReplayRoot),
+              _timeProvider);
+          if (!await PollOnceAsync(options, processor, stoppingToken))
+          {
+            _startupStatus.Write(
+                phase,
+                "credential-rejected",
+                exceptionType: null);
+            return;
+          }
+          if (!firstPollAccepted)
+          {
+            _startupStatus.Clear();
+            firstPollAccepted = true;
+          }
+          phase = "running";
+        }
+        catch (HttpRequestException)
+        {
+          LogRelayUnavailable(_logger);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+          LogRelayUnavailable(_logger);
+        }
+        catch (IOException)
+        {
+          LogBrokerUnavailable(_logger);
+        }
+        catch (TimeoutException)
+        {
+          LogBrokerUnavailable(_logger);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+          LogRelayResponseInvalid(_logger);
+        }
       }
-      catch (TimeoutException)
-      {
-        LogBrokerUnavailable(_logger);
-      }
-      catch (System.Text.Json.JsonException)
-      {
-        LogRelayResponseInvalid(_logger);
-      }
+      while (await timer.WaitForNextTickAsync(stoppingToken));
     }
-    while (await timer.WaitForNextTickAsync(stoppingToken));
+    catch (Exception exception)
+        when (exception is not OperationCanceledException ||
+              !stoppingToken.IsCancellationRequested)
+    {
+      _startupStatus.Write(
+          phase,
+          "unhandled-exception",
+          exception.GetType());
+      throw;
+    }
   }
 
   private async Task<bool> PollOnceAsync(

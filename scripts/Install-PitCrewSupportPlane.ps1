@@ -1628,7 +1628,8 @@ function Stop-WindowsSupportServices {
 function Get-WindowsServiceFailureDiagnostics {
     param(
         [Parameter(Mandatory)][string]$Name,
-        [AllowEmptyString()][string]$StateRoot = ''
+        [AllowEmptyString()][string]$StateRoot = '',
+        [AllowEmptyString()][string]$StartupStatusFileName = ''
     )
 
     $parts = [Collections.Generic.List[string]]::new()
@@ -1703,8 +1704,9 @@ function Get-WindowsServiceFailureDiagnostics {
     } catch {
         $parts.Add('serviceControlEventIds=unavailable')
     }
-    if (-not [string]::IsNullOrWhiteSpace($StateRoot)) {
-        $statusPath = Join-Path $StateRoot 'broker-startup-status.json'
+    if (-not [string]::IsNullOrWhiteSpace($StateRoot) -and
+        -not [string]::IsNullOrWhiteSpace($StartupStatusFileName)) {
+        $statusPath = Join-Path $StateRoot $StartupStatusFileName
         if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
             try {
                 $status = Get-Content `
@@ -1713,8 +1715,16 @@ function Get-WindowsServiceFailureDiagnostics {
                     -Encoding UTF8 |
                     ConvertFrom-Json
                 if ($status.schemaVersion -eq 1 -and
-                    [string]$status.exceptionType -match
-                        '^[A-Za-z][A-Za-z0-9]{0,127}$') {
+                    [string]$status.phase -match
+                        '^[a-z][a-z0-9-]{0,63}$' -and
+                    [string]$status.disposition -match
+                        '^[a-z][a-z0-9-]{0,63}$') {
+                    $parts.Add("startupPhase=$($status.phase)")
+                    $parts.Add(
+                        "startupDisposition=$($status.disposition)")
+                }
+                if ([string]$status.exceptionType -match
+                    '^[A-Za-z][A-Za-z0-9]{0,127}$') {
                     $parts.Add(
                         "startupExceptionType=$($status.exceptionType)")
                 }
@@ -1732,8 +1742,7 @@ function Start-WindowsSupportServices {
     $brokerStartExitCode = $LASTEXITCODE
     if ($brokerStartExitCode -ne 0) {
         $diagnostics = Get-WindowsServiceFailureDiagnostics `
-            -Name $windowsBrokerService `
-            -StateRoot $paths.BrokerStateRoot
+            -Name $windowsBrokerService
         throw "The Windows support broker failed to start with SCM code $brokerStartExitCode. Bounded diagnostics: $diagnostics"
     }
     (Get-Service -Name $windowsBrokerService).WaitForStatus(
@@ -1743,7 +1752,9 @@ function Start-WindowsSupportServices {
     $agentStartExitCode = $LASTEXITCODE
     if ($agentStartExitCode -ne 0) {
         $diagnostics = Get-WindowsServiceFailureDiagnostics `
-            -Name $windowsAgentService
+            -Name $windowsAgentService `
+            -StateRoot $paths.AgentStateRoot `
+            -StartupStatusFileName 'agent-startup-status.json'
         throw "The Windows support agent failed to start with SCM code $agentStartExitCode. Bounded diagnostics: $diagnostics"
     }
     (Get-Service -Name $windowsAgentService).WaitForStatus(
@@ -4889,7 +4900,15 @@ function Invoke-Verify {
             $broker.StartMode -ne $expectedStartMode -or
             $agent.State -ne $expectedState -or
             $broker.State -ne $expectedState) {
-            throw 'The Windows support service state does not match the lifecycle manifest.'
+            $agentDiagnostics =
+                Get-WindowsServiceFailureDiagnostics `
+                    -Name $windowsAgentService `
+                    -StateRoot $Paths.AgentStateRoot `
+                    -StartupStatusFileName 'agent-startup-status.json'
+            throw (
+                'The Windows support service state does not match the ' +
+                "lifecycle manifest. Bounded agent diagnostics: $agentDiagnostics"
+            )
         }
         $agentSidType = (& sc.exe qsidtype $windowsAgentService | Out-String)
         $brokerSidType = (& sc.exe qsidtype $windowsBrokerService | Out-String)
