@@ -647,7 +647,8 @@ try {
         [Text.UTF8Encoding]::new($false))
     foreach ($healthFile in @(
         'connector-health.json',
-        'connector-events.jsonl'
+        'connector-events.jsonl',
+        'connector-health-acknowledgement.json'
     )) {
         if (Test-Path `
                 -LiteralPath (
@@ -669,6 +670,14 @@ try {
     [IO.File]::WriteAllText(
         (Join-Path $paths.ConnectorHealthRoot 'connector-events.jsonl'),
         '',
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        (
+            Join-Path `
+                $paths.ConnectorHealthRoot `
+                'connector-health-acknowledgement.json'
+        ),
+        '{"schemaVersion":1,"updatedAt":"2026-01-01T00:00:00Z","eventIds":[]}',
         [Text.UTF8Encoding]::new($false))
     Invoke-WebRequest `
         -Uri (
@@ -948,6 +957,29 @@ try {
     Add-Check (
         $unexpectedEvidenceRejected
     ) 'An unexpected persistent file passed the dedicated evidence-directory contract.'
+    Invoke-Installer -LifecycleAction 'Verify'
+
+    $unexpectedHealthPath = Join-Path `
+        $paths.ConnectorHealthRoot `
+        'unexpected-health.json'
+    [IO.File]::WriteAllText(
+        $unexpectedHealthPath,
+        '{}',
+        [Text.UTF8Encoding]::new($false))
+    if ($IsLinux) {
+        & chmod 0640 $unexpectedHealthPath
+    }
+    $unexpectedHealthRejected = $false
+    try {
+        Invoke-Installer -LifecycleAction 'Verify'
+    } catch {
+        $unexpectedHealthRejected = $true
+    } finally {
+        Remove-Item -LiteralPath $unexpectedHealthPath -Force
+    }
+    Add-Check (
+        $unexpectedHealthRejected
+    ) 'An unexpected connector-health file passed the dedicated evidence-directory contract.'
     Invoke-Installer -LifecycleAction 'Verify'
 
     if ($IsWindows) {
