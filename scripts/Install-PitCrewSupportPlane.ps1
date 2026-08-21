@@ -213,7 +213,7 @@ function Get-EvidencePolicy {
         (@($policy.profileProjectionFiles) -join ',') -ne
             'desired-capacity.json,acknowledged-capacity.json,static-profile.json,observed-state.json' -or
         (@($policy.connectorHealthFiles) -join ',') -ne
-            'connector-health.json,connector-events.jsonl') {
+            'connector-health.json,connector-events.jsonl,connector-health-acknowledgement.json') {
         throw 'The product-owned PitCrew v0.10.3 evidence policy is invalid.'
     }
     return $policy
@@ -3974,7 +3974,7 @@ function Assert-WindowsEvidenceAclsExact {
                 $inheritedRoots.ContainsKey($parentPath)) {
                 Set-InstallerFailureContext `
                     -Phase 'windows-evidence-verification' `
-                    -Operation 'reject-unexpected-broker-ace'
+                    -Operation 'reject-unexpected-evidence-directory'
                 throw 'A dedicated support evidence directory contains an unexpected child directory.'
             }
             $isTransientEvidenceFile =
@@ -3990,7 +3990,7 @@ function Assert-WindowsEvidenceAclsExact {
                 $item.Name -notin @($inheritedRoots[$parentPath])) {
                 Set-InstallerFailureContext `
                     -Phase 'windows-evidence-verification' `
-                    -Operation 'reject-unexpected-broker-ace'
+                    -Operation 'reject-unexpected-evidence-file'
                 throw 'A dedicated support evidence directory contains an unexpected persistent file.'
             }
             try {

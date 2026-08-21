@@ -17,7 +17,11 @@ internal static class SupportEvidencePolicy
       "observed-state.json",
   ];
   private static readonly string[] _connectorHealthFiles =
-      ["connector-health.json", "connector-events.jsonl"];
+  [
+      "connector-health.json",
+      "connector-events.jsonl",
+      "connector-health-acknowledgement.json",
+  ];
 
   public static SupportEvidencePolicyDocument Load()
   {

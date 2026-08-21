@@ -685,6 +685,8 @@ Add-Check (
 foreach ($operation in @(
     'verify-exact-evidence-acls',
     'enumerate-evidence-tree',
+    'reject-unexpected-evidence-directory',
+    'reject-unexpected-evidence-file',
     'reject-unexpected-broker-ace',
     'verify-broker-ace-count',
     'verify-broker-ace-shape',
@@ -983,7 +985,7 @@ Add-Check (
 ) 'The profile projection allowlist is not exact.'
 Add-Check (
     (@($policy.connectorHealthFiles) -join ',') -eq
-        'connector-health.json,connector-events.jsonl'
+        'connector-health.json,connector-events.jsonl,connector-health-acknowledgement.json'
 ) 'The connector-health allowlist is not exact.'
 $policyText = $policy | ConvertTo-Json -Depth 10 -Compress
 Add-Check (

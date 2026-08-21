@@ -363,6 +363,7 @@ public sealed class SupportDiagnosticsBrokerTests
         [
             "connector-health.json",
             "connector-events.jsonl",
+            "connector-health-acknowledgement.json",
         ]);
     await Assert.That(allPaths.Any(
         path => path.Contains(".env", StringComparison.OrdinalIgnoreCase)))

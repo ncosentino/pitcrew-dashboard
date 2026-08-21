@@ -22,6 +22,7 @@
   ],
   "connectorHealthFiles": [
     "connector-health.json",
-    "connector-events.jsonl"
+    "connector-events.jsonl",
+    "connector-health-acknowledgement.json"
   ]
 }

@@ -301,13 +301,17 @@ is rejected. The broker receives only:
   `support-evidence` directory, which contains only `desired-capacity.json`,
   `acknowledged-capacity.json`, `static-profile.json`, and
   `observed-state.json`;
-- `connector-health.json` and `connector-events.jsonl` from the standard connector
-  health root through the same dedicated-directory inheritance contract.
+- `connector-health.json`, `connector-events.jsonl`, and
+  `connector-health-acknowledgement.json` from the standard connector health root
+  through the same dedicated-directory inheritance contract.
 
 The profile-state root grant does not inherit to profiles or files. Managers
 atomically mirror only the four approved projections into `support-evidence`;
 unrelated manager state remains outside the broker-readable directory. The
-connector health directory likewise contains only its two approved projections.
+connector health directory likewise contains only its three approved files. The
+acknowledgement file contains a timestamp and at most 256 replay event identifiers;
+it is bounded, contains no credential or payload data, and is allowlisted because
+the connector atomically persists it beside the two collector projections.
 The policy does not grant `.env`, connector identity, checkout-wide read, Docker
 socket, arbitrary file, arbitrary script, URL, port, or command access. Profile
 IDs come from installer-local configuration; a server-supplied path never
