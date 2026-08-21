@@ -709,7 +709,7 @@ Add-Check (
         '_startupStatus.Clear()',
         [StringComparison]::Ordinal) -and
     $agentStartupStatusWriter.Contains(
-        'ExceptionType?.Name',
+        'exceptionType?.Name',
         [StringComparison]::Ordinal) -and
     -not $agentStartupStatusWriter.Contains(
         '.Message',
