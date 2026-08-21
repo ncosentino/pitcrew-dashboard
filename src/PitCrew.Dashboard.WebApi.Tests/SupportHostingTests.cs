@@ -1,15 +1,20 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support;
+using PitCrew.Dashboard.Kernel.Authentication;
 using PitCrew.Support.Protocol;
 
 namespace PitCrew.Dashboard.WebApi.Tests;
@@ -17,6 +22,47 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class SupportHostingTests
 {
+  [Test]
+  public async Task GitHub_Mode_Cookie_Administrator_Can_List_Support_Sessions(
+      CancellationToken cancellationToken)
+  {
+    const string githubUserId = "123";
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          githubUserId,
+          "Production");
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient(
+          new WebApplicationFactoryClientOptions
+          {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri(
+                "https://pitcrew.example.com",
+                UriKind.Absolute),
+          });
+      AddAuthenticationCookie(
+          factory.Services,
+          client,
+          githubUserId);
+
+      using var response = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+          cancellationToken);
+
+      await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
   [Test]
   public async Task Diagnostic_Credential_Can_Create_And_Read_Support_Session(
       CancellationToken cancellationToken)
@@ -848,6 +894,32 @@ public sealed class SupportHostingTests
     {
       DashboardTestHelpers.DeleteDatabase(databasePath);
     }
+  }
+
+  private static void AddAuthenticationCookie(
+      IServiceProvider services,
+      HttpClient client,
+      string githubUserId)
+  {
+    var cookieOptions = services
+        .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+        .Get(DashboardAuthenticationSchemes.Cookie);
+    var principal = new ClaimsPrincipal(
+        new ClaimsIdentity(
+            [
+                new Claim(PitCrewClaimTypes.GitHubUserId, githubUserId),
+                new Claim(PitCrewClaimTypes.GitHubLogin, "hosted-operator"),
+                new Claim(ClaimTypes.NameIdentifier, githubUserId),
+                new Claim(ClaimTypes.Name, "Hosted operator"),
+            ],
+            DashboardAuthenticationSchemes.Cookie));
+    var ticket = new AuthenticationTicket(
+        principal,
+        DashboardAuthenticationSchemes.Cookie);
+    var protectedTicket = cookieOptions.TicketDataFormat.Protect(ticket);
+    client.DefaultRequestHeaders.Add(
+        "Cookie",
+        $"{cookieOptions.Cookie.Name}={protectedTicket}");
   }
 
   private sealed class RecordingRelayHandler(
