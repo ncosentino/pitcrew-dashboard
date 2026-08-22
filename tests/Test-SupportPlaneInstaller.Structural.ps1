@@ -123,7 +123,11 @@ Add-Check (
     $getWindowsEvidenceTreeItemsText -match
         '\.AddSeconds\(5\)' -and
     $getWindowsEvidenceTreeItemsText -match
-        'Start-Sleep\s+-Milliseconds\s+100'
+        'Start-Sleep\s+-Milliseconds\s+100' -and
+    $getWindowsEvidenceTreeItemsText -match
+        '\[IO\.FileAttributes\]::ReparsePoint' -and
+    $getWindowsEvidenceTreeItemsText -notmatch
+        '(?m)^\s*-Recurse\s*`?\s*$'
 ) 'Windows evidence enumeration catches failures broader than transient missing items.'
 foreach ($requiredFunction in @(
     'Stage-Release',
@@ -174,16 +178,29 @@ $enumerationModule = New-Module `
         . ([scriptblock]::Create($FunctionText))
         $script:enumerationMode = ''
         $script:enumerationAttempts = 0
+        $script:enumeratedPaths =
+            [Collections.Generic.List[string]]::new()
 
         function Invoke-EnumerationFixture {
             param([Parameter(Mandatory)][string]$Mode)
 
             $script:enumerationMode = $Mode
             $script:enumerationAttempts = 0
-            $enumeration = {
-                param([string]$Root)
+            $script:enumeratedPaths.Clear()
+            $getItem = {
+                param([string]$Path)
+
+                [PSCustomObject]@{
+                    FullName = $Path
+                    PSIsContainer = $true
+                    Attributes = [IO.FileAttributes]::Directory
+                }
+            }
+            $getChildren = {
+                param([string]$Path)
 
                 $script:enumerationAttempts++
+                $script:enumeratedPaths.Add($Path)
                 if ($script:enumerationMode -ceq 'transient' -and
                     $script:enumerationAttempts -eq 1) {
                     throw [Management.Automation.ItemNotFoundException]::new(
@@ -193,27 +210,88 @@ $enumerationModule = New-Module `
                     throw [Management.Automation.ItemNotFoundException]::new(
                         'Persistent fixture disappearance.')
                 }
-                @(
-                    [PSCustomObject]@{
-                        FullName = $Root
-                        PSIsContainer = $true
-                    },
-                    [PSCustomObject]@{
-                        FullName = Join-Path $Root 'child.json'
+                if ($script:enumerationMode -ceq 'reparse' -and
+                    $Path.EndsWith(
+                        'normal',
+                        [StringComparison]::OrdinalIgnoreCase)) {
+                    return [PSCustomObject]@{
+                        FullName = Join-Path $Path 'nested.json'
                         PSIsContainer = $false
+                        Attributes = [IO.FileAttributes]::Normal
                     }
+                }
+                if ($script:enumerationMode -ceq 'reparse') {
+                    return @(
+                        [PSCustomObject]@{
+                            FullName = Join-Path $Path 'normal'
+                            PSIsContainer = $true
+                            Attributes = [IO.FileAttributes]::Directory
+                        },
+                        [PSCustomObject]@{
+                            FullName = Join-Path $Path 'link'
+                            PSIsContainer = $true
+                            Attributes = (
+                                [IO.FileAttributes]::Directory -bor
+                                [IO.FileAttributes]::ReparsePoint
+                            )
+                        },
+                        [PSCustomObject]@{
+                            FullName = Join-Path $Path 'root.json'
+                            PSIsContainer = $false
+                            Attributes = [IO.FileAttributes]::Normal
+                        }
+                    )
+                }
+                if ($script:enumerationMode -ceq 'vanished' -and
+                    $Path.EndsWith(
+                        'vanished',
+                        [StringComparison]::OrdinalIgnoreCase)) {
+                    throw [Management.Automation.ItemNotFoundException]::new(
+                        'Disappeared child fixture.')
+                }
+                if ($script:enumerationMode -ceq 'vanished') {
+                    return [PSCustomObject]@{
+                        FullName = Join-Path $Path 'vanished'
+                        PSIsContainer = $true
+                        Attributes = [IO.FileAttributes]::Directory
+                    }
+                }
+                return [PSCustomObject]@{
+                    FullName = Join-Path $Path 'child.json'
+                    PSIsContainer = $false
+                    Attributes = [IO.FileAttributes]::Normal
+                }
+            }
+            $pathExists = {
+                param([string]$Path)
+
+                -not (
+                    $script:enumerationMode -ceq 'vanished' -and
+                    $Path.EndsWith(
+                        'vanished',
+                        [StringComparison]::OrdinalIgnoreCase)
                 )
             }
             try {
                 $items = @(
                     Get-WindowsEvidenceTreeItems `
                         -ScanRoot 'C:\fixture' `
-                        -Enumeration $enumeration)
+                        -GetItem $getItem `
+                        -GetChildren $getChildren `
+                        -PathExists $pathExists)
                 [PSCustomObject]@{
                     Succeeded = $true
                     Attempts = $script:enumerationAttempts
                     ItemCount = $items.Count
                     ExceptionType = $null
+                    ReparseEnumerated = (
+                        $script:enumeratedPaths |
+                            Where-Object {
+                                $_.EndsWith(
+                                    'link',
+                                    [StringComparison]::OrdinalIgnoreCase)
+                            }
+                    ).Count -gt 0
                 }
             } catch {
                 [PSCustomObject]@{
@@ -221,6 +299,7 @@ $enumerationModule = New-Module `
                     Attempts = $script:enumerationAttempts
                     ItemCount = 0
                     ExceptionType = $_.Exception.GetType().Name
+                    ReparseEnumerated = $false
                 }
             }
         }
@@ -245,6 +324,23 @@ if ($IsWindows) {
             $persistentEnumeration.ExceptionType -ceq
                 'ItemNotFoundException'
         ) 'Windows evidence enumeration did not fail after its bounded retry budget.'
+
+        $reparseEnumeration = & $enumerationModule {
+            Invoke-EnumerationFixture -Mode 'reparse'
+        }
+        Add-Check (
+            $reparseEnumeration.Succeeded -and
+            $reparseEnumeration.ItemCount -eq 5 -and
+            -not $reparseEnumeration.ReparseEnumerated
+        ) 'Windows evidence enumeration followed or omitted a reparse-point object.'
+
+        $vanishedEnumeration = & $enumerationModule {
+            Invoke-EnumerationFixture -Mode 'vanished'
+        }
+        Add-Check (
+            $vanishedEnumeration.Succeeded -and
+            $vanishedEnumeration.ItemCount -eq 2
+        ) 'Windows evidence enumeration did not tolerate a disappeared descendant directory.'
     } finally {
         Remove-Module $enumerationModule
     }

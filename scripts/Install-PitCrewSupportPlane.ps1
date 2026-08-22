@@ -4167,38 +4167,90 @@ function Get-WindowsEvidenceTreeItems {
     param(
         [Parameter(Mandatory)][string]$ScanRoot,
         [Parameter(DontShow)]
-        [scriptblock]$Enumeration = {
-            param([string]$Root)
+        [scriptblock]$GetItem = {
+            param([string]$Path)
+
+            Microsoft.PowerShell.Management\Get-Item `
+                -LiteralPath $Path `
+                -Force `
+                -ErrorAction Stop
+        },
+        [Parameter(DontShow)]
+        [scriptblock]$GetChildren = {
+            param([string]$Path)
 
             @(
-                Microsoft.PowerShell.Management\Get-Item `
-                    -LiteralPath $Root `
-                    -Force `
-                    -ErrorAction Stop
                 Microsoft.PowerShell.Management\Get-ChildItem `
-                    -LiteralPath $Root `
-                    -Recurse `
+                    -LiteralPath $Path `
                     -Force `
                     -ErrorAction Stop
             )
+        },
+        [Parameter(DontShow)]
+        [scriptblock]$PathExists = {
+            param([string]$Path)
+
+            Microsoft.PowerShell.Management\Test-Path `
+                -LiteralPath $Path `
+                -PathType Container
         }
     )
 
+    $rootItem = & $GetItem $ScanRoot
+    $rootPath = [IO.Path]::GetFullPath($rootItem.FullName)
+    $items = [Collections.Generic.List[object]]::new()
+    $pendingDirectories = [Collections.Generic.Stack[string]]::new()
+    $items.Add($rootItem)
+    $rootIsReparsePoint = (
+        ([IO.FileAttributes]$rootItem.Attributes -band
+            [IO.FileAttributes]::ReparsePoint) -ne 0
+    )
+    if ($rootItem.PSIsContainer -and -not $rootIsReparsePoint) {
+        $pendingDirectories.Push($rootPath)
+    }
+
     $maximumAttempts = 20
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
-    for ($attempt = 1; $attempt -le $maximumAttempts; $attempt++) {
-        try {
-            return @(
-                & $Enumeration $ScanRoot
-            )
-        } catch [Management.Automation.ItemNotFoundException] {
-            if ($attempt -eq $maximumAttempts -or
-                [DateTimeOffset]::UtcNow -ge $deadline) {
-                throw
+    while ($pendingDirectories.Count -gt 0) {
+        $directoryPath = $pendingDirectories.Pop()
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
+        $children = $null
+        for ($attempt = 1; $attempt -le $maximumAttempts; $attempt++) {
+            try {
+                $children = @(& $GetChildren $directoryPath)
+                break
+            } catch [Management.Automation.ItemNotFoundException] {
+                $directoryStillExists = [bool](
+                    & $PathExists $directoryPath
+                )
+                if (-not $directoryStillExists -and
+                    -not $directoryPath.Equals(
+                        $rootPath,
+                        [StringComparison]::OrdinalIgnoreCase)) {
+                    $children = @()
+                    break
+                }
+                if ($attempt -eq $maximumAttempts -or
+                    [DateTimeOffset]::UtcNow -ge $deadline) {
+                    throw
+                }
+                Start-Sleep -Milliseconds 100
             }
-            Start-Sleep -Milliseconds 100
+        }
+
+        foreach ($child in $children) {
+            $items.Add($child)
+            $isReparsePoint = (
+                ([IO.FileAttributes]$child.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0
+            )
+            if ($child.PSIsContainer -and -not $isReparsePoint) {
+                $pendingDirectories.Push(
+                    [IO.Path]::GetFullPath($child.FullName))
+            }
         }
     }
+
+    return $items.ToArray()
 }
 
 function Assert-WindowsEvidenceAclsExact {
@@ -4243,6 +4295,7 @@ function Assert-WindowsEvidenceAclsExact {
         )
         foreach ($item in $items) {
             $fullPath = [IO.Path]::GetFullPath($item.FullName)
+            $isExpectedExplicit = $expected.ContainsKey($fullPath)
             $isInheritedRoot = $inheritedRoots.ContainsKey($fullPath)
             $parentPath = Split-Path $fullPath -Parent
             $isInheritedFile =
@@ -4274,8 +4327,14 @@ function Assert-WindowsEvidenceAclsExact {
             try {
                 $acl = Get-Acl -LiteralPath $fullPath
             } catch {
-                if ($isInheritedFile -and
-                    -not (Test-Path -LiteralPath $fullPath)) {
+                $itemDisappeared =
+                    -not (Test-Path -LiteralPath $fullPath)
+                if ($itemDisappeared -and
+                    (
+                        $isInheritedFile -or
+                        (-not $isExpectedExplicit -and
+                            -not $isInheritedRoot)
+                    )) {
                     continue
                 }
                 throw
