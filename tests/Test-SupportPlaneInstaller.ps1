@@ -573,6 +573,7 @@ function Remove-HostTestResidue {
 
 $paths = Get-InstalledPaths
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+$primaryFailure = $null
 try {
     foreach ($path in @(
         $paths.AgentInstallRoot,
@@ -1326,6 +1327,8 @@ try {
         -not (Test-Path -LiteralPath $paths.AgentStateRoot) -and
         -not (Test-Path -LiteralPath $preservedMarkerPath)
     ) 'DeleteKeys uninstall retained protected local identity state.'
+} catch {
+    $primaryFailure = $_
 } finally {
     if ($installed) {
         try {
@@ -1336,7 +1339,14 @@ try {
             Write-Warning 'Product-owned support services require hosted-runner cleanup.'
         }
     }
-    Remove-HostTestResidue
+    try {
+        Remove-HostTestResidue
+    } catch {
+        if ($null -eq $primaryFailure) {
+            throw
+        }
+        Write-Warning 'Hosted-runner residue cleanup failed after the primary lifecycle failure.'
+    }
     if ($createdConnectorFixture) {
         Remove-Item `
             -LiteralPath $paths.ConnectorHealthRoot `
@@ -1349,6 +1359,10 @@ try {
         -Recurse `
         -Force `
         -ErrorAction SilentlyContinue
+}
+
+if ($null -ne $primaryFailure) {
+    throw $primaryFailure
 }
 
 if ($errors.Count -gt 0) {
