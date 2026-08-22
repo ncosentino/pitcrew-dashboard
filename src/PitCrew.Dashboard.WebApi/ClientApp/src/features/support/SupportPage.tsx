@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
+import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
+import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { FormField } from '@/core/ui/FormField';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
@@ -14,6 +16,7 @@ import {
   getSupportIdentities,
   getSupportSession,
   getSupportSessions,
+  revokeSupportIdentity,
   type CreatedSupportEnrollment,
   type SupportIdentity,
   type SupportSession,
@@ -41,6 +44,8 @@ export default function SupportPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshingSessionId, setRefreshingSessionId] = useState<string | null>(null);
+  const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
+  const activeIdentities = identities.filter((identity) => identity.status === 'Active');
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -50,9 +55,14 @@ export default function SupportPage() {
       ]);
       setIdentities(nextIdentities);
       setSessions(nextSessions);
-      if (!nodeId && nextIdentities[0]) setNodeId(nextIdentities[0].nodeId);
+      const activeIdentities = nextIdentities.filter((identity) => identity.status === 'Active');
+      setNodeId((current) =>
+        activeIdentities.some((identity) => identity.nodeId === current)
+          ? current
+          : (activeIdentities[0]?.nodeId ?? ''),
+      );
     },
-    [nodeId, tenantId],
+    [tenantId],
   );
 
   useEffect(() => {
@@ -128,6 +138,20 @@ export default function SupportPage() {
     }
   };
 
+  const revokeIdentity = async (identityNodeId: string) => {
+    if (!session) return;
+    setRevokingNodeId(identityNodeId);
+    try {
+      await revokeSupportIdentity(tenantId, identityNodeId, session.antiforgeryToken);
+      await load();
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Support identity could not be revoked.');
+    } finally {
+      setRevokingNodeId(null);
+    }
+  };
+
   return (
     <section className="grid gap-4">
       <div>
@@ -152,22 +176,12 @@ export default function SupportPage() {
         <CardContent className="grid gap-3">
           <div className="grid gap-2 md:grid-cols-2">
             {identities.map((identity) => (
-              <article key={identity.nodeId} className="min-w-0 rounded-lg border p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="font-medium">{identity.displayName}</h3>
-                  <StatusBadge status={identity.status === 'Active' ? 'healthy' : 'critical'} />
-                </div>
-                <div className="mt-2 break-all font-mono text-xs text-muted-foreground">
-                  {identity.nodeId}
-                </div>
-                <dl className="mt-2 grid gap-1 text-sm">
-                  <div>
-                    Last poll:{' '}
-                    {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
-                  </div>
-                  <div>Capability: v{identity.capabilityVersion}</div>
-                </dl>
-              </article>
+              <SupportIdentityCard
+                key={identity.nodeId}
+                identity={identity}
+                revoking={revokingNodeId === identity.nodeId}
+                onRevoke={revokeIdentity}
+              />
             ))}
           </div>
           <fieldset className="grid gap-3 rounded-lg border p-3">
@@ -222,7 +236,7 @@ export default function SupportPage() {
               value={nodeId}
               onChange={(event) => setNodeId(event.target.value)}
             >
-              {identities.map((identity) => (
+              {activeIdentities.map((identity) => (
                 <option key={identity.nodeId} value={identity.nodeId}>
                   {identity.displayName}
                 </option>
@@ -268,6 +282,69 @@ export default function SupportPage() {
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+export interface SupportIdentityCardProps {
+  readonly identity: SupportIdentity;
+  readonly revoking?: boolean;
+  readonly onRevoke?: (nodeId: string) => Promise<void>;
+}
+
+export function SupportIdentityCard({
+  identity,
+  revoking = false,
+  onRevoke,
+}: SupportIdentityCardProps) {
+  const canRevoke = identity.status === 'Active' && onRevoke !== undefined;
+  return (
+    <article className="min-w-0 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="min-w-0 break-words font-medium">{identity.displayName}</h3>
+        <StatusBadge status={identity.status === 'Active' ? 'healthy' : 'critical'} />
+      </div>
+      <div className="mt-2 break-all font-mono text-xs text-muted-foreground">
+        {identity.nodeId}
+      </div>
+      <dl className="mt-2 grid gap-1 text-sm">
+        <div>
+          Last poll: {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
+        </div>
+        <div>Capability: v{identity.capabilityVersion}</div>
+      </dl>
+      {canRevoke ? (
+        <div className="mt-3">
+          <ConfirmActionDialog
+            trigger={
+              <Button type="button" variant="outline" size="sm" disabled={revoking}>
+                {revoking ? 'Revoking…' : 'Revoke'}
+              </Button>
+            }
+            title={`Revoke "${identity.displayName}"?`}
+            description="Revoking immediately prevents this support identity from polling the relay or receiving new diagnostic sessions."
+            confirmLabel="Revoke support identity"
+            confirmVariant="destructive"
+            details={
+              <ConfirmationSummary
+                identity={[
+                  { label: 'Support node', value: identity.displayName },
+                  { label: 'Node ID', value: identity.nodeId },
+                ]}
+                effects={[
+                  'Relay polling and new diagnostic sessions are rejected immediately.',
+                  'This support identity cannot be reinstated.',
+                ]}
+                prohibitedEffects={[
+                  'The normal connector identity and runner pools are unchanged.',
+                  'Local support keys are not removed by this Dashboard action.',
+                ]}
+              />
+            }
+            onConfirm={() => onRevoke(identity.nodeId)}
+          />
+        </div>
+      ) : null}
+    </article>
   );
 }
 

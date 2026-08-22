@@ -1,7 +1,46 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SupportSessionCard } from './SupportPage';
+import { SupportIdentityCard, SupportSessionCard } from './SupportPage';
+
+describe('SupportIdentityCard', () => {
+  it('confirms an active identity revocation and explains its boundaries', async () => {
+    const onRevoke = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <SupportIdentityCard
+        identity={{
+          nodeId: '11111111-1111-1111-1111-111111111111',
+          displayName: 'Zephyr',
+          status: 'Active',
+          createdAt: '2026-08-01T00:00:00+00:00',
+          revokedAt: null,
+          lastPollAt: null,
+          lastResultAt: null,
+          capabilityVersion: 1,
+        }}
+        onRevoke={onRevoke}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Revoke' }));
+
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Revoke "Zephyr"?',
+    });
+    expect(
+      within(dialog).getByText('The normal connector identity and runner pools are unchanged.'),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText('Local support keys are not removed by this Dashboard action.'),
+    ).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke support identity' }));
+
+    expect(onRevoke).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111');
+  });
+});
 
 describe('SupportSessionCard', () => {
   it('renders verified support output without interpreting diagnostic markdown as HTML', () => {

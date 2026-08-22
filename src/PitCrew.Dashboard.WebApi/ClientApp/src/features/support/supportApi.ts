@@ -128,3 +128,18 @@ export async function createSupportEnrollment(
     },
   );
 }
+
+/** Revokes one support identity without changing connector identity. */
+export async function revokeSupportIdentity(
+  tenantId: string,
+  nodeId: string,
+  antiforgeryToken: string,
+): Promise<void> {
+  await client().request(
+    `/api/tenants/${encodeURIComponent(tenantId)}/support/v1/identities/${encodeURIComponent(nodeId)}/revoke`,
+    {
+      method: 'POST',
+      headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
+    },
+  );
+}

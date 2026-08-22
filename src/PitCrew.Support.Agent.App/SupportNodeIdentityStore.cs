@@ -279,7 +279,20 @@ internal sealed class SupportNodeIdentityStore
       return false;
     }
     var manifest = await ReadManifestOrNullAsync(IdentityPath, cancellationToken);
-    if (manifest is null || !IsManifestValid(IdentityPath, manifest))
+    if (manifest is null)
+    {
+      if (keyChoice == SupportIdentityKeyRemovalChoice.DeleteKeys &&
+          !Directory.Exists(IdentityPath))
+      {
+        if (Directory.Exists(_rootPath))
+        {
+          await DeleteRotationStagesAsync(cancellationToken);
+        }
+        return true;
+      }
+      return false;
+    }
+    if (!IsManifestValid(IdentityPath, manifest))
     {
       return false;
     }
@@ -309,6 +322,42 @@ internal sealed class SupportNodeIdentityStore
     };
     await WriteManifestAsync(IdentityPath, preserved, cancellationToken);
     return true;
+  }
+
+  internal void DeleteEmptyRoot()
+  {
+    if (!Directory.Exists(_rootPath))
+    {
+      return;
+    }
+    if (ContainsReparsePoint(_rootPath))
+    {
+      throw new InvalidOperationException(
+          "The support identity root cannot contain symbolic links or reparse points.");
+    }
+    var comparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+    if (Directory.EnumerateFileSystemEntries(
+            _rootPath,
+            "*",
+            SearchOption.TopDirectoryOnly)
+        .Any(path => !string.Equals(
+            Path.GetFileName(path),
+            OperationLockFileName,
+            comparison)))
+    {
+      throw new InvalidOperationException(
+          "The support identity root still contains identity state.");
+    }
+    var operationLockPath = Path.Combine(
+        _rootPath,
+        OperationLockFileName);
+    if (File.Exists(operationLockPath))
+    {
+      File.Delete(operationLockPath);
+    }
+    Directory.Delete(_rootPath);
   }
 
   public async Task<SupportIdentityRotationPlan?> StageRotationAsync(

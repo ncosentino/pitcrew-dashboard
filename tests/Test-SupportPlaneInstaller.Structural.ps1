@@ -133,7 +133,11 @@ foreach ($requiredFunction in @(
     'Assert-LinuxEvidenceMetadataExact',
     'Assert-LinuxProductGroupsRemovable',
     'Revoke-WindowsEvidenceAccess',
-    'Revoke-LinuxEvidenceAccess'
+    'Revoke-LinuxEvidenceAccess',
+    'Assert-AgentIdentityDeletionSucceeded',
+    'Write-AgentIdentityDeletionRequest',
+    'Wait-AgentIdentityDeletion',
+    'Remove-DirectoryTreeWithRetry'
 )) {
     Add-Check (
         $functions -contains $requiredFunction
@@ -457,9 +461,15 @@ foreach ($action in @(
 }
 Add-Check (
     $installer.Contains(
-        "[ValidateSet('PreserveKeys')]",
+        "[ValidateSet('PreserveKeys', 'DeleteKeys')]",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'identity-delete-request.json'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'delete-keys-succeeded'",
         [StringComparison]::Ordinal)
-) 'The installer does not require explicit protected identity preservation.'
+) 'Explicit service-identity DeleteKeys uninstall is unavailable.'
 Add-Check (
     $installer.Contains(
         '[System.IO.UnixFileMode]::UserRead',
@@ -924,7 +934,7 @@ Add-Check (
         "-not `$PSBoundParameters.ContainsKey('IdentityHandling')",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'Uninstall requires an explicit -IdentityHandling PreserveKeys choice.',
+        'Uninstall requires an explicit -IdentityHandling choice.',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         '$missingIdentityHandlingRejected',

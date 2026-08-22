@@ -46,7 +46,12 @@ builder.Services.AddWindowsService(service =>
 });
 if (!rotateMode)
 {
-  builder.Services.AddHostedService<SupportAgentWorker>();
+  if (!SupportIdentityDeletionRequestWorker.IsRequestPresent(
+      builder.Environment.ContentRootPath))
+  {
+    builder.Services.AddHostedService<SupportAgentWorker>();
+  }
+  builder.Services.AddHostedService<SupportIdentityDeletionRequestWorker>();
 }
 using var host = builder.Build();
 if (rotateMode)
