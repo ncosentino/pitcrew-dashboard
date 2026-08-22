@@ -104,6 +104,27 @@ $writeFailureText = (
         $true
     )
 ).Extent.Text
+$getWindowsEvidenceTreeItemsText = (
+    $ast.Find(
+        {
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -ceq 'Get-WindowsEvidenceTreeItems'
+        },
+        $true
+    )
+).Extent.Text
+Add-Check (
+    $getWindowsEvidenceTreeItemsText -match
+        'catch \[Management\.Automation\.ItemNotFoundException\]' -and
+    $getWindowsEvidenceTreeItemsText -notmatch '(?m)^\s*catch\s*\{' -and
+    $getWindowsEvidenceTreeItemsText -match
+        '\$maximumAttempts\s*=\s*20' -and
+    $getWindowsEvidenceTreeItemsText -match
+        '\.AddSeconds\(5\)' -and
+    $getWindowsEvidenceTreeItemsText -match
+        'Start-Sleep\s+-Milliseconds\s+100'
+) 'Windows evidence enumeration catches failures broader than transient missing items.'
 foreach ($requiredFunction in @(
     'Stage-Release',
     'Remove-ObsoleteSupportVersions',
@@ -129,6 +150,7 @@ foreach ($requiredFunction in @(
     'Assert-EffectiveLinuxServiceBoundary',
     'Assert-LinuxCurrentVersion',
     'Assert-WindowsEvidenceAclsExact',
+    'Get-WindowsEvidenceTreeItems',
     'Assert-LinuxEvidenceAclsExact',
     'Assert-LinuxEvidenceMetadataExact',
     'Assert-LinuxProductGroupsRemovable',
@@ -142,6 +164,92 @@ foreach ($requiredFunction in @(
     Add-Check (
         $functions -contains $requiredFunction
     ) "The installer is missing lifecycle or isolation function '$requiredFunction'."
+}
+
+$enumerationModule = New-Module `
+    -ArgumentList $getWindowsEvidenceTreeItemsText `
+    -ScriptBlock {
+        param([string]$FunctionText)
+
+        . ([scriptblock]::Create($FunctionText))
+        $script:enumerationMode = ''
+        $script:enumerationAttempts = 0
+
+        function Invoke-EnumerationFixture {
+            param([Parameter(Mandatory)][string]$Mode)
+
+            $script:enumerationMode = $Mode
+            $script:enumerationAttempts = 0
+            $enumeration = {
+                param([string]$Root)
+
+                $script:enumerationAttempts++
+                if ($script:enumerationMode -ceq 'transient' -and
+                    $script:enumerationAttempts -eq 1) {
+                    throw [Management.Automation.ItemNotFoundException]::new(
+                        'Transient fixture disappearance.')
+                }
+                if ($script:enumerationMode -ceq 'persistent') {
+                    throw [Management.Automation.ItemNotFoundException]::new(
+                        'Persistent fixture disappearance.')
+                }
+                @(
+                    [PSCustomObject]@{
+                        FullName = $Root
+                        PSIsContainer = $true
+                    },
+                    [PSCustomObject]@{
+                        FullName = Join-Path $Root 'child.json'
+                        PSIsContainer = $false
+                    }
+                )
+            }
+            try {
+                $items = @(
+                    Get-WindowsEvidenceTreeItems `
+                        -ScanRoot 'C:\fixture' `
+                        -Enumeration $enumeration)
+                [PSCustomObject]@{
+                    Succeeded = $true
+                    Attempts = $script:enumerationAttempts
+                    ItemCount = $items.Count
+                    ExceptionType = $null
+                }
+            } catch {
+                [PSCustomObject]@{
+                    Succeeded = $false
+                    Attempts = $script:enumerationAttempts
+                    ItemCount = 0
+                    ExceptionType = $_.Exception.GetType().Name
+                }
+            }
+        }
+    }
+if ($IsWindows) {
+    try {
+        $transientEnumeration = & $enumerationModule {
+            Invoke-EnumerationFixture -Mode 'transient'
+        }
+        Add-Check (
+            $transientEnumeration.Succeeded -and
+            $transientEnumeration.Attempts -eq 2 -and
+            $transientEnumeration.ItemCount -eq 2
+        ) 'Windows evidence enumeration did not recover from one transient disappearance.'
+
+        $persistentEnumeration = & $enumerationModule {
+            Invoke-EnumerationFixture -Mode 'persistent'
+        }
+        Add-Check (
+            -not $persistentEnumeration.Succeeded -and
+            $persistentEnumeration.Attempts -eq 20 -and
+            $persistentEnumeration.ExceptionType -ceq
+                'ItemNotFoundException'
+        ) 'Windows evidence enumeration did not fail after its bounded retry budget.'
+    } finally {
+        Remove-Module $enumerationModule
+    }
+} else {
+    Remove-Module $enumerationModule
 }
 
 $boundaryFixtureRoot = Join-Path (

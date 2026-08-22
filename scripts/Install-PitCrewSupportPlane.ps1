@@ -4163,6 +4163,44 @@ function Get-WindowsExpectedEvidenceAces {
     }
 }
 
+function Get-WindowsEvidenceTreeItems {
+    param(
+        [Parameter(Mandatory)][string]$ScanRoot,
+        [Parameter(DontShow)]
+        [scriptblock]$Enumeration = {
+            param([string]$Root)
+
+            @(
+                Microsoft.PowerShell.Management\Get-Item `
+                    -LiteralPath $Root `
+                    -Force `
+                    -ErrorAction Stop
+                Microsoft.PowerShell.Management\Get-ChildItem `
+                    -LiteralPath $Root `
+                    -Recurse `
+                    -Force `
+                    -ErrorAction Stop
+            )
+        }
+    )
+
+    $maximumAttempts = 20
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
+    for ($attempt = 1; $attempt -le $maximumAttempts; $attempt++) {
+        try {
+            return @(
+                & $Enumeration $ScanRoot
+            )
+        } catch [Management.Automation.ItemNotFoundException] {
+            if ($attempt -eq $maximumAttempts -or
+                [DateTimeOffset]::UtcNow -ge $deadline) {
+                throw
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
+
 function Assert-WindowsEvidenceAclsExact {
     param(
         [Parameter(Mandatory)][hashtable]$Paths,
@@ -4201,12 +4239,7 @@ function Assert-WindowsEvidenceAclsExact {
             -Phase 'windows-evidence-verification' `
             -Operation 'enumerate-evidence-tree'
         $items = @(
-            Get-Item -LiteralPath $scanRoot -Force
-            Get-ChildItem `
-                -LiteralPath $scanRoot `
-                -Recurse `
-                -Force `
-                -ErrorAction Stop
+            Get-WindowsEvidenceTreeItems -ScanRoot $scanRoot
         )
         foreach ($item in $items) {
             $fullPath = [IO.Path]::GetFullPath($item.FullName)
