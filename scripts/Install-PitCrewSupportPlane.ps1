@@ -3896,7 +3896,16 @@ function Invoke-Uninstall {
                 }
                 if ($agentService.Status -ne
                     [ServiceProcess.ServiceControllerStatus]::Running) {
-                    Start-Service -Name $windowsAgentService
+                    & sc.exe start $windowsAgentService | Out-Null
+                    $agentStartExitCode = $LASTEXITCODE
+                    if ($agentStartExitCode -ne 0) {
+                        $diagnostics = Get-WindowsServiceFailureDiagnostics `
+                            -Name $windowsAgentService `
+                            -StateRoot $Paths.AgentStateRoot `
+                            -StartupStatusFileName `
+                                'agent-startup-status.json'
+                        throw "The Windows support agent failed to process identity deletion with SCM code $agentStartExitCode. Bounded diagnostics: $diagnostics"
+                    }
                 }
                 Wait-AgentIdentityDeletion -Paths $Paths
             } finally {
