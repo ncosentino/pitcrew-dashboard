@@ -375,6 +375,10 @@ messages, paths, arguments, settings, identities, or credentials. Read it with:
 The support agent also atomically records a protected
 `agent-startup-status.json` containing only schema version, startup phase,
 terminal disposition, exception type when one exists, and occurrence time.
+Provisioning dispositions distinguish active identity load, unsupported local
+lifecycle, missing enrollment material, pending identity creation, Dashboard
+enrollment rejection, local enrollment commit, and unavailable legacy
+configuration.
 `Verify` includes those bounded fields when the Windows agent stops. The agent
 clears the status after its first relay poll is accepted; no message, stack,
 path, setting, identity, credential, or payload is persisted.

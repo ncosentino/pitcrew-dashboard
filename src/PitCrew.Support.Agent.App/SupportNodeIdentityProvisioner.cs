@@ -10,7 +10,7 @@ internal sealed class SupportNodeIdentityProvisioner(
     SupportAgentBootstrapOptions _bootstrapOptions,
     IConfiguration _configuration)
 {
-  public async Task<SupportAgentOptions?> GetRuntimeOptionsAsync(
+  public async Task<SupportAgentProvisioningOutcome> GetRuntimeOptionsAsync(
       CancellationToken cancellationToken)
   {
     await using var operationLock =
@@ -20,16 +20,22 @@ internal sealed class SupportNodeIdentityProvisioner(
     {
       var active = await _store.LoadActiveAsync(cancellationToken);
       return active is null
-          ? null
-          : SupportAgentOptions.FromStoredIdentity(
-              active,
-              _bootstrapOptions.SocketPath);
+          ? new(
+              SupportAgentProvisioningStatus.ActiveIdentityUnavailable,
+              null)
+          : new(
+              SupportAgentProvisioningStatus.Ready,
+              SupportAgentOptions.FromStoredIdentity(
+                  active,
+                  _bootstrapOptions.SocketPath));
     }
     if (status.Lifecycle is not (
         SupportNodeIdentityLifecycle.Missing or
         SupportNodeIdentityLifecycle.PendingEnrollment))
     {
-      return null;
+      return new(
+          SupportAgentProvisioningStatus.IdentityLifecycleUnavailable,
+          null);
     }
     if (_bootstrapOptions.HasEnrollmentMaterial)
     {
@@ -42,7 +48,9 @@ internal sealed class SupportNodeIdentityProvisioner(
           cancellationToken);
       if (pending is null)
       {
-        return null;
+        return new(
+            SupportAgentProvisioningStatus.PendingIdentityUnavailable,
+            null);
       }
       var completed = await _dashboardClient.CompleteEnrollmentAsync(
           _bootstrapOptions.DashboardUrl,
@@ -53,20 +61,41 @@ internal sealed class SupportNodeIdentityProvisioner(
           cancellationToken);
       if (!IsEnrollmentCompletionValid(completed, pending.DisplayName))
       {
-        return null;
+        return new(
+            SupportAgentProvisioningStatus.EnrollmentRejected,
+            null);
       }
       if (!await _store.CompleteEnrollmentAsync(completed!, cancellationToken))
       {
-        return null;
+        return new(
+            SupportAgentProvisioningStatus.LocalEnrollmentCommitFailed,
+            null);
       }
       var active = await _store.LoadActiveAsync(cancellationToken);
       return active is null
-          ? null
-          : SupportAgentOptions.FromStoredIdentity(
-              active,
-              _bootstrapOptions.SocketPath);
+          ? new(
+              SupportAgentProvisioningStatus.ActiveIdentityUnavailable,
+              null)
+          : new(
+              SupportAgentProvisioningStatus.Ready,
+              SupportAgentOptions.FromStoredIdentity(
+                  active,
+                  _bootstrapOptions.SocketPath));
     }
-    return _bootstrapOptions.CreateLegacyOrNull(_configuration);
+    if (status.Lifecycle == SupportNodeIdentityLifecycle.PendingEnrollment)
+    {
+      return new(
+          SupportAgentProvisioningStatus.EnrollmentMaterialUnavailable,
+          null);
+    }
+    var legacy = _bootstrapOptions.CreateLegacyOrNull(_configuration);
+    return legacy is null
+        ? new(
+            SupportAgentProvisioningStatus.LegacyConfigurationUnavailable,
+            null)
+        : new(
+            SupportAgentProvisioningStatus.Ready,
+            legacy);
   }
 
   public async Task<SupportNodeRotationOutcome> RotateAsync(
