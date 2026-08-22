@@ -3885,7 +3885,17 @@ function Invoke-Uninstall {
         Write-AgentIdentityDeletionRequest -Paths $Paths
         if ($IsWindows) {
             $agentService = Get-Service -Name $windowsAgentService
+            $brokerService = Get-Service -Name $windowsBrokerService
+            $stopAgentAfterDeletion = $agentService.Status -ne (
+                [ServiceProcess.ServiceControllerStatus]::Running
+            )
+            $stopBrokerAfterDeletion = $brokerService.Status -ne (
+                [ServiceProcess.ServiceControllerStatus]::Running
+            )
             $restoreDisabledStartup = $agentService.StartType -eq (
+                [ServiceProcess.ServiceStartMode]::Disabled
+            )
+            $restoreBrokerDisabledStartup = $brokerService.StartType -eq (
                 [ServiceProcess.ServiceStartMode]::Disabled
             )
             try {
@@ -3893,6 +3903,23 @@ function Invoke-Uninstall {
                     Set-Service `
                         -Name $windowsAgentService `
                         -StartupType Manual
+                }
+                if ($restoreBrokerDisabledStartup) {
+                    Set-Service `
+                        -Name $windowsBrokerService `
+                        -StartupType Manual
+                }
+                if ($stopBrokerAfterDeletion) {
+                    & sc.exe start $windowsBrokerService | Out-Null
+                    $brokerStartExitCode = $LASTEXITCODE
+                    if ($brokerStartExitCode -ne 0) {
+                        $diagnostics = Get-WindowsServiceFailureDiagnostics `
+                            -Name $windowsBrokerService
+                        throw "The Windows support broker failed to satisfy the identity-deletion dependency with SCM code $brokerStartExitCode. Bounded diagnostics: $diagnostics"
+                    }
+                    $brokerService.WaitForStatus(
+                        [ServiceProcess.ServiceControllerStatus]::Running,
+                        [TimeSpan]::FromSeconds(30))
                 }
                 if ($agentService.Status -ne
                     [ServiceProcess.ServiceControllerStatus]::Running) {
@@ -3909,12 +3936,52 @@ function Invoke-Uninstall {
                 }
                 Wait-AgentIdentityDeletion -Paths $Paths
             } finally {
+                if ($stopAgentAfterDeletion) {
+                    $currentAgentService = Get-Service `
+                        -Name $windowsAgentService
+                    try {
+                        if ($currentAgentService.Status -ne
+                            [ServiceProcess.ServiceControllerStatus]::Stopped) {
+                            Stop-Service `
+                                -Name $windowsAgentService `
+                                -Force
+                            $currentAgentService.WaitForStatus(
+                                [ServiceProcess.ServiceControllerStatus]::Stopped,
+                                [TimeSpan]::FromSeconds(30))
+                        }
+                    } finally {
+                        $currentAgentService.Dispose()
+                    }
+                }
+                if ($stopBrokerAfterDeletion) {
+                    $currentBrokerService = Get-Service `
+                        -Name $windowsBrokerService
+                    try {
+                        if ($currentBrokerService.Status -ne
+                            [ServiceProcess.ServiceControllerStatus]::Stopped) {
+                            Stop-Service `
+                                -Name $windowsBrokerService `
+                                -Force
+                            $currentBrokerService.WaitForStatus(
+                                [ServiceProcess.ServiceControllerStatus]::Stopped,
+                                [TimeSpan]::FromSeconds(30))
+                        }
+                    } finally {
+                        $currentBrokerService.Dispose()
+                    }
+                }
                 if ($restoreDisabledStartup) {
                     Set-Service `
                         -Name $windowsAgentService `
                         -StartupType Disabled
                 }
+                if ($restoreBrokerDisabledStartup) {
+                    Set-Service `
+                        -Name $windowsBrokerService `
+                        -StartupType Disabled
+                }
                 $agentService.Dispose()
+                $brokerService.Dispose()
             }
         } else {
             Invoke-Checked systemctl @('start', $linuxAgentService)
