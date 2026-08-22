@@ -703,6 +703,12 @@ Add-Check (
         '"identity-unavailable"',
         [StringComparison]::Ordinal) -and
     $agentWorker.Contains(
+        '"local-enrollment-commit-failed"',
+        [StringComparison]::Ordinal) -and
+    $agentWorker.Contains(
+        '"enrollment-rejected"',
+        [StringComparison]::Ordinal) -and
+    $agentWorker.Contains(
         '"unhandled-exception"',
         [StringComparison]::Ordinal) -and
     $agentWorker.Contains(

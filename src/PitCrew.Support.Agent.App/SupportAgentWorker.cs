@@ -19,10 +19,11 @@ internal sealed partial class SupportAgentWorker(
     _startupStatus.Clear();
     try
     {
-      SupportAgentOptions? options;
+      SupportAgentProvisioningOutcome provisioning;
       try
       {
-        options = await _identityProvisioner.GetRuntimeOptionsAsync(stoppingToken);
+        provisioning =
+            await _identityProvisioner.GetRuntimeOptionsAsync(stoppingToken);
       }
       catch (HttpRequestException exception)
       {
@@ -33,11 +34,11 @@ internal sealed partial class SupportAgentWorker(
         LogRelayUnavailable(_logger);
         return;
       }
-      if (options is null)
+      if (provisioning.Options is not { } options)
       {
         _startupStatus.Write(
             identityPhase,
-            "identity-unavailable",
+            GetProvisioningDisposition(provisioning.Status),
             exceptionType: null);
         SupportAgentIdentityLog.IdentityUnavailable(_logger);
         return;
@@ -120,6 +121,28 @@ internal sealed partial class SupportAgentWorker(
       throw;
     }
   }
+
+  private static string GetProvisioningDisposition(
+      SupportAgentProvisioningStatus status) =>
+      status switch
+      {
+        SupportAgentProvisioningStatus.ActiveIdentityUnavailable =>
+            "active-identity-unavailable",
+        SupportAgentProvisioningStatus.IdentityLifecycleUnavailable =>
+            "identity-lifecycle-unavailable",
+        SupportAgentProvisioningStatus.EnrollmentMaterialUnavailable =>
+            "enrollment-material-unavailable",
+        SupportAgentProvisioningStatus.PendingIdentityUnavailable =>
+            "pending-identity-unavailable",
+        SupportAgentProvisioningStatus.EnrollmentRejected =>
+            "enrollment-rejected",
+        SupportAgentProvisioningStatus.LocalEnrollmentCommitFailed =>
+            "local-enrollment-commit-failed",
+        SupportAgentProvisioningStatus.LegacyConfigurationUnavailable =>
+            "legacy-configuration-unavailable",
+        _ => throw new InvalidOperationException(
+            "A ready provisioning result did not include runtime options."),
+      };
 
   private async Task<bool> PollOnceAsync(
       SupportAgentOptions options,
