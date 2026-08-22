@@ -471,11 +471,6 @@ Add-Check (
 ) 'Explicit service-identity DeleteKeys uninstall is unavailable.'
 Add-Check (
     $installer.Contains(
-        "[ValidateSet('PreserveKeys')]",
-        [StringComparison]::Ordinal)
-) 'The installer does not require explicit protected identity preservation.'
-Add-Check (
-    $installer.Contains(
         '[System.IO.UnixFileMode]::UserRead',
         [StringComparison]::Ordinal)
 ) 'The installer uses an unqualified UnixFileMode type that fails in PowerShell.'
@@ -938,7 +933,7 @@ Add-Check (
         "-not `$PSBoundParameters.ContainsKey('IdentityHandling')",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        'Uninstall requires an explicit -IdentityHandling PreserveKeys choice.',
+        'Uninstall requires an explicit -IdentityHandling choice.',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         '$missingIdentityHandlingRejected',

@@ -12,6 +12,31 @@ namespace PitCrew.Support.Agent.App.Tests;
 public sealed class SupportNodeIdentityStoreTests
 {
   [Test]
+  public async Task DeleteKeys_Is_Idempotent_When_Identity_Is_Missing(
+      CancellationToken cancellationToken)
+  {
+    var root = CreateRoot();
+    try
+    {
+      var store = CreateLinuxStore(
+          root,
+          new FakeUnixFilePermissions());
+
+      var removed = await store.RemoveAsync(
+          SupportIdentityKeyRemovalChoice.DeleteKeys,
+          cancellationToken);
+
+      await Assert.That(removed).IsTrue();
+      await Assert.That(Directory.Exists(Path.Combine(root, "identity")))
+          .IsFalse();
+    }
+    finally
+    {
+      DeleteRoot(root);
+    }
+  }
+
+  [Test]
   public async Task Fresh_Identity_Generates_Locally_And_Reloads_Without_Private_Output(
       CancellationToken cancellationToken)
   {

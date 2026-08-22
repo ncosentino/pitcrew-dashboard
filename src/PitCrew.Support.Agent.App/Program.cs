@@ -66,45 +66,18 @@ builder.Services.AddWindowsService(service =>
 {
   service.ServiceName = "PitCrewSupportAgent";
 });
-if (!(rotateMode || deleteIdentityMode))
+if (deleteIdentityMode)
+{
+  builder.Services.AddHostedService<SupportIdentityDeletionWorker>();
+}
+else if (!rotateMode)
 {
   builder.Services.AddHostedService<SupportAgentWorker>();
 }
 using var host = builder.Build();
 if (deleteIdentityMode)
 {
-  await host.StartAsync();
-  try
-  {
-    var removed = await host.Services
-        .GetRequiredService<SupportNodeIdentityManager>()
-        .RemoveAsync(
-            SupportIdentityKeyRemovalChoice.DeleteKeys,
-            CancellationToken.None);
-    host.Services
-        .GetRequiredService<SupportAgentStartupStatusWriter>()
-        .Write(
-            "identity-removal",
-            removed
-                ? "delete-keys-succeeded"
-                : "delete-keys-unavailable",
-            exceptionType: null);
-    Environment.ExitCode = removed ? 0 : 1;
-  }
-  catch (Exception exception)
-  {
-    host.Services
-        .GetRequiredService<SupportAgentStartupStatusWriter>()
-        .Write(
-            "identity-removal",
-            "delete-keys-failed",
-            exception.GetType());
-    throw;
-  }
-  finally
-  {
-    await host.StopAsync();
-  }
+  await host.RunAsync();
 }
 else if (rotateMode)
 {

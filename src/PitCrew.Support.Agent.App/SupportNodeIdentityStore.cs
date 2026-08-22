@@ -279,7 +279,17 @@ internal sealed class SupportNodeIdentityStore
       return false;
     }
     var manifest = await ReadManifestOrNullAsync(IdentityPath, cancellationToken);
-    if (manifest is null || !IsManifestValid(IdentityPath, manifest))
+    if (manifest is null)
+    {
+      if (keyChoice == SupportIdentityKeyRemovalChoice.DeleteKeys &&
+          !Directory.Exists(IdentityPath))
+      {
+        await DeleteRotationStagesAsync(cancellationToken);
+        return true;
+      }
+      return false;
+    }
+    if (!IsManifestValid(IdentityPath, manifest))
     {
       return false;
     }
