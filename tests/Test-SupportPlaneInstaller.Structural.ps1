@@ -133,7 +133,10 @@ foreach ($requiredFunction in @(
     'Assert-LinuxEvidenceMetadataExact',
     'Assert-LinuxProductGroupsRemovable',
     'Revoke-WindowsEvidenceAccess',
-    'Revoke-LinuxEvidenceAccess'
+    'Revoke-LinuxEvidenceAccess',
+    'Assert-AgentIdentityDeletionSucceeded',
+    'Invoke-WindowsAgentIdentityDeletion',
+    'Invoke-LinuxAgentIdentityDeletion'
 )) {
     Add-Check (
         $functions -contains $requiredFunction
@@ -455,6 +458,17 @@ foreach ($action in @(
         $installer.Contains($action, [StringComparison]::Ordinal)
     ) "The installer does not expose action $action."
 }
+Add-Check (
+    $installer.Contains(
+        "[ValidateSet('PreserveKeys', 'DeleteKeys')]",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'identity-delete-keys'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "'delete-keys-succeeded'",
+        [StringComparison]::Ordinal)
+) 'Explicit service-identity DeleteKeys uninstall is unavailable.'
 Add-Check (
     $installer.Contains(
         "[ValidateSet('PreserveKeys')]",

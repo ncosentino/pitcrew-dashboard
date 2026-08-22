@@ -5,9 +5,31 @@ using Microsoft.Extensions.Hosting;
 
 using PitCrew.Support.Agent.App;
 
-var rotateMode = args.Length == 1 &&
-    string.Equals(args[0], "rotate", StringComparison.OrdinalIgnoreCase);
-var builder = Host.CreateApplicationBuilder(args);
+const string rotateCommand = "rotate";
+const string deleteIdentityCommand = "identity-delete-keys";
+var rotateMode = args.Contains(
+    rotateCommand,
+    StringComparer.OrdinalIgnoreCase);
+var deleteIdentityMode = args.Contains(
+    deleteIdentityCommand,
+    StringComparer.OrdinalIgnoreCase);
+if (rotateMode && deleteIdentityMode)
+{
+  throw new InvalidOperationException(
+      "Only one support-agent command mode may run at a time.");
+}
+var hostArguments = args
+    .Where(argument =>
+        !string.Equals(
+            argument,
+            rotateCommand,
+            StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(
+            argument,
+            deleteIdentityCommand,
+            StringComparison.OrdinalIgnoreCase))
+    .ToArray();
+var builder = Host.CreateApplicationBuilder(hostArguments);
 var bootstrapOptions =
     SupportAgentBootstrapOptions.FromConfiguration(builder.Configuration) ??
     throw new InvalidOperationException(
@@ -44,12 +66,47 @@ builder.Services.AddWindowsService(service =>
 {
   service.ServiceName = "PitCrewSupportAgent";
 });
-if (!rotateMode)
+if (!(rotateMode || deleteIdentityMode))
 {
   builder.Services.AddHostedService<SupportAgentWorker>();
 }
 using var host = builder.Build();
-if (rotateMode)
+if (deleteIdentityMode)
+{
+  await host.StartAsync();
+  try
+  {
+    var removed = await host.Services
+        .GetRequiredService<SupportNodeIdentityManager>()
+        .RemoveAsync(
+            SupportIdentityKeyRemovalChoice.DeleteKeys,
+            CancellationToken.None);
+    host.Services
+        .GetRequiredService<SupportAgentStartupStatusWriter>()
+        .Write(
+            "identity-removal",
+            removed
+                ? "delete-keys-succeeded"
+                : "delete-keys-unavailable",
+            exceptionType: null);
+    Environment.ExitCode = removed ? 0 : 1;
+  }
+  catch (Exception exception)
+  {
+    host.Services
+        .GetRequiredService<SupportAgentStartupStatusWriter>()
+        .Write(
+            "identity-removal",
+            "delete-keys-failed",
+            exception.GetType());
+    throw;
+  }
+  finally
+  {
+    await host.StopAsync();
+  }
+}
+else if (rotateMode)
 {
   var outcome = await host.Services
       .GetRequiredService<SupportNodeIdentityProvisioner>()

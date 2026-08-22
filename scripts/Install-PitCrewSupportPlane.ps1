@@ -44,7 +44,7 @@ param(
 
     [string]$BrokerChecksumPath = '',
 
-    [ValidateSet('PreserveKeys')]
+    [ValidateSet('PreserveKeys', 'DeleteKeys')]
     [string]$IdentityHandling = 'PreserveKeys',
 
     [switch]$AllowMachineChanges
@@ -55,7 +55,7 @@ Set-StrictMode -Version Latest
 
 if ($Action -eq 'Uninstall' -and
     -not $PSBoundParameters.ContainsKey('IdentityHandling')) {
-    throw 'Uninstall requires an explicit -IdentityHandling PreserveKeys choice.'
+    throw 'Uninstall requires an explicit -IdentityHandling choice.'
 }
 
 $windowsAgentService = 'PitCrewSupportAgent'
@@ -1760,6 +1760,109 @@ function Start-WindowsSupportServices {
     (Get-Service -Name $windowsAgentService).WaitForStatus(
         [ServiceProcess.ServiceControllerStatus]::Running,
         [TimeSpan]::FromSeconds(30))
+}
+
+function Assert-AgentIdentityDeletionSucceeded {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    $statusPath = Join-Path $Paths.AgentStateRoot 'agent-startup-status.json'
+    if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) {
+        throw 'The support agent did not persist an identity-deletion result.'
+    }
+    $status = Get-Content `
+        -LiteralPath $statusPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json
+    if ($status.schemaVersion -ne 1 -or
+        $status.phase -cne 'identity-removal' -or
+        $status.disposition -cne 'delete-keys-succeeded' -or
+        $null -ne $status.exceptionType) {
+        throw 'The support agent did not confirm identity-key deletion.'
+    }
+}
+
+function Invoke-WindowsAgentIdentityDeletion {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    $service = Get-CimInstance `
+        -ClassName Win32_Service `
+        -Filter "Name='$windowsAgentService'" `
+        -ErrorAction Stop
+    $originalCommand = [string]$service.PathName
+    $agentExecutable = Join-Path (
+        Join-Path $Paths.AgentInstallRoot 'current'
+    ) 'PitCrew.Support.Agent.App.exe'
+    $deleteCommand = (
+        "`"$agentExecutable`" identity-delete-keys " +
+        "--contentRoot `"$($Paths.AgentStateRoot)`""
+    )
+    $statusPath = Join-Path $Paths.AgentStateRoot 'agent-startup-status.json'
+    Stop-Service `
+        -Name $windowsAgentService `
+        -Force `
+        -ErrorAction Stop
+    if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+        Remove-Item `
+            -LiteralPath $statusPath `
+            -Force `
+            -ErrorAction Stop
+    }
+    try {
+        Invoke-Checked sc.exe @(
+            'config',
+            $windowsAgentService,
+            'binPath=',
+            $deleteCommand
+        )
+        Invoke-Checked sc.exe @('start', $windowsAgentService)
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+        do {
+            Start-Sleep -Milliseconds 250
+            $current = Get-CimInstance `
+                -ClassName Win32_Service `
+                -Filter "Name='$windowsAgentService'" `
+                -ErrorAction Stop
+            if ($current.State -eq 'Stopped' -and
+                (Test-Path -LiteralPath $statusPath -PathType Leaf)) {
+                break
+            }
+        } while ([DateTimeOffset]::UtcNow -lt $deadline)
+        Assert-AgentIdentityDeletionSucceeded -Paths $Paths
+    } finally {
+        Invoke-Checked sc.exe @(
+            'config',
+            $windowsAgentService,
+            'binPath=',
+            $originalCommand
+        )
+    }
+}
+
+function Invoke-LinuxAgentIdentityDeletion {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    Invoke-Checked systemctl @('stop', $linuxAgentService)
+    $statusPath = Join-Path $Paths.AgentStateRoot 'agent-startup-status.json'
+    if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+        Remove-Item `
+            -LiteralPath $statusPath `
+            -Force `
+            -ErrorAction Stop
+    }
+    $agentExecutable = Join-Path (
+        Join-Path $Paths.AgentInstallRoot 'current'
+    ) 'PitCrew.Support.Agent.App'
+    Invoke-Checked runuser @(
+        '-u',
+        $linuxAgentUser,
+        '--',
+        $agentExecutable,
+        'identity-delete-keys',
+        '--contentRoot',
+        $Paths.AgentStateRoot
+    )
+    Assert-AgentIdentityDeletionSucceeded -Paths $Paths
 }
 
 function Set-WindowsSupportStartup {
@@ -3761,6 +3864,16 @@ function Invoke-Uninstall {
     if ($IsLinux) {
         Assert-LinuxProductGroupsRemovable
     }
+    if ($IdentityHandling -ceq 'DeleteKeys') {
+        Set-InstallerFailureContext `
+            -Phase 'identity-removal' `
+            -Operation 'delete-local-support-identity'
+        if ($IsWindows) {
+            Invoke-WindowsAgentIdentityDeletion -Paths $Paths
+        } else {
+            Invoke-LinuxAgentIdentityDeletion -Paths $Paths
+        }
+    }
     if ($IsWindows) {
         Stop-WindowsSupportServices
         Revoke-WindowsEvidenceAccess `
@@ -3770,7 +3883,9 @@ function Invoke-Uninstall {
             -Paths $Paths `
             -AgentSid ([string]$brokerSettings.ExpectedAgentSid) `
             -BrokerSid ([string]$brokerSettings.BrokerServiceSid)
-        Preserve-AgentIdentityState -Paths $Paths
+        if ($IdentityHandling -ceq 'PreserveKeys') {
+            Preserve-AgentIdentityState -Paths $Paths
+        }
         Remove-NetFirewallRule `
             -Name `
                 $windowsServiceFirewallRule,
@@ -3788,7 +3903,9 @@ function Invoke-Uninstall {
         Revoke-LinuxEvidenceAccess `
             -Paths $Paths `
             -Settings $brokerSettings
-        Preserve-AgentIdentityState -Paths $Paths
+        if ($IdentityHandling -ceq 'PreserveKeys') {
+            Preserve-AgentIdentityState -Paths $Paths
+        }
         Remove-Item `
             -LiteralPath $Paths.AgentUnitPath, $Paths.BrokerUnitPath `
             -Force `
@@ -3806,6 +3923,13 @@ function Invoke-Uninstall {
         -Recurse `
         -Force `
         -ErrorAction SilentlyContinue
+    if ($IdentityHandling -ceq 'DeleteKeys') {
+        Remove-Item `
+            -LiteralPath $Paths.AgentStateRoot `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-WindowsNormalizedRights {

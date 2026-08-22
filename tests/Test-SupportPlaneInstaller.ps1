@@ -1247,7 +1247,7 @@ try {
             -AllowMachineChanges
     } catch {
         $missingIdentityHandlingRejected = $_.Exception.Message.Contains(
-            'Uninstall requires an explicit -IdentityHandling PreserveKeys choice.',
+            'Uninstall requires an explicit -IdentityHandling choice.',
             [StringComparison]::Ordinal)
     }
     Add-Check (
@@ -1320,8 +1320,12 @@ try {
     ) 'Reinstallation did not consume the preserved identity marker.'
     Invoke-Installer `
         -LifecycleAction 'Uninstall' `
-        -Identity 'PreserveKeys'
+        -Identity 'DeleteKeys'
     $installed = $false
+    Add-Check (
+        -not (Test-Path -LiteralPath $paths.AgentStateRoot) -and
+        -not (Test-Path -LiteralPath $preservedMarkerPath)
+    ) 'DeleteKeys uninstall retained protected local identity state.'
 } finally {
     if ($installed) {
         try {

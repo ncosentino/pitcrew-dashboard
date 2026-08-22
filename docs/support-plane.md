@@ -400,18 +400,22 @@ The empty lock remains after uninstall so releasing one lifecycle action cannot
 race creation of a second lock inode; it contains no installation or identity
 data.
 
-Uninstall currently requires the explicit
-`-IdentityHandling PreserveKeys` choice. It retains the complete protected agent
-state without reading or rewriting private key material. Before deleting
+Uninstall requires an explicit `-IdentityHandling PreserveKeys` or
+`-IdentityHandling DeleteKeys` choice. `PreserveKeys` retains the complete
+protected agent state without reading or rewriting private key material.
+`DeleteKeys` stops only the agent, invokes the typed local identity manager under
+the agent service identity, requires a bounded success record, and removes the
+protected agent state after key deletion. Before deleting
 installer state, uninstall removes every product agent/broker ACE or
 named/default ACL from PitCrew and connector-health trees and removes Windows
 services or validated Linux system users/groups.
+Revoke the matching Dashboard support identity before `DeleteKeys`; Dashboard
+revocation and local key deletion are deliberately separate authorized actions,
+and neither operation silently performs the other.
 Linux uninstall refuses before mutation when any external account is a
 supplementary member of, or uses as its primary GID, any product-owned group.
-Typed `DeleteKeys` integration requires invoking the #119 identity manager under
-the agent service identity and remains a follow-up stacked on this installer
-change. The installer never reads, rewrites, prints, or selectively deletes
-private key values.
+The installer never reads, rewrites, prints, or selectively deletes private key
+values.
 
 The relay and Dashboard configuration remains environment-based:
 
