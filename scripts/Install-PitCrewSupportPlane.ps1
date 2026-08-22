@@ -3918,11 +3918,13 @@ function Invoke-Uninstall {
         -Force `
         -ErrorAction SilentlyContinue
     if ($IdentityHandling -ceq 'DeleteKeys') {
-        Remove-Item `
-            -LiteralPath $Paths.AgentStateRoot `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $Paths.AgentStateRoot) {
+            Remove-Item `
+                -LiteralPath $Paths.AgentStateRoot `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+        }
     }
 }
 
