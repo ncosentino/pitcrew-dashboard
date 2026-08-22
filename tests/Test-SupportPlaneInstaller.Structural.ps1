@@ -117,7 +117,13 @@ $getWindowsEvidenceTreeItemsText = (
 Add-Check (
     $getWindowsEvidenceTreeItemsText -match
         'catch \[Management\.Automation\.ItemNotFoundException\]' -and
-    $getWindowsEvidenceTreeItemsText -notmatch '(?m)^\s*catch\s*\{'
+    $getWindowsEvidenceTreeItemsText -notmatch '(?m)^\s*catch\s*\{' -and
+    $getWindowsEvidenceTreeItemsText -match
+        '\$maximumAttempts\s*=\s*20' -and
+    $getWindowsEvidenceTreeItemsText -match
+        '\.AddSeconds\(5\)' -and
+    $getWindowsEvidenceTreeItemsText -match
+        'Start-Sleep\s+-Milliseconds\s+100'
 ) 'Windows evidence enumeration catches failures broader than transient missing items.'
 foreach ($requiredFunction in @(
     'Stage-Release',
@@ -219,27 +225,30 @@ $enumerationModule = New-Module `
             }
         }
     }
-try {
-    $transientEnumeration = & $enumerationModule {
-        Invoke-EnumerationFixture -Mode 'transient'
-    }
-    Add-Check (
-        $transientEnumeration.Succeeded -and
-        $transientEnumeration.Attempts -eq 2 -and
-        $transientEnumeration.ItemCount -eq 2
-    ) 'Windows evidence enumeration did not recover from one transient disappearance.'
+if ($IsWindows) {
+    try {
+        $transientEnumeration = & $enumerationModule {
+            Invoke-EnumerationFixture -Mode 'transient'
+        }
+        Add-Check (
+            $transientEnumeration.Succeeded -and
+            $transientEnumeration.Attempts -eq 2 -and
+            $transientEnumeration.ItemCount -eq 2
+        ) 'Windows evidence enumeration did not recover from one transient disappearance.'
 
-    $persistentEnumeration = & $enumerationModule {
-        Invoke-EnumerationFixture -Mode 'persistent'
+        $persistentEnumeration = & $enumerationModule {
+            Invoke-EnumerationFixture -Mode 'persistent'
+        }
+        Add-Check (
+            -not $persistentEnumeration.Succeeded -and
+            $persistentEnumeration.Attempts -eq 20 -and
+            $persistentEnumeration.ExceptionType -ceq
+                'ItemNotFoundException'
+        ) 'Windows evidence enumeration did not fail after its bounded retry budget.'
+    } finally {
+        Remove-Module $enumerationModule
     }
-    Add-Check (
-        -not $persistentEnumeration.Succeeded -and
-        $persistentEnumeration.Attempts -eq 20 -and
-        $persistentEnumeration.ExceptionType -ceq
-            'ItemNotFoundException'
-    ) 'Windows evidence enumeration did not fail after its bounded retry budget.'
-
-} finally {
+} else {
     Remove-Module $enumerationModule
 }
 
