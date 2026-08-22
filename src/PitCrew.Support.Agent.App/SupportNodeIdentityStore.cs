@@ -324,6 +324,42 @@ internal sealed class SupportNodeIdentityStore
     return true;
   }
 
+  internal void DeleteEmptyRoot()
+  {
+    if (!Directory.Exists(_rootPath))
+    {
+      return;
+    }
+    if (ContainsReparsePoint(_rootPath))
+    {
+      throw new InvalidOperationException(
+          "The support identity root cannot contain symbolic links or reparse points.");
+    }
+    var comparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+    if (Directory.EnumerateFileSystemEntries(
+            _rootPath,
+            "*",
+            SearchOption.TopDirectoryOnly)
+        .Any(path => !string.Equals(
+            Path.GetFileName(path),
+            OperationLockFileName,
+            comparison)))
+    {
+      throw new InvalidOperationException(
+          "The support identity root still contains identity state.");
+    }
+    var operationLockPath = Path.Combine(
+        _rootPath,
+        OperationLockFileName);
+    if (File.Exists(operationLockPath))
+    {
+      File.Delete(operationLockPath);
+    }
+    Directory.Delete(_rootPath);
+  }
+
   public async Task<SupportIdentityRotationPlan?> StageRotationAsync(
       CancellationToken cancellationToken)
   {

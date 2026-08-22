@@ -33,6 +33,9 @@ internal sealed class SupportIdentityDeletionRequestWorker(
     while (await timer.WaitForNextTickAsync(stoppingToken));
   }
 
+  internal static bool IsRequestPresent(string contentRootPath) =>
+      File.Exists(Path.Combine(contentRootPath, RequestFileName));
+
   private async Task<bool> ProcessRequestIfPresentAsync(
       CancellationToken cancellationToken)
   {
@@ -45,6 +48,7 @@ internal sealed class SupportIdentityDeletionRequestWorker(
     }
     var disposition = "delete-request-invalid";
     Type? exceptionType = null;
+    var stopRequested = false;
     try
     {
       var file = new FileInfo(requestPath);
@@ -70,12 +74,24 @@ internal sealed class SupportIdentityDeletionRequestWorker(
             Operation: Operation,
           })
       {
-        await using var operationLock =
+        bool removed;
+        await using (var operationLock =
             await _identityManager.Store.AcquireOperationLockAsync(
-                cancellationToken);
-        var removed = await _identityManager.RemoveAsync(
-            SupportIdentityKeyRemovalChoice.DeleteKeys,
-            cancellationToken);
+                cancellationToken))
+        {
+          removed = await _identityManager.RemoveAsync(
+              SupportIdentityKeyRemovalChoice.DeleteKeys,
+              cancellationToken);
+          if (removed)
+          {
+            _applicationLifetime.StopApplication();
+            stopRequested = true;
+          }
+        }
+        if (removed)
+        {
+          _identityManager.Store.DeleteEmptyRoot();
+        }
         disposition = removed
             ? "delete-keys-succeeded"
             : "delete-keys-unavailable";
@@ -92,7 +108,10 @@ internal sealed class SupportIdentityDeletionRequestWorker(
         "identity-removal",
         disposition,
         exceptionType);
-    _applicationLifetime.StopApplication();
+    if (!stopRequested)
+    {
+      _applicationLifetime.StopApplication();
+    }
     return true;
   }
 }

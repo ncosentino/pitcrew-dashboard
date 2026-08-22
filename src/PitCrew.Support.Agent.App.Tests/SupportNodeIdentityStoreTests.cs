@@ -22,13 +22,18 @@ public sealed class SupportNodeIdentityStoreTests
           root,
           new FakeUnixFilePermissions());
 
-      var removed = await store.RemoveAsync(
-          SupportIdentityKeyRemovalChoice.DeleteKeys,
-          cancellationToken);
+      bool removed;
+      await using (var operationLock =
+          await store.AcquireOperationLockAsync(cancellationToken))
+      {
+        removed = await store.RemoveAsync(
+            SupportIdentityKeyRemovalChoice.DeleteKeys,
+            cancellationToken);
+      }
+      store.DeleteEmptyRoot();
 
       await Assert.That(removed).IsTrue();
-      await Assert.That(Directory.Exists(Path.Combine(root, "identity")))
-          .IsFalse();
+      await Assert.That(Directory.Exists(root)).IsFalse();
     }
     finally
     {
