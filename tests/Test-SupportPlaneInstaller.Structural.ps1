@@ -136,7 +136,8 @@ foreach ($requiredFunction in @(
     'Revoke-LinuxEvidenceAccess',
     'Assert-AgentIdentityDeletionSucceeded',
     'Write-AgentIdentityDeletionRequest',
-    'Wait-AgentIdentityDeletion'
+    'Wait-AgentIdentityDeletion',
+    'Remove-DirectoryTreeWithRetry'
 )) {
     Add-Check (
         $functions -contains $requiredFunction

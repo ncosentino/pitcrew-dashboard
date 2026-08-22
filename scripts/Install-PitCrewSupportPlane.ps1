@@ -3836,6 +3836,34 @@ function Preserve-AgentIdentityState {
     }
 }
 
+function Remove-DirectoryTreeWithRetry {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+    while ($true) {
+        try {
+            Remove-Item `
+                -LiteralPath $Path `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+            return
+        } catch {
+            if ((
+                    $_.Exception -isnot [IO.IOException] -and
+                    $_.Exception -isnot [UnauthorizedAccessException]
+                ) -or
+                [DateTimeOffset]::UtcNow -ge $deadline) {
+                throw
+            }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
 function Invoke-Uninstall {
     param([Parameter(Mandatory)][hashtable]$Paths)
 
@@ -3918,13 +3946,7 @@ function Invoke-Uninstall {
         -Force `
         -ErrorAction SilentlyContinue
     if ($IdentityHandling -ceq 'DeleteKeys') {
-        if (Test-Path -LiteralPath $Paths.AgentStateRoot) {
-            Remove-Item `
-                -LiteralPath $Paths.AgentStateRoot `
-                -Recurse `
-                -Force `
-                -ErrorAction Stop
-        }
+        Remove-DirectoryTreeWithRetry -Path $Paths.AgentStateRoot
     }
 }
 
