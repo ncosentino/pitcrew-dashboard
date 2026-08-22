@@ -1,5 +1,5 @@
 namespace PitCrew.Support.Agent.App;
 
-internal sealed record SupportIdentityDeletionRequest(
+internal sealed record SupportIdentityDeletionCommand(
     int SchemaVersion,
     string Operation);

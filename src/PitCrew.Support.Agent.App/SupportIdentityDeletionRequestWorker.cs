@@ -52,7 +52,7 @@ internal sealed class SupportIdentityDeletionRequestWorker(
     try
     {
       var file = new FileInfo(requestPath);
-      SupportIdentityDeletionRequest? request = null;
+      SupportIdentityDeletionCommand? request = null;
       if (file.Length is > 0 and <= MaximumRequestBytes)
       {
         await using var stream = new FileStream(
@@ -62,7 +62,7 @@ internal sealed class SupportIdentityDeletionRequestWorker(
             FileShare.Read,
             4096,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        request = await JsonSerializer.DeserializeAsync<SupportIdentityDeletionRequest>(
+        request = await JsonSerializer.DeserializeAsync<SupportIdentityDeletionCommand>(
             stream,
             _jsonOptions,
             cancellationToken: cancellationToken);

@@ -1319,6 +1319,7 @@ try {
             -LiteralPath $preservedMarkerPath `
             -PathType Leaf)
     ) 'Reinstallation did not consume the preserved identity marker.'
+    Invoke-Installer -LifecycleAction 'Disable'
     Invoke-Installer `
         -LifecycleAction 'Uninstall' `
         -Identity 'DeleteKeys'

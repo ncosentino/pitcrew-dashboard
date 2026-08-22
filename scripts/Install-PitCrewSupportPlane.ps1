@@ -493,10 +493,12 @@ function Write-InstallManifest {
             [Text.UTF8Encoding]::new($false))
         [IO.File]::Move($temporaryPath, $manifestPath, $true)
     } finally {
-        Remove-Item `
-            -LiteralPath $temporaryPath `
-            -Force `
-            -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item `
+                -LiteralPath $temporaryPath `
+                -Force `
+                -ErrorAction Stop
+        }
     }
 }
 
@@ -3883,18 +3885,32 @@ function Invoke-Uninstall {
         Write-AgentIdentityDeletionRequest -Paths $Paths
         if ($IsWindows) {
             $agentService = Get-Service -Name $windowsAgentService
+            $restoreDisabledStartup = $agentService.StartType -eq (
+                [ServiceProcess.ServiceStartMode]::Disabled
+            )
             try {
+                if ($restoreDisabledStartup) {
+                    Set-Service `
+                        -Name $windowsAgentService `
+                        -StartupType Manual
+                }
                 if ($agentService.Status -ne
                     [ServiceProcess.ServiceControllerStatus]::Running) {
                     Start-Service -Name $windowsAgentService
                 }
+                Wait-AgentIdentityDeletion -Paths $Paths
             } finally {
+                if ($restoreDisabledStartup) {
+                    Set-Service `
+                        -Name $windowsAgentService `
+                        -StartupType Disabled
+                }
                 $agentService.Dispose()
             }
         } else {
             Invoke-Checked systemctl @('start', $linuxAgentService)
+            Wait-AgentIdentityDeletion -Paths $Paths
         }
-        Wait-AgentIdentityDeletion -Paths $Paths
     }
     if ($IsWindows) {
         Stop-WindowsSupportServices
