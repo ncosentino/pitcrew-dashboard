@@ -386,9 +386,11 @@ path, setting, identity, credential, or payload is persisted.
 Evidence verification operations distinguish tree enumeration, unexpected or
 malformed broker ACEs, agent denial count/shape, root metadata, selected evidence
 reads, and prohibited environment access without recording the affected path.
-Windows verification retries only a transient missing-item race during recursive
-enumeration, bounded by 20 attempts and five seconds. Access denial, persistent
-disappearance, unexpected entries, and ACL drift remain terminal.
+Windows verification walks one directory at a time, audits reparse-point objects
+without following them, and skips a non-required descendant that disappears
+after discovery. A still-existing directory retries only `ItemNotFoundException`,
+bounded by 20 attempts and five seconds. Missing scan roots, access denial,
+unexpected entries, and ACL drift remain terminal.
 
 A later successful install, update, rollback, or uninstall removes the prior
 failure record. Updates extract both components
