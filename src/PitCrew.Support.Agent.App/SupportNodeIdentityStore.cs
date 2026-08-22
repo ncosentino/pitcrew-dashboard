@@ -284,7 +284,10 @@ internal sealed class SupportNodeIdentityStore
       if (keyChoice == SupportIdentityKeyRemovalChoice.DeleteKeys &&
           !Directory.Exists(IdentityPath))
       {
-        await DeleteRotationStagesAsync(cancellationToken);
+        if (Directory.Exists(_rootPath))
+        {
+          await DeleteRotationStagesAsync(cancellationToken);
+        }
         return true;
       }
       return false;

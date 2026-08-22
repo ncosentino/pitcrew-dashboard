@@ -1815,7 +1815,8 @@ function Invoke-WindowsAgentIdentityDeletion {
             'binPath=',
             $deleteCommand
         )
-        Invoke-Checked sc.exe @('start', $windowsAgentService)
+        & sc.exe start $windowsAgentService | Out-Null
+        $startExitCode = $LASTEXITCODE
         $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
         do {
             Start-Sleep -Milliseconds 250
@@ -1828,6 +1829,13 @@ function Invoke-WindowsAgentIdentityDeletion {
                 break
             }
         } while ([DateTimeOffset]::UtcNow -lt $deadline)
+        if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf) -and
+            $startExitCode -ne 0) {
+            $exception = [InvalidOperationException]::new(
+                'The support-agent identity deletion command did not start.')
+            $exception.Data['NativeExitCode'] = $startExitCode
+            throw $exception
+        }
         Assert-AgentIdentityDeletionSucceeded -Paths $Paths
     } finally {
         Invoke-Checked sc.exe @(
