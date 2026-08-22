@@ -389,10 +389,12 @@ function Write-InstallerFailureRecord {
             -Force
         Protect-InstallerFailureFile -Path $failurePath
     } finally {
-        Remove-Item `
-            -LiteralPath $temporaryPath `
-            -Force `
-            -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item `
+                -LiteralPath $temporaryPath `
+                -Force `
+                -ErrorAction Stop
+        }
     }
 }
 
@@ -1782,94 +1784,68 @@ function Assert-AgentIdentityDeletionSucceeded {
     }
 }
 
-function Invoke-WindowsAgentIdentityDeletion {
+function Write-AgentIdentityDeletionRequest {
     param([Parameter(Mandatory)][hashtable]$Paths)
 
-    $service = Get-CimInstance `
-        -ClassName Win32_Service `
-        -Filter "Name='$windowsAgentService'" `
-        -ErrorAction Stop
-    $originalCommand = [string]$service.PathName
-    $agentExecutable = Join-Path (
-        Join-Path $Paths.AgentInstallRoot 'current'
-    ) 'PitCrew.Support.Agent.App.exe'
-    $deleteCommand = (
-        "`"$agentExecutable`" identity-delete-keys " +
-        "--contentRoot `"$($Paths.AgentStateRoot)`""
-    )
+    $requestPath = Join-Path `
+        $Paths.AgentStateRoot `
+        'identity-delete-request.json'
+    $temporaryPath = "$requestPath.$([Guid]::NewGuid().ToString('N')).tmp"
     $statusPath = Join-Path $Paths.AgentStateRoot 'agent-startup-status.json'
-    Stop-Service `
-        -Name $windowsAgentService `
-        -Force `
-        -ErrorAction Stop
     if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
         Remove-Item `
             -LiteralPath $statusPath `
             -Force `
             -ErrorAction Stop
     }
+    if (Test-Path -LiteralPath $requestPath) {
+        throw 'A support identity-deletion request is already pending.'
+    }
     try {
-        Invoke-Checked sc.exe @(
-            'config',
-            $windowsAgentService,
-            'binPath=',
-            $deleteCommand
+        [IO.File]::WriteAllText(
+            $temporaryPath,
+            '{"schemaVersion":1,"operation":"delete-keys"}',
+            [Text.UTF8Encoding]::new($false)
         )
-        & sc.exe start $windowsAgentService | Out-Null
-        $startExitCode = $LASTEXITCODE
-        $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
-        do {
-            Start-Sleep -Milliseconds 250
-            $current = Get-CimInstance `
-                -ClassName Win32_Service `
-                -Filter "Name='$windowsAgentService'" `
-                -ErrorAction Stop
-            if ($current.State -eq 'Stopped' -and
-                (Test-Path -LiteralPath $statusPath -PathType Leaf)) {
-                break
-            }
-        } while ([DateTimeOffset]::UtcNow -lt $deadline)
-        if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf) -and
-            $startExitCode -ne 0) {
-            $exception = [InvalidOperationException]::new(
-                'The support-agent identity deletion command did not start.')
-            $exception.Data['NativeExitCode'] = $startExitCode
-            throw $exception
+        if ($IsLinux) {
+            Invoke-Checked chown @(
+                "$linuxAgentUser`:$linuxAgentUser",
+                $temporaryPath
+            )
+            Invoke-Checked chmod @('600', $temporaryPath)
         }
-        Assert-AgentIdentityDeletionSucceeded -Paths $Paths
+        [IO.File]::Move($temporaryPath, $requestPath, $false)
     } finally {
-        Invoke-Checked sc.exe @(
-            'config',
-            $windowsAgentService,
-            'binPath=',
-            $originalCommand
-        )
+        Remove-Item `
+            -LiteralPath $temporaryPath `
+            -Force `
+            -ErrorAction SilentlyContinue
     }
 }
 
-function Invoke-LinuxAgentIdentityDeletion {
+function Wait-AgentIdentityDeletion {
     param([Parameter(Mandatory)][hashtable]$Paths)
 
-    Invoke-Checked systemctl @('stop', $linuxAgentService)
     $statusPath = Join-Path $Paths.AgentStateRoot 'agent-startup-status.json'
-    if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
-        Remove-Item `
-            -LiteralPath $statusPath `
-            -Force `
-            -ErrorAction Stop
-    }
-    $agentExecutable = Join-Path (
-        Join-Path $Paths.AgentInstallRoot 'current'
-    ) 'PitCrew.Support.Agent.App'
-    Invoke-Checked runuser @(
-        '-u',
-        $linuxAgentUser,
-        '--',
-        $agentExecutable,
-        'identity-delete-keys',
-        '--contentRoot',
-        $Paths.AgentStateRoot
-    )
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+    do {
+        Start-Sleep -Milliseconds 250
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'identity-removal') {
+                    break
+                }
+            } catch {
+                continue
+            }
+        }
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
     Assert-AgentIdentityDeletionSucceeded -Paths $Paths
 }
 
@@ -3876,11 +3852,21 @@ function Invoke-Uninstall {
         Set-InstallerFailureContext `
             -Phase 'identity-removal' `
             -Operation 'delete-local-support-identity'
+        Write-AgentIdentityDeletionRequest -Paths $Paths
         if ($IsWindows) {
-            Invoke-WindowsAgentIdentityDeletion -Paths $Paths
+            $agentService = Get-Service -Name $windowsAgentService
+            try {
+                if ($agentService.Status -ne
+                    [ServiceProcess.ServiceControllerStatus]::Running) {
+                    Start-Service -Name $windowsAgentService
+                }
+            } finally {
+                $agentService.Dispose()
+            }
         } else {
-            Invoke-LinuxAgentIdentityDeletion -Paths $Paths
+            Invoke-Checked systemctl @('start', $linuxAgentService)
         }
+        Wait-AgentIdentityDeletion -Paths $Paths
     }
     if ($IsWindows) {
         Stop-WindowsSupportServices

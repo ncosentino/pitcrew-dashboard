@@ -135,8 +135,8 @@ foreach ($requiredFunction in @(
     'Revoke-WindowsEvidenceAccess',
     'Revoke-LinuxEvidenceAccess',
     'Assert-AgentIdentityDeletionSucceeded',
-    'Invoke-WindowsAgentIdentityDeletion',
-    'Invoke-LinuxAgentIdentityDeletion'
+    'Write-AgentIdentityDeletionRequest',
+    'Wait-AgentIdentityDeletion'
 )) {
     Add-Check (
         $functions -contains $requiredFunction
@@ -463,7 +463,7 @@ Add-Check (
         "[ValidateSet('PreserveKeys', 'DeleteKeys')]",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
-        "'identity-delete-keys'",
+        "'identity-delete-request.json'",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
         "'delete-keys-succeeded'",

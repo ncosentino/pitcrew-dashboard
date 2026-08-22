@@ -5,31 +5,9 @@ using Microsoft.Extensions.Hosting;
 
 using PitCrew.Support.Agent.App;
 
-const string rotateCommand = "rotate";
-const string deleteIdentityCommand = "identity-delete-keys";
-var rotateMode = args.Contains(
-    rotateCommand,
-    StringComparer.OrdinalIgnoreCase);
-var deleteIdentityMode = args.Contains(
-    deleteIdentityCommand,
-    StringComparer.OrdinalIgnoreCase);
-if (rotateMode && deleteIdentityMode)
-{
-  throw new InvalidOperationException(
-      "Only one support-agent command mode may run at a time.");
-}
-var hostArguments = args
-    .Where(argument =>
-        !string.Equals(
-            argument,
-            rotateCommand,
-            StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(
-            argument,
-            deleteIdentityCommand,
-            StringComparison.OrdinalIgnoreCase))
-    .ToArray();
-var builder = Host.CreateApplicationBuilder(hostArguments);
+var rotateMode = args.Length == 1 &&
+    string.Equals(args[0], "rotate", StringComparison.OrdinalIgnoreCase);
+var builder = Host.CreateApplicationBuilder(args);
 var bootstrapOptions =
     SupportAgentBootstrapOptions.FromConfiguration(builder.Configuration) ??
     throw new InvalidOperationException(
@@ -66,20 +44,13 @@ builder.Services.AddWindowsService(service =>
 {
   service.ServiceName = "PitCrewSupportAgent";
 });
-if (deleteIdentityMode)
-{
-  builder.Services.AddHostedService<SupportIdentityDeletionWorker>();
-}
-else if (!rotateMode)
+if (!rotateMode)
 {
   builder.Services.AddHostedService<SupportAgentWorker>();
+  builder.Services.AddHostedService<SupportIdentityDeletionRequestWorker>();
 }
 using var host = builder.Build();
-if (deleteIdentityMode)
-{
-  await host.RunAsync();
-}
-else if (rotateMode)
+if (rotateMode)
 {
   var outcome = await host.Services
       .GetRequiredService<SupportNodeIdentityProvisioner>()
