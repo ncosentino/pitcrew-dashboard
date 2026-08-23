@@ -113,22 +113,67 @@ internal static class CanaryRunnerProgram
     {
       return Fail("topology-capability-missing");
     }
-    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
-        cancellationToken);
-    timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-    var result = await scenario.RunAsync(
+    var context = new CanaryScenarioContext(
+        Path.GetFullPath(runRoot),
+        Path.GetFullPath(dashboardSourceRoot),
+        Path.GetFullPath(pitCrewSourceRoot),
+        TimeProvider.System);
+    return await ExecuteScenarioAsync(
+        scenario,
         runtime,
-        new CanaryScenarioContext(
-            Path.GetFullPath(runRoot),
-            Path.GetFullPath(dashboardSourceRoot),
-            Path.GetFullPath(pitCrewSourceRoot),
-            TimeProvider.System),
-        timeout.Token);
+        context,
+        TimeSpan.FromSeconds(timeoutSeconds),
+        cancellationToken);
+  }
+
+  internal static async Task<int> ExecuteScenarioAsync(
+      ICanaryScenario scenario,
+      CanaryRuntimeManifest runtime,
+      CanaryScenarioContext context,
+      TimeSpan timeout,
+      CancellationToken cancellationToken)
+  {
+    var result = await CanaryScenarioExecutor.RunAsync(
+        scenario,
+        runtime,
+        context,
+        timeout,
+        cancellationToken);
+    var runRoot = context.RunRoot;
     var evidenceRoot = Path.Combine(runRoot, "evidence");
     Directory.CreateDirectory(evidenceRoot);
-    CanaryManifestFile.WriteScenarioResult(
-        Path.Combine(evidenceRoot, $"{scenario.Id}.json"),
-        result);
+    var resultPath = Path.Combine(
+        evidenceRoot,
+        $"{scenario.Id}.json");
+    try
+    {
+      CanaryManifestFile.WriteScenarioResult(
+          resultPath,
+          result);
+    }
+    catch (InvalidDataException)
+    {
+      var now = TimeProvider.System.GetUtcNow();
+      result = new CanaryScenarioResult(
+          CanaryManifestFile.ScenarioResultSchemaVersion,
+          runtime.RunId,
+          scenario.Id,
+          runtime.TopologyProfile,
+          "failed",
+          "scenario-result-invalid",
+          [
+              new CanaryScenarioStepResult(
+                  "scenario-execution",
+                  "failed",
+                  "scenario-result-invalid",
+                  0),
+          ],
+          now,
+          now);
+      CanaryManifestFile.WriteScenarioResult(
+          resultPath,
+          result);
+    }
     return result.Status == "succeeded"
         ? 0
         : Fail(result.FailureCategory ?? "scenario-failed");

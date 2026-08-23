@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -138,6 +139,100 @@ public sealed record CanaryScenarioResult(
 /// </summary>
 public static class CanaryManifestFile
 {
+  private const int MaximumManifestBytes = 65_536;
+  private const int MaximumScenarioResultBytes = 32_768;
+  private const long MaximumStepDurationMilliseconds = 1_800_000;
+  private static readonly FrozenSet<string> _allowedStepNames =
+      new[]
+      {
+          "complete-signed-diagnostic",
+          "create-enrollment-authorization",
+          "dashboard-health",
+          "finalize-bootstrap-and-restart",
+          "first-accepted-poll",
+          "prove-unrelated-state-unchanged",
+          "relay-health",
+          "revoke-and-delete-keys",
+          "scenario-execution",
+          "start-diagnostics-broker",
+          "validate-candidate-sources",
+      }.ToFrozenSet(StringComparer.Ordinal);
+  private static readonly FrozenSet<string> _allowedCategories =
+      new[]
+      {
+          "agent-broker-markdown-rejected",
+          "agent-broker-report-rejected",
+          "agent-credential-rejected",
+          "agent-enrollment-rejected",
+          "agent-envelope-payload-rejected",
+          "agent-envelope-signature-rejected",
+          "agent-envelope-unsupported",
+          "agent-exited-before-poll",
+          "agent-invalid-nonce",
+          "agent-poll-timeout",
+          "agent-process-missing",
+          "agent-replay-pending",
+          "agent-request-expired",
+          "agent-request-malformed",
+          "agent-request-replay",
+          "agent-result-unavailable",
+          "agent-session-mismatch",
+          "agent-unhandled-exception",
+          "agent-unsupported-capability",
+          "agent-unsupported-diagnostic-mode",
+          "agent-validation-rejected",
+          "agent-wrong-tenant-or-node",
+          "attestation-verified",
+          "bootstrap-finalization-rejected",
+          "bootstrap-material-retained",
+          "canary-tool-timeout",
+          "candidate-assembly-missing",
+          "candidate-broker-started",
+          "candidate-command-timeout",
+          "candidate-configuration-invalid",
+          "candidate-contract-compatible",
+          "candidate-process-exit-timeout",
+          "collector-hash-mismatch",
+          "collector-policy-invalid",
+          "connector-runner-and-fixture-unchanged",
+          "dashboard-session-empty",
+          "dashboard-session-missing",
+          "dashboard-session-rejected",
+          "delete-keys-unconfirmed",
+          "diagnostic-credential-empty",
+          "diagnostic-credential-rejected",
+          "enrollment-authorization-empty",
+          "enrollment-authorization-missing",
+          "enrollment-authorization-rejected",
+          "filesystem-forbidden",
+          "filesystem-or-process-io-failed",
+          "first-poll-accepted",
+          "fixture-snapshot-bound-exceeded",
+          "fresh-authorization-created",
+          "healthy",
+          "http-status-rejected",
+          "http-timeout",
+          "http-unavailable",
+          "json-contract-invalid",
+          "linux-process-identity-unavailable",
+          "operating-system-unsupported",
+          "pitcrew-fixture-mutated",
+          "pitcrew-policy-incompatible",
+          "pitcrew-verifier-incomplete",
+          "pitcrew-verifier-rejected-result",
+          "revocation-state-missing",
+          "revoked-and-keys-deleted",
+          "scenario-cancelled",
+          "scenario-failed",
+          "scenario-result-invalid",
+          "scenario-timeout",
+          "scenario-unexpected-failure",
+          "second-poll-accepted",
+          "step-timeout",
+          "support-revocation-rejected",
+          "windows-process-sid-unavailable",
+      }.ToFrozenSet(StringComparer.Ordinal);
+
   /// <summary>
   /// Current plan schema version.
   /// </summary>
@@ -170,7 +265,9 @@ public static class CanaryManifestFile
   /// </exception>
   public static CanaryPlanManifest ReadPlan(string path)
   {
-    var plan = Read<CanaryPlanManifest>(path, 65_536);
+    var plan = Read<CanaryPlanManifest>(
+        path,
+        MaximumManifestBytes);
     ValidatePlan(plan);
     return plan;
   }
@@ -185,7 +282,10 @@ public static class CanaryManifestFile
       CanaryPlanManifest plan)
   {
     ValidatePlan(plan);
-    Write(path, plan);
+    Write(
+        path,
+        plan,
+        MaximumManifestBytes);
   }
 
   /// <summary>
@@ -198,7 +298,9 @@ public static class CanaryManifestFile
   /// </exception>
   public static CanaryRuntimeManifest ReadRuntime(string path)
   {
-    var runtime = Read<CanaryRuntimeManifest>(path, 65_536);
+    var runtime = Read<CanaryRuntimeManifest>(
+        path,
+        MaximumManifestBytes);
     ValidateRuntime(runtime);
     return runtime;
   }
@@ -213,7 +315,28 @@ public static class CanaryManifestFile
       CanaryRuntimeManifest runtime)
   {
     ValidateRuntime(runtime);
-    Write(path, runtime);
+    Write(
+        path,
+        runtime,
+        MaximumManifestBytes);
+  }
+
+  /// <summary>
+  /// Reads and validates one redacted scenario result.
+  /// </summary>
+  /// <param name="path">Existing result path.</param>
+  /// <returns>The validated scenario result.</returns>
+  /// <exception cref="InvalidDataException">
+  /// The file is missing, oversized, malformed, or violates the result contract.
+  /// </exception>
+  public static CanaryScenarioResult ReadScenarioResult(
+      string path)
+  {
+    var result = Read<CanaryScenarioResult>(
+        path,
+        MaximumScenarioResultBytes);
+    ValidateScenarioResult(result);
+    return result;
   }
 
   /// <summary>
@@ -225,17 +348,11 @@ public static class CanaryManifestFile
       string path,
       CanaryScenarioResult result)
   {
-    if (result.SchemaVersion != ScenarioResultSchemaVersion ||
-        !IsRunId(result.RunId) ||
-        !IsIdentifier(result.ScenarioId, 96) ||
-        !IsIdentifier(result.TopologyProfile, 32) ||
-        result.Status is not ("succeeded" or "failed") ||
-        result.Steps.Count is < 1 or > 64)
-    {
-      throw new InvalidDataException(
-          "The canary scenario result is invalid.");
-    }
-    Write(path, result);
+    ValidateScenarioResult(result);
+    Write(
+        path,
+        result,
+        MaximumScenarioResultBytes);
   }
 
   private static T Read<T>(
@@ -274,7 +391,8 @@ public static class CanaryManifestFile
 
   private static void Write<T>(
       string path,
-      T value)
+      T value,
+      int maximumBytes)
   {
     var fullPath = Path.GetFullPath(path);
     var directory = Path.GetDirectoryName(fullPath) ??
@@ -282,6 +400,14 @@ public static class CanaryManifestFile
             "The canary manifest path has no parent directory.");
     Directory.CreateDirectory(directory);
     var temporaryPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
+    var payload = JsonSerializer.SerializeToUtf8Bytes(
+        value,
+        _jsonOptions);
+    if (payload.Length + 1 > maximumBytes)
+    {
+      throw new InvalidDataException(
+          "The canary manifest exceeds its serialized size bound.");
+    }
     try
     {
       using (var stream = new FileStream(
@@ -292,7 +418,7 @@ public static class CanaryManifestFile
           4096,
           FileOptions.WriteThrough))
       {
-        JsonSerializer.Serialize(stream, value, _jsonOptions);
+        stream.Write(payload);
         stream.WriteByte((byte)'\n');
         stream.Flush(flushToDisk: true);
       }
@@ -309,15 +435,18 @@ public static class CanaryManifestFile
 
   private static void ValidatePlan(CanaryPlanManifest plan)
   {
-    if (plan.SchemaVersion != PlanSchemaVersion ||
+    if (plan is null ||
+        plan.SchemaVersion != PlanSchemaVersion ||
         !IsRunId(plan.RunId) ||
         plan.TopologyProfile != CanaryTopologyProfiles.Portable ||
+        plan.Scenarios is null ||
         plan.Scenarios.Count is < 1 or > 16 ||
         plan.Scenarios.Any(scenario => !IsIdentifier(scenario, 96)) ||
         plan.Scenarios.Distinct(StringComparer.Ordinal).Count() !=
             plan.Scenarios.Count ||
         !IsSourceRevision(plan.Dashboard) ||
-        !IsSourceRevision(plan.PitCrew))
+        !IsSourceRevision(plan.PitCrew) ||
+        !IsTimestamp(plan.CreatedAt))
     {
       throw new InvalidDataException(
           "The canary plan manifest is invalid.");
@@ -326,24 +455,84 @@ public static class CanaryManifestFile
 
   private static void ValidateRuntime(CanaryRuntimeManifest runtime)
   {
-    if (runtime.SchemaVersion != RuntimeSchemaVersion ||
+    if (runtime is null ||
+        runtime.SchemaVersion != RuntimeSchemaVersion ||
         !IsRunId(runtime.RunId) ||
         runtime.TopologyProfile != CanaryTopologyProfiles.Portable ||
         !IsSourceRevision(runtime.Dashboard) ||
         !IsSourceRevision(runtime.PitCrew) ||
         !IsLoopbackOrigin(runtime.DashboardUrl) ||
         !IsLoopbackOrigin(runtime.RelayUrl) ||
+        runtime.Capabilities is null ||
         runtime.Capabilities.Count is < 2 or > 16 ||
         runtime.Capabilities.Any(capability => !IsIdentifier(capability, 64)) ||
         runtime.Capabilities.Distinct(StringComparer.Ordinal).Count() !=
-            runtime.Capabilities.Count)
+            runtime.Capabilities.Count ||
+        !IsTimestamp(runtime.StartedAt))
     {
       throw new InvalidDataException(
           "The canary runtime manifest is invalid.");
     }
   }
 
-  private static bool IsSourceRevision(CanarySourceRevision revision) =>
+  private static void ValidateScenarioResult(
+      CanaryScenarioResult result)
+  {
+    if (result is null ||
+        result.SchemaVersion != ScenarioResultSchemaVersion ||
+        !IsRunId(result.RunId) ||
+        !IsIdentifier(result.ScenarioId, 96) ||
+        result.TopologyProfile != CanaryTopologyProfiles.Portable ||
+        result.Status is not ("succeeded" or "failed") ||
+        result.Steps is null ||
+        result.Steps.Count is < 1 or > 64 ||
+        !IsTimestamp(result.StartedAt) ||
+        !IsTimestamp(result.CompletedAt) ||
+        result.CompletedAt < result.StartedAt ||
+        result.CompletedAt - result.StartedAt > TimeSpan.FromHours(2) ||
+        result.Steps.Any(step => !IsValidStep(step)) ||
+        result.Steps.Sum(step => step.DurationMilliseconds) >
+            (long)TimeSpan.FromHours(2).TotalMilliseconds)
+    {
+      throw new InvalidDataException(
+          "The canary scenario result is invalid.");
+    }
+    if (result.Status == "succeeded")
+    {
+      if (result.FailureCategory is not null ||
+          result.Steps.Any(step => step.Status != "succeeded"))
+      {
+        throw new InvalidDataException(
+            "A successful canary result contains failure evidence.");
+      }
+      return;
+    }
+    if (result.FailureCategory is null ||
+        !_allowedCategories.Contains(result.FailureCategory) ||
+        !result.Steps.Any(step =>
+            step.Status == "failed" &&
+            string.Equals(
+                step.Category,
+                result.FailureCategory,
+                StringComparison.Ordinal)))
+    {
+      throw new InvalidDataException(
+          "A failed canary result omits its bounded terminal evidence.");
+    }
+  }
+
+  private static bool IsValidStep(
+      CanaryScenarioStepResult? step) =>
+      step is not null &&
+      _allowedStepNames.Contains(step.Name) &&
+      step.Status is "succeeded" or "failed" &&
+      _allowedCategories.Contains(step.Category) &&
+      step.DurationMilliseconds is >= 0 and
+          <= MaximumStepDurationMilliseconds;
+
+  private static bool IsSourceRevision(
+      CanarySourceRevision? revision) =>
+      revision is not null &&
       revision.Repository is
           "ncosentino/pitcrew" or
           "ncosentino/pitcrew-dashboard" &&
@@ -351,14 +540,16 @@ public static class CanaryManifestFile
       revision.Commit.All(character =>
           character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
-  private static bool IsRunId(string value) =>
+  private static bool IsRunId(string? value) =>
+      value is not null &&
       value.Length == 32 &&
       value.All(character =>
           character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
   private static bool IsIdentifier(
-      string value,
+      string? value,
       int maximumLength) =>
+      value is not null &&
       value.Length is > 0 &&
       value.Length <= maximumLength &&
       value[0] is >= 'a' and <= 'z' &&
@@ -368,7 +559,8 @@ public static class CanaryManifestFile
           '-' or
           '.');
 
-  private static bool IsLoopbackOrigin(string value) =>
+  private static bool IsLoopbackOrigin(string? value) =>
+      value is not null &&
       Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
       uri.IsLoopback &&
       uri.Scheme == Uri.UriSchemeHttp &&
@@ -376,4 +568,8 @@ public static class CanaryManifestFile
       string.IsNullOrEmpty(uri.Query) &&
       string.IsNullOrEmpty(uri.Fragment) &&
       uri.AbsolutePath == "/";
+
+  private static bool IsTimestamp(
+      DateTimeOffset value) =>
+      value != default;
 }
