@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Support.Canary.Contracts\PitCrew.Support.Canary.Contracts.csproj" />
+    <ProjectReference Include="..\PitCrew.Support.Canary.Scenarios\PitCrew.Support.Canary.Scenarios.csproj" />
+  </ItemGroup>
+
+</Project>

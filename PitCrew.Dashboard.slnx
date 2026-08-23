@@ -29,6 +29,13 @@
     <Project Path="src/PitCrew.Support.Relay.App.Tests/PitCrew.Support.Relay.App.Tests.csproj" />
     <Project Path="src/PitCrew.Support.Relay.App/PitCrew.Support.Relay.App.csproj" />
   </Folder>
+  <Folder Name="/src/Canary/">
+    <Project Path="src/PitCrew.Support.Canary.AppHost/PitCrew.Support.Canary.AppHost.csproj" />
+    <Project Path="src/PitCrew.Support.Canary.Contracts/PitCrew.Support.Canary.Contracts.csproj" />
+    <Project Path="src/PitCrew.Support.Canary.Runner/PitCrew.Support.Canary.Runner.csproj" />
+    <Project Path="src/PitCrew.Support.Canary.Scenarios/PitCrew.Support.Canary.Scenarios.csproj" />
+    <Project Path="src/PitCrew.Support.Canary.Tests/PitCrew.Support.Canary.Tests.csproj" />
+  </Folder>
   <Folder Name="/src/Connector/">
     <Project Path="src/PitCrew.Connector.Features.Sync.Tests/PitCrew.Connector.Features.Sync.Tests.csproj" />
     <Project Path="src/PitCrew.Connector.Features.Sync/PitCrew.Connector.Features.Sync.csproj" />

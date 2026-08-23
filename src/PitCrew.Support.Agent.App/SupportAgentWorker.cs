@@ -82,7 +82,10 @@ internal sealed partial class SupportAgentWorker(
           }
           if (!firstPollAccepted)
           {
-            _startupStatus.Clear();
+            _startupStatus.Write(
+                phase,
+                "accepted",
+                exceptionType: null);
             firstPollAccepted = true;
           }
           phase = "running";
