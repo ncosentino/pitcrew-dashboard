@@ -27,7 +27,9 @@ if ($state.schemaVersion -ne 1 -or
 $process = Get-Process -Id ([int]$state.processId) -ErrorAction Stop
 $expectedStart = [DateTimeOffset]::Parse(
     [string]$state.startedAt,
-    [Globalization.CultureInfo]::InvariantCulture)
+    [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::AssumeUniversal -bor
+    [Globalization.DateTimeStyles]::AdjustToUniversal)
 $actualStart = [DateTimeOffset]::new(
     $process.StartTime.ToUniversalTime())
 if ([Math]::Abs(
