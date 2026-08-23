@@ -28,9 +28,10 @@ $process = Get-Process -Id ([int]$state.processId) -ErrorAction Stop
 $expectedStart = [DateTimeOffset]::Parse(
     [string]$state.startedAt,
     [Globalization.CultureInfo]::InvariantCulture)
+$actualStart = [DateTimeOffset]::new(
+    $process.StartTime.ToUniversalTime())
 if ([Math]::Abs(
-        ($process.StartTime.ToUniversalTime() -
-         $expectedStart.UtcDateTime).TotalSeconds) -gt 1) {
+        ($actualStart - $expectedStart).TotalSeconds) -gt 1) {
     throw 'The canary topology process identity no longer matches.'
 }
 [IO.File]::WriteAllText(

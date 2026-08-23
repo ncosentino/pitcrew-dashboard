@@ -81,8 +81,12 @@ internal static class SupportAgentSettingsFinalizer
       return SupportEnrollmentFinalizationStatus.SettingsInvalid;
     }
 
-    if (root["PitCrewSupport"] is not JsonObject support ||
-        support["Agent"] is not JsonObject agent)
+    if (GetObjectPropertyOrNull(
+            root,
+            "PitCrewSupport") is not { } support ||
+        GetObjectPropertyOrNull(
+            support,
+            "Agent") is not { } agent)
     {
       return SupportEnrollmentFinalizationStatus.SettingsInvalid;
     }
@@ -143,5 +147,21 @@ internal static class SupportAgentSettingsFinalizer
         File.Delete(temporaryPath);
       }
     }
+  }
+
+  private static JsonObject? GetObjectPropertyOrNull(
+      JsonObject parent,
+      string propertyName)
+  {
+    var actualName = parent
+        .Select(property => property.Key)
+        .FirstOrDefault(
+            candidate => string.Equals(
+                candidate,
+                propertyName,
+                StringComparison.OrdinalIgnoreCase));
+    return actualName is null
+        ? null
+        : parent[actualName] as JsonObject;
   }
 }

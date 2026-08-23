@@ -20,15 +20,15 @@ public sealed class SupportAgentSettingsFinalizerTests
           settingsPath,
           """
           {
-            "PitCrewSupport": {
-              "Agent": {
-                "IdentityRoot": "identity",
-                "ReplayRoot": "replay",
-                "PipeName": "pipe",
-                "DashboardUrl": "http://localhost:5000/",
-                "TenantId": "local",
-                "DisplayName": "Canary",
-                "EnrollmentCode": "one-time-value"
+            "pitCrewSupport": {
+              "agent": {
+                "identityRoot": "identity",
+                "replayRoot": "replay",
+                "pipeName": "pipe",
+                "dashboardUrl": "http://localhost:5000/",
+                "tenantId": "local",
+                "displayName": "Canary",
+                "enrollmentCode": "one-time-value"
               }
             },
             "Unrelated": {
@@ -42,8 +42,8 @@ public sealed class SupportAgentSettingsFinalizerTests
       using var document = JsonDocument.Parse(
           await File.ReadAllTextAsync(settingsPath));
       var agent = document.RootElement
-          .GetProperty("PitCrewSupport")
-          .GetProperty("Agent");
+          .GetProperty("pitCrewSupport")
+          .GetProperty("agent");
 
       await Assert.That(first)
           .IsEqualTo(
@@ -51,13 +51,13 @@ public sealed class SupportAgentSettingsFinalizerTests
       await Assert.That(second)
           .IsEqualTo(
               SupportEnrollmentFinalizationStatus.AlreadyFinalized);
-      await Assert.That(agent.TryGetProperty("DashboardUrl", out _))
+      await Assert.That(agent.TryGetProperty("dashboardUrl", out _))
           .IsFalse()
           .Because("the stored identity owns the Dashboard origin after enrollment");
-      await Assert.That(agent.TryGetProperty("EnrollmentCode", out _))
+      await Assert.That(agent.TryGetProperty("enrollmentCode", out _))
           .IsFalse()
           .Because("one-time authorization cannot remain in runtime settings");
-      await Assert.That(agent.GetProperty("IdentityRoot").GetString())
+      await Assert.That(agent.GetProperty("identityRoot").GetString())
           .IsEqualTo("identity");
       await Assert.That(
               document.RootElement
