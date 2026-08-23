@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -33,11 +34,15 @@ internal sealed class SupportDashboardIdentityClient(
     {
       return null;
     }
-    var completion = await ReadResponseOrNullAsync<EnrollmentCompletionResponse>(
+    var completion = await ReadResponseOrNullAsync<SupportEnrollmentCompletionResponse>(
         response.Content,
         cancellationToken);
     return completion is null ||
-        completion.NodeId == Guid.Empty ||
+        !Guid.TryParse(
+            completion.NodeId,
+            CultureInfo.InvariantCulture,
+            out var nodeId) ||
+        nodeId == Guid.Empty ||
         !HasValue(completion.DisplayName) ||
         completion.TransportCredentialEnvelope is null ||
         !IsEnvelopeComplete(completion.TransportCredentialEnvelope) ||
@@ -46,7 +51,7 @@ internal sealed class SupportDashboardIdentityClient(
         !HasValue(completion.ResultEncryptionPublicKeySpki)
             ? null
             : new SupportEnrollmentCompletionData(
-                completion.NodeId,
+                nodeId,
                 completion.DisplayName!,
                 completion.TransportCredentialEnvelope,
                 completion.RelayUrl!,
@@ -114,11 +119,15 @@ internal sealed class SupportDashboardIdentityClient(
           HttpContent content,
           CancellationToken cancellationToken)
   {
-    var completion = await ReadResponseOrNullAsync<IdentityCompletionResponse>(
+    var completion = await ReadResponseOrNullAsync<SupportIdentityCompletionResponse>(
         content,
         cancellationToken);
     return completion is null ||
-        completion.NodeId == Guid.Empty ||
+        !Guid.TryParse(
+            completion.NodeId,
+            CultureInfo.InvariantCulture,
+            out var nodeId) ||
+        nodeId == Guid.Empty ||
         !HasValue(completion.DisplayName) ||
         !HasValue(completion.TransportCredential) ||
         !HasValue(completion.RelayUrl) ||
@@ -126,7 +135,7 @@ internal sealed class SupportDashboardIdentityClient(
         !HasValue(completion.ResultEncryptionPublicKeySpki)
             ? null
             : new SupportIdentityCompletionData(
-                completion.NodeId,
+                nodeId,
                 completion.DisplayName!,
                 completion.TransportCredential!,
                 completion.RelayUrl!,
@@ -167,19 +176,4 @@ internal sealed class SupportDashboardIdentityClient(
       HasValue(envelope.TagBase64Url) &&
       HasValue(envelope.SignatureBase64Url);
 
-  private sealed record EnrollmentCompletionResponse(
-      Guid NodeId,
-      string? DisplayName,
-      SupportEnvelope? TransportCredentialEnvelope,
-      string? RelayUrl,
-      string? AuthorizationSigningPublicKeySpki,
-      string? ResultEncryptionPublicKeySpki);
-
-  private sealed record IdentityCompletionResponse(
-      Guid NodeId,
-      string? DisplayName,
-      string? TransportCredential,
-      string? RelayUrl,
-      string? AuthorizationSigningPublicKeySpki,
-      string? ResultEncryptionPublicKeySpki);
 }

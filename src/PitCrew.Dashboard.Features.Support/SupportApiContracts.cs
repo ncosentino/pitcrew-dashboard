@@ -1,7 +1,5 @@
 using System.Text.Json;
 
-using PitCrew.Support.Protocol;
-
 namespace PitCrew.Dashboard.Features.Support;
 
 /// <summary>
@@ -68,40 +66,6 @@ public sealed record CompleteSupportEnrollmentRequest(
     Guid CompletionId,
     string NodeSigningPublicKeySpki,
     string NodeEncryptionPublicKeySpki);
-
-/// <summary>
-/// Response returned after successful node enrollment.
-/// </summary>
-/// <param name="NodeId">Dashboard-assigned support node identifier.</param>
-/// <param name="DisplayName">Operator-facing support node label.</param>
-/// <param name="TransportCredentialEnvelope">Credential encrypted to the node RSA key.</param>
-/// <param name="RelayUrl">Relay base URL.</param>
-/// <param name="AuthorizationSigningPublicKeySpki">Dashboard request-signing public SPKI.</param>
-/// <param name="ResultEncryptionPublicKeySpki">Dashboard result-encryption public SPKI.</param>
-public sealed record CompletedSupportEnrollmentResponse(
-    string NodeId,
-    string DisplayName,
-    SupportEnvelope TransportCredentialEnvelope,
-    string RelayUrl,
-    string AuthorizationSigningPublicKeySpki,
-    string ResultEncryptionPublicKeySpki);
-
-/// <summary>
-/// Response returned after successful node rotation.
-/// </summary>
-/// <param name="NodeId">Dashboard-assigned support node identifier.</param>
-/// <param name="DisplayName">Operator-facing support node label.</param>
-/// <param name="TransportCredential">Accepted replacement relay credential.</param>
-/// <param name="RelayUrl">Relay base URL.</param>
-/// <param name="AuthorizationSigningPublicKeySpki">Dashboard request-signing public SPKI.</param>
-/// <param name="ResultEncryptionPublicKeySpki">Dashboard result-encryption public SPKI.</param>
-public sealed record CompletedSupportIdentityResponse(
-    string NodeId,
-    string DisplayName,
-    string TransportCredential,
-    string RelayUrl,
-    string AuthorizationSigningPublicKeySpki,
-    string ResultEncryptionPublicKeySpki);
 
 /// <summary>
 /// Request to atomically rotate one active support identity.

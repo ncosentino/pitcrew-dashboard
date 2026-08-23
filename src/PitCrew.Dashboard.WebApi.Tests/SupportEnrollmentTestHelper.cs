@@ -10,7 +10,7 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 
 internal static class SupportEnrollmentTestHelper
 {
-  public static async Task<CompletedSupportIdentityResponse> EnrollAsync(
+  public static async Task<SupportIdentityCompletionResponse> EnrollAsync(
       HttpClient client,
       string antiforgeryToken,
       SupportNodeKeySet nodeKeys,
@@ -32,7 +32,7 @@ internal static class SupportEnrollmentTestHelper
         cancellationToken);
     completeResponse.EnsureSuccessStatusCode();
     var completed = await completeResponse.Content
-        .ReadFromJsonAsync<CompletedSupportEnrollmentResponse>(cancellationToken) ??
+        .ReadFromJsonAsync<SupportEnrollmentCompletionResponse>(cancellationToken) ??
         throw new InvalidOperationException(
             "Support enrollment completion response was empty.");
     using var dashboardSigning = SupportKeyFactory.ImportEcdsaPublicKey(
@@ -59,7 +59,7 @@ internal static class SupportEnrollmentTestHelper
         throw new InvalidOperationException(
             "Support enrollment credential payload was not bound to the completion.");
       }
-      return new CompletedSupportIdentityResponse(
+      return new SupportIdentityCompletionResponse(
           completed.NodeId,
           completed.DisplayName,
           payload.TransportCredential,

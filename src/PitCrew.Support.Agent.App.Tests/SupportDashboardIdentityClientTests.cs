@@ -8,20 +8,18 @@ namespace PitCrew.Support.Agent.App.Tests;
 public sealed class SupportDashboardIdentityClientTests
 {
   [Test]
-  public async Task Enrollment_Maps_Dashboard_Response_Field_Names(
+  public async Task Enrollment_Consumes_Shared_Wire_Response(
       CancellationToken cancellationToken)
   {
     var nodeId = Guid.NewGuid();
     var envelope = CreateEnvelope(nodeId);
-    var client = CreateClient(new
-    {
-      NodeId = nodeId,
-      DisplayName = "Support node",
-      TransportCredentialEnvelope = envelope,
-      RelayUrl = "https://relay.example.com/",
-      AuthorizationSigningPublicKeySpki = "authorization-key",
-      ResultEncryptionPublicKeySpki = "result-key",
-    });
+    var client = CreateClient(new SupportEnrollmentCompletionResponse(
+        nodeId.ToString("D"),
+        "Support node",
+        envelope,
+        "https://relay.example.com/",
+        "authorization-key",
+        "result-key"));
 
     var completion = await client.CompleteEnrollmentAsync(
         new Uri("https://dashboard.example.com/"),
@@ -42,19 +40,17 @@ public sealed class SupportDashboardIdentityClientTests
   }
 
   [Test]
-  public async Task Rotation_Maps_Dashboard_Response_Field_Names(
+  public async Task Rotation_Consumes_Shared_Wire_Response(
       CancellationToken cancellationToken)
   {
     var nodeId = Guid.NewGuid();
-    var client = CreateClient(new
-    {
-      NodeId = nodeId,
-      DisplayName = "Support node",
-      TransportCredential = "replacement-credential-abcdefghijklmnopqrstuvwxyz",
-      RelayUrl = "https://relay.example.com/",
-      AuthorizationSigningPublicKeySpki = "authorization-key",
-      ResultEncryptionPublicKeySpki = "result-key",
-    });
+    var client = CreateClient(new SupportIdentityCompletionResponse(
+        nodeId.ToString("D"),
+        "Support node",
+        "replacement-credential-abcdefghijklmnopqrstuvwxyz",
+        "https://relay.example.com/",
+        "authorization-key",
+        "result-key"));
     var plan = new SupportIdentityRotationPlan(
         Guid.NewGuid(),
         nodeId,
@@ -78,13 +74,13 @@ public sealed class SupportDashboardIdentityClientTests
   }
 
   [Test]
-  public async Task Enrollment_Rejects_Incomplete_Success_Response(
+  public async Task Enrollment_Rejects_Incomplete_Shared_Response(
       CancellationToken cancellationToken)
   {
     var nodeId = Guid.NewGuid();
     var client = CreateClient(new
     {
-      NodeId = nodeId,
+      NodeId = nodeId.ToString("D"),
       DisplayName = "Support node",
       TransportCredentialEnvelope = CreateEnvelope(nodeId),
       RelayUrl = "https://relay.example.com/",

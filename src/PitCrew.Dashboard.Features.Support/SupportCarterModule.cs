@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Dashboard.Features.Support;
 
@@ -330,7 +331,7 @@ public sealed class SupportCarterModule : ICarterModule
       status switch
       {
         SupportMutationStatus.Succeeded when enrollment is not null => Results.Ok(
-            new CompletedSupportEnrollmentResponse(
+            new SupportEnrollmentCompletionResponse(
                 enrollment.Identity.NodeId.ToString("D"),
                 enrollment.Identity.DisplayName,
                 enrollment.TransportCredentialEnvelope,
@@ -356,7 +357,7 @@ public sealed class SupportCarterModule : ICarterModule
       status switch
       {
         SupportMutationStatus.Succeeded when enrollment is not null => Results.Ok(
-            new CompletedSupportIdentityResponse(
+            new SupportIdentityCompletionResponse(
                 enrollment.Identity.NodeId.ToString("D"),
                 enrollment.Identity.DisplayName,
                 enrollment.TransportCredential,
