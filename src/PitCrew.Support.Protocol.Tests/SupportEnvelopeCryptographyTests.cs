@@ -198,7 +198,9 @@ public sealed class SupportEnvelopeCryptographyTests
           "pitcrewRoot": "<pitcrew-root>",
           "startedAt": "2026-08-01T00:00:00+00:00",
           "completedAt": "2026-08-01T00:00:01+00:00",
-          "verifiedMeasurements": {},
+          "verifiedMeasurements": {
+            "repository": "https://github.com/example/project"
+          },
           "unavailableEvidence": [],
           "hypotheses": []
         }
@@ -295,9 +297,9 @@ public sealed class SupportEnvelopeCryptographyTests
         .IsFalse()
         .Because("credential formats cannot cross under otherwise allowed fields");
     await Assert.That(SupportDiagnosticReportValidator.IsSafeMarkdown(
-            "# Verified evidence\nNo unavailable measurements."))
+            "# Verified evidence\nTarget: https://github.com/example/project"))
         .IsTrue()
-        .Because("bounded diagnostic markdown remains available to operators");
+        .Because("public origin-only URLs are evidence rather than Windows drive paths");
     await Assert.That(SupportDiagnosticReportValidator.IsSafeMarkdown(
             "credential=C:\\Users\\operator\\secret.txt"))
         .IsFalse()
