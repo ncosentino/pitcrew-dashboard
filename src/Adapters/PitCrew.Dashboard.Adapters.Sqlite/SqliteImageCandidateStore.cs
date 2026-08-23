@@ -99,6 +99,68 @@ internal sealed class SqliteImageCandidateStore(
     }
   }
 
+  public async Task<IReadOnlyList<ImageRecipeRegistration>>
+      ListRecipeRegistrationsAsync(
+          string tenantId,
+          bool includeDisabled,
+          int limit,
+          CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        $"""
+        {RecipeSelectSql}
+        WHERE tenant_id = $tenantId
+          AND ({(includeDisabled ? "1" : "0")} = 1 OR disabled_at IS NULL)
+        ORDER BY CASE
+                WHEN disabled_at IS NULL THEN 0
+                ELSE 1
+            END,
+            created_at DESC,
+            registration_id DESC
+        LIMIT $limit;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$limit",
+        Math.Clamp(limit, 1, MaximumListLimit));
+    var registrations = new List<ImageRecipeRegistration>();
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      registrations.Add(ReadRecipe(reader));
+    }
+    return registrations;
+  }
+
+  public async Task<ImageRecipeRegistration?> GetRecipeRegistrationOrNullAsync(
+      string tenantId,
+      Guid registrationId,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        $"""
+        {RecipeSelectSql}
+        WHERE tenant_id = $tenantId
+          AND registration_id = $registrationId
+        ORDER BY version DESC
+        LIMIT 1;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$registrationId",
+        registrationId.ToString("D"));
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    return await reader.ReadAsync(cancellationToken)
+        ? ReadRecipe(reader)
+        : null;
+  }
+
   public async Task<IReadOnlyList<ImageRecipeRegistration>> ListRecipeVersionsAsync(
       string tenantId,
       string recipeId,
@@ -118,6 +180,40 @@ internal sealed class SqliteImageCandidateStore(
         """;
     command.Parameters.AddWithValue("$tenantId", tenantId);
     command.Parameters.AddWithValue("$recipeId", recipeId);
+    command.Parameters.AddWithValue(
+        "$limit",
+        Math.Clamp(limit, 1, MaximumListLimit));
+    var registrations = new List<ImageRecipeRegistration>();
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      registrations.Add(ReadRecipe(reader));
+    }
+    return registrations;
+  }
+
+  public async Task<IReadOnlyList<ImageRecipeRegistration>>
+      ListRegistrationVersionsAsync(
+          string tenantId,
+          Guid registrationId,
+          int limit,
+          CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        $"""
+        {RecipeSelectSql}
+        WHERE tenant_id = $tenantId
+          AND registration_id = $registrationId
+        ORDER BY version DESC
+        LIMIT $limit;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$registrationId",
+        registrationId.ToString("D"));
     command.Parameters.AddWithValue(
         "$limit",
         Math.Clamp(limit, 1, MaximumListLimit));
@@ -232,6 +328,62 @@ internal sealed class SqliteImageCandidateStore(
             durable.DisabledByGitHubUserId,
             disabledByGitHubUserId,
             StringComparison.Ordinal)
+        ? ImageCandidateMutationResult.Unchanged
+        : ImageCandidateMutationResult.Conflict;
+  }
+
+  public async Task<ImageCandidateMutationResult> DisableRecipeRegistrationAsync(
+      string tenantId,
+      Guid registrationId,
+      string disabledByGitHubUserId,
+      DateTimeOffset disabledAt,
+      CancellationToken cancellationToken)
+  {
+    var existing = await GetRecipeRegistrationOrNullAsync(
+        tenantId,
+        registrationId,
+        cancellationToken);
+    if (existing is null)
+    {
+      return ImageCandidateMutationResult.NotFound;
+    }
+    if (existing.DisabledAt is not null)
+    {
+      return ImageCandidateMutationResult.Unchanged;
+    }
+
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_recipe_versions
+        SET disabled_by_github_user_id = $disabledByGitHubUserId,
+            disabled_at = $disabledAt
+        WHERE tenant_id = $tenantId
+          AND registration_id = $registrationId
+          AND version = $version
+          AND disabled_at IS NULL;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$registrationId",
+        registrationId.ToString("D"));
+    command.Parameters.AddWithValue("$version", existing.Version);
+    command.Parameters.AddWithValue(
+        "$disabledByGitHubUserId",
+        disabledByGitHubUserId);
+    command.Parameters.AddWithValue("$disabledAt", Format(disabledAt));
+    if (await command.ExecuteNonQueryAsync(cancellationToken) == 1)
+    {
+      return ImageCandidateMutationResult.Succeeded;
+    }
+
+    var durable = await GetRecipeRegistrationOrNullAsync(
+        tenantId,
+        registrationId,
+        cancellationToken);
+    return durable?.DisabledAt is not null
         ? ImageCandidateMutationResult.Unchanged
         : ImageCandidateMutationResult.Conflict;
   }

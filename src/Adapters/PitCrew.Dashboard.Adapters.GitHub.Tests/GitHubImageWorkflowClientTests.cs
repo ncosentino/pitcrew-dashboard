@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 
 using PitCrew.Dashboard.Features.Images.Abstractions;
 
@@ -291,6 +292,175 @@ public sealed class GitHubImageWorkflowClientTests
   }
 
   [Test]
+  public async Task Workflow_Content_Is_Decoded_And_Bound_To_Exact_Revision(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    var revision = new GitHubWorkflowFileRevision(
+        ".github/workflows/image-candidate.yml",
+        BlobSha,
+        "release/v1");
+    var yaml =
+        """
+        on:
+          workflow_dispatch:
+            inputs:
+              pitcrew_request_id:
+                type: string
+                required: true
+        """;
+
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            CreateWorkflowContentJson(
+                revision.Path,
+                revision.BlobSha,
+                Encoding.UTF8.GetBytes(yaml))));
+
+    var content = await context.Client.LoadWorkflowFileContentAsync(
+        77,
+        repository,
+        revision,
+        cancellationToken);
+
+    await Assert.That(content.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.Success);
+    await Assert.That(content.Value).IsNotNull();
+    await Assert.That(content.Value!.Path).IsEqualTo(revision.Path);
+    await Assert.That(content.Value.BlobSha).IsEqualTo(revision.BlobSha);
+    await Assert.That(content.Value.Reference)
+        .IsEqualTo(revision.Reference);
+    await Assert.That(content.Value.Content).IsEqualTo(yaml);
+    await Assert.That(context.Handler.Requests[1].Uri.PathAndQuery)
+        .IsEqualTo(
+            "/repos/nexus-labs/pitcrew/contents/.github/workflows/" +
+            "image-candidate.yml?ref=release%2Fv1");
+  }
+
+  [Test]
+  public async Task Workflow_Content_Rejects_Invalid_Encoding_And_Identity(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    var revision = new GitHubWorkflowFileRevision(
+        ".github/workflows/image-candidate.yml",
+        BlobSha,
+        "release/v1");
+
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            """
+            {
+              "type": "file",
+              "path": ".github/workflows/image-candidate.yml",
+              "sha": "abcdef0123456789abcdef0123456789abcdef01",
+              "size": 12,
+              "encoding": "utf-16",
+              "content": "dGVzdA=="
+            }
+            """));
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            CreateWorkflowContentJson(
+                ".github/workflows/other.yml",
+                revision.BlobSha,
+                Encoding.UTF8.GetBytes("name: build"))));
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            CreateWorkflowContentJson(
+                revision.Path,
+                new string('b', 40),
+                Encoding.UTF8.GetBytes("name: build"))));
+
+    var invalidEncoding = await context.Client.LoadWorkflowFileContentAsync(
+        77,
+        repository,
+        revision,
+        cancellationToken);
+    var wrongPath = await context.Client.LoadWorkflowFileContentAsync(
+        77,
+        repository,
+        revision,
+        cancellationToken);
+    var wrongBlob = await context.Client.LoadWorkflowFileContentAsync(
+        77,
+        repository,
+        revision,
+        cancellationToken);
+
+    await Assert.That(invalidEncoding.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+    await Assert.That(wrongPath.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+    await Assert.That(wrongBlob.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+  }
+
+  [Test]
+  public async Task Workflow_Content_Rejects_Oversized_And_Invalid_Utf8(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    var revision = new GitHubWorkflowFileRevision(
+        ".github/workflows/image-candidate.yml",
+        BlobSha,
+        "release/v1");
+    var invalidUtf8 = new byte[]
+    {
+      0xC3,
+      0x28,
+    };
+
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            CreateWorkflowContentJson(
+                revision.Path,
+                revision.BlobSha,
+                Encoding.UTF8.GetBytes("name: build"),
+                size: 65_537)));
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            CreateWorkflowContentJson(
+                revision.Path,
+                revision.BlobSha,
+                invalidUtf8)));
+
+    var oversized = await context.Client.LoadWorkflowFileContentAsync(
+        77,
+        repository,
+        revision,
+        cancellationToken);
+    var malformedUtf8 = await context.Client.LoadWorkflowFileContentAsync(
+        77,
+        repository,
+        revision,
+        cancellationToken);
+
+    await Assert.That(oversized.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+    await Assert.That(malformedUtf8.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+  }
+
+  [Test]
   public async Task Exact_Run_And_Bounded_Artifacts_Are_Mapped(
       CancellationToken cancellationToken)
   {
@@ -362,5 +532,65 @@ public sealed class GitHubImageWorkflowClientTests
     await Assert.That(context.Handler.Requests[3].Uri.PathAndQuery)
         .IsEqualTo(
             "/repos/nexus-labs/pitcrew/actions/runs/987/artifacts?per_page=10&page=1");
+  }
+
+  private static string CreateWorkflowContentJson(
+      string path,
+      string sha,
+      byte[] content,
+      string encoding = "base64",
+      long? size = null)
+  {
+    var base64 = Convert.ToBase64String(content);
+    var wrapped = WrapBase64(base64);
+    var escapedContent = wrapped
+        .Replace(
+            "\\",
+            "\\\\",
+            StringComparison.Ordinal)
+        .Replace(
+            "\"",
+            "\\\"",
+            StringComparison.Ordinal)
+        .Replace(
+            "\r",
+            "\\r",
+            StringComparison.Ordinal)
+        .Replace(
+            "\n",
+            "\\n",
+            StringComparison.Ordinal);
+    return
+        $$"""
+          {
+            "type": "file",
+            "path": "{{path}}",
+            "sha": "{{sha}}",
+            "size": {{size ?? content.Length}},
+            "encoding": "{{encoding}}",
+            "content": "{{escapedContent}}"
+          }
+          """;
+  }
+
+  private static string WrapBase64(string value)
+  {
+    var builder = new StringBuilder(value.Length + (value.Length / 60));
+    for (var offset = 0; offset < value.Length; offset += 60)
+    {
+      if (offset > 0)
+      {
+        builder.Append('\n');
+      }
+
+      builder.Append(
+          value,
+          offset,
+          Math.Min(
+              60,
+              value.Length - offset));
+    }
+
+    return builder.ToString();
   }
 }

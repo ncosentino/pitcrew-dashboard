@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Carter" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Access\PitCrew.Dashboard.Features.Access.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Access.Abstractions\PitCrew.Dashboard.Features.Access.Abstractions.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Images.Abstractions\PitCrew.Dashboard.Features.Images.Abstractions.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Kernel.Authentication\PitCrew.Dashboard.Kernel.Authentication.csproj" />
+  </ItemGroup>
+
+</Project>
