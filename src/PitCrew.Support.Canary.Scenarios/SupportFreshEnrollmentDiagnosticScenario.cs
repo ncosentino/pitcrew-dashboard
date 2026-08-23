@@ -592,6 +592,20 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
               capturedAt =
                   context.TimeProvider.GetUtcNow(),
               diagnosticMode = "ConnectorOffline",
+              dashboard = new
+              {
+                nodeId,
+                status = "Active",
+                lastSeenAt = (DateTimeOffset?)null,
+                incident = (string?)null,
+                publicEndpoint = (object?)null,
+              },
+              github = (object?)null,
+              releases = new
+              {
+                pitcrew = (object?)null,
+                dashboard = (object?)null,
+              },
               unavailableEvidence =
                   Array.Empty<object>(),
             },
@@ -688,10 +702,17 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     using var status = JsonDocument.Parse(
         File.ReadAllText(statusPath));
     var root = status.RootElement;
-    return root.GetProperty("phase").GetString() ==
-            "request-processing"
-        ? $"agent-{root.GetProperty("disposition").GetString()}"
-        : null;
+    if (root.GetProperty("phase").GetString() !=
+        "request-processing")
+    {
+      return null;
+    }
+    var disposition = root
+        .GetProperty("disposition")
+        .GetString();
+    return disposition == "completed"
+        ? null
+        : $"agent-{disposition}";
   }
 
   private static void WriteDeletionRequest(
