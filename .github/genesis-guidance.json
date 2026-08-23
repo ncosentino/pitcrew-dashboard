@@ -306,6 +306,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0009-trusted-image-candidate-orchestration.md",
+        "title": "ADR-0009: Trusted outbound image candidate orchestration",
+        "section": "Architecture decisions",
+        "order": 109,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",
