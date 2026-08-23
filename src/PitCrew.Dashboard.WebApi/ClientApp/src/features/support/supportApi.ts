@@ -7,7 +7,7 @@ const offsetDateTimeSchema = z.string().datetime({ offset: true });
 export const supportIdentitySchema = z.object({
   nodeId: z.string().uuid(),
   displayName: z.string(),
-  status: z.string(),
+  status: z.enum(['Active', 'Revoked']),
   createdAt: offsetDateTimeSchema,
   revokedAt: offsetDateTimeSchema.nullable(),
   lastPollAt: offsetDateTimeSchema.nullable(),

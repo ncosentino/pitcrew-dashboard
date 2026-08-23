@@ -12,6 +12,7 @@ function statusClasses(status: string): string {
     case 'online':
     case 'running':
     case 'accepted':
+    case 'active':
     case 'succeeded':
     case 'recovered':
     case 'resolved':

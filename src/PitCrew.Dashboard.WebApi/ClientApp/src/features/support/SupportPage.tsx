@@ -174,16 +174,11 @@ export default function SupportPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <div className="grid gap-2 md:grid-cols-2">
-            {identities.map((identity) => (
-              <SupportIdentityCard
-                key={identity.nodeId}
-                identity={identity}
-                revoking={revokingNodeId === identity.nodeId}
-                onRevoke={revokeIdentity}
-              />
-            ))}
-          </div>
+          <SupportIdentityInventory
+            identities={identities}
+            revokingNodeId={revokingNodeId}
+            onRevoke={revokeIdentity}
+          />
           <fieldset className="grid gap-3 rounded-lg border p-3">
             <legend className="px-2 text-sm font-medium">Create node enrollment</legend>
             <p className="max-w-[70ch] text-sm text-muted-foreground">
@@ -230,19 +225,26 @@ export default function SupportPage() {
           <CardTitle as="h2">Request diagnostic session</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <FormField label="Support node">
-            <select
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={nodeId}
-              onChange={(event) => setNodeId(event.target.value)}
-            >
-              {activeIdentities.map((identity) => (
-                <option key={identity.nodeId} value={identity.nodeId}>
-                  {identity.displayName}
-                </option>
-              ))}
-            </select>
-          </FormField>
+          {activeIdentities.length > 0 ? (
+            <FormField label="Support node">
+              <select
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={nodeId}
+                onChange={(event) => setNodeId(event.target.value)}
+              >
+                {activeIdentities.map((identity) => (
+                  <option key={identity.nodeId} value={identity.nodeId}>
+                    {identity.displayName}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No active support nodes are available. Complete a new node enrollment before
+              requesting diagnostics.
+            </p>
+          )}
           <FormField label="Diagnostic mode">
             <select
               className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -285,6 +287,57 @@ export default function SupportPage() {
   );
 }
 
+export interface SupportIdentityInventoryProps {
+  readonly identities: readonly SupportIdentity[];
+  readonly revokingNodeId?: string | null;
+  readonly onRevoke?: (nodeId: string) => Promise<void>;
+}
+
+export function SupportIdentityInventory({
+  identities,
+  revokingNodeId = null,
+  onRevoke,
+}: SupportIdentityInventoryProps) {
+  const activeIdentities = identities.filter((identity) => identity.status === 'Active');
+  const revokedIdentities = identities.filter((identity) => identity.status === 'Revoked');
+  return (
+    <>
+      {activeIdentities.length > 0 ? (
+        <div className="grid gap-2 md:grid-cols-2">
+          {activeIdentities.map((identity) => (
+            <SupportIdentityCard
+              key={identity.nodeId}
+              identity={identity}
+              revoking={revokingNodeId === identity.nodeId}
+              onRevoke={onRevoke}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          No active support nodes. Create a new node enrollment when a host is ready.
+        </p>
+      )}
+      {revokedIdentities.length > 0 ? (
+        <details className="rounded-lg border bg-muted/20 p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            Revoked history ({revokedIdentities.length})
+          </summary>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Revoked identities are retained for audit history and cannot poll or receive new
+            diagnostic sessions.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {revokedIdentities.map((identity) => (
+              <SupportIdentityCard key={identity.nodeId} identity={identity} />
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </>
+  );
+}
+
 export interface SupportIdentityCardProps {
   readonly identity: SupportIdentity;
   readonly revoking?: boolean;
@@ -301,15 +354,23 @@ export function SupportIdentityCard({
     <article className="min-w-0 rounded-lg border p-3">
       <div className="flex items-center justify-between gap-3">
         <h3 className="min-w-0 break-words font-medium">{identity.displayName}</h3>
-        <StatusBadge status={identity.status === 'Active' ? 'healthy' : 'critical'} />
+        <StatusBadge status={identity.status.toLowerCase()} />
       </div>
       <div className="mt-2 break-all font-mono text-xs text-muted-foreground">
         {identity.nodeId}
       </div>
       <dl className="mt-2 grid gap-1 text-sm">
-        <div>
-          Last poll: {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
-        </div>
+        {identity.status === 'Active' ? (
+          <div>
+            Last poll: {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
+          </div>
+        ) : (
+          <div>
+            {identity.revokedAt
+              ? `Revoked ${formatTime(identity.revokedAt)}`
+              : 'Revocation time unavailable'}
+          </div>
+        )}
         <div>Capability: v{identity.capabilityVersion}</div>
       </dl>
       {canRevoke ? (
