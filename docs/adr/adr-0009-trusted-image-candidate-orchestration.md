@@ -1,6 +1,6 @@
 ---
 title: "ADR-0009: Trusted outbound image candidate orchestration"
-status: "Proposed"
+status: "Accepted"
 date: "2026-08-23"
 authors: ["Nick Cosentino"]
 tags: ["architecture", "github", "images", "security", "storage"]
