@@ -20,7 +20,7 @@ function Assert-SupportCanaryCommit {
         throw 'The canary source root does not match its immutable commit.'
     }
     $changes = & git -C $SourceRoot status --porcelain
-    if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 0) {
+    if ($LASTEXITCODE -ne 0 -or @($changes).Count -ne 0) {
         throw 'The canary source root contains uncommitted changes.'
     }
 }
