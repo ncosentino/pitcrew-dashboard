@@ -85,6 +85,13 @@ internal sealed class SupportDiagnosticsBroker
     {
       throw new OperationCanceledException(cancellationToken);
     }
+    catch (RuntimeException)
+    {
+      return new SupportBrokerExecution(
+          SupportBrokerStatus.ExecutionFailed,
+          null,
+          "The diagnostics collector failed.");
+    }
     using (output)
     {
       if (powerShell.HadErrors)
