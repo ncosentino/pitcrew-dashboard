@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 
 using Microsoft.Extensions.Configuration;
 
@@ -93,6 +94,40 @@ public sealed class SupportNodeIdentityProvisionerTests
       await Assert.That(result.Options).IsNull();
       await Assert.That(status.Lifecycle)
           .IsEqualTo(SupportNodeIdentityLifecycle.PendingEnrollment);
+    }
+    finally
+    {
+      DeleteRoot(root);
+    }
+  }
+
+  [Test]
+  public async Task Incomplete_Success_Response_Reports_Enrollment_Rejection(
+      CancellationToken cancellationToken)
+  {
+    var root = CreateRoot();
+    try
+    {
+      var provisioner = CreateProvisioner(
+          root,
+          "pcs_enroll_fixture-code-abcdefghijklmnopqrstuvwxyz",
+          _ => new HttpResponseMessage(HttpStatusCode.OK)
+          {
+            Content = JsonContent.Create(new
+            {
+              NodeId = Guid.NewGuid(),
+              DisplayName = "Zephyr",
+              RelayUrl = "https://relay.example.com/",
+              AuthorizationSigningPublicKeySpki = (string?)null,
+              ResultEncryptionPublicKeySpki = "result-key",
+            }),
+          });
+
+      var result = await provisioner.GetRuntimeOptionsAsync(cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(SupportAgentProvisioningStatus.EnrollmentRejected);
+      await Assert.That(result.Options).IsNull();
     }
     finally
     {

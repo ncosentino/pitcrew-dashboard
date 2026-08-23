@@ -194,7 +194,13 @@ internal sealed class SupportNodeIdentityProvisioner(
   {
     if (completion is null ||
         completion.NodeId == Guid.Empty ||
-        completion.TransportCredential.Length is < 32 or > 256 ||
+        string.IsNullOrWhiteSpace(completion.DisplayName) ||
+        completion.TransportCredential is not { Length: >= 32 and <= 256 } ||
+        string.IsNullOrWhiteSpace(completion.RelayUrl) ||
+        string.IsNullOrWhiteSpace(
+            completion.DashboardAuthorizationSigningPublicKeySpki) ||
+        string.IsNullOrWhiteSpace(
+            completion.DashboardResultEncryptionPublicKeySpki) ||
         expectedDisplayName is not null &&
         !string.Equals(
             completion.DisplayName,
@@ -232,6 +238,12 @@ internal sealed class SupportNodeIdentityProvisioner(
   {
     if (completion is null ||
         completion.NodeId == Guid.Empty ||
+        completion.TransportCredentialEnvelope is null ||
+        string.IsNullOrWhiteSpace(completion.RelayUrl) ||
+        string.IsNullOrWhiteSpace(
+            completion.DashboardAuthorizationSigningPublicKeySpki) ||
+        string.IsNullOrWhiteSpace(
+            completion.DashboardResultEncryptionPublicKeySpki) ||
         !string.Equals(
             completion.DisplayName,
             expectedDisplayName,

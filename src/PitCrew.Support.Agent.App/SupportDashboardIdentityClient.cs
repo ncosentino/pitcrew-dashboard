@@ -1,4 +1,7 @@
 using System.Net.Http.Json;
+using System.Text.Json;
+
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Agent.App;
 
@@ -30,8 +33,25 @@ internal sealed class SupportDashboardIdentityClient(
     {
       return null;
     }
-    return await response.Content.ReadFromJsonAsync<SupportEnrollmentCompletionData>(
+    var completion = await ReadResponseOrNullAsync<EnrollmentCompletionResponse>(
+        response.Content,
         cancellationToken);
+    return completion is null ||
+        completion.NodeId == Guid.Empty ||
+        !HasValue(completion.DisplayName) ||
+        completion.TransportCredentialEnvelope is null ||
+        !IsEnvelopeComplete(completion.TransportCredentialEnvelope) ||
+        !HasValue(completion.RelayUrl) ||
+        !HasValue(completion.AuthorizationSigningPublicKeySpki) ||
+        !HasValue(completion.ResultEncryptionPublicKeySpki)
+            ? null
+            : new SupportEnrollmentCompletionData(
+                completion.NodeId,
+                completion.DisplayName!,
+                completion.TransportCredentialEnvelope,
+                completion.RelayUrl!,
+                completion.AuthorizationSigningPublicKeySpki!,
+                completion.ResultEncryptionPublicKeySpki!);
   }
 
   public async Task<SupportIdentityCompletionData?> PrepareRotationAsync(
@@ -58,7 +78,8 @@ internal sealed class SupportDashboardIdentityClient(
     {
       return null;
     }
-    return await response.Content.ReadFromJsonAsync<SupportIdentityCompletionData>(
+    return await ReadIdentityCompletionOrNullAsync(
+        response.Content,
         cancellationToken);
   }
 
@@ -83,7 +104,82 @@ internal sealed class SupportDashboardIdentityClient(
     {
       return null;
     }
-    return await response.Content.ReadFromJsonAsync<SupportIdentityCompletionData>(
+    return await ReadIdentityCompletionOrNullAsync(
+        response.Content,
         cancellationToken);
   }
+
+  private static async Task<SupportIdentityCompletionData?>
+      ReadIdentityCompletionOrNullAsync(
+          HttpContent content,
+          CancellationToken cancellationToken)
+  {
+    var completion = await ReadResponseOrNullAsync<IdentityCompletionResponse>(
+        content,
+        cancellationToken);
+    return completion is null ||
+        completion.NodeId == Guid.Empty ||
+        !HasValue(completion.DisplayName) ||
+        !HasValue(completion.TransportCredential) ||
+        !HasValue(completion.RelayUrl) ||
+        !HasValue(completion.AuthorizationSigningPublicKeySpki) ||
+        !HasValue(completion.ResultEncryptionPublicKeySpki)
+            ? null
+            : new SupportIdentityCompletionData(
+                completion.NodeId,
+                completion.DisplayName!,
+                completion.TransportCredential!,
+                completion.RelayUrl!,
+                completion.AuthorizationSigningPublicKeySpki!,
+                completion.ResultEncryptionPublicKeySpki!);
+  }
+
+  private static async Task<T?> ReadResponseOrNullAsync<T>(
+      HttpContent content,
+      CancellationToken cancellationToken)
+  {
+    T? response;
+    try
+    {
+      response = await content.ReadFromJsonAsync<T>(
+          cancellationToken: cancellationToken);
+    }
+    catch (JsonException)
+    {
+      response = default;
+    }
+    return response;
+  }
+
+  private static bool HasValue(string? value) =>
+      !string.IsNullOrWhiteSpace(value);
+
+  private static bool IsEnvelopeComplete(SupportEnvelope envelope) =>
+      HasValue(envelope.EnvelopeVersion) &&
+      HasValue(envelope.ContentEncryptionAlgorithm) &&
+      HasValue(envelope.KeyWrapAlgorithm) &&
+      HasValue(envelope.SignatureAlgorithm) &&
+      HasValue(envelope.SenderKeyId) &&
+      HasValue(envelope.RecipientKeyId) &&
+      HasValue(envelope.WrappedKeyBase64Url) &&
+      HasValue(envelope.NonceBase64Url) &&
+      HasValue(envelope.CiphertextBase64Url) &&
+      HasValue(envelope.TagBase64Url) &&
+      HasValue(envelope.SignatureBase64Url);
+
+  private sealed record EnrollmentCompletionResponse(
+      Guid NodeId,
+      string? DisplayName,
+      SupportEnvelope? TransportCredentialEnvelope,
+      string? RelayUrl,
+      string? AuthorizationSigningPublicKeySpki,
+      string? ResultEncryptionPublicKeySpki);
+
+  private sealed record IdentityCompletionResponse(
+      Guid NodeId,
+      string? DisplayName,
+      string? TransportCredential,
+      string? RelayUrl,
+      string? AuthorizationSigningPublicKeySpki,
+      string? ResultEncryptionPublicKeySpki);
 }
