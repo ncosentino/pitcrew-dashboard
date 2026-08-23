@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using PitCrew.Support.Protocol;
 
@@ -10,6 +11,9 @@ internal sealed record AgentRelayPollResponse(
     string RequestEnvelope,
     DateTimeOffset ExpiresAt)
 {
+  private static readonly JsonSerializerOptions _jsonOptions =
+      new(JsonSerializerDefaults.Web);
+
   public SupportEnvelope? GetRequestEnvelopeOrNull() =>
       DeserializeEnvelopeOrNull(RequestEnvelope);
 
@@ -21,7 +25,9 @@ internal sealed record AgentRelayPollResponse(
     }
     try
     {
-      return System.Text.Json.JsonSerializer.Deserialize<SupportEnvelope>(value);
+      return JsonSerializer.Deserialize<SupportEnvelope>(
+          value,
+          _jsonOptions);
     }
     catch (System.Text.Json.JsonException)
     {
@@ -33,6 +39,9 @@ internal sealed record AgentRelayPollResponse(
 internal sealed class SupportRelayTransportClient(
     IHttpClientFactory _httpClientFactory)
 {
+  private static readonly JsonSerializerOptions _jsonOptions =
+      new(JsonSerializerDefaults.Web);
+
   public async Task<SupportRelayPollOutcome> PollAsync(
       SupportAgentOptions options,
       CancellationToken cancellationToken)
@@ -61,6 +70,7 @@ internal sealed class SupportRelayTransportClient(
     return new SupportRelayPollOutcome(
         true,
         await response.Content.ReadFromJsonAsync<AgentRelayPollResponse>(
+            _jsonOptions,
             cancellationToken: cancellationToken));
   }
 
@@ -77,10 +87,14 @@ internal sealed class SupportRelayTransportClient(
             options.RelayUrl,
             $"/api/support-relay/v1/nodes/{options.NodeId:D}/sessions/{sessionId:D}/result"))
     {
-      Content = JsonContent.Create(new
-      {
-        ResultEnvelope = System.Text.Json.JsonSerializer.Serialize(resultEnvelope),
-      }),
+      Content = JsonContent.Create(
+          new
+          {
+            ResultEnvelope = JsonSerializer.Serialize(
+                resultEnvelope,
+                _jsonOptions),
+          },
+          options: _jsonOptions),
     };
     request.Headers.Authorization = new AuthenticationHeaderValue(
         "Bearer",
