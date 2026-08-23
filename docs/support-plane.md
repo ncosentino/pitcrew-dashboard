@@ -135,6 +135,13 @@ no plaintext transport credential, node private material, or enrollment code.
 Cross-tenant submission, expiry, mismatched retries, and duplicate node key pairs
 fail.
 
+Enrollment and rotation responses are single-sourced in
+`PitCrew.Support.Protocol`. The Dashboard API producer and support-agent consumer
+compile against those same wire records, while protocol tests pin the exact v1
+serialized property names. A wire change must update producer, consumer,
+serialization, and mixed-version coverage together; a separately declared
+lookalike response type is not compatible evidence.
+
 The original `POST /api/tenants/{tenantId}/support/v1/enrollments` manual-key
 contract remains available only when
 `PitCrew__SupportPlane__AllowLegacyManualEnrollment=true`. Its original request

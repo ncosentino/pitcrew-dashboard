@@ -245,7 +245,7 @@ public sealed class SupportHostingTests
           cancellationToken);
       var responseJson = await completedResponse.Content.ReadAsStringAsync(
           cancellationToken);
-      var completed = JsonSerializer.Deserialize<CompletedSupportEnrollmentResponse>(
+      var completed = JsonSerializer.Deserialize<SupportEnrollmentCompletionResponse>(
           responseJson,
           new JsonSerializerOptions(JsonSerializerDefaults.Web));
       using var exactRetry = await client.PostAsJsonAsync(
@@ -253,7 +253,7 @@ public sealed class SupportHostingTests
           request,
           cancellationToken);
       var exactRetryCompletion = await exactRetry.Content
-          .ReadFromJsonAsync<CompletedSupportEnrollmentResponse>(
+          .ReadFromJsonAsync<SupportEnrollmentCompletionResponse>(
               cancellationToken);
       using var replay = await client.PostAsJsonAsync(
           "/api/support-agent/v1/enrollments/complete",

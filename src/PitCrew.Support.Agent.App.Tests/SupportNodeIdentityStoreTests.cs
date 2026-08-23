@@ -488,19 +488,15 @@ public sealed class SupportNodeIdentityStoreTests
           throw new InvalidOperationException(
               "Rotation credential was absent.");
       var response = JsonSerializer.SerializeToUtf8Bytes(
-          new
-          {
-            NodeId = nodeId,
-            DisplayName = "Support node",
-            TransportCredential = credential,
-            RelayUrl = "https://relay.example.com/",
-            AuthorizationSigningPublicKeySpki =
-                dashboardKeys.AuthorizationSigning
-                    .PublicKeySubjectPublicKeyInfoBase64Url,
-            ResultEncryptionPublicKeySpki =
-                dashboardKeys.ResultEncryption
-                    .PublicKeySubjectPublicKeyInfoBase64Url,
-          },
+          new SupportIdentityCompletionResponse(
+              nodeId.ToString("D"),
+              "Support node",
+              credential,
+              "https://relay.example.com/",
+              dashboardKeys.AuthorizationSigning
+                  .PublicKeySubjectPublicKeyInfoBase64Url,
+              dashboardKeys.ResultEncryption
+                  .PublicKeySubjectPublicKeyInfoBase64Url),
           new JsonSerializerOptions(JsonSerializerDefaults.Web));
       context.Response.StatusCode = (int)HttpStatusCode.OK;
       context.Response.ContentType = "application/json";
