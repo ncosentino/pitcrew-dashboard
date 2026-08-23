@@ -7,9 +7,17 @@ var runRoot = CanaryAppHostConfiguration.ReadAbsolutePath(
 var dashboardSourceRoot = CanaryAppHostConfiguration.ReadAbsolutePath(
     "PITCREW_CANARY_DASHBOARD_SOURCE_ROOT");
 var configuration = CanaryAppHostConfiguration.ReadConfiguration();
-var relaySecret = CanaryAppHostConfiguration.ReadSecret();
 var runId = CanaryAppHostConfiguration.ReadRunId();
 var builder = DistributedApplication.CreateBuilder(args);
+var relaySecret = builder.AddParameter(
+    "relay-secret",
+    secret: true);
+var dashboardAuthorizationKey = builder.AddParameter(
+    "dashboard-authorization-key",
+    secret: true);
+var dashboardResultKey = builder.AddParameter(
+    "dashboard-result-key",
+    secret: true);
 builder.Services.AddSingleton(
     new CanaryAppHostOptions(runRoot, runId));
 builder.Services.AddHostedService<CanaryStopRequestMonitor>();
@@ -85,6 +93,12 @@ var dashboard = builder.AddExecutable(
     .WithEnvironment(
         "PitCrew__SupportPlane__RelayInternalBearerSecret",
         relaySecret)
+    .WithEnvironment(
+        "PitCrew__SupportPlane__AuthorizationSigningPrivateKeyPkcs8",
+        dashboardAuthorizationKey)
+    .WithEnvironment(
+        "PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8",
+        dashboardResultKey)
     .WithHttpHealthCheck("/health")
     .WaitFor(relay);
 

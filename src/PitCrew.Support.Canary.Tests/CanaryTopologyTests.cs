@@ -45,8 +45,12 @@ public sealed class CanaryTopologyTests
           ["PITCREW_CANARY_RUN_ID"] = runId,
           ["PITCREW_CANARY_DASHBOARD_SOURCE_ROOT"] = repositoryRoot,
           ["PITCREW_CANARY_DOTNET_CONFIGURATION"] = "Debug",
-          ["PITCREW_CANARY_RELAY_SECRET"] =
+          ["Parameters__relay-secret"] =
               "canary-test-relay-secret-not-for-production",
+          ["Parameters__dashboard-authorization-key"] =
+              CreateDashboardAuthorizationKey(),
+          ["Parameters__dashboard-result-key"] =
+              CreateDashboardResultKey(),
         });
     try
     {
@@ -110,6 +114,25 @@ public sealed class CanaryTopologyTests
       Directory.Delete(runRoot, recursive: true);
     }
   }
+
+  private static string CreateDashboardAuthorizationKey()
+  {
+    using var key = System.Security.Cryptography.ECDsa.Create(
+        System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+    return ToBase64Url(key.ExportPkcs8PrivateKey());
+  }
+
+  private static string CreateDashboardResultKey()
+  {
+    using var key = System.Security.Cryptography.RSA.Create(3072);
+    return ToBase64Url(key.ExportPkcs8PrivateKey());
+  }
+
+  private static string ToBase64Url(byte[] value) =>
+      Convert.ToBase64String(value)
+          .TrimEnd('=')
+          .Replace('+', '-')
+          .Replace('/', '_');
 
   private static async Task WaitForFileAsync(
       string path,

@@ -24,20 +24,6 @@ internal static class CanaryAppHostConfiguration
             "Canary AppHost build configuration is invalid.");
   }
 
-  public static string ReadSecret()
-  {
-    var value = Environment.GetEnvironmentVariable(
-        "PITCREW_CANARY_RELAY_SECRET");
-    if (value is not { Length: >= 32 and <= 256 } ||
-        value.Contains('\r') ||
-        value.Contains('\n'))
-    {
-      throw new InvalidOperationException(
-          "Canary AppHost relay secret configuration is invalid.");
-    }
-    return value;
-  }
-
   public static string ReadRunId()
   {
     var value = Environment.GetEnvironmentVariable(

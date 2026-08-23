@@ -35,6 +35,30 @@ $appHostAssembly = Get-SupportCanaryProjectAssembly `
 $secretBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
 $relaySecret = [Convert]::ToBase64String($secretBytes)
 [Security.Cryptography.CryptographicOperations]::ZeroMemory($secretBytes)
+$curve = [Security.Cryptography.ECCurve]::CreateFromFriendlyName(
+    'nistP256')
+$ecdsa = [Security.Cryptography.ECDsa]::Create($curve)
+$rsa = [Security.Cryptography.RSA]::Create(3072)
+try {
+    $authorizationBytes = $ecdsa.ExportPkcs8PrivateKey()
+    $resultBytes = $rsa.ExportPkcs8PrivateKey()
+    try {
+        $dashboardAuthorizationKey = (
+            [Convert]::ToBase64String($authorizationBytes)
+        ).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        $dashboardResultKey = (
+            [Convert]::ToBase64String($resultBytes)
+        ).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    } finally {
+        [Security.Cryptography.CryptographicOperations]::ZeroMemory(
+            $authorizationBytes)
+        [Security.Cryptography.CryptographicOperations]::ZeroMemory(
+            $resultBytes)
+    }
+} finally {
+    $ecdsa.Dispose()
+    $rsa.Dispose()
+}
 
 $priorEnvironment = @{}
 foreach ($name in @(
@@ -42,7 +66,9 @@ foreach ($name in @(
         'PITCREW_CANARY_RUN_ID',
         'PITCREW_CANARY_DASHBOARD_SOURCE_ROOT',
         'PITCREW_CANARY_DOTNET_CONFIGURATION',
-        'PITCREW_CANARY_RELAY_SECRET'
+        'Parameters__relay-secret',
+        'Parameters__dashboard-authorization-key',
+        'Parameters__dashboard-result-key'
     )) {
     $priorEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
 }
@@ -60,8 +86,14 @@ try {
         'PITCREW_CANARY_DOTNET_CONFIGURATION',
         $Configuration)
     [Environment]::SetEnvironmentVariable(
-        'PITCREW_CANARY_RELAY_SECRET',
+        'Parameters__relay-secret',
         $relaySecret)
+    [Environment]::SetEnvironmentVariable(
+        'Parameters__dashboard-authorization-key',
+        $dashboardAuthorizationKey)
+    [Environment]::SetEnvironmentVariable(
+        'Parameters__dashboard-result-key',
+        $dashboardResultKey)
     $process = Start-Process `
         -FilePath dotnet `
         -ArgumentList @($appHostAssembly) `
@@ -76,6 +108,8 @@ try {
             $pair.Value)
     }
     $relaySecret = $null
+    $dashboardAuthorizationKey = $null
+    $dashboardResultKey = $null
 }
 
 $processState = [PSCustomObject][ordered]@{
