@@ -417,6 +417,11 @@ services or validated Linux system users/groups.
 Revoke the matching Dashboard support identity before `DeleteKeys`; Dashboard
 revocation and local key deletion are deliberately separate authorized actions,
 and neither operation silently performs the other.
+Windows uninstall reuses the same no-follow evidence walk when revoking product
+ACEs, so a dangling reparse entry cannot prevent cleanup after keys are deleted.
+Failure records advance from identity removal into the exact uninstall cleanup
+operation, and an explicit `DeleteKeys` retry remains idempotent when key material
+is already absent.
 Linux uninstall refuses before mutation when any external account is a
 supplementary member of, or uses as its primary GID, any product-owned group.
 The installer never reads, rewrites, prints, or selectively deletes private key
