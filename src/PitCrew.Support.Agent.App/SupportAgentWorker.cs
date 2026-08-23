@@ -210,8 +210,12 @@ internal sealed partial class SupportAgentWorker(
       SupportAgentRequestProcessingResult result) =>
       result.Status switch
       {
-        SupportAgentRequestProcessingStatus.EnvelopeRejected =>
-            "envelope-rejected",
+        SupportAgentRequestProcessingStatus.EnvelopeUnsupported =>
+            "envelope-unsupported",
+        SupportAgentRequestProcessingStatus.EnvelopeSignatureRejected =>
+            "envelope-signature-rejected",
+        SupportAgentRequestProcessingStatus.EnvelopePayloadRejected =>
+            "envelope-payload-rejected",
         SupportAgentRequestProcessingStatus.RequestMalformed =>
             "request-malformed",
         SupportAgentRequestProcessingStatus.SessionMismatch =>

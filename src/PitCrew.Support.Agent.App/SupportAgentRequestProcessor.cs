@@ -21,14 +21,24 @@ internal sealed class SupportAgentRequestProcessor(
     using var dashboardSigning = SupportKeyFactory.ImportEcdsaPublicKey(
         _options.DashboardAuthorizationSigningPublicKeySpki);
     using var nodeEncryption = _options.PrivateKeys.OpenEncryptionKey();
-    var payload = SupportEnvelopeCryptography.OpenOrNull(
+    var openStatus = SupportEnvelopeCryptography.OpenWithStatus(
         envelope,
         dashboardSigning,
-        nodeEncryption);
-    if (payload is null)
+        nodeEncryption,
+        out var payload);
+    if (openStatus != SupportEnvelopeOpenStatus.Succeeded ||
+        payload is null)
     {
       return new SupportAgentRequestProcessingResult(
-          SupportAgentRequestProcessingStatus.EnvelopeRejected,
+          openStatus switch
+          {
+            SupportEnvelopeOpenStatus.Unsupported =>
+                SupportAgentRequestProcessingStatus.EnvelopeUnsupported,
+            SupportEnvelopeOpenStatus.SignatureRejected =>
+                SupportAgentRequestProcessingStatus.EnvelopeSignatureRejected,
+            _ =>
+                SupportAgentRequestProcessingStatus.EnvelopePayloadRejected,
+          },
           null,
           null);
     }
@@ -162,7 +172,9 @@ internal enum SupportAgentRequestProcessingStatus
 {
   Succeeded,
   Cached,
-  EnvelopeRejected,
+  EnvelopeUnsupported,
+  EnvelopeSignatureRejected,
+  EnvelopePayloadRejected,
   RequestMalformed,
   SessionMismatch,
   ValidationRejected,

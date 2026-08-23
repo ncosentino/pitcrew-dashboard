@@ -41,24 +41,43 @@ public sealed class SupportEnvelopeCryptographyTests
         dashboardSigning,
         "dashboard-auth",
         "node-enc");
-    var opened = SupportEnvelopeCryptography.OpenOrNull(
+    var openStatus = SupportEnvelopeCryptography.OpenWithStatus(
         envelope,
         nodeSigningPublic,
-        nodeEncryptionPrivate);
+        nodeEncryptionPrivate,
+        out var opened);
     var tampered = envelope with
     {
       CiphertextBase64Url = envelope.CiphertextBase64Url[..^1] +
           (envelope.CiphertextBase64Url[^1] == 'A' ? 'B' : 'A'),
     };
+    var signatureStatus = SupportEnvelopeCryptography.OpenWithStatus(
+        tampered,
+        nodeSigningPublic,
+        nodeEncryptionPrivate,
+        out var tamperedPayload);
+    var otherNodeKeys = SupportKeyFactory.CreateNodeKeys();
+    using var otherNodeEncryption = SupportKeyFactory.ImportRsaPrivateKey(
+        otherNodeKeys.Encryption.PrivateKeyPkcs8Base64Url);
+    var payloadStatus = SupportEnvelopeCryptography.OpenWithStatus(
+        envelope,
+        nodeSigningPublic,
+        otherNodeEncryption,
+        out var rejectedPayload);
 
+    await Assert.That(openStatus)
+        .IsEqualTo(SupportEnvelopeOpenStatus.Succeeded);
     await Assert.That(opened).IsNotNull();
     await Assert.That(Encoding.UTF8.GetString(opened!))
         .IsEqualTo(Encoding.UTF8.GetString(SupportCanonicalJson.SerializeRequest(request)));
-    await Assert.That(SupportEnvelopeCryptography.OpenOrNull(
-            tampered,
-            nodeSigningPublic,
-            nodeEncryptionPrivate))
-        .IsNull();
+    await Assert.That(signatureStatus)
+        .IsEqualTo(
+            SupportEnvelopeOpenStatus.SignatureRejected);
+    await Assert.That(tamperedPayload).IsNull();
+    await Assert.That(payloadStatus)
+        .IsEqualTo(
+            SupportEnvelopeOpenStatus.PayloadRejected);
+    await Assert.That(rejectedPayload).IsNull();
   }
 
   [Test]

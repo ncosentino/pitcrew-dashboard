@@ -87,9 +87,37 @@ public static class SupportEnvelopeCryptography
       ECDsa senderSigningKey,
       RSA recipientEncryptionKey)
   {
+    var status = OpenWithStatus(
+        envelope,
+        senderSigningKey,
+        recipientEncryptionKey,
+        out var payload);
+    return status == SupportEnvelopeOpenStatus.Succeeded
+        ? payload
+        : null;
+  }
+
+  /// <summary>
+  /// Verifies and decrypts an envelope while preserving a bounded failure stage.
+  /// </summary>
+  /// <param name="envelope">Envelope received from the relay.</param>
+  /// <param name="senderSigningKey">Sender ECDSA public key.</param>
+  /// <param name="recipientEncryptionKey">Recipient RSA private key.</param>
+  /// <param name="payload">
+  /// Decrypted payload bytes when the result is
+  /// <see cref="SupportEnvelopeOpenStatus.Succeeded"/>.
+  /// </param>
+  /// <returns>A bounded verification or decryption outcome.</returns>
+  public static SupportEnvelopeOpenStatus OpenWithStatus(
+      SupportEnvelope envelope,
+      ECDsa senderSigningKey,
+      RSA recipientEncryptionKey,
+      out byte[]? payload)
+  {
+    payload = null;
     if (!IsSupported(envelope))
     {
-      return null;
+      return SupportEnvelopeOpenStatus.Unsupported;
     }
     var unsigned = envelope with
     {
@@ -104,16 +132,16 @@ public static class SupportEnvelopeCryptography
           HashAlgorithmName.SHA256,
           DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
       {
-        return null;
+        return SupportEnvelopeOpenStatus.SignatureRejected;
       }
     }
     catch (CryptographicException)
     {
-      return null;
+      return SupportEnvelopeOpenStatus.SignatureRejected;
     }
     catch (FormatException)
     {
-      return null;
+      return SupportEnvelopeOpenStatus.SignatureRejected;
     }
 
     try
@@ -127,10 +155,10 @@ public static class SupportEnvelopeCryptography
         var nonce = SupportBase64Url.Decode(envelope.NonceBase64Url);
         var ciphertext = SupportBase64Url.Decode(envelope.CiphertextBase64Url);
         var tag = SupportBase64Url.Decode(envelope.TagBase64Url);
-        var plaintext = new byte[ciphertext.Length];
+        payload = new byte[ciphertext.Length];
         using var aes = new AesGcm(key, AesTagBytes);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext);
-        return plaintext;
+        aes.Decrypt(nonce, ciphertext, tag, payload);
+        return SupportEnvelopeOpenStatus.Succeeded;
       }
       finally
       {
@@ -139,11 +167,21 @@ public static class SupportEnvelopeCryptography
     }
     catch (CryptographicException)
     {
-      return null;
+      if (payload is not null)
+      {
+        CryptographicOperations.ZeroMemory(payload);
+      }
+      payload = null;
+      return SupportEnvelopeOpenStatus.PayloadRejected;
     }
     catch (FormatException)
     {
-      return null;
+      if (payload is not null)
+      {
+        CryptographicOperations.ZeroMemory(payload);
+      }
+      payload = null;
+      return SupportEnvelopeOpenStatus.PayloadRejected;
     }
   }
 
@@ -177,4 +215,22 @@ public static class SupportEnvelopeCryptography
       string.Equals(envelope.ContentEncryptionAlgorithm, ContentEncryptionAlgorithm, StringComparison.Ordinal) &&
       string.Equals(envelope.KeyWrapAlgorithm, KeyWrapAlgorithm, StringComparison.Ordinal) &&
       string.Equals(envelope.SignatureAlgorithm, SignatureAlgorithm, StringComparison.Ordinal);
+}
+
+/// <summary>
+/// Bounded stages returned while opening an opaque support envelope.
+/// </summary>
+public enum SupportEnvelopeOpenStatus
+{
+  /// <summary>The envelope was verified and decrypted.</summary>
+  Succeeded,
+
+  /// <summary>The envelope names unsupported protocol algorithms.</summary>
+  Unsupported,
+
+  /// <summary>The envelope signature or signature encoding was rejected.</summary>
+  SignatureRejected,
+
+  /// <summary>The wrapped key or authenticated payload was rejected.</summary>
+  PayloadRejected,
 }
