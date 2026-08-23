@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 using NexusLabs.Needlr.Generators;
 
 namespace PitCrew.Dashboard.Adapters.GitHub;
@@ -13,13 +11,15 @@ namespace PitCrew.Dashboard.Adapters.GitHub;
     Validator = typeof(GitHubAppOptionsValidator))]
 public sealed class GitHubAppOptions
 {
+  /// <summary>
+  /// Gets or sets whether the optional GitHub App image-workflow integration is enabled.
+  /// </summary>
+  public bool Enabled { get; set; }
+
   /// <summary>Gets or sets the positive GitHub App identifier.</summary>
-  [Range(1, long.MaxValue)]
   public long AppId { get; set; }
 
   /// <summary>Gets or sets the exact existing local PEM private-key path.</summary>
-  [Required]
-  [MaxLength(1024)]
   public string PrivateKeyPath { get; set; } = string.Empty;
 
   /// <summary>Gets or sets the HTTPS GitHub API base URI.</summary>

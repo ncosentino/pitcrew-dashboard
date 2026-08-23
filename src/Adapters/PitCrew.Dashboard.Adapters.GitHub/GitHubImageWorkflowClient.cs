@@ -21,6 +21,10 @@ internal sealed class GitHubImageWorkflowClient(
       long repositoryId,
       CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubRepositoryIdentity>(cancellationToken);
+    }
     if (!GitHubTransportValidation.IsPositiveId(installationId) ||
         !GitHubTransportValidation.IsPositiveId(repositoryId))
     {
@@ -61,6 +65,10 @@ internal sealed class GitHubImageWorkflowClient(
       long workflowId,
       CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowIdentity>(cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsPositiveId(workflowId))
     {
@@ -103,6 +111,11 @@ internal sealed class GitHubImageWorkflowClient(
           string reference,
           CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowFileRevision>(
+          cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsWorkflowPath(workflowPath) ||
         !GitHubTransportValidation.IsReference(reference))
@@ -145,6 +158,10 @@ internal sealed class GitHubImageWorkflowClient(
       string commitSha,
       CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubCommitIdentity>(cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsSha1(commitSha))
     {
@@ -175,6 +192,11 @@ internal sealed class GitHubImageWorkflowClient(
           string allowedSourceReference,
           CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubCommitReachability>(
+          cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsSha1(sourceCommitSha) ||
         !GitHubTransportValidation.IsReference(allowedSourceReference))
@@ -213,6 +235,11 @@ internal sealed class GitHubImageWorkflowClient(
           IReadOnlyDictionary<string, string> inputs,
           CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowDispatch>(
+          cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsPositiveId(workflowId) ||
         !GitHubTransportValidation.IsReference(reference) ||
@@ -266,6 +293,10 @@ internal sealed class GitHubImageWorkflowClient(
       long runId,
       CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowRun>(cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsPositiveId(runId))
     {
@@ -293,6 +324,11 @@ internal sealed class GitHubImageWorkflowClient(
           int limit,
           CancellationToken cancellationToken)
   {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowArtifactList>(
+          cancellationToken);
+    }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsPositiveId(runId) ||
         limit is <= 0 or > GitHubTransportValidation.MaximumArtifacts)
@@ -520,6 +556,18 @@ internal sealed class GitHubImageWorkflowClient(
               default,
               null,
               detail));
+  }
+
+  private static Task<GitHubClientOutcome<T>> NotConfiguredAsync<T>(
+      CancellationToken cancellationToken)
+  {
+    _ = cancellationToken;
+    return Task.FromResult(
+        new GitHubClientOutcome<T>(
+            GitHubClientOutcomeKind.NotConfigured,
+            default,
+            null,
+            "github-app-disabled"));
   }
 
   private static GitHubClientOutcome<T> InvalidResponse<T>(string detail) =>

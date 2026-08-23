@@ -16,7 +16,8 @@ internal sealed class GitHubAdapterTestContext : IDisposable
 
   public GitHubAdapterTestContext(
       string? privateKeyPath = null,
-      bool createPrivateKey = true)
+      bool createPrivateKey = true,
+      bool enabled = true)
   {
     Handler = new RecordingHttpMessageHandler();
     TimeProvider = new FakeTimeProvider(FixedNow);
@@ -43,6 +44,7 @@ internal sealed class GitHubAdapterTestContext : IDisposable
 
     Options = new GitHubAppOptions
     {
+      Enabled = enabled,
       AppId = 12345,
       PrivateKeyPath = PrivateKeyPath,
       BaseAddress = new Uri("https://api.github.com/"),

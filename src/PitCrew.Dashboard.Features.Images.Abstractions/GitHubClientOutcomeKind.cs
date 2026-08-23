@@ -8,6 +8,9 @@ public enum GitHubClientOutcomeKind
   /// <summary>The operation completed and returned a validated value.</summary>
   Success,
 
+  /// <summary>The optional GitHub App integration is disabled or not configured.</summary>
+  NotConfigured,
+
   /// <summary>The exact requested GitHub resource was not found.</summary>
   NotFound,
 
