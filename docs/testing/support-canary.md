@@ -70,6 +70,39 @@ Pull requests use public GitHub-hosted Ubuntu and the PitCrew commit pinned by
 the candidate Dashboard policy. The workflow uses no production credentials and
 never runs untrusted code through `pull_request_target` or self-hosted capacity.
 
+## Release gating
+
+`.github/workflows/prepare-release.yml` is the only supported entry point for a
+new Dashboard release. Dispatch it from `main` with the proposed version, the
+current full Dashboard SHA, and the full PitCrew SHA pinned by the candidate
+support evidence policy.
+
+The workflow validates both repositories and the unused release tag, then runs
+`support-fresh-enrollment-diagnostic-v1` through the reusable portable canary.
+`validate-only` stops after that evidence. `create-draft` creates a GitHub draft
+only after the canary succeeds. A failed preflight or canary creates no tag or
+release.
+
+The draft contains generated notes plus one bounded gate marker tied to the
+preparation workflow run. Wait for the preparation workflow to complete
+successfully, edit the human-facing generated notes without removing the HTML
+marker, and publish the draft. Container, connector, and support-plane
+publishers independently resolve the marker to the successful same-commit
+workflow run, require its draft-creation job, and verify its PitCrew SHA against
+the released Dashboard policy. Publishing the draft through GitHub emits the
+release event that starts those publisher workflows. Missing, duplicate,
+altered, failed, or stale evidence blocks every publisher.
+
+Manual `Publish support plane` dispatch remains a package-only development
+path. It does not require release evidence because its release-upload step is
+disabled. It cannot be used to bypass the published-release gate.
+
+The portable gate has completed on GitHub-hosted Ubuntu in approximately two
+minutes. That is an observed operating time, not a timeout contract. The job
+remains bounded at 25 minutes for infrastructure failures. Release gating does
+not expand portable evidence into installer, native-service, container, or
+physical-host qualification; those require their own topology profiles.
+
 ## Adding a scenario
 
 Implement `ICanaryScenario`, declare its required capabilities, and add one

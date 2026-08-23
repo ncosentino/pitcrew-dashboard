@@ -1,5 +1,5 @@
 ---
-applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,.github/workflows/support-canary.yml,docs/testing/support-canary.md,docs/adr/adr-0010-extensible-support-canary-harness.md,src/PitCrew.Support.Agent.App/{SupportAgentRequestProcessor,SupportAgentSettingsFinalizer,SupportAgentStartupStatusWriter,SupportAgentWorker}.cs,src/PitCrew.Support.Agent.App.Tests/{SupportAgentRequestProcessor,SupportAgentSettingsFinalizer,SupportAgentStartupStatusWriter}Tests.cs"
+applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,scripts/release/**,.github/workflows/{support-canary,prepare-release,verify-support-release-gate,publish-container,publish-host-connector,publish-support-plane}.yml,tests/Test-SupportReleaseGate.ps1,docs/testing/support-canary.md,docs/adr/adr-0010-extensible-support-canary-harness.md,src/PitCrew.Support.Agent.App/{SupportAgentRequestProcessor,SupportAgentSettingsFinalizer,SupportAgentStartupStatusWriter,SupportAgentWorker}.cs,src/PitCrew.Support.Agent.App.Tests/{SupportAgentRequestProcessor,SupportAgentSettingsFinalizer,SupportAgentStartupStatusWriter}Tests.cs"
 ---
 
 # Cross-repository support canary
@@ -26,6 +26,12 @@ applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,.github/workflows/su
   workflows.
 - Run untrusted pull requests only on public GitHub-hosted capacity with no
   production secrets and no `pull_request_target`.
+- Create release drafts only after the exact Dashboard/PitCrew portable canary
+  succeeds. Keep one bounded marker in the draft and require publishers to
+  resolve that marker to the successful same-SHA preparation run.
+- Manual package-only workflows may omit gate evidence only when they cannot
+  upload release assets. A published release must fail closed on missing,
+  duplicate, stale, mismatched, or unsuccessful gate evidence.
 - Preserve bounded request-processing dispositions and explicit accepted-poll
   evidence. A rejected request must never look like a successful idle poll.
 

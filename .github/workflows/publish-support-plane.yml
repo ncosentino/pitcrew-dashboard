@@ -11,6 +11,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -18,7 +19,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-gate:
+    name: Verify support release gate
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/verify-support-release-gate.yml
+    with:
+      required: ${{ github.event_name == 'release' }}
+      release_tag: ${{ github.event.release.tag_name || '' }}
+      release_sha: ${{ github.sha }}
+
   package:
+    needs: release-gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
