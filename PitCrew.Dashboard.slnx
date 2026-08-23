@@ -12,6 +12,8 @@
     <Project Path="src/PitCrew.Support.Protocol/PitCrew.Support.Protocol.csproj" />
   </Folder>
   <Folder Name="/src/Adapters/">
+    <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.GitHub.Tests/PitCrew.Dashboard.Adapters.GitHub.Tests.csproj" />
+    <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.GitHub/PitCrew.Dashboard.Adapters.GitHub.csproj" />
     <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.Sqlite.Tests/PitCrew.Dashboard.Adapters.Sqlite.Tests.csproj" />
     <Project Path="src/Adapters/PitCrew.Dashboard.Adapters.Sqlite/PitCrew.Dashboard.Adapters.Sqlite.csproj" />
   </Folder>
