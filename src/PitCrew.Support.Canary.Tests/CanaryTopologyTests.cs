@@ -45,7 +45,8 @@ public sealed class CanaryTopologyTests
           ["PITCREW_CANARY_RUN_ROOT"] = runRoot,
           ["PITCREW_CANARY_RUN_ID"] = runId,
           ["PITCREW_CANARY_DASHBOARD_SOURCE_ROOT"] = repositoryRoot,
-          ["PITCREW_CANARY_DOTNET_CONFIGURATION"] = "Debug",
+          ["PITCREW_CANARY_DOTNET_CONFIGURATION"] =
+              GetBuildConfiguration(),
           ["Parameters__relay-secret"] =
               "canary-test-relay-secret-not-for-production",
           ["Parameters__dashboard-authorization-key"] =
@@ -149,6 +150,17 @@ public sealed class CanaryTopologyTests
         Directory.Delete(runRoot, recursive: true);
       }
     }
+  }
+
+  private static string GetBuildConfiguration()
+  {
+    var releaseSegment =
+        $"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}";
+    return AppContext.BaseDirectory.Contains(
+        releaseSegment,
+        StringComparison.OrdinalIgnoreCase)
+        ? "Release"
+        : "Debug";
   }
 
   private static string CreateDashboardAuthorizationKey()
