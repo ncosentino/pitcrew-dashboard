@@ -18,7 +18,8 @@ public sealed class CanaryTopologyTests
   {
     var repositoryRoot = FindRepositoryRoot();
     var runRoot = Path.Combine(
-        AppContext.BaseDirectory,
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
         $"canary-topology-{Guid.NewGuid():N}");
     Directory.CreateDirectory(runRoot);
     var runId = Guid.NewGuid().ToString("N");
@@ -52,26 +53,33 @@ public sealed class CanaryTopologyTests
           ["Parameters__dashboard-result-key"] =
               CreateDashboardResultKey(),
         });
+    DistributedApplication? application = null;
     try
     {
       var appHost =
           await DistributedApplicationTestingBuilder.CreateAsync<
-              Projects.PitCrew_Support_Canary_AppHost>();
-      await using var application =
-          await appHost.BuildAsync(cancellationToken);
-      await application.StartAsync(cancellationToken);
+              Projects.PitCrew_Support_Canary_AppHost>()
+              .WaitAsync(
+                  TimeSpan.FromSeconds(60),
+                  cancellationToken);
+      application = await appHost.BuildAsync(cancellationToken)
+          .WaitAsync(
+              TimeSpan.FromSeconds(60),
+              cancellationToken);
+      await application.StartAsync(cancellationToken)
+          .WaitAsync(
+              TimeSpan.FromSeconds(60),
+              cancellationToken);
       var notifications = application.Services
           .GetRequiredService<ResourceNotificationService>();
-      await notifications.WaitForResourceAsync(
+      await notifications.WaitForResourceHealthyAsync(
               "dashboard",
-              KnownResourceStates.Running,
               cancellationToken)
           .WaitAsync(
               TimeSpan.FromSeconds(60),
               cancellationToken);
-      await notifications.WaitForResourceAsync(
+      await notifications.WaitForResourceHealthyAsync(
               "support-relay",
-              KnownResourceStates.Running,
               cancellationToken)
           .WaitAsync(
               TimeSpan.FromSeconds(60),
@@ -111,7 +119,35 @@ public sealed class CanaryTopologyTests
     }
     finally
     {
-      Directory.Delete(runRoot, recursive: true);
+      try
+      {
+        if (application is not null)
+        {
+          await File.WriteAllTextAsync(
+              Path.Combine(
+                  runRoot,
+                  "stop.request"),
+              runId,
+              cancellationToken);
+          using var stopTimeout =
+              CancellationTokenSource.CreateLinkedTokenSource(
+                  cancellationToken);
+          stopTimeout.CancelAfter(TimeSpan.FromSeconds(30));
+          await application.StopAsync(stopTimeout.Token)
+              .WaitAsync(
+                  TimeSpan.FromSeconds(30),
+                  cancellationToken);
+          await application.DisposeAsync()
+              .AsTask()
+              .WaitAsync(
+                  TimeSpan.FromSeconds(30),
+                  cancellationToken);
+        }
+      }
+      finally
+      {
+        Directory.Delete(runRoot, recursive: true);
+      }
     }
   }
 

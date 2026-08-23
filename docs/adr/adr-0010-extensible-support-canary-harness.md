@@ -1,6 +1,6 @@
 ---
 title: "ADR-0010: Layered cross-repository support canary harness"
-status: "Proposed"
+status: "Accepted"
 date: "2026-08-23"
 authors: ["Nick Cosentino"]
 tags: ["architecture", "aspire", "canary", "support", "testing"]
