@@ -152,6 +152,20 @@ jobs:
               -TopologyProfile $env:TOPOLOGY_PROFILE `
               -Configuration Release
 
+      - name: Run Aspire testing adapter
+        shell: pwsh
+        env:
+          PITCREW_CANARY_REQUIRE_ASPIRE_TESTING: 'true'
+        run: |
+          dotnet build `
+              dashboard/src/PitCrew.Support.Canary.Tests/PitCrew.Support.Canary.Tests.csproj `
+              --configuration Release `
+              --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet exec `
+              dashboard/src/PitCrew.Support.Canary.Tests/bin/Release/net10.0/PitCrew.Support.Canary.Tests.dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Failure evidence is bounded and contains no run state or secrets; the
       # prior canary exit code remains authoritative for the job.
       - name: Upload bounded scenario result

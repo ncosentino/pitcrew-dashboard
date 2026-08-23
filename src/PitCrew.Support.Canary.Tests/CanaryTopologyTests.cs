@@ -16,6 +16,20 @@ public sealed class CanaryTopologyTests
   public async Task Aspire_And_External_Runtime_Use_The_Same_Smoke_Scenario(
       CancellationToken cancellationToken)
   {
+    var dcpAvailable = IsDcpAvailable();
+    if (string.Equals(
+            Environment.GetEnvironmentVariable(
+                "PITCREW_CANARY_REQUIRE_ASPIRE_TESTING"),
+            "true",
+            StringComparison.OrdinalIgnoreCase) &&
+        !dcpAvailable)
+    {
+      throw new InvalidOperationException(
+          "The required Aspire DCP executable is unavailable.");
+    }
+    Skip.Unless(
+        dcpAvailable,
+        "Aspire DCP is installed by the dedicated support-canary workflow.");
     var repositoryRoot = FindRepositoryRoot();
     var runRoot = Path.Combine(
         Path.GetTempPath(),
@@ -150,6 +164,27 @@ public sealed class CanaryTopologyTests
         Directory.Delete(runRoot, recursive: true);
       }
     }
+  }
+
+  private static bool IsDcpAvailable()
+  {
+    var configuredPath = Environment.GetEnvironmentVariable(
+        "ASPIRE_DCP_PATH");
+    if (!string.IsNullOrWhiteSpace(configuredPath))
+    {
+      return File.Exists(configuredPath);
+    }
+    var executable = OperatingSystem.IsWindows()
+        ? "dcp.exe"
+        : "dcp";
+    return File.Exists(
+        Path.Combine(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.UserProfile),
+            ".aspire",
+            "bundle",
+            "dcp",
+            executable));
   }
 
   private static string GetBuildConfiguration()
