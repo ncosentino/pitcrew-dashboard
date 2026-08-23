@@ -35,7 +35,7 @@ internal static class GitHubTransportValidation
     }
 
     var segments = value.Split('/');
-    return segments.Length >= 3 &&
+    return segments.Length == 3 &&
         segments[0] == ".github" &&
         segments[1] == "workflows" &&
         segments.All(static segment =>

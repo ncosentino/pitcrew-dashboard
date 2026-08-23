@@ -6,6 +6,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Images\PitCrew.Dashboard.Features.Images.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Kernel.Authentication\PitCrew.Dashboard.Kernel.Authentication.csproj" />
     <ProjectReference Include="..\PitCrew.Dashboard.WebApi\PitCrew.Dashboard.WebApi.csproj" />
   </ItemGroup>
 

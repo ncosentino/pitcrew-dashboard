@@ -505,8 +505,10 @@ internal static class DashboardTestHelpers
   }
 
   public static string CreateDatabasePath() =>
-      Path.Combine(
-          Path.GetTempPath(),
+      CreatePath(
+          Path.Combine(
+              GetRepositoryRoot(),
+              "test-artifacts"),
           $"pitcrew-dashboard-{Guid.NewGuid():N}.db");
 
   public static void DeleteDatabase(string databasePath)
@@ -524,6 +526,32 @@ internal static class DashboardTestHelpers
         File.Delete(path);
       }
     }
+  }
+
+  private static string CreatePath(
+      string directory,
+      string fileName)
+  {
+    Directory.CreateDirectory(directory);
+    return Path.Combine(
+        directory,
+        fileName);
+  }
+
+  private static string GetRepositoryRoot()
+  {
+    var current = new DirectoryInfo(AppContext.BaseDirectory);
+    while (current is not null &&
+           !File.Exists(Path.Combine(
+               current.FullName,
+               "PitCrew.Dashboard.slnx")))
+    {
+      current = current.Parent;
+    }
+
+    return current?.FullName ??
+        throw new InvalidOperationException(
+            "Could not locate the repository root for web API tests.");
   }
 }
 

@@ -41,6 +41,20 @@ public interface IGitHubImageWorkflowClient
       string reference,
       CancellationToken cancellationToken);
 
+  /// <summary>
+  /// Loads the exact reviewed workflow file content for one already-resolved blob identity.
+  /// </summary>
+  /// <param name="installationId">Positive GitHub App installation identity.</param>
+  /// <param name="repository">Validated exact repository identity.</param>
+  /// <param name="revision">Exact path, blob SHA, and ref to re-resolve through GitHub contents.</param>
+  /// <param name="cancellationToken">Token that cancels the operation.</param>
+  /// <returns>A bounded decoded UTF-8 workflow-content outcome.</returns>
+  Task<GitHubClientOutcome<GitHubWorkflowFileContent>> LoadWorkflowFileContentAsync(
+      long installationId,
+      GitHubRepositoryIdentity repository,
+      GitHubWorkflowFileRevision revision,
+      CancellationToken cancellationToken);
+
   /// <summary>Resolves one exact commit identity in a repository.</summary>
   /// <param name="installationId">Positive GitHub App installation identity.</param>
   /// <param name="repository">Validated exact repository identity.</param>

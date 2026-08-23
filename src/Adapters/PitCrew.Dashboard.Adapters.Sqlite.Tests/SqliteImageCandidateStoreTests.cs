@@ -12,8 +12,11 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 
 public sealed class SqliteImageCandidateStoreTests
 {
+  private const string OriginMainMigration23Checksum =
+      "094549A32A957BB0A69F805619F0134BBB168D9B02FE9D2003A7F6DA91310B2C";
+
   [Test]
-  public async Task Migration_23_Applies_And_Recipe_Disable_Is_One_Way(
+  public async Task Migration_24_Applies_And_Recipe_Disable_By_Guid_Is_Idempotent(
       CancellationToken cancellationToken)
   {
     var databasePath = CreateDatabasePath("migration-recipe");
@@ -39,34 +42,40 @@ public sealed class SqliteImageCandidateStoreTests
           recipe with { WorkflowBlobSha = new string('b', 40) },
           cancellationToken);
       var disabledAt = context.Now.AddMinutes(1);
-      var disabled = await context.Store.DisableRecipeVersionAsync(
+      var disabled = await context.Store.DisableRecipeRegistrationAsync(
           recipe.TenantId,
           recipe.RegistrationId,
-          recipe.Version,
           context.Owner.GitHubUserId,
           disabledAt,
           cancellationToken);
-      var disableReplay = await context.Store.DisableRecipeVersionAsync(
+      var disableReplay = await context.Store.DisableRecipeRegistrationAsync(
           recipe.TenantId,
           recipe.RegistrationId,
-          recipe.Version,
           context.Owner.GitHubUserId,
           disabledAt,
           cancellationToken);
-      var disableRewrite = await context.Store.DisableRecipeVersionAsync(
+      var disableRewrite = await context.Store.DisableRecipeRegistrationAsync(
           recipe.TenantId,
           recipe.RegistrationId,
-          recipe.Version,
           context.Owner.GitHubUserId,
           disabledAt.AddMinutes(1),
           cancellationToken);
-      var stored = await context.Store.GetRecipeVersionOrNullAsync(
+      var stored = await context.Store.GetRecipeRegistrationOrNullAsync(
           recipe.TenantId,
           recipe.RegistrationId,
-          recipe.Version,
+          cancellationToken);
+      var listedWithoutDisabled = await context.Store.ListRecipeRegistrationsAsync(
+          recipe.TenantId,
+          includeDisabled: false,
+          10,
+          cancellationToken);
+      var listedWithDisabled = await context.Store.ListRecipeRegistrationsAsync(
+          recipe.TenantId,
+          includeDisabled: true,
+          10,
           cancellationToken);
 
-      await Assert.That(migrationVersion).IsEqualTo(23);
+      await Assert.That(migrationVersion).IsEqualTo(24);
       await Assert.That(created)
           .IsEqualTo(ImageCandidateMutationResult.Succeeded);
       await Assert.That(exactReplay)
@@ -78,8 +87,166 @@ public sealed class SqliteImageCandidateStoreTests
       await Assert.That(disableReplay)
           .IsEqualTo(ImageCandidateMutationResult.Unchanged);
       await Assert.That(disableRewrite)
-          .IsEqualTo(ImageCandidateMutationResult.Conflict);
+          .IsEqualTo(ImageCandidateMutationResult.Unchanged);
+      await Assert.That(listedWithoutDisabled).IsEmpty();
+      await Assert.That(listedWithDisabled).HasSingleItem();
       await Assert.That(stored!.DisabledAt).IsEqualTo(disabledAt);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Migration_24_Upgrades_Origin_Main_Image_Authority_And_Preserves_Checksums(
+      CancellationToken cancellationToken)
+  {
+    const long expectedQualificationCount = 4;
+    var databasePath = CreateDatabasePath("migration-24-upgrade");
+    try
+    {
+      await Assert.That(SqliteMigrationCatalog.All
+              .Single(static migration => migration.Version == 23).Checksum)
+          .IsEqualTo(OriginMainMigration23Checksum);
+
+      var factory = CreateFactory(databasePath);
+      await SqliteMigrationTestDatabase.ApplyThroughAsync(
+          factory,
+          23,
+          cancellationToken);
+      var accessStore = new SqliteAccessStore(factory);
+      var now = DateTimeOffset.Parse(
+          "2026-08-23T13:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var owner = new DashboardUser(
+          "owner-user",
+          "owner-login",
+          "Owner",
+          null);
+      await accessStore.EnsureTenantOwnerAsync(
+          "tenant-a",
+          "Tenant A",
+          owner,
+          now,
+          cancellationToken);
+      await accessStore.EnsureTenantOwnerAsync(
+          "tenant-b",
+          "Tenant B",
+          owner,
+          now,
+          cancellationToken);
+
+      var store = new SqliteImageCandidateStore(factory);
+      var registrationId = Guid.Parse(
+          "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+          CultureInfo.InvariantCulture);
+      var tenantARecipe = CreateRecipe(
+          now,
+          owner.GitHubUserId) with
+      {
+        RegistrationId = registrationId,
+      };
+      var tenantARequest = CreateRequest(
+          tenantARecipe,
+          now.AddMinutes(1));
+      await store.CreateRecipeVersionAsync(
+          tenantARecipe,
+          cancellationToken);
+      await store.CreateBuildRequestAsync(
+          tenantARequest,
+          cancellationToken);
+      await AdvanceToQualifyingAsync(
+          store,
+          tenantARequest,
+          now,
+          cancellationToken);
+      var tenantACandidate = CreateReadyCandidate(
+          tenantARequest,
+          now.AddMinutes(5));
+      await store.StoreCandidateAsync(
+          tenantARequest.TenantId,
+          tenantACandidate,
+          CreatePassedQualifications(tenantACandidate.CandidateId),
+          cancellationToken);
+      var priorChecksums = await ReadMigrationChecksumsAsync(
+          factory,
+          cancellationToken);
+
+      await new SqliteMigrationRunner(factory).ApplyAsync(cancellationToken);
+
+      var afterChecksums = await ReadMigrationChecksumsAsync(
+          factory,
+          cancellationToken);
+      var migratedRecipe = await store.GetRecipeVersionOrNullAsync(
+          tenantARecipe.TenantId,
+          tenantARecipe.RegistrationId,
+          tenantARecipe.Version,
+          cancellationToken);
+      var migratedRequest = await store.GetBuildRequestOrNullAsync(
+          tenantARequest.TenantId,
+          tenantARequest.RequestId,
+          cancellationToken);
+      var readyCandidateCount = await ExecuteScalarAsync<long>(
+          factory,
+          "SELECT COUNT(*) FROM image_candidates WHERE tenant_id = 'tenant-a';",
+          cancellationToken);
+      var qualificationCount = await ExecuteScalarAsync<long>(
+          factory,
+          "SELECT COUNT(*) FROM image_candidate_qualifications;",
+          cancellationToken);
+      var foreignKeyIssues = await ExecuteScalarAsync<long>(
+          factory,
+          "SELECT COUNT(*) FROM pragma_foreign_key_check;",
+          cancellationToken);
+      var integrityCheck = await ExecuteScalarAsync<string>(
+          factory,
+          "PRAGMA integrity_check;",
+          cancellationToken);
+      var tenantBRecipe = tenantARecipe with
+      {
+        TenantId = "tenant-b",
+        CreatedAt = now.AddMinutes(10),
+      };
+      var tenantBCreate = await store.CreateRecipeVersionAsync(
+          tenantBRecipe,
+          cancellationToken);
+      var tenantBRequest = CreateRequest(
+          tenantBRecipe,
+          now.AddMinutes(11));
+      var tenantBRequestCreate = await store.CreateBuildRequestAsync(
+          tenantBRequest,
+          cancellationToken);
+
+      await Assert.That(priorChecksums.Keys.Max()).IsEqualTo(23);
+      await Assert.That(priorChecksums[23])
+          .IsEqualTo(OriginMainMigration23Checksum);
+      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(24);
+      await Assert.That(afterChecksums[24])
+          .IsEqualTo(SqliteMigrationCatalog.All
+              .Single(static migration => migration.Version == 24).Checksum);
+      await Assert.That(
+              priorChecksums.All(pair =>
+                  afterChecksums.TryGetValue(
+                      pair.Key,
+                      out var checksum) &&
+                  checksum == pair.Value))
+          .IsTrue()
+          .Because("prior applied migrations must remain byte-for-byte accepted after migration 24.");
+      await Assert.That(migratedRecipe).IsEqualTo(tenantARecipe);
+      await Assert.That(migratedRequest).IsNotNull();
+      await Assert.That(migratedRequest!.Status)
+          .IsEqualTo(ImageBuildRequestStatus.Ready);
+      await Assert.That(readyCandidateCount).IsEqualTo(1L);
+      await Assert.That(qualificationCount)
+          .IsEqualTo(expectedQualificationCount);
+      await Assert.That(foreignKeyIssues).IsEqualTo(0L);
+      await Assert.That(integrityCheck).IsEqualTo("ok");
+      await Assert.That(tenantBCreate)
+          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
+      await Assert.That(tenantBRequestCreate)
+          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
     }
     finally
     {
@@ -110,10 +277,20 @@ public sealed class SqliteImageCandidateStoreTests
           recipe.RegistrationId,
           recipe.Version,
           cancellationToken);
+      var wrongTenantRegistration = await context.Store.GetRecipeRegistrationOrNullAsync(
+          "tenant-b",
+          recipe.RegistrationId,
+          cancellationToken);
       var wrongTenantDisable = await context.Store.DisableRecipeVersionAsync(
           "tenant-b",
           recipe.RegistrationId,
           recipe.Version,
+          context.Owner.GitHubUserId,
+          context.Now.AddMinutes(2),
+          cancellationToken);
+      var wrongTenantDisableByGuid = await context.Store.DisableRecipeRegistrationAsync(
+          "tenant-b",
+          recipe.RegistrationId,
           context.Owner.GitHubUserId,
           context.Now.AddMinutes(2),
           cancellationToken);
@@ -136,11 +313,160 @@ public sealed class SqliteImageCandidateStoreTests
               cancellationToken);
 
       await Assert.That(wrongTenantRecipe).IsNull();
+      await Assert.That(wrongTenantRegistration).IsNull();
       await Assert.That(wrongTenantDisable)
+          .IsEqualTo(ImageCandidateMutationResult.NotFound);
+      await Assert.That(wrongTenantDisableByGuid)
           .IsEqualTo(ImageCandidateMutationResult.NotFound);
       await Assert.That(wrongTenantRequest).IsNull();
       await Assert.That(wrongTenantTransition)
           .IsEqualTo(ImageCandidateMutationResult.NotFound);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Recipe_Registration_List_Can_Include_Or_Exclude_Disabled(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("latest-recipes");
+    try
+    {
+      var context = await CreateContextAsync(
+          databasePath,
+          cancellationToken);
+      var active = CreateRecipe(
+          context.Now,
+          context.Owner.GitHubUserId);
+      var secondActive = CreateRecipe(
+          context.Now.AddMinutes(1),
+          context.Owner.GitHubUserId) with
+      {
+        RegistrationId = Guid.NewGuid(),
+        RecipeId = "pitcrew-second",
+        GitHubWorkflowId = 3002,
+      };
+      var disabled = CreateRecipe(
+          context.Now.AddMinutes(2),
+          context.Owner.GitHubUserId) with
+      {
+        RegistrationId = Guid.NewGuid(),
+        RecipeId = "pitcrew-disabled",
+        GitHubWorkflowId = 3003,
+      };
+      await context.Store.CreateRecipeVersionAsync(
+          active,
+          cancellationToken);
+      await context.Store.CreateRecipeVersionAsync(
+          secondActive,
+          cancellationToken);
+      await context.Store.CreateRecipeVersionAsync(
+          disabled,
+          cancellationToken);
+      await context.Store.DisableRecipeRegistrationAsync(
+          disabled.TenantId,
+          disabled.RegistrationId,
+          context.Owner.GitHubUserId,
+          context.Now.AddMinutes(3),
+          cancellationToken);
+
+      var activeOnly =
+          await context.Store.ListRecipeRegistrationsAsync(
+              active.TenantId,
+              includeDisabled: false,
+              10,
+              cancellationToken);
+      var includingDisabled =
+          await context.Store.ListRecipeRegistrationsAsync(
+              active.TenantId,
+              includeDisabled: true,
+              10,
+              cancellationToken);
+      var wrongTenant =
+          await context.Store.ListRecipeRegistrationsAsync(
+              "tenant-b",
+              includeDisabled: true,
+              10,
+              cancellationToken);
+      var exactDisabled = await context.Store.GetRecipeRegistrationOrNullAsync(
+          active.TenantId,
+          disabled.RegistrationId,
+          cancellationToken);
+
+      await Assert.That(activeOnly).Count().IsEqualTo(2);
+      await Assert.That(activeOnly.All(
+              static registration => registration.DisabledAt is null))
+          .IsTrue()
+          .Because("disabled registrations are excluded by default");
+      await Assert.That(includingDisabled).Count().IsEqualTo(3);
+      await Assert.That(includingDisabled[2].RegistrationId)
+          .IsEqualTo(disabled.RegistrationId);
+      await Assert.That(includingDisabled[2].DisabledAt).IsNotNull();
+      await Assert.That(exactDisabled).IsNotNull();
+      await Assert.That(exactDisabled!.DisabledAt).IsNotNull();
+      await Assert.That(wrongTenant).IsEmpty();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Registration_Version_List_Is_Bounded_And_Tenant_Scoped(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("registration-versions");
+    try
+    {
+      var context = await CreateContextAsync(
+          databasePath,
+          cancellationToken);
+      var recipe = CreateRecipe(
+          context.Now,
+          context.Owner.GitHubUserId);
+      await context.Store.CreateRecipeVersionAsync(
+          recipe,
+          cancellationToken);
+      await context.Store.CreateRecipeVersionAsync(
+          recipe with
+          {
+            Version = 2,
+            WorkflowBlobSha = new string('b', 40),
+            CreatedAt = context.Now.AddMinutes(1),
+          },
+          cancellationToken);
+      await context.Store.CreateRecipeVersionAsync(
+          recipe with
+          {
+            Version = 3,
+            WorkflowBlobSha = new string('c', 40),
+            CreatedAt = context.Now.AddMinutes(2),
+          },
+          cancellationToken);
+
+      var versions =
+          await context.Store.ListRegistrationVersionsAsync(
+              recipe.TenantId,
+              recipe.RegistrationId,
+              2,
+              cancellationToken);
+      var wrongTenant =
+          await context.Store.ListRegistrationVersionsAsync(
+              "tenant-b",
+              recipe.RegistrationId,
+              2,
+              cancellationToken);
+
+      await Assert.That(versions).Count().IsEqualTo(2);
+      await Assert.That(versions[0].Version).IsEqualTo(3);
+      await Assert.That(versions[1].Version).IsEqualTo(2);
+      await Assert.That(wrongTenant).IsEmpty();
     }
     finally
     {
@@ -1221,14 +1547,42 @@ public sealed class SqliteImageCandidateStoreTests
       }));
 
   private static string CreateDatabasePath(string scope) =>
-      Path.Combine(
-          Path.GetTempPath(),
+      CreatePath(
+          Path.Combine(
+              GetRepositoryRoot(),
+              "test-artifacts"),
           $"pitcrew-image-{scope}-{Guid.NewGuid():N}.db");
 
   private static string Sha256(string value) =>
       Convert.ToHexString(
           SHA256.HashData(Encoding.UTF8.GetBytes(value)))
       .ToLowerInvariant();
+
+  private static string CreatePath(
+      string directory,
+      string fileName)
+  {
+    Directory.CreateDirectory(directory);
+    return Path.Combine(
+        directory,
+        fileName);
+  }
+
+  private static string GetRepositoryRoot()
+  {
+    var current = new DirectoryInfo(AppContext.BaseDirectory);
+    while (current is not null &&
+           !File.Exists(Path.Combine(
+               current.FullName,
+               "PitCrew.Dashboard.slnx")))
+    {
+      current = current.Parent;
+    }
+
+    return current?.FullName ??
+        throw new InvalidOperationException(
+            "Could not locate the repository root for SQLite image candidate tests.");
+  }
 
   private static async Task<T> ExecuteScalarAsync<T>(
       SqliteConnectionFactory factory,
@@ -1242,6 +1596,31 @@ public sealed class SqliteImageCandidateStoreTests
         await command.ExecuteScalarAsync(cancellationToken),
         typeof(T),
         CultureInfo.InvariantCulture)!;
+  }
+
+  private static async Task<IReadOnlyDictionary<int, string>>
+      ReadMigrationChecksumsAsync(
+          SqliteConnectionFactory factory,
+          CancellationToken cancellationToken)
+  {
+    await using var connection = await factory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        SELECT version, checksum
+        FROM schema_migrations
+        ORDER BY version;
+        """;
+    var checksums = new Dictionary<int, string>();
+    await using var reader = await command.ExecuteReaderAsync(
+        cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      checksums.Add(
+          reader.GetInt32(0),
+          reader.GetString(1));
+    }
+    return checksums;
   }
 
   private static async Task<int> ExecuteNonQueryAsync(
