@@ -324,6 +324,56 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
+  public async Task Broker_Converts_Collector_Termination_To_Bounded_Failure(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    try
+    {
+      var options = SupportBrokerTestHost.CreateOptions(
+          root,
+          "unused");
+      var policy = SupportEvidencePolicy.Load();
+      var collectorPath = Path.Combine(
+          root,
+          policy.CollectorRelativePath.Replace(
+              '/',
+              Path.DirectorySeparatorChar));
+      await File.WriteAllTextAsync(
+          collectorPath,
+          "throw 'collector-failure'",
+          cancellationToken);
+      var collectorHash =
+          SupportEvidenceAccessValidator.ComputeCollectorSha256(
+              collectorPath);
+      var broker = new SupportDiagnosticsBroker(
+          options,
+          policy with
+          {
+            CollectorSha256 = collectorHash,
+          });
+
+      var result = await broker.ExecuteAsync(
+          new SupportBrokerRequest(
+              SupportDiagnosticModes.Full,
+              "default",
+              "0123456789abcdef"),
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(
+              SupportBrokerStatus.ExecutionFailed);
+      await Assert.That(result.Error)
+          .IsEqualTo(
+              "The diagnostics collector failed.");
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
+  }
+
+  [Test]
   public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_3()
   {
     var policy = SupportEvidencePolicy.Load();

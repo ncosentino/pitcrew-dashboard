@@ -13,7 +13,7 @@ internal sealed class SupportAgentRequestProcessor(
 {
   private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
-  public async Task<SupportEnvelope?> ProcessAsync(
+  public async Task<SupportAgentRequestProcessingResult> ProcessAsync(
       Guid expectedSessionId,
       SupportEnvelope envelope,
       CancellationToken cancellationToken)
@@ -21,23 +21,59 @@ internal sealed class SupportAgentRequestProcessor(
     using var dashboardSigning = SupportKeyFactory.ImportEcdsaPublicKey(
         _options.DashboardAuthorizationSigningPublicKeySpki);
     using var nodeEncryption = _options.PrivateKeys.OpenEncryptionKey();
-    var payload = SupportEnvelopeCryptography.OpenOrNull(
+    var openStatus = SupportEnvelopeCryptography.OpenWithStatus(
         envelope,
         dashboardSigning,
-        nodeEncryption);
-    if (payload is null)
+        nodeEncryption,
+        out var payload);
+    if (openStatus != SupportEnvelopeOpenStatus.Succeeded ||
+        payload is null)
     {
-      return null;
+      return new SupportAgentRequestProcessingResult(
+          openStatus switch
+          {
+            SupportEnvelopeOpenStatus.Unsupported =>
+                SupportAgentRequestProcessingStatus.EnvelopeUnsupported,
+            SupportEnvelopeOpenStatus.SignatureRejected =>
+                SupportAgentRequestProcessingStatus.EnvelopeSignatureRejected,
+            _ =>
+                SupportAgentRequestProcessingStatus.EnvelopePayloadRejected,
+          },
+          null,
+          null);
     }
-    var request = JsonSerializer.Deserialize<SupportDiagnosticRequest>(payload, _jsonOptions);
-    if (request is null || request.SessionId != expectedSessionId)
+    SupportDiagnosticRequest? request;
+    try
     {
-      return null;
+      request = JsonSerializer.Deserialize<SupportDiagnosticRequest>(
+          payload,
+          _jsonOptions);
+    }
+    finally
+    {
+      CryptographicOperations.ZeroMemory(payload);
+    }
+    if (request is null)
+    {
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.RequestMalformed,
+          null,
+          null);
+    }
+    if (request.SessionId != expectedSessionId)
+    {
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.SessionMismatch,
+          null,
+          null);
     }
     var cached = _replayCache.GetResultOrNull(request.SessionId);
     if (cached is not null)
     {
-      return cached;
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.Cached,
+          cached,
+          null);
     }
     var validation = SupportRequestValidator.Validate(
         request,
@@ -47,11 +83,23 @@ internal sealed class SupportAgentRequestProcessor(
         _replayCache.HasNonce);
     if (validation != SupportRequestValidationStatus.Valid)
     {
-      return null;
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.ValidationRejected,
+          null,
+          validation);
     }
     if (!_replayCache.ClaimNonce(request.Nonce))
     {
-      return _replayCache.GetResultOrNull(request.SessionId);
+      var raced = _replayCache.GetResultOrNull(
+          request.SessionId);
+      return new SupportAgentRequestProcessingResult(
+          raced is null
+              ? SupportAgentRequestProcessingStatus.ReplayPending
+              : SupportAgentRequestProcessingStatus.Cached,
+          raced,
+          raced is null
+              ? SupportRequestValidationStatus.Replay
+              : null);
     }
     using var expiryCancellation = new CancellationTokenSource(
         request.ExpiresAt - _timeProvider.GetUtcNow(),
@@ -67,14 +115,23 @@ internal sealed class SupportAgentRequestProcessor(
             request.PackageId),
         executionCancellation.Token);
     if (!SupportDiagnosticReportValidator.IsSafeMarkdown(
-            diagnostics.Markdown) ||
-        !SupportDiagnosticReportValidator.IsValid(
-            diagnostics.Report,
-            request.DiagnosticMode,
-            request.ProfileId,
-            request.PackageId))
+        diagnostics.Markdown))
     {
-      return null;
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.BrokerMarkdownRejected,
+          null,
+          null);
+    }
+    if (!SupportDiagnosticReportValidator.IsValid(
+        diagnostics.Report,
+        request.DiagnosticMode,
+        request.ProfileId,
+        request.PackageId))
+    {
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.BrokerReportRejected,
+          null,
+          null);
     }
     var resultPayload = new SupportResultPayload(
         request.TenantId,
@@ -105,6 +162,29 @@ internal sealed class SupportAgentRequestProcessor(
         _options.NodeId.ToString("N"),
         "dashboard-result-v1");
     _replayCache.StoreResult(request.SessionId, resultEnvelope);
-    return resultEnvelope;
+    return new SupportAgentRequestProcessingResult(
+        SupportAgentRequestProcessingStatus.Succeeded,
+        resultEnvelope,
+        null);
   }
+}
+
+internal sealed record SupportAgentRequestProcessingResult(
+    SupportAgentRequestProcessingStatus Status,
+    SupportEnvelope? ResultEnvelope,
+    SupportRequestValidationStatus? ValidationStatus);
+
+internal enum SupportAgentRequestProcessingStatus
+{
+  Succeeded,
+  Cached,
+  EnvelopeUnsupported,
+  EnvelopeSignatureRejected,
+  EnvelopePayloadRejected,
+  RequestMalformed,
+  SessionMismatch,
+  ValidationRejected,
+  ReplayPending,
+  BrokerMarkdownRejected,
+  BrokerReportRejected,
 }

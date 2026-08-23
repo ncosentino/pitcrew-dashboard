@@ -234,7 +234,7 @@ public static partial class SupportDiagnosticReportValidator
   private static partial Regex UnsafeText();
 
   [GeneratedRegex(
-      "(?:[A-Z]:[\\\\/]|\\\\\\\\[^\\\\\\s]+\\\\|(?<![A-Za-z0-9:])/(?:etc|root|home|Users|var|tmp|opt|srv|run|mnt|media|proc|sys|dev)(?:/|\\b))",
+      "(?:(?<![A-Za-z0-9])[A-Z]:[\\\\/]|\\\\\\\\[^\\\\\\s]+\\\\|(?<![A-Za-z0-9:])/(?:etc|root|home|Users|var|tmp|opt|srv|run|mnt|media|proc|sys|dev)(?:/|\\b))",
       RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
       100)]
   private static partial Regex PrivatePath();

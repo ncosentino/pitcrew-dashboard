@@ -292,10 +292,10 @@ try {
         'Instruction and generated mirror counts differ.')
     Add-Check ($result.instructions -ge 130) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 46) (
-        'The documentation map does not contain the expected 46 maintained pages.')
-    Add-Check ($result.adrs -eq 9) (
-        'The ADR index does not contain nine records.')
+    Add-Check ($result.docs -eq 48) (
+        'The documentation map does not contain the expected 48 maintained pages.')
+    Add-Check ($result.adrs -eq 10) (
+        'The ADR index does not contain ten records.')
 
     $productPath = Join-Path $root 'PRODUCT.md'
     $designPath = Join-Path $root 'DESIGN.md'

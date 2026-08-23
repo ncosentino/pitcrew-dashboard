@@ -1,0 +1,15 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.2">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Dashboard.WebApi\PitCrew.Dashboard.WebApi.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PitCrew.Support.Relay.App\PitCrew.Support.Relay.App.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PitCrew.Support.Canary.Runner\PitCrew.Support.Canary.Runner.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

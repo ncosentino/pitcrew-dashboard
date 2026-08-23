@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Access\PitCrew.Dashboard.Features.Access.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Support\PitCrew.Dashboard.Features.Support.csproj" />
+    <ProjectReference Include="..\PitCrew.Support.Canary.Contracts\PitCrew.Support.Canary.Contracts.csproj" />
+    <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

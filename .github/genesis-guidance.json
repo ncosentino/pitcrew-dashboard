@@ -250,10 +250,17 @@
         "owner": "tag:node"
       },
       {
+        "path": "docs/testing/support-canary.md",
+        "title": "Cross-repository support canary",
+        "section": "Development",
+        "order": 456,
+        "owner": "repository"
+      },
+      {
         "path": "docs/testing/physical-device-evidence.md",
         "title": "Physical device evidence procedure",
         "section": "Development",
-        "order": 456,
+        "order": 457,
         "owner": "testing"
       },
       {
@@ -310,6 +317,13 @@
         "title": "ADR-0009: Trusted outbound image candidate orchestration",
         "section": "Architecture decisions",
         "order": 109,
+        "owner": "repository"
+      },
+      {
+        "path": "docs/adr/adr-0010-extensible-support-canary-harness.md",
+        "title": "ADR-0010: Layered cross-repository support canary harness",
+        "section": "Architecture decisions",
+        "order": 110,
         "owner": "repository"
       },
       {
@@ -402,6 +416,14 @@
     }
   ],
   "contextExceptions": [
+    {
+      "pattern": "src/PitCrew.Support.Agent.App/SupportAgentWorker.cs",
+      "maxLines": 550,
+      "maxBytes": 32768,
+      "phase": "migration",
+      "owner": "ADR-0010 and ncosentino/pitcrew-dashboard#163",
+      "reason": "The support worker composes transport, request-outcome, and canary evidence guidance while bounded request dispositions are introduced."
+    },
     {
       "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.ts",
       "maxLines": 400,

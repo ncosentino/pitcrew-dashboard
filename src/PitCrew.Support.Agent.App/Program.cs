@@ -7,6 +7,11 @@ using PitCrew.Support.Agent.App;
 
 var rotateMode = args.Length == 1 &&
     string.Equals(args[0], "rotate", StringComparison.OrdinalIgnoreCase);
+var finalizeEnrollmentMode = args.Length == 1 &&
+    string.Equals(
+        args[0],
+        "finalize-enrollment",
+        StringComparison.OrdinalIgnoreCase);
 var builder = Host.CreateApplicationBuilder(args);
 var bootstrapOptions =
     SupportAgentBootstrapOptions.FromConfiguration(builder.Configuration) ??
@@ -44,7 +49,7 @@ builder.Services.AddWindowsService(service =>
 {
   service.ServiceName = "PitCrewSupportAgent";
 });
-if (!rotateMode)
+if (!rotateMode && !finalizeEnrollmentMode)
 {
   if (!SupportIdentityDeletionRequestWorker.IsRequestPresent(
       builder.Environment.ContentRootPath))
@@ -70,6 +75,29 @@ if (rotateMode)
       ? 0
       : outcome.Status == SupportNodeRotationStatus.FinalizationPending
           ? 2
+          : 1;
+}
+else if (finalizeEnrollmentMode)
+{
+  await using var operationLock =
+      await identityManager.Store.AcquireOperationLockAsync(
+          CancellationToken.None);
+  var activeIdentity = await identityManager.Store.LoadActiveAsync(
+      CancellationToken.None);
+  var status = activeIdentity is null
+      ? SupportEnrollmentFinalizationStatus.ActiveIdentityUnavailable
+      : SupportAgentSettingsFinalizer.Finalize(
+          builder.Environment.ContentRootPath);
+#pragma warning disable NLF0001 // The packaged command emits one machine-readable result to stdout.
+  Console.WriteLine(JsonSerializer.Serialize(new
+  {
+    status = status.ToString(),
+  }));
+#pragma warning restore NLF0001
+  Environment.ExitCode = status is
+      SupportEnrollmentFinalizationStatus.Succeeded or
+      SupportEnrollmentFinalizationStatus.AlreadyFinalized
+          ? 0
           : 1;
 }
 else
