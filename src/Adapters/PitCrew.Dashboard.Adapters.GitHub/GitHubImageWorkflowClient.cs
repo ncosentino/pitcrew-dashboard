@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json.Serialization.Metadata;
 
 using Microsoft.Extensions.Options;
@@ -15,6 +16,13 @@ internal sealed class GitHubImageWorkflowClient(
     TimeProvider _timeProvider) : IGitHubImageWorkflowClient
 {
   internal const string ApiVersion = "2026-03-10";
+  private const int MaximumWorkflowContentBytes = 65_536;
+  private const int MaximumWorkflowContentResponseBytes = 131_072;
+  private const int MaximumWorkflowContentBase64Characters = 98_304;
+  private static readonly UTF8Encoding _strictUtf8 =
+      new(
+          encoderShouldEmitUTF8Identifier: false,
+          throwOnInvalidBytes: true);
 
   public Task<GitHubClientOutcome<GitHubRepositoryIdentity>> LoadRepositoryAsync(
       long installationId,
@@ -149,6 +157,44 @@ internal sealed class GitHubImageWorkflowClient(
                   response.Sha!,
                   reference));
         },
+        cancellationToken);
+  }
+
+  public Task<GitHubClientOutcome<GitHubWorkflowFileContent>>
+      LoadWorkflowFileContentAsync(
+          long installationId,
+          GitHubRepositoryIdentity repository,
+          GitHubWorkflowFileRevision revision,
+          CancellationToken cancellationToken)
+  {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowFileContent>(
+          cancellationToken);
+    }
+    if (!IsOperationIdentityValid(installationId, repository) ||
+        !GitHubTransportValidation.IsWorkflowPath(revision.Path) ||
+        !GitHubTransportValidation.IsReference(revision.Reference) ||
+        !GitHubTransportValidation.IsSha1(revision.BlobSha))
+    {
+      return InvalidRequestAsync<GitHubWorkflowFileContent>(
+          "workflow-content-request-invalid",
+          cancellationToken);
+    }
+
+    var path =
+        $"{GitHubTransportValidation.RepositoryPath(repository)}/contents/" +
+        $"{GitHubTransportValidation.EncodeWorkflowPath(revision.Path)}" +
+        $"?ref={GitHubTransportValidation.Encode(revision.Reference)}";
+    return ExecuteAsync(
+        installationId,
+        repository.Id,
+        token => CreateRequest(HttpMethod.Get, path, token),
+        GitHubJsonContext.Default.GitHubContentPayload,
+        response => MapWorkflowFileContent(
+            response,
+            revision),
+        MaximumWorkflowContentResponseBytes,
         cancellationToken);
   }
 
@@ -356,6 +402,23 @@ internal sealed class GitHubImageWorkflowClient(
       Func<string, HttpRequestMessage> requestFactory,
       JsonTypeInfo<TExternal> jsonTypeInfo,
       Func<TExternal, GitHubClientOutcome<TResult>> map,
+      CancellationToken cancellationToken) =>
+      await ExecuteAsync(
+          installationId,
+          repositoryId,
+          requestFactory,
+          jsonTypeInfo,
+          map,
+          GitHubHttpResponseReader.MaximumJsonBytes,
+          cancellationToken);
+
+  private async Task<GitHubClientOutcome<TResult>> ExecuteAsync<TExternal, TResult>(
+      long installationId,
+      long repositoryId,
+      Func<string, HttpRequestMessage> requestFactory,
+      JsonTypeInfo<TExternal> jsonTypeInfo,
+      Func<TExternal, GitHubClientOutcome<TResult>> map,
+      int maximumResponseBytes,
       CancellationToken cancellationToken)
   {
     var tokenOutcome = await _tokenProvider.CreateAsync(
@@ -390,7 +453,7 @@ internal sealed class GitHubImageWorkflowClient(
           await GitHubHttpResponseReader.ReadJsonAsync(
               response,
               jsonTypeInfo,
-              GitHubHttpResponseReader.MaximumJsonBytes,
+              maximumResponseBytes,
               _timeProvider,
               requestSource.Token);
       if (externalOutcome.Kind != GitHubClientOutcomeKind.Success ||
@@ -543,6 +606,97 @@ internal sealed class GitHubImageWorkflowClient(
       GitHubRepositoryIdentity repository) =>
       GitHubTransportValidation.IsPositiveId(installationId) &&
       GitHubTransportValidation.IsRepository(repository);
+
+  private static GitHubClientOutcome<GitHubWorkflowFileContent>
+      MapWorkflowFileContent(
+          GitHubContentPayload response,
+          GitHubWorkflowFileRevision expectedRevision)
+  {
+    if (response.Type != "file" ||
+        !string.Equals(
+            response.Path,
+            expectedRevision.Path,
+            StringComparison.Ordinal) ||
+        !string.Equals(
+            response.Sha,
+            expectedRevision.BlobSha,
+            StringComparison.Ordinal) ||
+        response.Size is <= 0 or > MaximumWorkflowContentBytes ||
+        !string.Equals(
+            response.Encoding,
+            "base64",
+            StringComparison.Ordinal) ||
+        string.IsNullOrEmpty(response.Content))
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    if (response.Content.Any(static character =>
+            char.IsWhiteSpace(character) &&
+            character is not '\r' and not '\n'))
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    var encodedContent = response.Content
+        .Replace(
+            "\r",
+            string.Empty,
+            StringComparison.Ordinal)
+        .Replace(
+            "\n",
+            string.Empty,
+            StringComparison.Ordinal);
+    if (encodedContent.Length is 0 or > MaximumWorkflowContentBase64Characters)
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    byte[] decodedBytes;
+    try
+    {
+      decodedBytes = Convert.FromBase64String(encodedContent);
+    }
+    catch (FormatException)
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    if (decodedBytes.Length is 0 or > MaximumWorkflowContentBytes ||
+        decodedBytes.Length != response.Size)
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    string content;
+    try
+    {
+      content = _strictUtf8.GetString(decodedBytes);
+    }
+    catch (DecoderFallbackException)
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    if (content.Length == 0)
+    {
+      return InvalidResponse<GitHubWorkflowFileContent>(
+          "workflow-content-response-invalid");
+    }
+
+    return Success(
+        new GitHubWorkflowFileContent(
+            expectedRevision.Path,
+            expectedRevision.BlobSha,
+            expectedRevision.Reference,
+            content));
+  }
 
   private static Task<GitHubClientOutcome<T>> InvalidRequestAsync<T>(
       string detail,

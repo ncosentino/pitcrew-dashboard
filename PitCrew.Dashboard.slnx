@@ -40,6 +40,8 @@
     <Project Path="src/PitCrew.Dashboard.Features.Fleet.Tests/PitCrew.Dashboard.Features.Fleet.Tests.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Fleet/PitCrew.Dashboard.Features.Fleet.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Images.Abstractions/PitCrew.Dashboard.Features.Images.Abstractions.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Features.Images.Tests/PitCrew.Dashboard.Features.Images.Tests.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Features.Images/PitCrew.Dashboard.Features.Images.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Support.Abstractions/PitCrew.Dashboard.Features.Support.Abstractions.csproj" />
     <Project Path="src/PitCrew.Dashboard.Features.Support/PitCrew.Dashboard.Features.Support.csproj" />
   </Folder>

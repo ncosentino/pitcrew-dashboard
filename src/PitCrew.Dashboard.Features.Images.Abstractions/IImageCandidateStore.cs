@@ -16,6 +16,20 @@ public interface IImageCandidateStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Lists bounded tenant-owned image recipe registrations.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the registrations.</param>
+  /// <param name="includeDisabled">Whether disabled registrations should be included.</param>
+  /// <param name="limit">Maximum rows returned; callers must supply a positive bounded value.</param>
+  /// <param name="cancellationToken">Token that cancels the query.</param>
+  /// <returns>Newest registrations first.</returns>
+  Task<IReadOnlyList<ImageRecipeRegistration>> ListRecipeRegistrationsAsync(
+      string tenantId,
+      bool includeDisabled,
+      int limit,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Lists bounded recipe versions for one tenant and recipe.
   /// </summary>
   /// <param name="tenantId">Tenant that owns the registrations.</param>
@@ -26,6 +40,32 @@ public interface IImageCandidateStore
   Task<IReadOnlyList<ImageRecipeRegistration>> ListRecipeVersionsAsync(
       string tenantId,
       string recipeId,
+      int limit,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Loads one tenant-owned registration by its caller-supplied GUID.
+  /// </summary>
+  /// <param name="tenantId">Tenant expected to own the registration.</param>
+  /// <param name="registrationId">Caller-supplied registration identity.</param>
+  /// <param name="cancellationToken">Token that cancels the query.</param>
+  /// <returns>The registration, or <see langword="null" /> when absent from the tenant.</returns>
+  Task<ImageRecipeRegistration?> GetRecipeRegistrationOrNullAsync(
+      string tenantId,
+      Guid registrationId,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Lists bounded versions for one tenant-owned registration.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the registration.</param>
+  /// <param name="registrationId">Stable registration identity.</param>
+  /// <param name="limit">Maximum rows returned; callers must supply a positive bounded value.</param>
+  /// <param name="cancellationToken">Token that cancels the query.</param>
+  /// <returns>Newest registration versions first.</returns>
+  Task<IReadOnlyList<ImageRecipeRegistration>> ListRegistrationVersionsAsync(
+      string tenantId,
+      Guid registrationId,
       int limit,
       CancellationToken cancellationToken);
 
@@ -41,6 +81,22 @@ public interface IImageCandidateStore
       string tenantId,
       Guid registrationId,
       int version,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Disables one registration without rewriting its frozen identity.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the registration.</param>
+  /// <param name="registrationId">Caller-supplied registration identity.</param>
+  /// <param name="disabledByGitHubUserId">GitHub user that disables the registration.</param>
+  /// <param name="disabledAt">Caller-supplied disable time.</param>
+  /// <param name="cancellationToken">Token that cancels the mutation.</param>
+  /// <returns>Typed mutation outcome.</returns>
+  Task<ImageCandidateMutationResult> DisableRecipeRegistrationAsync(
+      string tenantId,
+      Guid registrationId,
+      string disabledByGitHubUserId,
+      DateTimeOffset disabledAt,
       CancellationToken cancellationToken);
 
   /// <summary>

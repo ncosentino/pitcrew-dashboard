@@ -4,8 +4,8 @@ namespace PitCrew.Dashboard.Features.Images.Abstractions;
 /// Describes one immutable reviewed image recipe registration version.
 /// </summary>
 /// <param name="TenantId">Tenant that owns the registration.</param>
-/// <param name="RegistrationId">Stable registration identity shared by its versions.</param>
-/// <param name="Version">Monotonically increasing registration version.</param>
+/// <param name="RegistrationId">Caller-supplied registration idempotency key for this exact frozen registration.</param>
+/// <param name="Version">Monotonically increasing registration version within the tenant and recipe.</param>
 /// <param name="GitHubInstallationId">GitHub App installation authorized for the repository.</param>
 /// <param name="GitHubRepositoryId">GitHub numeric repository identity.</param>
 /// <param name="GitHubWorkflowId">GitHub numeric workflow identity.</param>

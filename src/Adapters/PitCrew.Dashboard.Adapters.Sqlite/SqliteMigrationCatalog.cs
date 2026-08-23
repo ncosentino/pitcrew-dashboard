@@ -2267,5 +2267,598 @@ internal static class SqliteMigrationCatalog
               END;
 
               """),
+        new(
+              24,
+              "tenant-scoped-image-recipe-registration-authority",
+              """
+              CREATE TABLE image_recipe_versions_migration24 (
+                  tenant_id TEXT NOT NULL,
+                  registration_id TEXT NOT NULL
+                      CHECK (length(registration_id) = 36),
+                  version INTEGER NOT NULL
+                      CHECK (version >= 1),
+                  github_installation_id INTEGER NOT NULL
+                      CHECK (github_installation_id >= 1),
+                  github_repository_id INTEGER NOT NULL
+                      CHECK (github_repository_id >= 1),
+                  github_workflow_id INTEGER NOT NULL
+                      CHECK (github_workflow_id >= 1),
+                  repository_owner TEXT NOT NULL
+                      CHECK (length(repository_owner) BETWEEN 1 AND 100),
+                  repository_name TEXT NOT NULL
+                      CHECK (length(repository_name) BETWEEN 1 AND 100),
+                  canonical_repository TEXT GENERATED ALWAYS AS (
+                      repository_owner || '/' || repository_name) STORED,
+                  workflow_path TEXT NOT NULL
+                      CHECK (length(workflow_path) BETWEEN 1 AND 256),
+                  workflow_blob_sha TEXT NOT NULL
+                      CHECK (length(workflow_blob_sha) = 40
+                          AND workflow_blob_sha NOT GLOB '*[^0-9a-f]*'),
+                  dispatch_ref TEXT NOT NULL
+                      CHECK (length(dispatch_ref) BETWEEN 1 AND 255),
+                  recipe_id TEXT NOT NULL
+                      CHECK (length(recipe_id) BETWEEN 1 AND 64
+                          AND substr(recipe_id, 1, 1) GLOB '[a-z]'
+                          AND recipe_id NOT GLOB '*[^a-z0-9-]*'),
+                  candidate_schema_version INTEGER NOT NULL
+                      CHECK (candidate_schema_version = 1),
+                  source_ref_policy_json TEXT NOT NULL
+                      CHECK (length(source_ref_policy_json) BETWEEN 2 AND 4096
+                          AND json_valid(source_ref_policy_json)),
+                  input_schema_json TEXT NOT NULL
+                      CHECK (length(input_schema_json) BETWEEN 2 AND 16384
+                          AND json_valid(input_schema_json)),
+                  created_by_github_user_id TEXT NOT NULL
+                      CHECK (length(created_by_github_user_id) BETWEEN 1 AND 64),
+                  created_at TEXT NOT NULL,
+                  disabled_by_github_user_id TEXT NULL
+                      CHECK (disabled_by_github_user_id IS NULL
+                          OR length(disabled_by_github_user_id) BETWEEN 1 AND 64),
+                  disabled_at TEXT NULL,
+                  PRIMARY KEY (tenant_id, registration_id, version),
+                  UNIQUE (tenant_id, recipe_id, version),
+                  UNIQUE (
+                      tenant_id,
+                      registration_id,
+                      version,
+                      recipe_id,
+                      canonical_repository),
+                  CHECK ((disabled_by_github_user_id IS NULL
+                          AND disabled_at IS NULL)
+                      OR (disabled_by_github_user_id IS NOT NULL
+                          AND disabled_at IS NOT NULL)),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (created_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (disabled_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id)
+              );
+
+              CREATE TABLE image_build_requests_migration24 (
+                  request_id TEXT PRIMARY KEY
+                      CHECK (length(request_id) = 36),
+                  tenant_id TEXT NOT NULL,
+                  registration_id TEXT NOT NULL
+                      CHECK (length(registration_id) = 36),
+                  registration_version INTEGER NOT NULL
+                      CHECK (registration_version >= 1),
+                  recipe_id TEXT NOT NULL
+                      CHECK (length(recipe_id) BETWEEN 1 AND 64
+                          AND substr(recipe_id, 1, 1) GLOB '[a-z]'
+                          AND recipe_id NOT GLOB '*[^a-z0-9-]*'),
+                  source_repository TEXT NOT NULL
+                      CHECK (length(source_repository) BETWEEN 3 AND 200
+                          AND instr(source_repository, '/') BETWEEN 2
+                              AND length(source_repository) - 1),
+                  source_commit TEXT NOT NULL
+                      CHECK (length(source_commit) = 40
+                          AND source_commit NOT GLOB '*[^0-9a-f]*'),
+                  input_values_json TEXT NOT NULL
+                      CHECK (length(input_values_json) BETWEEN 2 AND 16384
+                          AND json_valid(input_values_json)),
+                  input_values_sha256 TEXT NOT NULL
+                      CHECK (length(input_values_sha256) = 64
+                          AND input_values_sha256 NOT GLOB '*[^0-9a-f]*'),
+                  requested_by_github_user_id TEXT NOT NULL
+                      CHECK (length(requested_by_github_user_id) BETWEEN 1 AND 64),
+                  requested_at TEXT NOT NULL,
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'requested',
+                          'dispatching',
+                          'building',
+                          'qualifying',
+                          'ready',
+                          'blocked',
+                          'failed')),
+                  github_run_id INTEGER NULL
+                      CHECK (github_run_id IS NULL OR github_run_id >= 1),
+                  github_run_url TEXT NULL
+                      CHECK (github_run_url IS NULL
+                          OR length(github_run_url) BETWEEN 1 AND 512),
+                  terminal_category TEXT NULL
+                      CHECK (terminal_category IS NULL
+                          OR length(terminal_category) BETWEEN 1 AND 64),
+                  terminal_detail TEXT NULL
+                      CHECK (terminal_detail IS NULL
+                          OR length(terminal_detail) BETWEEN 1 AND 512),
+                  updated_at TEXT NOT NULL,
+                  UNIQUE (tenant_id, request_id),
+                  CHECK ((github_run_id IS NULL AND github_run_url IS NULL)
+                      OR (github_run_id IS NOT NULL
+                          AND github_run_url IS NOT NULL)),
+                  CHECK ((status IN ('blocked', 'failed')
+                          AND terminal_category IS NOT NULL
+                          AND terminal_detail IS NOT NULL)
+                      OR (status NOT IN ('blocked', 'failed')
+                          AND terminal_category IS NULL
+                          AND terminal_detail IS NULL)),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (requested_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (
+                      tenant_id,
+                      registration_id,
+                      registration_version,
+                      recipe_id,
+                      source_repository)
+                      REFERENCES image_recipe_versions_migration24 (
+                          tenant_id,
+                          registration_id,
+                          version,
+                          recipe_id,
+                          canonical_repository)
+              );
+
+              CREATE TABLE image_candidates_migration24 (
+                  candidate_id TEXT PRIMARY KEY
+                      CHECK (length(candidate_id) = 36),
+                  tenant_id TEXT NOT NULL,
+                  request_id TEXT NOT NULL,
+                  outcome TEXT NOT NULL
+                      CHECK (outcome IN ('ready', 'failed')),
+                  recipe_id TEXT NOT NULL
+                      CHECK (length(recipe_id) BETWEEN 1 AND 64
+                          AND substr(recipe_id, 1, 1) GLOB '[a-z]'
+                          AND recipe_id NOT GLOB '*[^a-z0-9-]*'),
+                  source_repository TEXT NOT NULL
+                      CHECK (length(source_repository) BETWEEN 3 AND 200
+                          AND instr(source_repository, '/') BETWEEN 2
+                              AND length(source_repository) - 1),
+                  source_commit TEXT NOT NULL
+                      CHECK (length(source_commit) = 40
+                          AND source_commit NOT GLOB '*[^0-9a-f]*'),
+                  github_run_id INTEGER NOT NULL
+                      CHECK (github_run_id >= 1),
+                  artifact_id INTEGER NOT NULL
+                      CHECK (artifact_id >= 1),
+                  artifact_name TEXT NOT NULL
+                      CHECK (artifact_name = 'pitcrew-image-candidate'),
+                  artifact_digest TEXT NOT NULL
+                      CHECK (length(artifact_digest) = 71
+                          AND artifact_digest GLOB 'sha256:*'
+                          AND substr(artifact_digest, 8)
+                              NOT GLOB '*[^0-9a-f]*'),
+                  report_hash TEXT NOT NULL
+                      CHECK (length(report_hash) = 64
+                          AND report_hash NOT GLOB '*[^0-9a-f]*'),
+                  report_json TEXT NOT NULL
+                      CHECK (length(report_json) BETWEEN 2 AND 32768
+                          AND json_valid(report_json)),
+                  image_reference TEXT NOT NULL
+                      CHECK (length(image_reference) BETWEEN 1 AND 512),
+                  digest TEXT NULL
+                      CHECK (digest IS NULL
+                          OR (length(digest) = 71
+                              AND digest GLOB 'sha256:*'
+                              AND substr(digest, 8)
+                                  NOT GLOB '*[^0-9a-f]*')),
+                  immutable_reference TEXT NULL
+                      CHECK (immutable_reference IS NULL
+                          OR (length(immutable_reference) BETWEEN 72 AND 584
+                              AND immutable_reference GLOB '*@sha256:*'
+                              AND substr(
+                                  immutable_reference,
+                                  length(immutable_reference) - 63)
+                                  NOT GLOB '*[^0-9a-f]*')),
+                  platform TEXT NOT NULL
+                      CHECK (platform IN ('linux/amd64', 'linux/arm64')),
+                  output_mode TEXT NOT NULL
+                      CHECK (output_mode IN ('registry', 'oci')),
+                  failure_category TEXT NULL
+                      CHECK (failure_category IS NULL OR failure_category IN (
+                          'build-failed',
+                          'digest-unavailable',
+                          'registry-verification-failed',
+                          'registry-digest-mismatch',
+                          'oci-verification-failed',
+                          'oci-digest-mismatch',
+                          'oci-manifest-missing',
+                          'builder-cleanup-failed')),
+                  failure_detail TEXT NULL
+                      CHECK (failure_detail IS NULL OR failure_detail IN (
+                          'Image build did not complete.',
+                          'BuildKit did not return an immutable image digest.',
+                          'Registry digest verification failed.',
+                          'Registry digest did not match BuildKit digest.',
+                          'OCI output verification failed.',
+                          'OCI output digest did not match BuildKit digest.',
+                          'OCI output omitted its declared manifest blob.',
+                          'BuildKit cleanup did not reach an empty state.')),
+                  created_at TEXT NOT NULL,
+                  stored_at TEXT NOT NULL,
+                  UNIQUE (tenant_id, candidate_id),
+                  UNIQUE (tenant_id, request_id),
+                  UNIQUE (tenant_id, github_run_id, artifact_id),
+                  CHECK ((outcome = 'ready'
+                          AND digest IS NOT NULL
+                          AND failure_category IS NULL
+                          AND failure_detail IS NULL)
+                      OR (outcome = 'failed'
+                          AND failure_category IS NOT NULL
+                          AND failure_detail IS NOT NULL)),
+                  CHECK ((output_mode = 'registry'
+                          AND (outcome = 'failed'
+                              OR immutable_reference IS NOT NULL))
+                      OR (output_mode = 'oci'
+                          AND immutable_reference IS NULL)),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (tenant_id, request_id)
+                      REFERENCES image_build_requests_migration24 (tenant_id, request_id)
+                      ON DELETE CASCADE
+              );
+
+              CREATE TABLE image_candidate_qualifications_migration24 (
+                  candidate_id TEXT NOT NULL,
+                  name TEXT NOT NULL
+                      CHECK (name IN (
+                          'image-build',
+                          'buildkit-digest',
+                          'registry-digest',
+                          'oci-manifest',
+                          'builder-cleanup')),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'passed',
+                          'failed',
+                          'unavailable')),
+                  PRIMARY KEY (candidate_id, name),
+                  FOREIGN KEY (candidate_id)
+                      REFERENCES image_candidates_migration24(candidate_id)
+                      ON DELETE CASCADE
+              );
+
+              INSERT INTO image_recipe_versions_migration24 (
+                  tenant_id,
+                  registration_id,
+                  version,
+                  github_installation_id,
+                  github_repository_id,
+                  github_workflow_id,
+                  repository_owner,
+                  repository_name,
+                  workflow_path,
+                  workflow_blob_sha,
+                  dispatch_ref,
+                  recipe_id,
+                  candidate_schema_version,
+                  source_ref_policy_json,
+                  input_schema_json,
+                  created_by_github_user_id,
+                  created_at,
+                  disabled_by_github_user_id,
+                  disabled_at)
+              SELECT
+                  tenant_id,
+                  registration_id,
+                  version,
+                  github_installation_id,
+                  github_repository_id,
+                  github_workflow_id,
+                  repository_owner,
+                  repository_name,
+                  workflow_path,
+                  workflow_blob_sha,
+                  dispatch_ref,
+                  recipe_id,
+                  candidate_schema_version,
+                  source_ref_policy_json,
+                  input_schema_json,
+                  created_by_github_user_id,
+                  created_at,
+                  disabled_by_github_user_id,
+                  disabled_at
+              FROM image_recipe_versions;
+
+              INSERT INTO image_build_requests_migration24 (
+                  request_id,
+                  tenant_id,
+                  registration_id,
+                  registration_version,
+                  recipe_id,
+                  source_repository,
+                  source_commit,
+                  input_values_json,
+                  input_values_sha256,
+                  requested_by_github_user_id,
+                  requested_at,
+                  status,
+                  github_run_id,
+                  github_run_url,
+                  terminal_category,
+                  terminal_detail,
+                  updated_at)
+              SELECT
+                  request_id,
+                  tenant_id,
+                  registration_id,
+                  registration_version,
+                  recipe_id,
+                  source_repository,
+                  source_commit,
+                  input_values_json,
+                  input_values_sha256,
+                  requested_by_github_user_id,
+                  requested_at,
+                  status,
+                  github_run_id,
+                  github_run_url,
+                  terminal_category,
+                  terminal_detail,
+                  updated_at
+              FROM image_build_requests;
+
+              INSERT INTO image_candidates_migration24 (
+                  candidate_id,
+                  tenant_id,
+                  request_id,
+                  outcome,
+                  recipe_id,
+                  source_repository,
+                  source_commit,
+                  github_run_id,
+                  artifact_id,
+                  artifact_name,
+                  artifact_digest,
+                  report_hash,
+                  report_json,
+                  image_reference,
+                  digest,
+                  immutable_reference,
+                  platform,
+                  output_mode,
+                  failure_category,
+                  failure_detail,
+                  created_at,
+                  stored_at)
+              SELECT
+                  candidate_id,
+                  tenant_id,
+                  request_id,
+                  outcome,
+                  recipe_id,
+                  source_repository,
+                  source_commit,
+                  github_run_id,
+                  artifact_id,
+                  artifact_name,
+                  artifact_digest,
+                  report_hash,
+                  report_json,
+                  image_reference,
+                  digest,
+                  immutable_reference,
+                  platform,
+                  output_mode,
+                  failure_category,
+                  failure_detail,
+                  created_at,
+                  stored_at
+              FROM image_candidates;
+
+              INSERT INTO image_candidate_qualifications_migration24 (
+                  candidate_id,
+                  name,
+                  status)
+              SELECT
+                  candidate_id,
+                  name,
+                  status
+              FROM image_candidate_qualifications;
+
+              DROP TABLE image_candidate_qualifications;
+              DROP TABLE image_candidates;
+              DROP TABLE image_build_requests;
+              DROP TABLE image_recipe_versions;
+
+              ALTER TABLE image_recipe_versions_migration24
+                  RENAME TO image_recipe_versions;
+              ALTER TABLE image_build_requests_migration24
+                  RENAME TO image_build_requests;
+              ALTER TABLE image_candidates_migration24
+                  RENAME TO image_candidates;
+              ALTER TABLE image_candidate_qualifications_migration24
+                  RENAME TO image_candidate_qualifications;
+
+              CREATE INDEX ix_image_recipe_versions_tenant_recipe
+                  ON image_recipe_versions (
+                      tenant_id,
+                      recipe_id,
+                      version DESC);
+
+              CREATE INDEX ix_image_recipe_versions_tenant_active
+                  ON image_recipe_versions (
+                      tenant_id,
+                      recipe_id,
+                      registration_id,
+                      version DESC)
+                  WHERE disabled_at IS NULL;
+
+              CREATE TRIGGER trg_image_recipe_versions_immutable
+              BEFORE UPDATE ON image_recipe_versions
+              FOR EACH ROW
+              WHEN OLD.tenant_id <> NEW.tenant_id
+                OR OLD.registration_id <> NEW.registration_id
+                OR OLD.version <> NEW.version
+                OR OLD.github_installation_id <> NEW.github_installation_id
+                OR OLD.github_repository_id <> NEW.github_repository_id
+                OR OLD.github_workflow_id <> NEW.github_workflow_id
+                OR OLD.repository_owner <> NEW.repository_owner
+                OR OLD.repository_name <> NEW.repository_name
+                OR OLD.workflow_path <> NEW.workflow_path
+                OR OLD.workflow_blob_sha <> NEW.workflow_blob_sha
+                OR OLD.dispatch_ref <> NEW.dispatch_ref
+                OR OLD.recipe_id <> NEW.recipe_id
+                OR OLD.candidate_schema_version <> NEW.candidate_schema_version
+                OR OLD.source_ref_policy_json <> NEW.source_ref_policy_json
+                OR OLD.input_schema_json <> NEW.input_schema_json
+                OR OLD.created_by_github_user_id
+                    <> NEW.created_by_github_user_id
+                OR OLD.created_at <> NEW.created_at
+                OR (OLD.disabled_at IS NOT NULL
+                    AND (OLD.disabled_at <> NEW.disabled_at
+                        OR OLD.disabled_by_github_user_id
+                            <> NEW.disabled_by_github_user_id))
+                OR (OLD.disabled_at IS NULL
+                    AND ((NEW.disabled_at IS NULL
+                          AND NEW.disabled_by_github_user_id IS NOT NULL)
+                        OR (NEW.disabled_at IS NOT NULL
+                          AND NEW.disabled_by_github_user_id IS NULL)))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image recipe registration identity is immutable');
+              END;
+
+              CREATE INDEX ix_image_build_requests_tenant_requested
+                  ON image_build_requests (
+                      tenant_id,
+                      requested_at DESC,
+                      request_id DESC);
+
+              CREATE INDEX ix_image_build_requests_tenant_status
+                  ON image_build_requests (
+                      tenant_id,
+                      status,
+                      requested_at DESC,
+                      request_id DESC);
+
+              CREATE INDEX ix_image_build_requests_active
+                  ON image_build_requests (
+                      status,
+                      updated_at,
+                      tenant_id,
+                      request_id)
+                  WHERE status IN (
+                      'requested',
+                      'dispatching',
+                      'building',
+                      'qualifying');
+
+              CREATE TRIGGER trg_image_build_requests_identity_immutable
+              BEFORE UPDATE ON image_build_requests
+              FOR EACH ROW
+              WHEN OLD.request_id <> NEW.request_id
+                OR OLD.tenant_id <> NEW.tenant_id
+                OR OLD.registration_id <> NEW.registration_id
+                OR OLD.registration_version <> NEW.registration_version
+                OR OLD.recipe_id <> NEW.recipe_id
+                OR OLD.source_repository <> NEW.source_repository
+                OR OLD.source_commit <> NEW.source_commit
+                OR OLD.input_values_json <> NEW.input_values_json
+                OR OLD.input_values_sha256 <> NEW.input_values_sha256
+                OR OLD.requested_by_github_user_id
+                    <> NEW.requested_by_github_user_id
+                OR OLD.requested_at <> NEW.requested_at
+                OR (OLD.github_run_id IS NOT NULL
+                    AND (OLD.github_run_id <> NEW.github_run_id
+                        OR OLD.github_run_url <> NEW.github_run_url))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image build request identity is immutable');
+              END;
+
+              CREATE TRIGGER trg_image_build_requests_monotonic
+              BEFORE UPDATE ON image_build_requests
+              FOR EACH ROW
+              WHEN NEW.updated_at < OLD.updated_at
+                OR OLD.status IN ('ready', 'blocked', 'failed')
+                OR NOT (
+                    (OLD.status = 'requested'
+                        AND NEW.status = 'dispatching')
+                    OR (OLD.status = 'dispatching'
+                        AND NEW.status = 'building')
+                    OR (OLD.status = 'building'
+                        AND NEW.status = 'qualifying')
+                    OR (OLD.status = 'qualifying'
+                        AND NEW.status IN ('ready', 'blocked', 'failed')))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'invalid image build request transition');
+              END;
+
+              CREATE INDEX ix_image_candidates_tenant_stored
+                  ON image_candidates (
+                      tenant_id,
+                      stored_at DESC,
+                      candidate_id DESC);
+
+              CREATE TRIGGER trg_image_candidates_immutable_update
+              BEFORE UPDATE ON image_candidates
+              FOR EACH ROW
+              BEGIN
+                  SELECT RAISE(ABORT, 'image candidates are immutable');
+              END;
+
+              CREATE TRIGGER trg_image_candidate_qualifications_ready
+              BEFORE INSERT ON image_candidate_qualifications
+              FOR EACH ROW
+              WHEN NEW.status <> 'passed'
+                AND EXISTS (
+                    SELECT 1
+                    FROM image_candidates
+                    WHERE candidate_id = NEW.candidate_id
+                      AND outcome = 'ready')
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'ready image candidate qualifications must pass');
+              END;
+
+              CREATE TRIGGER trg_image_candidate_qualifications_immutable_update
+              BEFORE UPDATE ON image_candidate_qualifications
+              FOR EACH ROW
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image candidate qualifications are immutable');
+              END;
+
+              CREATE TEMP TABLE migration24_image_recipe_fk_check AS
+              SELECT *
+              FROM pragma_foreign_key_check;
+
+              CREATE TEMP TABLE migration24_image_recipe_fk_guard (
+                  fk_ok INTEGER NOT NULL CHECK (fk_ok = 1)
+              );
+
+              INSERT INTO migration24_image_recipe_fk_guard (fk_ok)
+              SELECT CASE
+                  WHEN EXISTS (
+                      SELECT 1
+                      FROM migration24_image_recipe_fk_check)
+                  THEN 0
+                  ELSE 1
+              END;
+
+              DROP TABLE migration24_image_recipe_fk_guard;
+              DROP TABLE migration24_image_recipe_fk_check;
+
+              """),
     ];
 }
