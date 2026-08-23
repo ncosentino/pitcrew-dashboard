@@ -654,6 +654,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         !File.Exists(resultPath))
     {
       throw new CanaryScenarioFailureException(
+          ReadAgentRequestDisposition(context.RunRoot) ??
           "pitcrew-verifier-rejected-result");
     }
     using var result = JsonDocument.Parse(
@@ -670,6 +671,27 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       throw new CanaryScenarioFailureException(
           "pitcrew-verifier-incomplete");
     }
+  }
+
+  private static string? ReadAgentRequestDisposition(
+      string runRoot)
+  {
+    var statusPath = Path.Combine(
+        runRoot,
+        "services",
+        "agent",
+        "agent-startup-status.json");
+    if (!File.Exists(statusPath))
+    {
+      return null;
+    }
+    using var status = JsonDocument.Parse(
+        File.ReadAllText(statusPath));
+    var root = status.RootElement;
+    return root.GetProperty("phase").GetString() ==
+            "request-processing"
+        ? $"agent-{root.GetProperty("disposition").GetString()}"
+        : null;
   }
 
   private static void WriteDeletionRequest(

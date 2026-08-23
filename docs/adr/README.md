@@ -14,3 +14,4 @@ and explicit supersession links.
 | [ADR-0007](adr-0007-browser-ux-evidence-and-design-authority.md) | Accepted | Use durable product/design authority and deterministic browser UX evidence while keeping subjective design findings advisory. |
 | [ADR-0008](adr-0008-support-plane-v1-read-only-diagnostics.md) | Accepted | Add a separate optional read-only support plane with opaque relay, independent node identity, and split transport/broker processes. |
 | [ADR-0009](adr-0009-trusted-image-candidate-orchestration.md) | Accepted | Use a GitHub App to dispatch immutable registered image workflows and poll exact runs for bounded candidate artifacts. |
+| [ADR-0010](adr-0010-extensible-support-canary-harness.md) | Proposed | Use a layered Aspire topology with independent source, scaffold, scenario, evidence, and CI adapters. |

@@ -71,16 +71,24 @@ public sealed class SupportAgentRequestProcessorTests
       var first = await processor.ProcessAsync(sessionId, envelope, cancellationToken);
       var second = await processor.ProcessAsync(sessionId, envelope, cancellationToken);
 
-      await Assert.That(first).IsNotNull();
-      await Assert.That(second).IsNotNull();
+      await Assert.That(first.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.Succeeded);
+      await Assert.That(second.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.Cached);
+      await Assert.That(first.ResultEnvelope).IsNotNull();
+      await Assert.That(second.ResultEnvelope).IsNotNull();
       await Assert.That(broker.CallCount).IsEqualTo(1);
-      await Assert.That(second!.SignatureBase64Url).IsEqualTo(first!.SignatureBase64Url);
+      await Assert.That(second.ResultEnvelope!.SignatureBase64Url)
+          .IsEqualTo(
+              first.ResultEnvelope!.SignatureBase64Url);
       using var nodeSigning = SupportKeyFactory.ImportEcdsaPublicKey(
           nodeKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url);
       using var dashboardResultKey = SupportKeyFactory.ImportRsaPrivateKey(
           dashboardKeys.ResultEncryption.PrivateKeyPkcs8Base64Url);
       var opened = SupportEnvelopeCryptography.OpenOrNull(
-          first,
+          first.ResultEnvelope,
           nodeSigning,
           dashboardResultKey);
       await Assert.That(opened).IsNotNull();
@@ -159,7 +167,10 @@ public sealed class SupportAgentRequestProcessorTests
 
       var result = await processor.ProcessAsync(Guid.NewGuid(), envelope, cancellationToken);
 
-      await Assert.That(result).IsNull();
+      await Assert.That(result.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.SessionMismatch);
+      await Assert.That(result.ResultEnvelope).IsNull();
       await Assert.That(broker.CallCount).IsEqualTo(0);
     }
     finally

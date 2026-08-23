@@ -3,6 +3,8 @@ namespace PitCrew.Support.Agent.App;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using PitCrew.Support.Protocol;
+
 internal sealed partial class SupportAgentWorker(
     SupportNodeIdentityProvisioner _identityProvisioner,
     SupportNodeIdentityStore _identityStore,
@@ -168,14 +170,23 @@ internal sealed partial class SupportAgentWorker(
         poll.Response.SessionId,
         requestEnvelope,
         cancellationToken);
-    if (result is null)
+    if (result.ResultEnvelope is null)
     {
+      var disposition = GetProcessingDisposition(result);
+      _startupStatus.Write(
+          "request-processing",
+          disposition,
+          exceptionType: null);
+      LogRequestRejected(
+          _logger,
+          poll.Response.SessionId,
+          disposition);
       return true;
     }
     var upload = await _relayClient.UploadResultAsync(
         options,
         poll.Response.SessionId,
-        result,
+        result.ResultEnvelope,
         cancellationToken);
     if (upload == SupportRelayUploadOutcome.CredentialRejected)
     {
@@ -188,8 +199,46 @@ internal sealed partial class SupportAgentWorker(
       throw new HttpRequestException(
           "The support relay rejected the result upload.");
     }
+    _startupStatus.Write(
+        "request-processing",
+        "completed",
+        exceptionType: null);
     return true;
   }
+
+  private static string GetProcessingDisposition(
+      SupportAgentRequestProcessingResult result) =>
+      result.Status switch
+      {
+        SupportAgentRequestProcessingStatus.EnvelopeRejected =>
+            "envelope-rejected",
+        SupportAgentRequestProcessingStatus.RequestMalformed =>
+            "request-malformed",
+        SupportAgentRequestProcessingStatus.SessionMismatch =>
+            "session-mismatch",
+        SupportAgentRequestProcessingStatus.ValidationRejected =>
+            result.ValidationStatus switch
+            {
+              SupportRequestValidationStatus.WrongTenantOrNode =>
+                  "wrong-tenant-or-node",
+              SupportRequestValidationStatus.UnsupportedCapability =>
+                  "unsupported-capability",
+              SupportRequestValidationStatus.UnsupportedDiagnosticMode =>
+                  "unsupported-diagnostic-mode",
+              SupportRequestValidationStatus.Expired =>
+                  "request-expired",
+              SupportRequestValidationStatus.InvalidNonce =>
+                  "invalid-nonce",
+              SupportRequestValidationStatus.Replay =>
+                  "request-replay",
+              _ => "validation-rejected",
+            },
+        SupportAgentRequestProcessingStatus.ReplayPending =>
+            "replay-pending",
+        SupportAgentRequestProcessingStatus.BrokerOutputRejected =>
+            "broker-output-rejected",
+        _ => "result-unavailable",
+      };
 
   [LoggerMessage(
       EventId = 1,
@@ -208,4 +257,13 @@ internal sealed partial class SupportAgentWorker(
       Level = LogLevel.Warning,
       Message = "The support relay returned an invalid response; polling will retry.")]
   private static partial void LogRelayResponseInvalid(ILogger logger);
+
+  [LoggerMessage(
+      EventId = 4,
+      Level = LogLevel.Warning,
+      Message = "Support request {SessionId} was rejected with disposition {Disposition}.")]
+  private static partial void LogRequestRejected(
+      ILogger logger,
+      Guid sessionId,
+      string disposition);
 }

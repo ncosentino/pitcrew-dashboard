@@ -46,6 +46,7 @@ This map is the canonical entry point for maintained Dashboard documentation.
 - [Roslyn analyzers](development/roslyn-analyzers.md)
 - [Evaluations and benchmarks](testing/evaluations-and-benchmarks.md)
 - [Browser UX evidence harness](testing/browser-ux.md)
+- [Cross-repository support canary](testing/support-canary.md)
 - [Physical device evidence procedure](testing/physical-device-evidence.md)
 - [Request validation and job scheduling](development/request-validation-and-jobs.md)
 - [Blazor extensibility](ui/blazor-extensibility.md)
