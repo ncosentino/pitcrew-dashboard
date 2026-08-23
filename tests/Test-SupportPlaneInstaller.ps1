@@ -1319,6 +1319,24 @@ try {
             -LiteralPath $preservedMarkerPath `
             -PathType Leaf)
     ) 'Reinstallation did not consume the preserved identity marker.'
+    if ($IsWindows) {
+        $junctionTarget = Join-Path $testRoot 'removed-junction-target'
+        $junctionPath = Join-Path $pitCrewRoot 'dangling-evidence-junction'
+        New-Item `
+            -ItemType Directory `
+            -Path $junctionTarget `
+            -Force |
+            Out-Null
+        New-Item `
+            -ItemType Junction `
+            -Path $junctionPath `
+            -Target $junctionTarget |
+            Out-Null
+        Remove-Item `
+            -LiteralPath $junctionTarget `
+            -Recurse `
+            -Force
+    }
     Invoke-Installer -LifecycleAction 'Disable'
     Invoke-Installer `
         -LifecycleAction 'Uninstall' `

@@ -3588,20 +3588,24 @@ function Revoke-WindowsEvidenceAccess {
                 "*$brokerSid",
                 "*$agentSid",
                 '/T',
-                '/C'
+                '/C',
+                '/L'
             )
         }
         $items = @(
-            Get-Item -LiteralPath $root -Force
-            Get-ChildItem `
-                -LiteralPath $root `
-                -Recurse `
-                -Force `
-                -ErrorAction Stop
+            Get-WindowsEvidenceTreeItems -ScanRoot $root
         )
         foreach ($item in $items) {
+            try {
+                $acl = Get-Acl -LiteralPath $item.FullName
+            } catch {
+                if (-not (Test-Path -LiteralPath $item.FullName)) {
+                    continue
+                }
+                throw
+            }
             $remaining = @(
-                (Get-Acl -LiteralPath $item.FullName).GetAccessRules(
+                $acl.GetAccessRules(
                     $true,
                     $true,
                     [Security.Principal.SecurityIdentifier]) |
@@ -3989,37 +3993,67 @@ function Invoke-Uninstall {
         }
     }
     if ($IsWindows) {
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'stop-support-services'
         Stop-WindowsSupportServices
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'revoke-product-evidence-access'
         Revoke-WindowsEvidenceAccess `
             -Paths $Paths `
             -Settings $brokerSettings
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'revoke-service-parent-traversal'
         Revoke-WindowsServiceParentTraversal `
             -Paths $Paths `
             -AgentSid ([string]$brokerSettings.ExpectedAgentSid) `
             -BrokerSid ([string]$brokerSettings.BrokerServiceSid)
         if ($IdentityHandling -ceq 'PreserveKeys') {
+            Set-InstallerFailureContext `
+                -Phase 'uninstall' `
+                -Operation 'preserve-local-identity'
             Preserve-AgentIdentityState -Paths $Paths
         }
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'remove-support-firewall-rules'
         Remove-NetFirewallRule `
             -Name `
                 $windowsServiceFirewallRule,
                 $windowsIdentityFirewallRule,
                 $windowsProgramFirewallRule `
             -ErrorAction SilentlyContinue
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'remove-support-services'
         Remove-WindowsService -Name $windowsAgentService
         Remove-WindowsService -Name $windowsBrokerService
     } else {
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'stop-support-services'
         & systemctl disable --now $linuxAgentService $linuxBrokerService |
             Out-Null
         if ($LASTEXITCODE -notin @(0, 5)) {
             throw 'Could not disable the support services.'
         }
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'revoke-product-evidence-access'
         Revoke-LinuxEvidenceAccess `
             -Paths $Paths `
             -Settings $brokerSettings
         if ($IdentityHandling -ceq 'PreserveKeys') {
+            Set-InstallerFailureContext `
+                -Phase 'uninstall' `
+                -Operation 'preserve-local-identity'
             Preserve-AgentIdentityState -Paths $Paths
         }
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'remove-support-services'
         Remove-Item `
             -LiteralPath $Paths.AgentUnitPath, $Paths.BrokerUnitPath `
             -Force `
@@ -4027,6 +4061,9 @@ function Invoke-Uninstall {
         Invoke-Checked systemctl @('daemon-reload')
         Remove-LinuxProductIdentities
     }
+    Set-InstallerFailureContext `
+        -Phase 'uninstall' `
+        -Operation 'remove-support-installation'
     Remove-Item `
         -LiteralPath $Paths.AgentInstallRoot, $Paths.BrokerInstallRoot `
         -Recurse `
@@ -4038,6 +4075,9 @@ function Invoke-Uninstall {
         -Force `
         -ErrorAction SilentlyContinue
     if ($IdentityHandling -ceq 'DeleteKeys') {
+        Set-InstallerFailureContext `
+            -Phase 'uninstall' `
+            -Operation 'remove-support-agent-state'
         Remove-DirectoryTreeWithRetry -Path $Paths.AgentStateRoot
     }
 }

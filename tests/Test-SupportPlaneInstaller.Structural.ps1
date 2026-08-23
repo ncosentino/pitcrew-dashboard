@@ -114,6 +114,16 @@ $getWindowsEvidenceTreeItemsText = (
         $true
     )
 ).Extent.Text
+$revokeWindowsEvidenceAccessText = (
+    $ast.Find(
+        {
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -ceq 'Revoke-WindowsEvidenceAccess'
+        },
+        $true
+    )
+).Extent.Text
 Add-Check (
     $getWindowsEvidenceTreeItemsText -match
         'catch \[Management\.Automation\.ItemNotFoundException\]' -and
@@ -129,6 +139,14 @@ Add-Check (
     $getWindowsEvidenceTreeItemsText -notmatch
         '(?m)^\s*-Recurse\s*`?\s*$'
 ) 'Windows evidence enumeration catches failures broader than transient missing items.'
+Add-Check (
+    $revokeWindowsEvidenceAccessText -match
+        'Get-WindowsEvidenceTreeItems\s+-ScanRoot\s+\$root' -and
+    $revokeWindowsEvidenceAccessText -notmatch
+        '(?m)^\s*Get-ChildItem\s*`?\s*$' -and
+    $revokeWindowsEvidenceAccessText -match
+        "'/L'"
+) 'Windows evidence revocation does not use the no-follow tree walk.'
 foreach ($requiredFunction in @(
     'Stage-Release',
     'Remove-ObsoleteSupportVersions',
@@ -1150,6 +1168,21 @@ Add-Check (
         "-Identity 'PreserveKeys'",
         [StringComparison]::Ordinal)
 ) 'Uninstall does not require and test an explicit identity-handling choice.'
+foreach ($uninstallOperation in @(
+    "'stop-support-services'",
+    "'revoke-product-evidence-access'",
+    "'revoke-service-parent-traversal'",
+    "'remove-support-firewall-rules'",
+    "'remove-support-services'",
+    "'remove-support-installation'",
+    "'remove-support-agent-state'"
+)) {
+    Add-Check (
+        $installer.Contains(
+            $uninstallOperation,
+            [StringComparison]::Ordinal)
+    ) "Uninstall does not publish bounded operation $uninstallOperation."
+}
 Add-Check (
     $hostTest.Contains(
         'Invoke-InstalledBrokerNetworkDenialProbe',
