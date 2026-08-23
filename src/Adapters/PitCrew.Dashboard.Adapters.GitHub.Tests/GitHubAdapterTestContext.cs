@@ -19,7 +19,7 @@ internal sealed class GitHubAdapterTestContext : IDisposable
       bool createPrivateKey = true,
       bool enabled = true)
   {
-    Handler = new RecordingHttpMessageHandler();
+    Handler = new RecordingHttpTransport();
     TimeProvider = new FakeTimeProvider(FixedNow);
     if (privateKeyPath is null)
     {
@@ -68,7 +68,7 @@ internal sealed class GitHubAdapterTestContext : IDisposable
         TimeProvider);
   }
 
-  public RecordingHttpMessageHandler Handler { get; }
+  public RecordingHttpTransport Handler { get; }
 
   public FakeTimeProvider TimeProvider { get; }
 

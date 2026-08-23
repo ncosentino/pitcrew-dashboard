@@ -1,7 +1,7 @@
 namespace PitCrew.Dashboard.Adapters.GitHub.Tests;
 
 internal sealed class RecordingHttpClientFactory(
-    RecordingHttpMessageHandler _handler) : IHttpClientFactory
+    RecordingHttpTransport _handler) : IHttpClientFactory
 {
   public HttpClient CreateClient(string name)
   {

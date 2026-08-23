@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace PitCrew.Dashboard.Adapters.GitHub.Tests;
 
-internal sealed class RecordingHttpMessageHandler : HttpMessageHandler
+internal sealed class HttpExchangeQueue
 {
   private readonly ConcurrentQueue<
       Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>>
@@ -19,7 +19,7 @@ internal sealed class RecordingHttpMessageHandler : HttpMessageHandler
           response) =>
       _responses.Enqueue(response);
 
-  protected override async Task<HttpResponseMessage> SendAsync(
+  public async Task<HttpResponseMessage> ExchangeAsync(
       HttpRequestMessage request,
       CancellationToken cancellationToken)
   {
