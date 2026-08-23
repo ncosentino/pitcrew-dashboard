@@ -550,8 +550,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                 agentStateRoot,
                 "appsettings.json")));
     var agent = document.RootElement
-        .GetProperty("PitCrewSupport")
-        .GetProperty("Agent");
+        .GetProperty("pitCrewSupport")
+        .GetProperty("agent");
     foreach (var propertyName in new[]
     {
         "dashboardUrl",
