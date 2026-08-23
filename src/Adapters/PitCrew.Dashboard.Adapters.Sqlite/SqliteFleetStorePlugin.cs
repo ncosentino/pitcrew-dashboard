@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NexusLabs.Needlr;
 using PitCrew.Dashboard.Features.Access.Abstractions;
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
+using PitCrew.Dashboard.Features.Images.Abstractions;
 using PitCrew.Dashboard.Features.Support.Abstractions;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite;
@@ -53,6 +54,10 @@ internal sealed class SqliteFleetStorePlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<SqliteSupportStore>();
     options.Services.AddSingleton<ISupportStore>(
         static services => services.GetRequiredService<SqliteSupportStore>());
+    options.Services.AddSingleton<SqliteImageCandidateStore>();
+    options.Services.AddSingleton<IImageCandidateStore>(
+        static services =>
+            services.GetRequiredService<SqliteImageCandidateStore>());
     options.Services.AddHostedService<SqliteFleetStoreInitializer>();
   }
 }
