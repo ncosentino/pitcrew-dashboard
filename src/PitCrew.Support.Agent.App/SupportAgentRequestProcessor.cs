@@ -115,15 +115,21 @@ internal sealed class SupportAgentRequestProcessor(
             request.PackageId),
         executionCancellation.Token);
     if (!SupportDiagnosticReportValidator.IsSafeMarkdown(
-            diagnostics.Markdown) ||
-        !SupportDiagnosticReportValidator.IsValid(
-            diagnostics.Report,
-            request.DiagnosticMode,
-            request.ProfileId,
-            request.PackageId))
+        diagnostics.Markdown))
     {
       return new SupportAgentRequestProcessingResult(
-          SupportAgentRequestProcessingStatus.BrokerOutputRejected,
+          SupportAgentRequestProcessingStatus.BrokerMarkdownRejected,
+          null,
+          null);
+    }
+    if (!SupportDiagnosticReportValidator.IsValid(
+        diagnostics.Report,
+        request.DiagnosticMode,
+        request.ProfileId,
+        request.PackageId))
+    {
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.BrokerReportRejected,
           null,
           null);
     }
@@ -179,5 +185,6 @@ internal enum SupportAgentRequestProcessingStatus
   SessionMismatch,
   ValidationRejected,
   ReplayPending,
-  BrokerOutputRejected,
+  BrokerMarkdownRejected,
+  BrokerReportRejected,
 }

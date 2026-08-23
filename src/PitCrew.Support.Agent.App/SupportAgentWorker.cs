@@ -239,8 +239,10 @@ internal sealed partial class SupportAgentWorker(
             },
         SupportAgentRequestProcessingStatus.ReplayPending =>
             "replay-pending",
-        SupportAgentRequestProcessingStatus.BrokerOutputRejected =>
-            "broker-output-rejected",
+        SupportAgentRequestProcessingStatus.BrokerMarkdownRejected =>
+            "broker-markdown-rejected",
+        SupportAgentRequestProcessingStatus.BrokerReportRejected =>
+            "broker-report-rejected",
         _ => "result-unavailable",
       };
 
