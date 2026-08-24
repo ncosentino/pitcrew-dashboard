@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 
 $script:ReleaseGateMarkerPattern = (
-    '(?m)^<!-- pitcrew-support-canary-gate:v2 ' +
+    '(?m)^<!-- pitcrew-support-canary-gate:v3 ' +
     'release-tag=(?<releaseTag>v[0-9A-Za-z.-]+) ' +
     'dashboard-sha=(?<dashboardSha>[a-f0-9]{40}) ' +
     'pitcrew-sha=(?<pitcrewSha>[a-f0-9]{40}) ' +
@@ -12,6 +12,7 @@ $script:ReleaseGateMarkerPattern = (
 $script:RequiredScenario = 'support-fresh-enrollment-diagnostic-v1'
 $script:RequiredTopologyProfiles = @(
     'portable',
+    'containerized',
     'windows-installed'
 )
 $script:RequiredWorkflowPath = '.github/workflows/prepare-release.yml'
@@ -103,7 +104,7 @@ function New-SupportReleaseGateMarker {
     }
 
     return (
-        '<!-- pitcrew-support-canary-gate:v2 ' +
+        '<!-- pitcrew-support-canary-gate:v3 ' +
         "release-tag=$ReleaseTag " +
         "dashboard-sha=$DashboardSha " +
         "pitcrew-sha=$PitCrewSha " +
@@ -339,6 +340,7 @@ function Assert-SupportReleaseGateEvidence {
         -EvidenceName 'Workflow job evidence')
     foreach ($requiredJobName in @(
         'Gate release candidate / Portable support canary',
+        'Gate containerized candidate / Containerized support canary',
         'Gate installed Windows candidate / Windows-installed support canary',
         'Create gated draft release'
     )) {
