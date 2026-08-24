@@ -209,6 +209,12 @@ poll, signed diagnostic completion, revocation, DeleteKeys, and unchanged
 unrelated state. Adding it does not change AppHost resource topology or GitHub
 workflow control flow.
 
+The third scenario, `support-diagnostic-mode-matrix-v1`, composes the same
+workflow without topology disruption and completes all five closed read-only
+diagnostic modes sequentially for one enrolled node. Each mode must pass the
+PitCrew verifier and node-attestation checks. Evidence exposes one bounded
+matrix-success category and no reports or mode-specific host data.
+
 ## CI and trust boundary
 
 Dashboard provides a reusable and manually dispatchable workflow with exact

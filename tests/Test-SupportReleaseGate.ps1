@@ -21,6 +21,9 @@ $verifyWorkflowPath = Join-Path (
 $supportCanaryWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'support-canary.yml'
+$supportRelayScenarioPath = Join-Path (
+    $repositoryRoot
+) 'scripts' 'canary' 'Invoke-SupportRelayScenario.ps1'
 $publishWorkflowPaths = @(
     Join-Path $repositoryRoot '.github' 'workflows' 'publish-container.yml'
     Join-Path $repositoryRoot '.github' 'workflows' 'publish-host-connector.yml'
@@ -481,6 +484,9 @@ $verifyWorkflow = Get-Content -LiteralPath $verifyWorkflowPath -Raw
 $supportCanaryWorkflow = Get-Content `
     -LiteralPath $supportCanaryWorkflowPath `
     -Raw
+$supportRelayScenario = Get-Content `
+    -LiteralPath $supportRelayScenarioPath `
+    -Raw
 Add-Check (
     $prepareWorkflow -match '(?m)^  workflow_dispatch:\r?$' -and
     $prepareWorkflow -notmatch '(?m)^  release:\r?$'
@@ -507,6 +513,20 @@ Add-Check (
     $supportCanaryWorkflow -match
         "(?ms)scenario:.*?options:.*?- support-relay-restart-recovery-v1"
 ) 'The relay-restart scenario is not independently selectable.'
+Add-Check (
+    $supportCanaryWorkflow -match
+        "(?ms)scenario:.*?options:.*?- support-diagnostic-mode-matrix-v1"
+) 'The diagnostic-mode matrix scenario is not independently selectable.'
+Add-Check (
+    $supportRelayScenario -match
+        "(?ms)ValidateSet\(.*?'ConnectorOffline'.*?'CapacityMismatch'.*?'JobNotAssigned'.*?'HostPressure'.*?'Full'.*?\)"
+) 'The support relay wrapper does not accept the complete closed diagnostic-mode set.'
+Add-Check (
+    $supportRelayScenario -match
+        '(?m)^\s+-DiagnosticMode \$DiagnosticMode `\r?$' -and
+    $supportRelayScenario -notmatch
+        '(?m)^\s+-DiagnosticMode ConnectorOffline `\r?$'
+) 'The support relay wrapper does not forward the selected diagnostic mode.'
 Add-Check (
     $prepareWorkflow -match
         'uses: \./\.github/workflows/support-canary\.yml' -and

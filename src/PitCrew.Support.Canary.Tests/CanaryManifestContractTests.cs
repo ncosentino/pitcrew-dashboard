@@ -576,6 +576,34 @@ public sealed class CanaryManifestContractTests
           .IsEquivalentTo(steps.Select(step => step.Name));
       await Assert.That(read.Status)
           .IsEqualTo("succeeded");
+
+      var matrixSteps = steps
+          .Select(step =>
+              step.Name == "complete-signed-diagnostic"
+                  ? step with
+                    {
+                      Category =
+                          "diagnostic-mode-matrix-verified",
+                    }
+                  : step)
+          .ToArray();
+      var matrix = result with
+      {
+        ScenarioId = "support-diagnostic-mode-matrix-v1",
+        Steps = matrixSteps,
+        CompletedAt =
+            timestamp.AddMilliseconds(matrixSteps.Length),
+      };
+      CanaryManifestFile.WriteScenarioResult(
+          path,
+          matrix);
+      var readMatrix =
+          CanaryManifestFile.ReadScenarioResult(path);
+
+      await Assert.That(readMatrix.ScenarioId)
+          .IsEqualTo(matrix.ScenarioId);
+      await Assert.That(readMatrix.Steps)
+          .IsEquivalentTo(matrixSteps);
     }
     finally
     {
