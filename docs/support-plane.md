@@ -324,8 +324,10 @@ installations that overlap its fixed service names or product roots.
   `RestrictAddressFamilies=AF_UNIX`, `IPAddressDeny=any`, an empty capability
   bounding set, and read-only system protection. `ProtectHome=tmpfs` hides home
   trees while an exact read-only bind exposes the locally configured PitCrew
-  root when it is located beneath one. The agent retains only `AF_UNIX`,
-  `AF_INET`, and `AF_INET6`.
+  root when it is located beneath one. The broker's `HOME` is its protected
+  writable state root so the embedded PowerShell runtime never depends on the
+  service account's intentionally nonexistent login home. The agent retains
+  only `AF_UNIX`, `AF_INET`, and `AF_INET6`.
 - Lifecycle verification reads effective properties with `systemctl show`,
   rather than trusting the base unit text. The current installer owns no
   drop-ins, so any non-empty effective `DropInPaths` fails verification, as do
