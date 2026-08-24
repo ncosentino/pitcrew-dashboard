@@ -151,6 +151,16 @@ Future `containerized`, `windows-installed`, and `linux-installed` profiles add
 or replace capabilities. Scenarios declare required capabilities and cannot
 infer stronger evidence from a profile name.
 
+The `containerized` profile builds exact run-scoped Dashboard and relay images
+from the selected Dashboard commit, verifies their local content-addressed IDs
+and bounded labels, and starts them as hardened Aspire container resources.
+Dashboard returns the relay's host-loopback endpoint to the host-side agent
+while using the Aspire session network for its private relay-management calls.
+Exact named data volumes are run-scoped, and container IDs are recorded before
+teardown. This profile proves candidate image execution, session-network
+communication, and run-scoped storage; production Compose topology,
+multi-architecture indexes, and physical-host behavior remain separate evidence.
+
 ## Scenario layer
 
 `ICanaryScenario` is the extension seam. A scenario has one stable identifier,
@@ -189,8 +199,9 @@ Windows Service Control Manager, or installed-package evidence.
 
 Dashboard provides a reusable and manually dispatchable workflow with exact
 Dashboard SHA, PitCrew SHA, scenario ID, and topology profile inputs. Pull
-requests run the portable profile on public GitHub-hosted Ubuntu with the pull
-request SHA and the broker policy's pinned PitCrew SHA.
+requests run portable and containerized profiles on public GitHub-hosted Ubuntu
+and the Windows-installed profile on public GitHub-hosted Windows, using the
+pull-request SHA and the broker policy's pinned PitCrew SHA.
 
 The workflow uses no production secrets, no `pull_request_target`, and no
 self-hosted runners. It uploads only the bounded scenario result. Run state,
@@ -240,6 +251,9 @@ The decision remains valid when:
   `topology-smoke-v1` scenario implementation;
 - the MVP scenario completes enrollment through DeleteKeys using candidate
   agent, broker, Dashboard, relay, PitCrew collector, and PitCrew verifier;
+- the containerized profile uses exact candidate image IDs, proves private
+  Dashboard-to-relay network routing, and removes only recorded run-scoped
+  containers, volumes, and image references;
 - a mismatched PitCrew SHA, collector hash, missing capability, malformed
   manifest, failed health check, rejected request, or teardown fence produces a
   nonzero bounded failure;
@@ -264,4 +278,6 @@ The decision remains valid when:
   and stop entry points.
 - [Epic #165](https://github.com/ncosentino/pitcrew-dashboard/issues/165)
   owns the product outcome; [issue #166](https://github.com/ncosentino/pitcrew-dashboard/issues/166)
-  owns this architecture decision.
+  owns this architecture decision; and
+  [issue #171](https://github.com/ncosentino/pitcrew-dashboard/issues/171)
+  owns the containerized topology adapter.

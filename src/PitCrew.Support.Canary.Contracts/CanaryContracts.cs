@@ -16,6 +16,12 @@ public static class CanaryTopologyProfiles
   public const string Portable = "portable";
 
   /// <summary>
+  /// Runs candidate Dashboard and relay container images under Aspire while
+  /// the agent, broker, collector, and scenario runner remain host processes.
+  /// </summary>
+  public const string Containerized = "containerized";
+
+  /// <summary>
   /// Runs Dashboard and relay under Aspire while the packaged agent and broker
   /// run as isolated Windows services installed on a disposable host.
   /// </summary>
@@ -65,6 +71,25 @@ public static class CanaryCapabilities
   /// </summary>
   public const string WindowsServiceIsolation =
       "windows-service-isolation";
+
+  /// <summary>
+  /// Dashboard and relay run from candidate container images whose local image
+  /// identities match the selected Dashboard commit.
+  /// </summary>
+  public const string CandidateContainerImages =
+      "candidate-container-images";
+
+  /// <summary>
+  /// Dashboard and relay communicate over one Aspire-owned session network.
+  /// </summary>
+  public const string ContainerSessionNetwork =
+      "container-session-network";
+
+  /// <summary>
+  /// Dashboard and relay state use exact run-scoped container volumes.
+  /// </summary>
+  public const string ContainerRunScopedStorage =
+      "container-run-scoped-storage";
 }
 
 /// <summary>
@@ -599,6 +624,7 @@ public static class CanaryManifestFile
   private static bool IsTopologyProfile(string? value) =>
       value is
           CanaryTopologyProfiles.Portable or
+          CanaryTopologyProfiles.Containerized or
           CanaryTopologyProfiles.WindowsInstalled;
 
   private static bool IsLoopbackOrigin(string? value) =>

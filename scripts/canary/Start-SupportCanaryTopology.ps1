@@ -24,9 +24,46 @@ Assert-SupportCanaryCommit `
     -ExpectedCommit ([string]$plan.dashboard.commit)
 $runtimePath = Join-Path $RunRoot 'runtime.json'
 $processPath = Join-Path $RunRoot 'topology-process.json'
+$containerRuntimePath = Join-Path $RunRoot 'container-runtime.json'
 if ((Test-Path -LiteralPath $runtimePath) -or
-    (Test-Path -LiteralPath $processPath)) {
+    (Test-Path -LiteralPath $processPath) -or
+    (Test-Path -LiteralPath $containerRuntimePath)) {
     throw 'The canary topology already has runtime or process state.'
+}
+$containerTopology = $null
+if ([string]$plan.topologyProfile -ceq 'containerized') {
+    $containerTopology = Read-SupportCanaryContainerTopology `
+        -RunRoot $RunRoot
+    Assert-SupportCanaryContainerImage `
+        -Identity $containerTopology.dashboardImage `
+        -DashboardCommit ([string]$plan.dashboard.commit) `
+        -RunId ([string]$plan.runId) `
+        -Component dashboard
+    Assert-SupportCanaryContainerImage `
+        -Identity $containerTopology.relayImage `
+        -DashboardCommit ([string]$plan.dashboard.commit) `
+        -RunId ([string]$plan.runId) `
+        -Component relay
+    foreach ($containerName in @(
+            [string]$containerTopology.dashboardContainerName,
+            [string]$containerTopology.relayContainerName
+        )) {
+        if (Test-SupportCanaryDockerObject `
+                -Kind container `
+                -Identity $containerName) {
+            throw 'A run-scoped canary container already exists.'
+        }
+    }
+    foreach ($volumeName in @(
+            [string]$containerTopology.dashboardVolumeName,
+            [string]$containerTopology.relayVolumeName
+        )) {
+        if (Test-SupportCanaryDockerObject `
+                -Kind volume `
+                -Identity $volumeName) {
+            throw 'A run-scoped canary volume already exists.'
+        }
+    }
 }
 $appHostAssembly = Get-SupportCanaryProjectAssembly `
     -DashboardSourceRoot $DashboardSourceRoot `
@@ -128,11 +165,97 @@ do {
         throw 'The canary topology exited before becoming ready.'
     }
     if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
-        return Get-Content `
-            -LiteralPath $runtimePath `
-            -Raw `
-            -Encoding utf8 |
-            ConvertFrom-Json -Depth 20
+        try {
+            $runtime = Get-Content `
+                -LiteralPath $runtimePath `
+                -Raw `
+                -Encoding utf8 |
+                ConvertFrom-Json -Depth 20
+            if ($null -ne $containerTopology) {
+                $dashboardContainerId = [string](
+                    & docker container inspect `
+                        --format '{{.Id}}' `
+                        ([string]$containerTopology.dashboardContainerName)
+                )
+                $dashboardContainerId = $dashboardContainerId.Trim()
+                $relayContainerId = [string](
+                    & docker container inspect `
+                        --format '{{.Id}}' `
+                        ([string]$containerTopology.relayContainerName)
+                )
+                $relayContainerId = $relayContainerId.Trim()
+                if ($LASTEXITCODE -ne 0 -or
+                    $dashboardContainerId -cnotmatch '^[a-f0-9]{64}$' -or
+                    $relayContainerId -cnotmatch '^[a-f0-9]{64}$') {
+                    throw 'The active canary container identity is invalid.'
+                }
+                Assert-SupportCanaryContainerInstance `
+                    -ContainerId $dashboardContainerId `
+                    -ExpectedImageId (
+                        [string]$containerTopology.dashboardImage.imageId
+                    ) `
+                    -RunId ([string]$plan.runId) `
+                    -Component dashboard
+                Assert-SupportCanaryContainerInstance `
+                    -ContainerId $relayContainerId `
+                    -ExpectedImageId (
+                        [string]$containerTopology.relayImage.imageId
+                    ) `
+                    -RunId ([string]$plan.runId) `
+                    -Component relay
+                $dashboardNetworks = @(
+                    Assert-SupportCanaryContainerIsolation `
+                        -ContainerId $dashboardContainerId `
+                        -ExpectedContainerName (
+                            [string]$containerTopology.dashboardContainerName
+                        ) `
+                        -ExpectedVolumeName (
+                            [string]$containerTopology.dashboardVolumeName
+                        ) `
+                        -ExpectedVolumeTarget '/var/lib/pitcrew-dashboard' `
+                        -ExpectedTmpfsSize '512m'
+                )
+                $relayNetworks = @(
+                    Assert-SupportCanaryContainerIsolation `
+                        -ContainerId $relayContainerId `
+                        -ExpectedContainerName (
+                            [string]$containerTopology.relayContainerName
+                        ) `
+                        -ExpectedVolumeName (
+                            [string]$containerTopology.relayVolumeName
+                        ) `
+                        -ExpectedVolumeTarget '/var/lib/pitcrew-support-relay' `
+                        -ExpectedTmpfsSize '64m' `
+                        -RequiredNetworkAlias 'support-relay-internal'
+                )
+                if (@(
+                        $dashboardNetworks |
+                            Where-Object {
+                                $relayNetworks -ccontains $_
+                            }
+                    ).Count -ne 1) {
+                    throw (
+                        'The canary containers do not share one session ' +
+                        'network.'
+                    )
+                }
+                $containerRuntime = [PSCustomObject][ordered]@{
+                    schemaVersion = 1
+                    runId = [string]$plan.runId
+                    dashboardContainerId = $dashboardContainerId
+                    relayContainerId = $relayContainerId
+                }
+                Write-SupportCanaryJson `
+                    -LiteralPath $containerRuntimePath `
+                    -Value $containerRuntime
+            }
+            return $runtime
+        } catch {
+            if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
+                Remove-Item -LiteralPath $runtimePath -Force
+            }
+            throw
+        }
     }
     Start-Sleep -Milliseconds 250
 } while ([DateTimeOffset]::UtcNow -lt $deadline)
