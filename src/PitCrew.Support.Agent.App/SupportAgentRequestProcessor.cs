@@ -79,6 +79,16 @@ internal sealed class SupportAgentRequestProcessor(
           cached,
           null);
     }
+    var cachedRejection = _replayCache.GetRejectionOrNull(
+        request.SessionId);
+    if (cachedRejection is not null)
+    {
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.CachedRejection,
+          null,
+          null,
+          cachedRejection);
+    }
     var validation = SupportRequestValidator.Validate(
         request,
         _options.TenantId,
@@ -112,12 +122,38 @@ internal sealed class SupportAgentRequestProcessor(
         CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             expiryCancellation.Token);
-    var diagnostics = await _broker.ExecuteAsync(
-        new LocalDiagnosticsRequest(
-            request.DiagnosticMode,
-            request.ProfileId,
-            request.PackageId),
-        executionCancellation.Token);
+    LocalDiagnosticsResult diagnostics;
+    try
+    {
+      diagnostics = await _broker.ExecuteAsync(
+          new LocalDiagnosticsRequest(
+              request.DiagnosticMode,
+              request.ProfileId,
+              request.PackageId),
+          executionCancellation.Token);
+    }
+    catch (LocalDiagnosticsBrokerRejectedException exception)
+    {
+      return RejectBrokerRequest(
+          request.SessionId,
+          SupportAgentRequestProcessingStatus.BrokerRejected,
+          exception.Disposition);
+    }
+    catch (IOException)
+    {
+      return RejectBrokerRequest(
+          request.SessionId,
+          SupportAgentRequestProcessingStatus.BrokerIoUnavailable,
+          SupportRequestRejectionDispositions
+              .BrokerIoUnavailable);
+    }
+    catch (TimeoutException)
+    {
+      return RejectBrokerRequest(
+          request.SessionId,
+          SupportAgentRequestProcessingStatus.BrokerTimeout,
+          SupportRequestRejectionDispositions.BrokerTimeout);
+    }
     if (!SupportDiagnosticReportValidator.IsSafeMarkdown(
         diagnostics.Markdown))
     {
@@ -171,17 +207,32 @@ internal sealed class SupportAgentRequestProcessor(
         resultEnvelope,
         null);
   }
+
+  private SupportAgentRequestProcessingResult RejectBrokerRequest(
+      Guid sessionId,
+      SupportAgentRequestProcessingStatus status,
+      string disposition)
+  {
+    _replayCache.StoreRejection(sessionId, disposition);
+    return new SupportAgentRequestProcessingResult(
+        status,
+        null,
+        null,
+        disposition);
+  }
 }
 
 internal sealed record SupportAgentRequestProcessingResult(
     SupportAgentRequestProcessingStatus Status,
     SupportEnvelope? ResultEnvelope,
-    SupportRequestValidationStatus? ValidationStatus);
+    SupportRequestValidationStatus? ValidationStatus,
+    string? RejectionDisposition = null);
 
 internal enum SupportAgentRequestProcessingStatus
 {
   Succeeded,
   Cached,
+  CachedRejection,
   EnvelopeUnsupported,
   EnvelopeSignatureRejected,
   EnvelopePayloadRejected,
@@ -189,6 +240,9 @@ internal enum SupportAgentRequestProcessingStatus
   SessionMismatch,
   ValidationRejected,
   ReplayPending,
+  BrokerRejected,
+  BrokerIoUnavailable,
+  BrokerTimeout,
   BrokerMarkdownRejected,
   BrokerReportRejected,
 }

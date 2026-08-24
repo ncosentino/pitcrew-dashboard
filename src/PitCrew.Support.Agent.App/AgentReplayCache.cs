@@ -50,6 +50,49 @@ internal sealed class AgentReplayCache(string _root)
     }
   }
 
+  public string? GetRejectionOrNull(Guid sessionId)
+  {
+    var path = RejectionPath(sessionId);
+    if (!File.Exists(path))
+    {
+      return null;
+    }
+    try
+    {
+      var item = new FileInfo(path);
+      if (item.Length is <= 0 or > 128)
+      {
+        return null;
+      }
+      var disposition = File.ReadAllText(path).Trim();
+      return SupportRequestRejectionDispositions.IsSupported(
+          disposition)
+          ? disposition
+          : null;
+    }
+    catch (IOException)
+    {
+      return null;
+    }
+  }
+
+  public void StoreRejection(
+      Guid sessionId,
+      string disposition)
+  {
+    if (!SupportRequestRejectionDispositions.IsSupported(
+        disposition))
+    {
+      throw new ArgumentOutOfRangeException(
+          nameof(disposition));
+    }
+    Directory.CreateDirectory(RejectionRoot);
+    var target = RejectionPath(sessionId);
+    var temporary = target + ".new";
+    File.WriteAllText(temporary, disposition + "\n");
+    File.Move(temporary, target, overwrite: true);
+  }
+
   public void StoreResult(Guid sessionId, SupportEnvelope envelope)
   {
     Directory.CreateDirectory(ResultRoot);
@@ -63,8 +106,16 @@ internal sealed class AgentReplayCache(string _root)
 
   private string ResultRoot => Path.Combine(_root, "support-results");
 
+  private string RejectionRoot =>
+      Path.Combine(_root, "support-rejections");
+
   private string ResultPath(Guid sessionId) =>
       Path.Combine(ResultRoot, sessionId.ToString("N") + ".json");
+
+  private string RejectionPath(Guid sessionId) =>
+      Path.Combine(
+          RejectionRoot,
+          sessionId.ToString("N") + ".txt");
 
   private static string FileName(string value)
   {

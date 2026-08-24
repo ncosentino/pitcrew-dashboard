@@ -69,12 +69,18 @@ internal sealed partial class SupportAgentWorker(
           options = SupportAgentOptions.FromStoredIdentity(
               current,
               _bootstrapOptions.SocketPath);
+          var replayCache = new AgentReplayCache(
+              options.ReplayRoot);
           var processor = new SupportAgentRequestProcessor(
               options,
               new PlatformDiagnosticsBroker(options),
-              new AgentReplayCache(options.ReplayRoot),
+              replayCache,
               _timeProvider);
-          if (!await PollOnceAsync(options, processor, stoppingToken))
+          if (!await PollOnceAsync(
+              options,
+              processor,
+              replayCache,
+              stoppingToken))
           {
             _startupStatus.Write(
                 phase,
@@ -168,6 +174,7 @@ internal sealed partial class SupportAgentWorker(
   private async Task<bool> PollOnceAsync(
       SupportAgentOptions options,
       SupportAgentRequestProcessor processor,
+      AgentReplayCache replayCache,
       CancellationToken cancellationToken)
   {
     var poll = await _relayClient.PollAsync(options, cancellationToken);
@@ -189,6 +196,9 @@ internal sealed partial class SupportAgentWorker(
     if (result.ResultEnvelope is null)
     {
       var disposition = GetProcessingDisposition(result);
+      replayCache.StoreRejection(
+          poll.Response.SessionId,
+          disposition);
       _startupStatus.Write(
           "request-processing",
           disposition,
@@ -280,6 +290,12 @@ internal sealed partial class SupportAgentWorker(
             },
         SupportAgentRequestProcessingStatus.ReplayPending =>
             SupportRequestRejectionDispositions.ReplayPending,
+        SupportAgentRequestProcessingStatus.CachedRejection or
+        SupportAgentRequestProcessingStatus.BrokerRejected or
+        SupportAgentRequestProcessingStatus.BrokerIoUnavailable or
+        SupportAgentRequestProcessingStatus.BrokerTimeout =>
+            result.RejectionDisposition ??
+            SupportRequestRejectionDispositions.ResultUnavailable,
         SupportAgentRequestProcessingStatus.BrokerMarkdownRejected =>
             SupportRequestRejectionDispositions
                 .BrokerMarkdownRejected,

@@ -109,6 +109,96 @@ public sealed class SupportAgentRequestProcessorTests
   }
 
   [Test]
+  public async Task Broker_Failure_Remains_Stable_After_Redelivery_And_Restart(
+      CancellationToken cancellationToken)
+  {
+    var cases = new (Exception Failure, string Disposition)[]
+    {
+      (
+        LocalDiagnosticsBrokerRejectedException.FromStatus(
+            "EvidenceAccessDenied"),
+        SupportRequestRejectionDispositions
+            .BrokerEvidenceAccessDenied),
+      (
+        new IOException("fixture"),
+        SupportRequestRejectionDispositions.BrokerIoUnavailable),
+      (
+        new TimeoutException("fixture"),
+        SupportRequestRejectionDispositions.BrokerTimeout),
+    };
+    foreach (var testCase in cases)
+    {
+      var replayRoot = Path.Combine(
+          AppContext.BaseDirectory,
+          $"agent-rejection-{Guid.NewGuid():N}");
+      try
+      {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T00:00:00+00:00",
+            CultureInfo.InvariantCulture);
+        var dashboardKeys =
+            SupportKeyFactory.CreateDashboardKeys();
+        var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+        var nodeId = Guid.NewGuid();
+        var request = CreateRequest(
+            nodeId,
+            Guid.NewGuid(),
+            now,
+            $"nonce-{Guid.NewGuid():N}");
+        var broker = new ThrowingDiagnosticsBroker(
+            testCase.Failure);
+        var envelope = CreateEnvelope(
+            SupportCanonicalJson.SerializeRequest(request),
+            dashboardKeys,
+            nodeKeys);
+        var first = await new SupportAgentRequestProcessor(
+            CreateOptions(
+                dashboardKeys,
+                nodeKeys,
+                replayRoot,
+                nodeId),
+            broker,
+            new AgentReplayCache(replayRoot),
+            new FakeTimeProvider(now)).ProcessAsync(
+                request.SessionId,
+                envelope,
+                cancellationToken);
+        var redelivered =
+            await new SupportAgentRequestProcessor(
+                CreateOptions(
+                    dashboardKeys,
+                    nodeKeys,
+                    replayRoot,
+                    nodeId),
+                broker,
+                new AgentReplayCache(replayRoot),
+                new FakeTimeProvider(now)).ProcessAsync(
+                    request.SessionId,
+                    envelope,
+                    cancellationToken);
+
+        await Assert.That(first.RejectionDisposition)
+            .IsEqualTo(testCase.Disposition);
+        await Assert.That(redelivered.Status)
+            .IsEqualTo(
+                SupportAgentRequestProcessingStatus
+                    .CachedRejection);
+        await Assert.That(redelivered.RejectionDisposition)
+            .IsEqualTo(testCase.Disposition);
+        await Assert.That(redelivered.ResultEnvelope).IsNull();
+        await Assert.That(broker.CallCount).IsEqualTo(1);
+      }
+      finally
+      {
+        if (Directory.Exists(replayRoot))
+        {
+          Directory.Delete(replayRoot, recursive: true);
+        }
+      }
+    }
+  }
+
+  [Test]
   public async Task Request_Envelope_Cannot_Be_Rebound_To_Another_Relay_Session(
       CancellationToken cancellationToken)
   {
@@ -443,5 +533,20 @@ public sealed class SupportAgentRequestProcessorTests
                 _rejectMarkdown
                     ? null
                     : SupportDiagnosticModes.Full));
+  }
+
+  private sealed class ThrowingDiagnosticsBroker(
+      Exception _failure) : ILocalDiagnosticsBroker
+  {
+    public int CallCount { get; private set; }
+
+    public Task<LocalDiagnosticsResult> ExecuteAsync(
+        LocalDiagnosticsRequest request,
+        CancellationToken cancellationToken)
+    {
+      CallCount++;
+      return Task.FromException<LocalDiagnosticsResult>(
+          _failure);
+    }
   }
 }

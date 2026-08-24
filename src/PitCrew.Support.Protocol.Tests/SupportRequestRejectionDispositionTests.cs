@@ -10,7 +10,7 @@ public sealed class SupportRequestRejectionDispositionTests
     var dispositions =
         SupportRequestRejectionDispositions.All;
 
-    await Assert.That(dispositions.Count).IsEqualTo(16);
+    await Assert.That(dispositions.Count).IsEqualTo(24);
     await Assert.That(
             dispositions.Distinct(
                 StringComparer.Ordinal).Count())

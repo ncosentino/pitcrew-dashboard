@@ -30,6 +30,19 @@ const diagnosticModes = [
   'Full',
 ] as const;
 
+const rejectionGuidance: Partial<
+  Record<NonNullable<SupportSession['rejectionDisposition']>, string>
+> = {
+  'broker-invalid-mode': 'The local broker rejected the requested diagnostic mode.',
+  'broker-invalid-profile': 'The profile ID is not configured on the node.',
+  'broker-script-missing': 'The approved PitCrew diagnostics collector is missing.',
+  'broker-evidence-access-denied': 'The broker cannot read the approved evidence set.',
+  'broker-execution-failed': 'The fixed diagnostics collector failed during execution.',
+  'broker-response-invalid': 'The broker returned an unsupported bounded status.',
+  'broker-io-unavailable': 'The agent could not communicate with the local broker.',
+  'broker-timeout': 'The local broker exceeded its bounded execution time.',
+};
+
 /** Tenant support-plane diagnostics workflow. */
 export default function SupportPage() {
   const { tenantId = '' } = useParams();
@@ -460,6 +473,10 @@ export function SupportSessionCard({
         : session.status === 'Cancelled'
           ? 'neutral'
           : 'critical';
+  const rejectionExplanation = session.rejectionDisposition
+    ? (rejectionGuidance[session.rejectionDisposition] ??
+      'The support agent rejected this request before producing a verified report.')
+    : null;
   return (
     <article className="grid gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -476,12 +493,15 @@ export function SupportSessionCard({
         </div>
       ) : null}
       {session.rejectionDisposition ? (
-        <div className="text-sm text-muted-foreground">
-          Rejection disposition:{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            {session.rejectionDisposition}
-          </code>
-        </div>
+        <>
+          <p className="text-sm text-muted-foreground">{rejectionExplanation}</p>
+          <div className="text-sm text-muted-foreground">
+            Technical disposition:{' '}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">
+              {session.rejectionDisposition}
+            </code>
+          </div>
+        </>
       ) : null}
       {session.result ? (
         <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">

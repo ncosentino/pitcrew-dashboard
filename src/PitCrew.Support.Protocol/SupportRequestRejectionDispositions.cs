@@ -53,6 +53,34 @@ public static class SupportRequestRejectionDispositions
   public const string BrokerReportRejected =
       "broker-report-rejected";
 
+  /// <summary>The broker rejected the diagnostic mode.</summary>
+  public const string BrokerInvalidMode = "broker-invalid-mode";
+
+  /// <summary>The broker rejected the local profile.</summary>
+  public const string BrokerInvalidProfile = "broker-invalid-profile";
+
+  /// <summary>The fixed diagnostics collector is unavailable.</summary>
+  public const string BrokerScriptMissing = "broker-script-missing";
+
+  /// <summary>The broker cannot read the approved evidence set.</summary>
+  public const string BrokerEvidenceAccessDenied =
+      "broker-evidence-access-denied";
+
+  /// <summary>The fixed collector failed during execution.</summary>
+  public const string BrokerExecutionFailed =
+      "broker-execution-failed";
+
+  /// <summary>The broker returned an unsupported bounded status.</summary>
+  public const string BrokerResponseInvalid =
+      "broker-response-invalid";
+
+  /// <summary>The agent could not communicate with the local broker.</summary>
+  public const string BrokerIoUnavailable =
+      "broker-io-unavailable";
+
+  /// <summary>The local broker exceeded its bounded execution time.</summary>
+  public const string BrokerTimeout = "broker-timeout";
+
   /// <summary>The request failed another bounded validation rule.</summary>
   public const string ValidationRejected = "validation-rejected";
 
@@ -75,6 +103,14 @@ public static class SupportRequestRejectionDispositions
       ReplayPending,
       BrokerMarkdownRejected,
       BrokerReportRejected,
+      BrokerInvalidMode,
+      BrokerInvalidProfile,
+      BrokerScriptMissing,
+      BrokerEvidenceAccessDenied,
+      BrokerExecutionFailed,
+      BrokerResponseInvalid,
+      BrokerIoUnavailable,
+      BrokerTimeout,
       ValidationRejected,
       ResultUnavailable,
   ];
