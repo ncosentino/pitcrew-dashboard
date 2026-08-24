@@ -21,14 +21,19 @@ applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,scripts/release/**,.
 - The portable profile proves process, protocol, cryptography, and file-only
   compatibility only. Do not claim installed service, ACL, firewall, systemd,
   container, or physical-host evidence.
+- The Windows-installed profile runs only on a disposable standard
+  GitHub-hosted Windows runner. Use the packaged installer, separate service
+  identities, typed finalization, exact local cleanup, and the same registered
+  scenario; never substitute a self-hosted or live node.
 - Use the same scenario implementation from the external runner and
   `Aspire.Hosting.Testing`; do not duplicate scenario steps in tests or
   workflows.
 - Run untrusted pull requests only on public GitHub-hosted capacity with no
   production secrets and no `pull_request_target`.
-- Create release drafts only after the exact Dashboard/PitCrew portable canary
-  succeeds. Keep one bounded marker in the draft and require publishers to
-  resolve that marker to the successful same-SHA preparation run.
+- Create release drafts only after the exact Dashboard/PitCrew portable and
+  Windows-installed canaries succeed. Keep one bounded marker in the draft and
+  require publishers to resolve both profiles to the successful same-SHA
+  preparation run.
 - Manual package-only workflows may omit gate evidence only when they cannot
   upload release assets. A published release must fail closed on missing,
   duplicate, stale, mismatched, or unsuccessful gate evidence.

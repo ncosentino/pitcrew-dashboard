@@ -19,7 +19,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$outputRootPath = Join-Path $repositoryRoot $OutputRoot
+$outputRootPath = if ([IO.Path]::IsPathFullyQualified($OutputRoot)) {
+    [IO.Path]::GetFullPath($OutputRoot)
+} else {
+    Join-Path $repositoryRoot $OutputRoot
+}
 $publishRoot = Join-Path $outputRootPath 'publish'
 $archiveRoot = Join-Path $outputRootPath 'archives'
 

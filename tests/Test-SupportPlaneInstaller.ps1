@@ -179,7 +179,9 @@ function Invoke-Installer {
     $parameters = @{
         Action = $LifecycleAction
         AllowMachineChanges = $true
-        IdentityHandling = $Identity
+    }
+    if ($LifecycleAction -eq 'Uninstall') {
+        $parameters.IdentityHandling = $Identity
     }
     if (-not [string]::IsNullOrWhiteSpace($ReleaseVersion)) {
         $parameters.Version = $ReleaseVersion
@@ -739,6 +741,64 @@ try {
         $manifest.currentVersion -eq '9.9.90' -and
         [string]::IsNullOrWhiteSpace($manifest.previousVersion)
     ) 'Initial installation did not commit the expected lifecycle state.'
+
+    $settingsBeforeFinalization = [IO.File]::ReadAllBytes(
+        (Join-Path $paths.AgentStateRoot 'appsettings.json'))
+    $brokerProcessBeforeFinalization = if ($IsWindows) {
+        [uint32](
+            Get-CimInstance `
+                -ClassName Win32_Service `
+                -Filter "Name='PitCrewSupportBroker'"
+        ).ProcessId
+    } else {
+        [uint32](
+            (& systemctl show `
+                pitcrew-support-broker.service `
+                --property=MainPID `
+                --value).Trim()
+        )
+    }
+    $finalizationRejected = $false
+    try {
+        Invoke-Installer -LifecycleAction 'FinalizeEnrollment'
+    } catch {
+        $finalizationRejected = $_.Exception.Message.Contains(
+            'active-identity-unavailable',
+            [StringComparison]::Ordinal)
+    }
+    $settingsAfterFinalization = [IO.File]::ReadAllBytes(
+        (Join-Path $paths.AgentStateRoot 'appsettings.json'))
+    $brokerProcessAfterFinalization = if ($IsWindows) {
+        [uint32](
+            Get-CimInstance `
+                -ClassName Win32_Service `
+                -Filter "Name='PitCrewSupportBroker'"
+        ).ProcessId
+    } else {
+        [uint32](
+            (& systemctl show `
+                pitcrew-support-broker.service `
+                --property=MainPID `
+                --value).Trim()
+        )
+    }
+    $failureRecord = & $installerPath `
+        -Action DiagnoseFailure |
+        ConvertFrom-Json
+    Add-Check (
+        $finalizationRejected -and
+        [Convert]::ToHexString($settingsAfterFinalization) -ceq
+            [Convert]::ToHexString($settingsBeforeFinalization) -and
+        $brokerProcessAfterFinalization -eq
+            $brokerProcessBeforeFinalization -and
+        [string]$failureRecord.action -ceq 'FinalizeEnrollment' -and
+        [string]$failureRecord.phase -ceq
+            'enrollment-finalization' -and
+        [string]$failureRecord.operation -ceq
+            'run-finalization-request' -and
+        [string]$failureRecord.rollbackStatus -ceq 'succeeded'
+    ) 'Failed enrollment finalization did not restore settings, services, and bounded evidence.'
+    Invoke-Installer -LifecycleAction 'Verify'
 
     if ($IsWindows) {
         $agentService = Get-CimInstance `

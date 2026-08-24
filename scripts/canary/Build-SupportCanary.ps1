@@ -42,3 +42,22 @@ foreach ($project in @(
         '--nologo'
     )
 }
+
+if ([string]$plan.topologyProfile -ceq 'windows-installed') {
+    if (-not $IsWindows) {
+        throw 'The windows-installed canary profile requires Windows.'
+    }
+    Invoke-SupportCanaryNative pwsh @(
+        '-NoProfile',
+        '-File',
+        (Join-Path $DashboardSourceRoot 'scripts/package-support-plane.ps1'),
+        '-Configuration',
+        $Configuration,
+        '-Version',
+        '0.0.0-canary',
+        '-RuntimeIdentifiers',
+        'win-x64',
+        '-OutputRoot',
+        (Join-Path $RunRoot 'artifacts/support-plane')
+    )
+}

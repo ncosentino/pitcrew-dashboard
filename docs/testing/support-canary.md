@@ -14,7 +14,7 @@ Every run requires:
 - one registered scenario; and
 - one topology profile.
 
-The portable profile currently supports:
+The portable and `windows-installed` profiles currently support:
 
 - `topology-smoke-v1`
 - `support-fresh-enrollment-diagnostic-v1`
@@ -22,6 +22,13 @@ The portable profile currently supports:
 Dashboard's embedded support evidence policy pins the PitCrew commit accepted by
 the broker. Selecting another PitCrew SHA intentionally fails before enrollment
 rather than replacing the collector with a lookalike.
+
+The Windows-installed profile runs only on a disposable standard
+GitHub-hosted Windows runner. It packages the exact candidate source, installs
+the agent and broker under separate Windows service identities, exercises the
+same registered scenario, verifies the named-pipe/firewall/service boundary,
+uses the typed enrollment-finalization action, and removes the complete
+installation. It does not run on self-hosted capacity or a live PitCrew node.
 
 ## One-command run
 
@@ -98,10 +105,10 @@ path. It does not require release evidence because its release-upload step is
 disabled. It cannot be used to bypass the published-release gate.
 
 The portable gate has completed on GitHub-hosted Ubuntu in approximately two
-minutes. That is an observed operating time, not a timeout contract. The job
-remains bounded at 25 minutes for infrastructure failures. Release gating does
-not expand portable evidence into installer, native-service, container, or
-physical-host qualification; those require their own topology profiles.
+minutes. The Windows-installed gate runs independently on `windows-latest`; its
+measured duration is recorded by each release preparation run. Those are
+observed operating times, not timeout contracts. Release gating still does not
+claim Linux-installed, containerized, or physical-host qualification.
 
 ## Adding a scenario
 

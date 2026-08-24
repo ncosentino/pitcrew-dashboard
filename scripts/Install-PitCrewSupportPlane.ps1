@@ -19,6 +19,7 @@ param(
         'Disable',
         'Uninstall',
         'Rollback',
+        'FinalizeEnrollment',
         'RepairEvidenceAcl',
         'Verify',
         'DiagnoseFailure'
@@ -56,6 +57,20 @@ Set-StrictMode -Version Latest
 if ($Action -eq 'Uninstall' -and
     -not $PSBoundParameters.ContainsKey('IdentityHandling')) {
     throw 'Uninstall requires an explicit -IdentityHandling choice.'
+}
+if ($Action -eq 'FinalizeEnrollment' -and
+    @(
+        'Version',
+        'PitCrewRoot',
+        'Profiles',
+        'AgentSettingsPath',
+        'AgentArchivePath',
+        'AgentChecksumPath',
+        'BrokerArchivePath',
+        'BrokerChecksumPath',
+        'IdentityHandling'
+    ).Where({ $PSBoundParameters.ContainsKey($_) }).Count -gt 0) {
+    throw 'FinalizeEnrollment does not accept install, update, or removal inputs.'
 }
 
 $windowsAgentService = 'PitCrewSupportAgent'
@@ -430,6 +445,7 @@ function Get-InstallerFailureRecord {
             'Disable',
             'Uninstall',
             'Rollback',
+            'FinalizeEnrollment',
             'RepairEvidenceAcl',
             'Verify'
         ) -or
@@ -1849,6 +1865,443 @@ function Wait-AgentIdentityDeletion {
         }
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
     Assert-AgentIdentityDeletionSucceeded -Paths $Paths
+}
+
+function Get-AgentFinalizationRequestPath {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    return Join-Path `
+        $Paths.AgentStateRoot `
+        'enrollment-finalization-request.json'
+}
+
+function Get-AgentFinalizationBackupPath {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    return Join-Path `
+        $Paths.AgentStateRoot `
+        'enrollment-bootstrap-backup.json'
+}
+
+function Get-AgentStartupStatusPath {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    return Join-Path $Paths.AgentStateRoot 'agent-startup-status.json'
+}
+
+function Get-AgentSettingsSecuritySnapshot {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    $settingsPath = Join-Path $Paths.AgentStateRoot 'appsettings.json'
+    if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
+        throw 'The protected support-agent settings file is unavailable.'
+    }
+    $settings = Get-Item -LiteralPath $settingsPath -Force
+    if (($settings.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Linked support-agent settings are not supported.'
+    }
+    if ($IsWindows) {
+        $acl = Get-Acl -LiteralPath $settingsPath
+        return @{
+            Path = $settingsPath
+            Acl = $acl
+            Fingerprint = [string]$acl.Sddl
+        }
+    }
+    $fingerprint = (& stat -Lc '%u:%g:%a' -- $settingsPath).Trim()
+    if ($LASTEXITCODE -ne 0 -or
+        $fingerprint -notmatch '^\d+:\d+:[0-7]{3,4}$') {
+        throw 'The support-agent settings ownership or mode is unavailable.'
+    }
+    return @{
+        Path = $settingsPath
+        Fingerprint = $fingerprint
+    }
+}
+
+function Assert-AgentSettingsSecurityUnchanged {
+    param([Parameter(Mandatory)][hashtable]$Snapshot)
+
+    if ($IsWindows) {
+        $current = [string](
+            Get-Acl -LiteralPath $Snapshot.Path
+        ).Sddl
+    } else {
+        $current = (& stat -Lc '%u:%g:%a' -- $Snapshot.Path).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw 'The support-agent settings ownership or mode is unavailable.'
+        }
+    }
+    if ($current -cne [string]$Snapshot.Fingerprint) {
+        throw 'Support-agent settings security metadata changed.'
+    }
+}
+
+function Restore-AgentSettingsSecurity {
+    param([Parameter(Mandatory)][hashtable]$Snapshot)
+
+    if ($IsWindows) {
+        Set-Acl `
+            -LiteralPath $Snapshot.Path `
+            -AclObject $Snapshot.Acl
+        return
+    }
+    $parts = ([string]$Snapshot.Fingerprint).Split(':')
+    Invoke-Checked chown @("$($parts[0]):$($parts[1])", $Snapshot.Path)
+    Invoke-Checked chmod @($parts[2], $Snapshot.Path)
+}
+
+function Get-SupportBrokerRuntimeIdentity {
+    if ($IsWindows) {
+        $broker = Get-CimInstance `
+            -ClassName Win32_Service `
+            -Filter "Name='$windowsBrokerService'"
+        if ($null -eq $broker -or
+            $broker.State -cne 'Running' -or
+            [uint32]$broker.ProcessId -eq 0) {
+            throw 'The support broker must remain running during enrollment finalization.'
+        }
+        return "windows:$([uint32]$broker.ProcessId)"
+    }
+    $activeState = [string](
+        Get-SystemdProperty `
+            -Unit $linuxBrokerService `
+            -Property 'ActiveState')
+    $processId = [string](
+        Get-SystemdProperty `
+            -Unit $linuxBrokerService `
+            -Property 'MainPID')
+    if ($activeState -cne 'active' -or
+        $processId -notmatch '^[1-9]\d*$') {
+        throw 'The support broker must remain running during enrollment finalization.'
+    }
+    return "linux:$processId"
+}
+
+function Stop-SupportAgentOnly {
+    if ($IsWindows) {
+        $service = Get-Service -Name $windowsAgentService
+        try {
+            if ($service.Status -ne
+                [ServiceProcess.ServiceControllerStatus]::Stopped) {
+                Stop-Service -Name $windowsAgentService -Force
+                $service.WaitForStatus(
+                    [ServiceProcess.ServiceControllerStatus]::Stopped,
+                    [TimeSpan]::FromSeconds(30))
+            }
+        } finally {
+            $service.Dispose()
+        }
+        return
+    }
+    Invoke-Checked systemctl @('stop', $linuxAgentService)
+}
+
+function Start-SupportAgentOnly {
+    param([switch]$OneShot)
+
+    if ($IsWindows) {
+        & sc.exe start $windowsAgentService | Out-Null
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $paths = Get-PlatformPaths
+            $diagnostics = Get-WindowsServiceFailureDiagnostics `
+                -Name $windowsAgentService `
+                -StateRoot $paths.AgentStateRoot `
+                -StartupStatusFileName 'agent-startup-status.json'
+            throw "The Windows support agent failed to start with SCM code $exitCode. Bounded diagnostics: $diagnostics"
+        }
+        if (-not $OneShot) {
+            (Get-Service -Name $windowsAgentService).WaitForStatus(
+                [ServiceProcess.ServiceControllerStatus]::Running,
+                [TimeSpan]::FromSeconds(30))
+        }
+        return
+    }
+    Invoke-Checked systemctl @('start', $linuxAgentService)
+    if (-not $OneShot) {
+        Wait-LinuxSupportServiceActive -Service $linuxAgentService
+    }
+}
+
+function Wait-SupportAgentStopped {
+    if ($IsWindows) {
+        (Get-Service -Name $windowsAgentService).WaitForStatus(
+            [ServiceProcess.ServiceControllerStatus]::Stopped,
+            [TimeSpan]::FromSeconds(30))
+        return
+    }
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+    do {
+        $state = [string](
+            Get-SystemdProperty `
+                -Unit $linuxAgentService `
+                -Property 'ActiveState')
+        if ($state -in @('inactive', 'failed')) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    throw 'The Linux support agent did not stop after its lifecycle request.'
+}
+
+function Write-AgentEnrollmentFinalizationRequest {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)]
+        [ValidateSet('finalize-enrollment', 'rollback-enrollment')]
+        [string]$Operation
+    )
+
+    $requestPath = Get-AgentFinalizationRequestPath -Paths $Paths
+    $temporaryPath = "$requestPath.$([Guid]::NewGuid().ToString('N')).tmp"
+    if (Test-Path -LiteralPath $requestPath) {
+        throw 'A support enrollment-finalization request is already pending.'
+    }
+    try {
+        [IO.File]::WriteAllText(
+            $temporaryPath,
+            (
+                [ordered]@{
+                    schemaVersion = 1
+                    operation = $Operation
+                } |
+                    ConvertTo-Json -Compress
+            ),
+            [Text.UTF8Encoding]::new($false))
+        if ($IsLinux) {
+            Invoke-Checked chown @(
+                "$linuxAgentUser`:$linuxAgentUser",
+                $temporaryPath
+            )
+            Invoke-Checked chmod @('600', $temporaryPath)
+        }
+        [IO.File]::Move(
+            $temporaryPath,
+            $requestPath,
+            $false)
+    } finally {
+        Remove-Item `
+            -LiteralPath $temporaryPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+}
+
+function Wait-AgentEnrollmentFinalization {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $statusPath = Get-AgentStartupStatusPath -Paths $Paths
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 250
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'enrollment-finalization' -and
+                    [string]$status.disposition -match
+                        '^[a-z][a-z0-9-]{0,63}$' -and
+                    (
+                        $null -eq $status.exceptionType -or
+                        [string]$status.exceptionType -match
+                            '^[A-Za-z][A-Za-z0-9]{0,127}$'
+                    )) {
+                    return [string]$status.disposition
+                }
+            } catch {
+                continue
+            }
+        }
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    throw 'The support agent did not persist an enrollment-finalization result.'
+}
+
+function Wait-AgentAcceptedPoll {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [int]$TimeoutSeconds = 45
+    )
+
+    $statusPath = Get-AgentStartupStatusPath -Paths $Paths
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 250
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'relay-poll' -and
+                    $status.disposition -ceq 'accepted' -and
+                    $null -eq $status.exceptionType) {
+                    return
+                }
+            } catch {
+                continue
+            }
+        }
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    throw 'The support agent did not confirm a second accepted relay poll.'
+}
+
+function Remove-AgentFinalizationFile {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'A support enrollment-finalization file is invalid.'
+    }
+    Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+}
+
+function Invoke-FinalizeEnrollment {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][object]$Manifest
+    )
+
+    if (-not [bool]$Manifest.enabled) {
+        throw 'FinalizeEnrollment requires enabled support services.'
+    }
+    if ($IsWindows) {
+        $agent = Get-Service `
+            -Name $windowsAgentService `
+            -ErrorAction SilentlyContinue
+        if ($null -eq $agent -or
+            $agent.Status -ne
+                [ServiceProcess.ServiceControllerStatus]::Running) {
+            $agent?.Dispose()
+            throw 'FinalizeEnrollment requires a running support agent.'
+        }
+        $agent.Dispose()
+    } else {
+        $agentState = [string](
+            Get-SystemdProperty `
+                -Unit $linuxAgentService `
+                -Property 'ActiveState')
+        if ($agentState -cne 'active') {
+            throw 'FinalizeEnrollment requires a running support agent.'
+        }
+    }
+
+    $settingsSnapshot = Get-AgentSettingsSecuritySnapshot -Paths $Paths
+    $brokerIdentity = Get-SupportBrokerRuntimeIdentity
+    $statusPath = Get-AgentStartupStatusPath -Paths $Paths
+    $requestPath = Get-AgentFinalizationRequestPath -Paths $Paths
+    $backupPath = Get-AgentFinalizationBackupPath -Paths $Paths
+    $identityDeletionRequestPath = Join-Path `
+        $Paths.AgentStateRoot `
+        'identity-delete-request.json'
+    if (Test-Path -LiteralPath $identityDeletionRequestPath) {
+        throw 'Another support-agent lifecycle request is already pending.'
+    }
+    $failurePhase = ''
+    $failureOperation = ''
+    try {
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'stop-support-agent'
+        Stop-SupportAgentOnly
+        if ((Get-SupportBrokerRuntimeIdentity) -cne $brokerIdentity) {
+            throw 'The support broker changed while the agent stopped.'
+        }
+        Remove-AgentFinalizationFile -Path $statusPath
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'write-finalization-request'
+        Write-AgentEnrollmentFinalizationRequest `
+            -Paths $Paths `
+            -Operation 'finalize-enrollment'
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'run-finalization-request'
+        Start-SupportAgentOnly -OneShot
+        $disposition = Wait-AgentEnrollmentFinalization -Paths $Paths
+        Wait-SupportAgentStopped
+        if ($disposition -notin @('succeeded', 'already-finalized')) {
+            throw [InvalidOperationException]::new(
+                "The support agent rejected enrollment finalization with disposition '$disposition'.")
+        }
+        Assert-AgentSettingsSecurityUnchanged -Snapshot $settingsSnapshot
+        if ((Get-SupportBrokerRuntimeIdentity) -cne $brokerIdentity) {
+            throw 'The support broker changed during enrollment finalization.'
+        }
+
+        Remove-AgentFinalizationFile -Path $statusPath
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'restart-support-agent'
+        Start-SupportAgentOnly
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'verify-second-accepted-poll'
+        Wait-AgentAcceptedPoll -Paths $Paths
+        Assert-AgentSettingsSecurityUnchanged -Snapshot $settingsSnapshot
+        if ((Get-SupportBrokerRuntimeIdentity) -cne $brokerIdentity) {
+            throw 'The support broker changed after enrollment finalization.'
+        }
+        Remove-AgentFinalizationFile -Path $backupPath
+    } catch {
+        $primaryError = $_
+        $failurePhase = $script:installerFailurePhase
+        $failureOperation = $script:installerFailureOperation
+        $script:installerPrimaryExceptionType =
+            $primaryError.Exception.GetType().Name
+        $script:installerPrimaryNativeExitCode =
+            Get-InstallerNativeExitCode -Exception $primaryError.Exception
+        $script:installerRollbackStatus = 'in-progress'
+        Set-InstallerFailureContext `
+            -Phase 'rollback' `
+            -Operation 'restore-enrollment-bootstrap'
+        try {
+            Stop-SupportAgentOnly
+            Remove-AgentFinalizationFile -Path $requestPath
+            if (Test-Path -LiteralPath $backupPath -PathType Leaf) {
+                Remove-AgentFinalizationFile -Path $statusPath
+                Write-AgentEnrollmentFinalizationRequest `
+                    -Paths $Paths `
+                    -Operation 'rollback-enrollment'
+                Start-SupportAgentOnly -OneShot
+                $rollbackDisposition =
+                    Wait-AgentEnrollmentFinalization -Paths $Paths
+                Wait-SupportAgentStopped
+                if ($rollbackDisposition -cne 'rollback-succeeded') {
+                    throw 'The support agent could not restore enrollment bootstrap settings.'
+                }
+            }
+            Restore-AgentSettingsSecurity -Snapshot $settingsSnapshot
+            Remove-AgentFinalizationFile -Path $requestPath
+            Remove-AgentFinalizationFile -Path $statusPath
+            Start-SupportAgentOnly
+            if ((Get-SupportBrokerRuntimeIdentity) -cne $brokerIdentity) {
+                throw 'The support broker changed while finalization rolled back.'
+            }
+            $script:installerRollbackStatus = 'succeeded'
+        } catch {
+            $script:installerRollbackStatus = 'failed'
+            $script:installerFailurePhase = $failurePhase
+            $script:installerFailureOperation = $failureOperation
+            throw
+        }
+        $script:installerFailurePhase = $failurePhase
+        $script:installerFailureOperation = $failureOperation
+        throw $primaryError
+    }
 }
 
 function Set-WindowsSupportStartup {
@@ -5225,6 +5678,14 @@ function Invoke-Verify {
         [Parameter(Mandatory)][object]$Manifest
     )
 
+    foreach ($transactionPath in @(
+        (Get-AgentFinalizationRequestPath -Paths $Paths),
+        (Get-AgentFinalizationBackupPath -Paths $Paths)
+    )) {
+        if (Test-Path -LiteralPath $transactionPath) {
+            throw 'An enrollment-finalization transaction is incomplete.'
+        }
+    }
     $settings = Get-Content `
         -LiteralPath (Join-Path $Paths.BrokerStateRoot 'appsettings.json') `
         -Raw `
@@ -5496,6 +5957,7 @@ $mutatingActions = @(
     'Disable',
     'Uninstall',
     'Rollback',
+    'FinalizeEnrollment',
     'RepairEvidenceAcl'
 )
 if ($Action -in $mutatingActions) {
@@ -5611,6 +6073,17 @@ try {
                 throw 'Rollback requires an existing managed support installation.'
             }
             Invoke-Rollback -Paths $paths -Manifest $manifest
+        }
+        'FinalizeEnrollment' {
+            Set-InstallerFailureContext `
+                -Phase 'enrollment-finalization' `
+                -Operation 'finalize-enrollment-dispatch'
+            if ($null -eq $manifest) {
+                throw 'FinalizeEnrollment requires an existing managed support installation.'
+            }
+            Invoke-FinalizeEnrollment `
+                -Paths $paths `
+                -Manifest $manifest
         }
         'Uninstall' {
             Set-InstallerFailureContext `

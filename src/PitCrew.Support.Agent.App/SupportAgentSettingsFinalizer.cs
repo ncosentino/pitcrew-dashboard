@@ -9,12 +9,22 @@ internal enum SupportEnrollmentFinalizationStatus
   Succeeded,
   AlreadyFinalized,
   ActiveIdentityUnavailable,
+  RollbackRequired,
+  SettingsInvalid,
+}
+
+internal enum SupportEnrollmentRollbackStatus
+{
+  Succeeded,
+  BackupUnavailable,
   SettingsInvalid,
 }
 
 internal static class SupportAgentSettingsFinalizer
 {
   private const int MaximumSettingsBytes = 1_048_576;
+  internal const string BackupFileName =
+      "enrollment-bootstrap-backup.json";
   private static readonly string[] _bootstrapPropertyNames =
   [
       "DashboardUrl",
@@ -29,11 +39,62 @@ internal static class SupportAgentSettingsFinalizer
 
   public static SupportEnrollmentFinalizationStatus Finalize(
       string contentRootPath)
+    => FinalizeCore(contentRootPath, preserveBackup: false);
+
+  public static SupportEnrollmentFinalizationStatus FinalizeWithBackup(
+      string contentRootPath)
+    => FinalizeCore(contentRootPath, preserveBackup: true);
+
+  public static SupportEnrollmentRollbackStatus Rollback(
+      string contentRootPath)
   {
     var settingsPath = Path.Combine(
         contentRootPath,
         "appsettings.json");
+    var backupPath = Path.Combine(
+        contentRootPath,
+        BackupFileName);
+    FileInfo backup;
+    try
+    {
+      backup = new FileInfo(backupPath);
+      if (!backup.Exists)
+      {
+        return SupportEnrollmentRollbackStatus.BackupUnavailable;
+      }
+      if (backup.Length is <= 0 or > MaximumSettingsBytes ||
+          (backup.Attributes & FileAttributes.ReparsePoint) != 0)
+      {
+        return SupportEnrollmentRollbackStatus.SettingsInvalid;
+      }
+      File.Move(
+          backupPath,
+          settingsPath,
+          overwrite: true);
+      return SupportEnrollmentRollbackStatus.Succeeded;
+    }
+    catch (IOException)
+    {
+      return SupportEnrollmentRollbackStatus.SettingsInvalid;
+    }
+    catch (UnauthorizedAccessException)
+    {
+      return SupportEnrollmentRollbackStatus.SettingsInvalid;
+    }
+  }
+
+  private static SupportEnrollmentFinalizationStatus FinalizeCore(
+      string contentRootPath,
+      bool preserveBackup)
+  {
+    var settingsPath = Path.Combine(
+        contentRootPath,
+        "appsettings.json");
+    var backupPath = Path.Combine(
+        contentRootPath,
+        BackupFileName);
     FileInfo file;
+    byte[] originalBytes;
     try
     {
       file = new FileInfo(settingsPath);
@@ -43,6 +104,11 @@ internal static class SupportAgentSettingsFinalizer
       {
         return SupportEnrollmentFinalizationStatus.SettingsInvalid;
       }
+      if (preserveBackup && File.Exists(backupPath))
+      {
+        return SupportEnrollmentFinalizationStatus.RollbackRequired;
+      }
+      originalBytes = File.ReadAllBytes(settingsPath);
     }
     catch (IOException)
     {
@@ -57,11 +123,10 @@ internal static class SupportAgentSettingsFinalizer
     try
     {
       root = JsonNode.Parse(
-          File.ReadAllText(
-              settingsPath,
-              new UTF8Encoding(
-                  encoderShouldEmitUTF8Identifier: false,
-                  throwOnInvalidBytes: true))) as JsonObject ??
+          new UTF8Encoding(
+              encoderShouldEmitUTF8Identifier: false,
+              throwOnInvalidBytes: true).GetString(
+                  originalBytes)) as JsonObject ??
           throw new JsonException();
     }
     catch (JsonException)
@@ -110,10 +175,28 @@ internal static class SupportAgentSettingsFinalizer
       return SupportEnrollmentFinalizationStatus.AlreadyFinalized;
     }
 
+    var backupTemporaryPath =
+        $"{backupPath}.{Guid.NewGuid():N}.tmp";
     var temporaryPath =
         $"{settingsPath}.{Guid.NewGuid():N}.tmp";
     try
     {
+      if (preserveBackup)
+      {
+        File.WriteAllBytes(
+            backupTemporaryPath,
+            originalBytes);
+        if (!OperatingSystem.IsWindows())
+        {
+          File.SetUnixFileMode(
+              backupTemporaryPath,
+              File.GetUnixFileMode(settingsPath));
+        }
+        File.Move(
+            backupTemporaryPath,
+            backupPath,
+            overwrite: false);
+      }
       File.WriteAllText(
           temporaryPath,
           root.ToJsonString(_jsonOptions) + "\n",
@@ -142,6 +225,10 @@ internal static class SupportAgentSettingsFinalizer
     }
     finally
     {
+      if (File.Exists(backupTemporaryPath))
+      {
+        File.Delete(backupTemporaryPath);
+      }
       if (File.Exists(temporaryPath))
       {
         File.Delete(temporaryPath);

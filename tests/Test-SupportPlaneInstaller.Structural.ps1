@@ -27,6 +27,9 @@ $agentWorkerPath = Join-Path (
 $agentStartupStatusWriterPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Support.Agent.App' 'SupportAgentStartupStatusWriter.cs'
+$enrollmentFinalizationWorkerPath = Join-Path (
+    $repositoryRoot
+) 'src' 'PitCrew.Support.Agent.App' 'SupportEnrollmentFinalizationRequestWorker.cs'
 $brokerRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Broker.App'
 $agentRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Agent.App'
 $brokerProjectPath = Join-Path $brokerRoot 'PitCrew.Support.Broker.App.csproj'
@@ -40,6 +43,9 @@ $connectorHealthJournal = Get-Content `
 $agentWorker = Get-Content -LiteralPath $agentWorkerPath -Raw
 $agentStartupStatusWriter = Get-Content `
     -LiteralPath $agentStartupStatusWriterPath `
+    -Raw
+$enrollmentFinalizationWorker = Get-Content `
+    -LiteralPath $enrollmentFinalizationWorkerPath `
     -Raw
 
 function Add-Check {
@@ -90,6 +96,16 @@ $invokeVerifyText = (
             param($node)
             $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
                 $node.Name -ceq 'Invoke-Verify'
+        },
+        $true
+    )
+).Extent.Text
+$invokeFinalizeEnrollmentText = (
+    $ast.Find(
+        {
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -ceq 'Invoke-FinalizeEnrollment'
         },
         $true
     )
@@ -156,6 +172,10 @@ foreach ($requiredFunction in @(
     'Invoke-Disable',
     'Invoke-Rollback',
     'Invoke-Uninstall',
+    'Invoke-FinalizeEnrollment',
+    'Write-AgentEnrollmentFinalizationRequest',
+    'Wait-AgentEnrollmentFinalization',
+    'Wait-AgentAcceptedPoll',
     'Invoke-RepairEvidenceAcl',
     'Invoke-Verify',
     'Write-InstallerFailureRecord',
@@ -674,6 +694,7 @@ foreach ($action in @(
     "'Disable'",
     "'Uninstall'",
     "'Rollback'",
+    "'FinalizeEnrollment'",
     "'RepairEvidenceAcl'",
     "'Verify'"
 )) {
@@ -692,6 +713,40 @@ Add-Check (
         "'delete-keys-succeeded'",
         [StringComparison]::Ordinal)
 ) 'Explicit service-identity DeleteKeys uninstall is unavailable.'
+Add-Check (
+    $invokeFinalizeEnrollmentText.Contains(
+        "Stop-SupportAgentOnly",
+        [StringComparison]::Ordinal) -and
+    $invokeFinalizeEnrollmentText.Contains(
+        "Wait-AgentAcceptedPoll",
+        [StringComparison]::Ordinal) -and
+    $invokeFinalizeEnrollmentText.Contains(
+        "Get-SupportBrokerRuntimeIdentity",
+        [StringComparison]::Ordinal) -and
+    $invokeFinalizeEnrollmentText.Contains(
+        "rollback-enrollment",
+        [StringComparison]::Ordinal) -and
+    -not $invokeFinalizeEnrollmentText.Contains(
+        "Stop-WindowsSupportServices",
+        [StringComparison]::Ordinal) -and
+    -not $invokeFinalizeEnrollmentText.Contains(
+        "Stop-LinuxSupportServices",
+        [StringComparison]::Ordinal)
+) 'Enrollment finalization does not preserve the broker and roll back through the agent identity.'
+Add-Check (
+    $enrollmentFinalizationWorker.Contains(
+        '"active-identity-unavailable"',
+        [StringComparison]::Ordinal) -and
+    $enrollmentFinalizationWorker.Contains(
+        'FinalizeWithBackup',
+        [StringComparison]::Ordinal) -and
+    $enrollmentFinalizationWorker.Contains(
+        'Rollback(',
+        [StringComparison]::Ordinal) -and
+    $enrollmentFinalizationWorker.Contains(
+        '"enrollment-finalization"',
+        [StringComparison]::Ordinal)
+) 'The support agent does not own the fixed enrollment-finalization request and rollback protocol.'
 Add-Check (
     $installer.Contains(
         '[System.IO.UnixFileMode]::UserRead',

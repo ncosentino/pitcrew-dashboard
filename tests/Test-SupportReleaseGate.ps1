@@ -134,15 +134,27 @@ function New-WorkflowJobsFixture {
     param(
         [string] $Status = 'completed',
         [string] $Conclusion = 'success',
-        [string] $Name = 'Create gated draft release'
+        [AllowEmptyString()]
+        [string] $Name = ''
     )
 
+    $names = if ([string]::IsNullOrWhiteSpace($Name)) {
+        @(
+            'Gate release candidate / Portable support canary'
+            'Gate installed Windows candidate / Windows-installed support canary'
+            'Create gated draft release'
+        )
+    } else {
+        @($Name)
+    }
     return [pscustomobject]@{
         jobs = @(
-            [pscustomobject]@{
-                name = $Name
-                status = $Status
-                conclusion = $Conclusion
+            foreach ($jobName in $names) {
+                [pscustomobject]@{
+                    name = $jobName
+                    status = $Status
+                    conclusion = $Conclusion
+                }
             }
         )
     }
@@ -155,6 +167,10 @@ Add-Check ($parsedMarker.ReleaseTag -ceq 'v1.2.3') (
     'Release marker did not preserve the release tag.')
 Add-Check ($parsedMarker.PitCrewSha -ceq $pitCrewSha) (
     'Release marker did not preserve the PitCrew SHA.')
+Add-Check (
+    ($parsedMarker.TopologyProfiles -join ',') -ceq
+        'portable,windows-installed'
+) 'Release marker did not preserve both required topology profiles.'
 Add-Check ($parsedMarker.RunId -eq $runId) (
     'Release marker did not preserve the workflow run ID.')
 
@@ -346,6 +362,17 @@ Add-RejectionCheck 'Validate-only gate run' {
         -ExpectedReleaseSha $dashboardSha `
         -PolicyPath $policyPath
 }
+Add-RejectionCheck 'Missing Windows-installed gate job' {
+    Assert-SupportReleaseGateEvidence `
+        -Release (New-ReleaseFixture) `
+        -WorkflowRun (New-WorkflowRunFixture) `
+        -WorkflowJobs (
+            New-WorkflowJobsFixture `
+                -Name 'Gate release candidate / Portable support canary') `
+        -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
+        -ExpectedReleaseSha $dashboardSha `
+        -PolicyPath $policyPath
+}
 Add-RejectionCheck 'Failed draft-creation job' {
     Assert-SupportReleaseGateEvidence `
         -Release (New-ReleaseFixture) `
@@ -405,15 +432,19 @@ Add-Check (
 Add-Check (
     $prepareWorkflow -notmatch 'pull_request_target' -and
     $prepareWorkflow -notmatch 'self-hosted' -and
-    $verifyWorkflow -notmatch 'self-hosted'
+    $verifyWorkflow -notmatch 'self-hosted' -and
+    $supportCanaryWorkflow -notmatch 'self-hosted' -and
+    $supportCanaryWorkflow -match
+        '(?ms)^  windows-installed:.*?runs-on: windows-latest'
 ) 'Release gating crosses the public hosted-runner trust boundary.'
 Add-Check (
     $prepareWorkflow -match
         'uses: \./\.github/workflows/support-canary\.yml' -and
     $prepareWorkflow -match
         'scenario: support-fresh-enrollment-diagnostic-v1' -and
-    $prepareWorkflow -match 'topology_profile: portable'
-) 'Release preparation does not invoke the required portable canary.'
+    $prepareWorkflow -match 'topology_profile: portable' -and
+    $prepareWorkflow -match 'topology_profile: windows-installed'
+) 'Release preparation does not invoke both required canary profiles.'
 Add-Check (
     $prepareWorkflow -match "context\.ref !== 'refs/heads/main'" -and
     $prepareWorkflow -match
@@ -423,7 +454,8 @@ Add-Check (
 ) 'Release preparation does not bind both immutable candidates to main and policy.'
 Add-Check (
     $prepareWorkflow -match "if: inputs\.mode == 'create-draft'" -and
-    $prepareWorkflow -match 'needs: \[preflight, portable-canary\]' -and
+    $prepareWorkflow -match
+        'needs: \[preflight, portable-canary, windows-installed-canary\]' -and
     $prepareWorkflow -match 'draft: true' -and
     $prepareWorkflow -notmatch 'draft: false'
 ) 'Release preparation can publish or create a draft before the canary.'

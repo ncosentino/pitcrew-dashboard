@@ -14,6 +14,12 @@ public static class CanaryTopologyProfiles
   /// unprivileged candidate processes.
   /// </summary>
   public const string Portable = "portable";
+
+  /// <summary>
+  /// Runs Dashboard and relay under Aspire while the packaged agent and broker
+  /// run as isolated Windows services installed on a disposable host.
+  /// </summary>
+  public const string WindowsInstalled = "windows-installed";
 }
 
 /// <summary>
@@ -45,6 +51,20 @@ public static class CanaryCapabilities
   /// The run contains an immutable PitCrew file-only evidence fixture.
   /// </summary>
   public const string PitCrewFileOnlyEvidence = "pitcrew-file-only-evidence";
+
+  /// <summary>
+  /// The candidate support installer may manage the agent and broker as
+  /// Windows services.
+  /// </summary>
+  public const string WindowsInstalledServices =
+      "windows-installed-services";
+
+  /// <summary>
+  /// The installed Windows broker boundary includes service identities,
+  /// named-pipe peer checks, and outbound firewall isolation.
+  /// </summary>
+  public const string WindowsServiceIsolation =
+      "windows-service-isolation";
 }
 
 /// <summary>
@@ -194,6 +214,7 @@ public static class CanaryManifestFile
           "candidate-process-exit-timeout",
           "collector-hash-mismatch",
           "collector-policy-invalid",
+          "connector-health-fixture-mutated",
           "connector-runner-and-fixture-unchanged",
           "dashboard-session-empty",
           "dashboard-session-missing",
@@ -230,7 +251,18 @@ public static class CanaryManifestFile
           "second-poll-accepted",
           "step-timeout",
           "support-revocation-rejected",
+          "topology-capability-missing",
+          "windows-installation-rejected",
+          "windows-installation-unavailable",
+          "windows-installed-administrator-required",
+          "windows-installed-artifact-missing",
+          "windows-installed-host-not-clean",
+          "windows-installed-platform-required",
           "windows-process-sid-unavailable",
+          "windows-service-boundary-invalid",
+          "windows-services-installed",
+          "windows-uninstall-incomplete",
+          "windows-uninstall-rejected",
       }.ToFrozenSet(StringComparer.Ordinal);
 
   /// <summary>
@@ -438,7 +470,7 @@ public static class CanaryManifestFile
     if (plan is null ||
         plan.SchemaVersion != PlanSchemaVersion ||
         !IsRunId(plan.RunId) ||
-        plan.TopologyProfile != CanaryTopologyProfiles.Portable ||
+        !IsTopologyProfile(plan.TopologyProfile) ||
         plan.Scenarios is null ||
         plan.Scenarios.Count is < 1 or > 16 ||
         plan.Scenarios.Any(scenario => !IsIdentifier(scenario, 96)) ||
@@ -458,7 +490,7 @@ public static class CanaryManifestFile
     if (runtime is null ||
         runtime.SchemaVersion != RuntimeSchemaVersion ||
         !IsRunId(runtime.RunId) ||
-        runtime.TopologyProfile != CanaryTopologyProfiles.Portable ||
+        !IsTopologyProfile(runtime.TopologyProfile) ||
         !IsSourceRevision(runtime.Dashboard) ||
         !IsSourceRevision(runtime.PitCrew) ||
         !IsLoopbackOrigin(runtime.DashboardUrl) ||
@@ -482,7 +514,7 @@ public static class CanaryManifestFile
         result.SchemaVersion != ScenarioResultSchemaVersion ||
         !IsRunId(result.RunId) ||
         !IsIdentifier(result.ScenarioId, 96) ||
-        result.TopologyProfile != CanaryTopologyProfiles.Portable ||
+        !IsTopologyProfile(result.TopologyProfile) ||
         result.Status is not ("succeeded" or "failed") ||
         result.Steps is null ||
         result.Steps.Count is < 1 or > 64 ||
@@ -558,6 +590,11 @@ public static class CanaryManifestFile
           >= '0' and <= '9' or
           '-' or
           '.');
+
+  private static bool IsTopologyProfile(string? value) =>
+      value is
+          CanaryTopologyProfiles.Portable or
+          CanaryTopologyProfiles.WindowsInstalled;
 
   private static bool IsLoopbackOrigin(string? value) =>
       value is not null &&

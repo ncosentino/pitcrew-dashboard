@@ -13,6 +13,18 @@ var finalizeEnrollmentMode = args.Length == 1 &&
         "finalize-enrollment",
         StringComparison.OrdinalIgnoreCase);
 var builder = Host.CreateApplicationBuilder(args);
+var identityDeletionRequestPresent =
+    SupportIdentityDeletionRequestWorker.IsRequestPresent(
+        builder.Environment.ContentRootPath);
+var enrollmentFinalizationRequestPresent =
+    SupportEnrollmentFinalizationRequestWorker.IsRequestPresent(
+        builder.Environment.ContentRootPath);
+if (identityDeletionRequestPresent &&
+    enrollmentFinalizationRequestPresent)
+{
+  throw new InvalidOperationException(
+      "Conflicting local support lifecycle requests are present.");
+}
 var bootstrapOptions =
     SupportAgentBootstrapOptions.FromConfiguration(builder.Configuration) ??
     throw new InvalidOperationException(
@@ -51,11 +63,12 @@ builder.Services.AddWindowsService(service =>
 });
 if (!rotateMode && !finalizeEnrollmentMode)
 {
-  if (!SupportIdentityDeletionRequestWorker.IsRequestPresent(
-      builder.Environment.ContentRootPath))
+  if (!identityDeletionRequestPresent &&
+      !enrollmentFinalizationRequestPresent)
   {
     builder.Services.AddHostedService<SupportAgentWorker>();
   }
+  builder.Services.AddHostedService<SupportEnrollmentFinalizationRequestWorker>();
   builder.Services.AddHostedService<SupportIdentityDeletionRequestWorker>();
 }
 using var host = builder.Build();

@@ -96,4 +96,52 @@ public sealed class SupportAgentSettingsFinalizerTests
       Directory.Delete(root, recursive: true);
     }
   }
+
+  [Test]
+  public async Task Finalize_With_Backup_Rolls_Back_Exact_Bytes()
+  {
+    var root = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-finalization-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    var settingsPath = Path.Combine(root, "appsettings.json");
+    var backupPath = Path.Combine(
+        root,
+        SupportAgentSettingsFinalizer.BackupFileName);
+    var original = """
+        {
+          "PitCrewSupport": {
+            "Agent": {
+              "IdentityRoot": "identity",
+              "DashboardUrl": "http://localhost:5000/",
+              "TenantId": "local",
+              "DisplayName": "Canary",
+              "EnrollmentCode": "one-time-value"
+            }
+          }
+        }
+        """u8.ToArray();
+    try
+    {
+      await File.WriteAllBytesAsync(settingsPath, original);
+
+      var finalized =
+          SupportAgentSettingsFinalizer.FinalizeWithBackup(root);
+      var backup = await File.ReadAllBytesAsync(backupPath);
+      var rolledBack = SupportAgentSettingsFinalizer.Rollback(root);
+      var restored = await File.ReadAllBytesAsync(settingsPath);
+
+      await Assert.That(finalized)
+          .IsEqualTo(SupportEnrollmentFinalizationStatus.Succeeded);
+      await Assert.That(backup).IsEquivalentTo(original);
+      await Assert.That(rolledBack)
+          .IsEqualTo(SupportEnrollmentRollbackStatus.Succeeded);
+      await Assert.That(restored).IsEquivalentTo(original);
+      await Assert.That(File.Exists(backupPath)).IsFalse();
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
 }

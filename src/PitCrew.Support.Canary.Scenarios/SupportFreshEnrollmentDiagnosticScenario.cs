@@ -35,8 +35,6 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       [
           CanaryCapabilities.DashboardHttp,
           CanaryCapabilities.RelayHttp,
-          CanaryCapabilities.SupportAgentProcess,
-          CanaryCapabilities.SupportBrokerProcess,
           CanaryCapabilities.PitCrewFileOnlyEvidence,
       ],
       StringComparer.OrdinalIgnoreCase);
@@ -75,6 +73,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         "PitCrew.Support.Broker.App");
     CandidateProcess? agent = null;
     CandidateProcess? broker = null;
+    WindowsInstalledCanaryNode? installedNode = null;
     SupportCanaryDashboardClient? dashboard = null;
     string? antiforgeryToken = null;
     string? enrollmentCode = null;
@@ -85,6 +84,36 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     var socketPath = Path.Combine(
         brokerStateRoot,
         "broker.sock");
+    if (runtime.TopologyProfile ==
+        CanaryTopologyProfiles.WindowsInstalled)
+    {
+      if (!OperatingSystem.IsWindows() ||
+          !runtime.Capabilities.Contains(
+              CanaryCapabilities.WindowsInstalledServices,
+              StringComparer.Ordinal) ||
+          !runtime.Capabilities.Contains(
+              CanaryCapabilities.WindowsServiceIsolation,
+              StringComparer.Ordinal))
+      {
+        throw new CanaryScenarioFailureException(
+            "topology-capability-missing");
+      }
+      installedNode = new WindowsInstalledCanaryNode(
+          context,
+          fixtureRoot);
+      agentStateRoot = installedNode.AgentStateRoot;
+    }
+    else if (
+        !runtime.Capabilities.Contains(
+            CanaryCapabilities.SupportAgentProcess,
+            StringComparer.Ordinal) ||
+        !runtime.Capabilities.Contains(
+            CanaryCapabilities.SupportBrokerProcess,
+            StringComparer.Ordinal))
+    {
+      throw new CanaryScenarioFailureException(
+          "topology-capability-missing");
+    }
     try
     {
       await execution.RunStepAsync(
@@ -119,8 +148,21 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           cancellationToken);
       await execution.RunStepAsync(
           "start-diagnostics-broker",
-          _ =>
+          async token =>
           {
+            if (installedNode is not null)
+            {
+              if (string.IsNullOrWhiteSpace(enrollmentCode))
+              {
+                throw new CanaryScenarioFailureException(
+                    "enrollment-authorization-missing");
+              }
+              await installedNode.InstallAsync(
+                  runtime.DashboardUrl,
+                  enrollmentCode,
+                  token);
+              return "windows-services-installed";
+            }
 #pragma warning disable IDISP003 // The nullable slot is owned and disposed by the scenario finally block.
             broker = CandidateProcess.Start(
                 brokerAssembly,
@@ -130,13 +172,19 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                     pipeName,
                     socketPath));
 #pragma warning restore IDISP003
-            return Task.FromResult("candidate-broker-started");
+            return "candidate-broker-started";
           },
           cancellationToken);
       await execution.RunStepAsync(
           "first-accepted-poll",
           async token =>
           {
+            if (installedNode is not null)
+            {
+              await installedNode.WaitForAcceptedPollAsync(token);
+              nodeId = ReadNodeId(agentStateRoot);
+              return "first-poll-accepted";
+            }
             if (string.IsNullOrWhiteSpace(enrollmentCode))
             {
               throw new CanaryScenarioFailureException(
@@ -165,6 +213,12 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           "finalize-bootstrap-and-restart",
           async token =>
           {
+            if (installedNode is not null)
+            {
+              await installedNode.FinalizeAndRestartAsync(token);
+              VerifyBootstrapRemoved(agentStateRoot);
+              return "second-poll-accepted";
+            }
             if (agent is null)
             {
               throw new CanaryScenarioFailureException(
@@ -233,7 +287,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           {
             if (dashboard is null ||
                 string.IsNullOrWhiteSpace(antiforgeryToken) ||
-                agent is null)
+                installedNode is null && agent is null)
             {
               throw new CanaryScenarioFailureException(
                   "revocation-state-missing");
@@ -242,7 +296,15 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                 antiforgeryToken,
                 nodeId,
                 token);
-            await agent.DisposeAsync();
+            if (installedNode is not null)
+            {
+              await installedNode.DeleteKeysAndUninstallAsync(token);
+              return "revoked-and-keys-deleted";
+            }
+            var portableAgent = agent ??
+                throw new CanaryScenarioFailureException(
+                    "agent-process-missing");
+            await portableAgent.DisposeAsync();
             agent = null;
             WriteDeletionRequest(agentStateRoot);
             agent = CandidateProcess.Start(
@@ -269,6 +331,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
               throw new CanaryScenarioFailureException(
                   "pitcrew-fixture-mutated");
             }
+            installedNode?.AssertUnrelatedStateUnchanged();
             return Task.FromResult(
                 "connector-runner-and-fixture-unchanged");
           },
@@ -284,6 +347,10 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       if (broker is not null)
       {
         await broker.DisposeAsync();
+      }
+      if (installedNode is not null)
+      {
+        await installedNode.DisposeAsync();
       }
     }
     return execution.Complete();
