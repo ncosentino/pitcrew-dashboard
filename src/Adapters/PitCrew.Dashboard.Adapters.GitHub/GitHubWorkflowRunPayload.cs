@@ -6,6 +6,7 @@ internal sealed record GitHubWorkflowRunPayload(
     string? HeadSha,
     string? Status,
     string? Conclusion,
+    string? Event,
     string? Url,
     string? HtmlUrl,
     DateTimeOffset CreatedAt,

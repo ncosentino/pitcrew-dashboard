@@ -160,6 +160,55 @@ internal sealed class GitHubImageWorkflowClient(
         cancellationToken);
   }
 
+  public Task<GitHubClientOutcome<GitHubWorkflowFileRevision>>
+      LoadWorkflowFileRevisionAtCommitAsync(
+          long installationId,
+          GitHubRepositoryIdentity repository,
+          string workflowPath,
+          string commitSha,
+          CancellationToken cancellationToken)
+  {
+    if (!_options.Value.Enabled)
+    {
+      return NotConfiguredAsync<GitHubWorkflowFileRevision>(
+          cancellationToken);
+    }
+    if (!IsOperationIdentityValid(installationId, repository) ||
+        !GitHubTransportValidation.IsWorkflowPath(workflowPath) ||
+        !GitHubTransportValidation.IsSha1(commitSha))
+    {
+      return InvalidRequestAsync<GitHubWorkflowFileRevision>(
+          "workflow-file-commit-request-invalid",
+          cancellationToken);
+    }
+
+    var path =
+        $"{GitHubTransportValidation.RepositoryPath(repository)}/contents/" +
+        $"{GitHubTransportValidation.EncodeWorkflowPath(workflowPath)}" +
+        $"?ref={GitHubTransportValidation.Encode(commitSha)}";
+    return ExecuteAsync(
+        installationId,
+        repository.Id,
+        token => CreateRequest(HttpMethod.Get, path, token),
+        GitHubJsonContext.Default.GitHubContentPayload,
+        response =>
+        {
+          if (response.Type != "file" ||
+              response.Path != workflowPath ||
+              !GitHubTransportValidation.IsSha1(response.Sha))
+          {
+            return InvalidResponse<GitHubWorkflowFileRevision>(
+                "workflow-file-commit-response-invalid");
+          }
+          return Success(
+              new GitHubWorkflowFileRevision(
+                  response.Path,
+                  response.Sha!,
+                  commitSha));
+        },
+        cancellationToken);
+  }
+
   public Task<GitHubClientOutcome<GitHubWorkflowFileContent>>
       LoadWorkflowFileContentAsync(
           long installationId,
@@ -288,7 +337,7 @@ internal sealed class GitHubImageWorkflowClient(
     }
     if (!IsOperationIdentityValid(installationId, repository) ||
         !GitHubTransportValidation.IsPositiveId(workflowId) ||
-        !GitHubTransportValidation.IsReference(reference) ||
+        !GitHubTransportValidation.IsBranchOrTagReference(reference) ||
         !GitHubTransportValidation.CopyInputs(inputs, out var boundedInputs))
     {
       return InvalidRequestAsync<GitHubWorkflowDispatch>(
@@ -519,6 +568,7 @@ internal sealed class GitHubImageWorkflowClient(
         !GitHubTransportValidation.IsPositiveId(response.WorkflowId) ||
         !GitHubTransportValidation.IsSha1(response.HeadSha) ||
         !GitHubTransportValidation.IsBoundedText(response.Status, 32) ||
+        !GitHubTransportValidation.IsBoundedText(response.Event, 32) ||
         response.Conclusion is { } conclusion &&
         !GitHubTransportValidation.IsBoundedText(conclusion, 32) ||
         !GitHubTransportValidation.GetHttpsUri(response.Url, out var runApiUrl) ||
@@ -540,7 +590,8 @@ internal sealed class GitHubImageWorkflowClient(
             runApiUrl!,
             runHtmlUrl!,
             response.CreatedAt,
-            response.UpdatedAt));
+            response.UpdatedAt,
+            response.Event!));
   }
 
   private static GitHubClientOutcome<GitHubWorkflowArtifactList> MapArtifactList(

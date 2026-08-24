@@ -154,6 +154,138 @@ public interface IImageCandidateStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Transactionally leases a deterministic bounded batch of due active requests.
+  /// </summary>
+  Task<IReadOnlyList<ImageBuildExecutionClaim>> ClaimDueBuildRequestsAsync(
+      string leaseOwner,
+      DateTimeOffset now,
+      DateTimeOffset leaseExpiresAt,
+      int limit,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Durably records that dispatch may be in flight before the external side effect begins.
+  /// </summary>
+  Task<ImageCandidateMutationResult> MarkDispatchStartedAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset startedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Defers retryable read-only dispatch authority validation without making
+  /// dispatch indeterminate.
+  /// </summary>
+  Task<ImageCandidateMutationResult> DeferDispatchAuthorityAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset retryAt,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Defers a definitively unaccepted dispatch and marks it safe to retry.
+  /// </summary>
+  Task<ImageCandidateMutationResult> DeferRateLimitedDispatchAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset retryAt,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Freezes the exact accepted GitHub run identity and advances to building.
+  /// </summary>
+  Task<ImageCandidateMutationResult> RecordDispatchSucceededAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      long runId,
+      string runApiUrl,
+      string runHtmlUrl,
+      DateTimeOffset nextPollAt,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Defers exact-run polling without changing the building lifecycle state.
+  /// </summary>
+  Task<ImageCandidateMutationResult> DeferBuildRunPollAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset nextPollAt,
+      string externalStatus,
+      ImageBuildNotFoundCounterAction notFoundCounterAction,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Records a definitive exact-run observation while retaining the lease for
+  /// workflow-revision verification.
+  /// </summary>
+  Task<ImageCandidateMutationResult> MarkBuildRunObservedAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Defers exact workflow-revision verification without changing the building state.
+  /// </summary>
+  Task<ImageCandidateMutationResult> DeferBuildRevisionPollAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset nextPollAt,
+      string externalStatus,
+      ImageBuildNotFoundCounterAction notFoundCounterAction,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Records successful exact workflow-revision validation while retaining
+  /// the current lease for lifecycle completion.
+  /// </summary>
+  Task<ImageCandidateMutationResult> MarkBuildRevisionObservedAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Advances a successfully completed exact run to qualifying.
+  /// </summary>
+  Task<ImageCandidateMutationResult> MarkBuildQualifyingAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Terminalizes a leased active request with bounded blocked or failed evidence.
+  /// </summary>
+  Task<ImageCandidateMutationResult> TerminalizeBuildRequestAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      ImageBuildRequestStatus terminalStatus,
+      string category,
+      string detail,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Atomically applies one optimistic monotonic request transition.
   /// </summary>
   /// <param name="tenantId">Tenant that owns the request.</param>

@@ -46,6 +46,16 @@ public sealed class GitHubImageWorkflowClientTests
     context.EnqueueToken();
     context.Handler.Enqueue(
         GitHubAdapterTestContext.JsonResponse(
+            $$"""
+            {
+              "type": "file",
+              "path": ".github/workflows/image-candidate.yml",
+              "sha": "{{BlobSha}}"
+            }
+            """));
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
             $$"""{"sha":"{{CommitSha}}"}"""));
     context.EnqueueToken();
     context.Handler.Enqueue(
@@ -62,6 +72,13 @@ public sealed class GitHubImageWorkflowClientTests
         ".github/workflows/image-candidate.yml",
         "release/v1",
         cancellationToken);
+    var fileAtCommit =
+        await context.Client.LoadWorkflowFileRevisionAtCommitAsync(
+            77,
+            repository,
+            ".github/workflows/image-candidate.yml",
+            CommitSha,
+            cancellationToken);
     var commit = await context.Client.ResolveCommitAsync(
         77,
         repository,
@@ -81,6 +98,11 @@ public sealed class GitHubImageWorkflowClientTests
         .IsEqualTo(GitHubWorkflowState.Active);
     await Assert.That(file.Kind).IsEqualTo(GitHubClientOutcomeKind.Success);
     await Assert.That(file.Value!.BlobSha).IsEqualTo(BlobSha);
+    await Assert.That(fileAtCommit.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.Success);
+    await Assert.That(fileAtCommit.Value!.Reference)
+        .IsEqualTo(CommitSha);
+    await Assert.That(fileAtCommit.Value.BlobSha).IsEqualTo(BlobSha);
     await Assert.That(commit.Value!.Sha).IsEqualTo(CommitSha);
     await Assert.That(reachability.Value!.IsReachable).IsTrue()
         .Because("an ahead allowed ref contains the exact source commit");
@@ -90,7 +112,7 @@ public sealed class GitHubImageWorkflowClientTests
             request.Uri.AbsolutePath !=
             "/app/installations/77/access_tokens")
         .ToArray();
-    await Assert.That(operationRequests).Count().IsEqualTo(4);
+    await Assert.That(operationRequests).Count().IsEqualTo(5);
     await Assert.That(operationRequests[0].Uri.PathAndQuery)
         .IsEqualTo(
             "/repos/nexus-labs/pitcrew/actions/workflows/99");
@@ -98,10 +120,14 @@ public sealed class GitHubImageWorkflowClientTests
         .IsEqualTo(
             "/repos/nexus-labs/pitcrew/contents/.github/workflows/" +
             "image-candidate.yml?ref=release%2Fv1");
-    await Assert.That(operationRequests[2].Uri.AbsolutePath)
+    await Assert.That(operationRequests[2].Uri.PathAndQuery)
+        .IsEqualTo(
+            "/repos/nexus-labs/pitcrew/contents/.github/workflows/" +
+            $"image-candidate.yml?ref={CommitSha}");
+    await Assert.That(operationRequests[3].Uri.AbsolutePath)
         .IsEqualTo(
             $"/repos/nexus-labs/pitcrew/commits/{CommitSha}");
-    await Assert.That(operationRequests[3].Uri.AbsolutePath)
+    await Assert.That(operationRequests[4].Uri.AbsolutePath)
         .IsEqualTo(
             $"/repos/nexus-labs/pitcrew/compare/{CommitSha}...release%2Fstable");
   }
@@ -141,6 +167,13 @@ public sealed class GitHubImageWorkflowClientTests
         ".github/workflows/bad\n.yml",
         "main",
         cancellationToken);
+    var malformedRevision =
+        await context.Client.LoadWorkflowFileRevisionAtCommitAsync(
+            1,
+            repository,
+            ".github/workflows/image-candidate.yml",
+            "not-a-sha",
+            cancellationToken);
     var badSha = await context.Client.ResolveCommitAsync(
         1,
         repository,
@@ -180,18 +213,36 @@ public sealed class GitHubImageWorkflowClientTests
         new string('a', 256),
         ReadOnlyDictionary<string, string>.Empty,
         cancellationToken);
+    var commitDispatch = await context.Client.DispatchWorkflowAsync(
+        1,
+        repository,
+        99,
+        CommitSha,
+        ReadOnlyDictionary<string, string>.Empty,
+        cancellationToken);
+    var uppercaseCommitDispatch =
+        await context.Client.DispatchWorkflowAsync(
+            1,
+            repository,
+            99,
+            CommitSha.ToUpperInvariant(),
+            ReadOnlyDictionary<string, string>.Empty,
+            cancellationToken);
 
     var outcomes = new[]
     {
       badRepository.Kind,
       traversal.Kind,
       controlPath.Kind,
+      malformedRevision.Kind,
       badSha.Kind,
       badRef.Kind,
       badWorkflowId.Kind,
       tooManyInputs.Kind,
       badInput.Kind,
       oversizedRef.Kind,
+      commitDispatch.Kind,
+      uppercaseCommitDispatch.Kind,
     };
     await Assert.That(
             outcomes.All(static outcome =>
@@ -199,6 +250,38 @@ public sealed class GitHubImageWorkflowClientTests
         .IsTrue()
         .Because("every rejected value must fail before HTTP");
     await Assert.That(context.Handler.Requests).IsEmpty();
+  }
+
+  [Test]
+  public async Task Exact_Commit_Workflow_Revision_Rejects_Malformed_Response(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    context.EnqueueToken();
+    context.Handler.Enqueue(
+        GitHubAdapterTestContext.JsonResponse(
+            """
+            {
+              "type": "file",
+              "path": ".github/workflows/image-candidate.yml",
+              "sha": "not-a-sha"
+            }
+            """));
+
+    var outcome =
+        await context.Client.LoadWorkflowFileRevisionAtCommitAsync(
+            77,
+            repository,
+            ".github/workflows/image-candidate.yml",
+            CommitSha,
+            cancellationToken);
+
+    await Assert.That(outcome.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
   }
 
   [Test]
@@ -479,6 +562,7 @@ public sealed class GitHubImageWorkflowClientTests
               "head_sha": "{{CommitSha}}",
               "status": "completed",
               "conclusion": "success",
+              "event": "workflow_dispatch",
               "url": "https://api.github.com/repos/nexus-labs/pitcrew/actions/runs/987",
               "html_url": "https://github.com/nexus-labs/pitcrew/actions/runs/987",
               "created_at": "2026-08-23T16:01:00Z",
@@ -522,6 +606,7 @@ public sealed class GitHubImageWorkflowClientTests
     await Assert.That(run.Value!.Id).IsEqualTo(987);
     await Assert.That(run.Value.WorkflowId).IsEqualTo(99);
     await Assert.That(run.Value.HeadSha).IsEqualTo(CommitSha);
+    await Assert.That(run.Value.Event).IsEqualTo("workflow_dispatch");
     await Assert.That(artifacts.Kind)
         .IsEqualTo(GitHubClientOutcomeKind.Success);
     await Assert.That(artifacts.Value!.Artifacts).Count().IsEqualTo(1);

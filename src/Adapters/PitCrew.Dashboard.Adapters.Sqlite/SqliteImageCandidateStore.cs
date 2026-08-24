@@ -405,6 +405,8 @@ internal sealed class SqliteImageCandidateStore(
     if (request.Status != ImageBuildRequestStatus.Requested
         || request.GitHubRunId is not null
         || request.GitHubRunUrl is not null
+        || request.GitHubRunApiUrl is not null
+        || string.IsNullOrWhiteSpace(request.SourceRef)
         || request.TerminalCategory is not null
         || request.TerminalDetail is not null
         || !HasMatchingSha256(
@@ -444,6 +446,7 @@ internal sealed class SqliteImageCandidateStore(
             recipe_id,
             source_repository,
             source_commit,
+            source_ref,
             input_values_json,
             input_values_sha256,
             requested_by_github_user_id,
@@ -462,6 +465,7 @@ internal sealed class SqliteImageCandidateStore(
             $recipeId,
             $sourceRepository,
             $sourceCommit,
+            $sourceRef,
             $inputValuesJson,
             $inputValuesSha256,
             $requestedByGitHubUserId,
@@ -561,6 +565,549 @@ internal sealed class SqliteImageCandidateStore(
         : null;
   }
 
+  public async Task<IReadOnlyList<ImageBuildExecutionClaim>>
+      ClaimDueBuildRequestsAsync(
+          string leaseOwner,
+          DateTimeOffset now,
+          DateTimeOffset leaseExpiresAt,
+          int limit,
+          CancellationToken cancellationToken)
+  {
+    if (string.IsNullOrWhiteSpace(leaseOwner)
+        || leaseOwner.Length > 128
+        || leaseExpiresAt <= now)
+    {
+      return [];
+    }
+
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var transaction = (SqliteTransaction)
+        await connection.BeginTransactionAsync(cancellationToken);
+    var requestIds = new List<Guid>();
+    await using (var select = connection.CreateCommand())
+    {
+      select.Transaction = transaction;
+      select.CommandText =
+          """
+          SELECT request_id
+          FROM image_build_requests
+          WHERE status IN ('requested', 'dispatching', 'building')
+            AND next_attempt_at <= $now
+            AND (lease_owner IS NULL OR lease_expires_at <= $now)
+          ORDER BY next_attempt_at, requested_at, tenant_id, request_id
+          LIMIT $limit;
+          """;
+      select.Parameters.AddWithValue("$now", Format(now));
+      select.Parameters.AddWithValue(
+          "$limit",
+          Math.Clamp(limit, 1, MaximumListLimit));
+      await using var reader =
+          await select.ExecuteReaderAsync(cancellationToken);
+      while (await reader.ReadAsync(cancellationToken))
+      {
+        requestIds.Add(Guid.Parse(
+            reader.GetString(0),
+            CultureInfo.InvariantCulture));
+      }
+    }
+
+    var claims = new List<ImageBuildExecutionClaim>(requestIds.Count);
+    foreach (var requestId in requestIds)
+    {
+      await using var update = connection.CreateCommand();
+      update.Transaction = transaction;
+      update.CommandText =
+          """
+          UPDATE image_build_requests
+          SET lease_owner = $leaseOwner,
+              lease_expires_at = $leaseExpiresAt
+          WHERE request_id = $requestId
+            AND status IN ('requested', 'dispatching', 'building')
+            AND next_attempt_at <= $now
+            AND (lease_owner IS NULL OR lease_expires_at <= $now);
+          """;
+      update.Parameters.AddWithValue("$leaseOwner", leaseOwner);
+      update.Parameters.AddWithValue(
+          "$leaseExpiresAt",
+          Format(leaseExpiresAt));
+      update.Parameters.AddWithValue(
+          "$requestId",
+          requestId.ToString("D"));
+      update.Parameters.AddWithValue("$now", Format(now));
+      if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
+      {
+        continue;
+      }
+
+      var claim = await GetClaimOrNullAsync(
+          connection,
+          transaction,
+          requestId,
+          cancellationToken);
+      if (claim is not null)
+      {
+        claims.Add(claim);
+      }
+    }
+
+    await transaction.CommitAsync(cancellationToken);
+    return claims;
+  }
+
+  public async Task<ImageCandidateMutationResult> MarkDispatchStartedAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset startedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET status = 'dispatching',
+            dispatch_safe_to_retry = 0,
+            dispatch_started_at = $startedAt,
+            dispatch_attempts = dispatch_attempts + 1,
+            last_external_status = 'dispatch-started',
+            updated_at = $startedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status IN ('requested', 'dispatching')
+          AND (status = 'requested' OR dispatch_safe_to_retry = 1);
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$startedAt", Format(startedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> DeferDispatchAuthorityAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset retryAt,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET next_attempt_at = $retryAt,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND (status = 'requested'
+              OR (status = 'dispatching'
+                  AND dispatch_safe_to_retry = 1));
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$retryAt", Format(retryAt));
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> DeferRateLimitedDispatchAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset retryAt,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET dispatch_safe_to_retry = 1,
+            next_attempt_at = $retryAt,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'dispatching';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$retryAt", Format(retryAt));
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> RecordDispatchSucceededAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      long runId,
+      string runApiUrl,
+      string runHtmlUrl,
+      DateTimeOffset nextPollAt,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET status = 'building',
+            github_run_id = $runId,
+            github_run_api_url = $runApiUrl,
+            github_run_url = $runHtmlUrl,
+            dispatch_safe_to_retry = 0,
+            next_attempt_at = $nextPollAt,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            last_external_status = 'dispatch-accepted',
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'dispatching'
+          AND github_run_id IS NULL;
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$runId", runId);
+    command.Parameters.AddWithValue("$runApiUrl", runApiUrl);
+    command.Parameters.AddWithValue("$runHtmlUrl", runHtmlUrl);
+    command.Parameters.AddWithValue("$nextPollAt", Format(nextPollAt));
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> DeferBuildRunPollAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset nextPollAt,
+      string externalStatus,
+      ImageBuildNotFoundCounterAction notFoundCounterAction,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    if (!Enum.IsDefined(notFoundCounterAction))
+    {
+      return ImageCandidateMutationResult.InvalidTransition;
+    }
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET next_attempt_at = $nextPollAt,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            poll_attempts = poll_attempts + 1,
+            run_not_found_attempts = CASE
+                WHEN $counterAction = 1
+                    THEN run_not_found_attempts + 1
+                WHEN $counterAction = 2 THEN 0
+                ELSE run_not_found_attempts
+            END,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'building';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$nextPollAt", Format(nextPollAt));
+    command.Parameters.AddWithValue(
+        "$counterAction",
+        (int)notFoundCounterAction);
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> MarkBuildRunObservedAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET run_not_found_attempts = 0,
+            last_external_status = 'run-observed',
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'building';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult>
+      DeferBuildRevisionPollAsync(
+          string tenantId,
+          Guid requestId,
+          string leaseOwner,
+          DateTimeOffset nextPollAt,
+          string externalStatus,
+          ImageBuildNotFoundCounterAction notFoundCounterAction,
+          DateTimeOffset updatedAt,
+          CancellationToken cancellationToken)
+  {
+    if (!Enum.IsDefined(notFoundCounterAction))
+    {
+      return ImageCandidateMutationResult.InvalidTransition;
+    }
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET next_attempt_at = $nextPollAt,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            poll_attempts = poll_attempts + 1,
+            revision_not_found_attempts = CASE
+                WHEN $counterAction = 1
+                    THEN revision_not_found_attempts + 1
+                WHEN $counterAction = 2 THEN 0
+                ELSE revision_not_found_attempts
+            END,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'building';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$nextPollAt", Format(nextPollAt));
+    command.Parameters.AddWithValue(
+        "$counterAction",
+        (int)notFoundCounterAction);
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult>
+      MarkBuildRevisionObservedAsync(
+          string tenantId,
+          Guid requestId,
+          string leaseOwner,
+          DateTimeOffset updatedAt,
+          CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET revision_not_found_attempts = 0,
+            last_external_status = 'run-revision-observed',
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'building';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> MarkBuildQualifyingAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET status = 'qualifying',
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            dispatch_safe_to_retry = 0,
+            run_not_found_attempts = 0,
+            revision_not_found_attempts = 0,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'building';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
+  public async Task<ImageCandidateMutationResult> TerminalizeBuildRequestAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      ImageBuildRequestStatus terminalStatus,
+      string category,
+      string detail,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken)
+  {
+    if (terminalStatus is not ImageBuildRequestStatus.Blocked
+        and not ImageBuildRequestStatus.Failed
+        || string.IsNullOrWhiteSpace(category)
+        || category.Length > 64
+        || string.IsNullOrWhiteSpace(detail)
+        || detail.Length > 512)
+    {
+      return ImageCandidateMutationResult.InvalidTransition;
+    }
+
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET status = $terminalStatus,
+            run_not_found_attempts = 0,
+            revision_not_found_attempts = 0,
+            terminal_category = $category,
+            terminal_detail = $detail,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            dispatch_safe_to_retry = 0,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status IN ('requested', 'dispatching', 'building');
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue(
+        "$terminalStatus",
+        Format(terminalStatus));
+    command.Parameters.AddWithValue("$category", category);
+    command.Parameters.AddWithValue("$detail", detail);
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
   public async Task<ImageCandidateMutationResult> ApplyBuildRequestTransitionAsync(
       string tenantId,
       Guid requestId,
@@ -626,6 +1173,7 @@ internal sealed class SqliteImageCandidateStore(
         SET status = $newStatus,
             github_run_id = $githubRunId,
             github_run_url = $githubRunUrl,
+            github_run_api_url = $githubRunApiUrl,
             terminal_category = $terminalCategory,
             terminal_detail = $terminalDetail,
             updated_at = $updatedAt
@@ -640,6 +1188,11 @@ internal sealed class SqliteImageCandidateStore(
     command.Parameters.AddWithValue(
         "$githubRunUrl",
         runUrl is null ? DBNull.Value : runUrl);
+    command.Parameters.AddWithValue(
+        "$githubRunApiUrl",
+        runUrl is null
+            ? DBNull.Value
+            : existing.GitHubRunApiUrl ?? runUrl);
     command.Parameters.AddWithValue(
         "$terminalCategory",
         transition.TerminalCategory is null
@@ -1113,6 +1666,140 @@ internal sealed class SqliteImageCandidateStore(
         : null;
   }
 
+  private static async Task<ImageBuildExecutionClaim?> GetClaimOrNullAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      Guid requestId,
+      CancellationToken cancellationToken)
+  {
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        SELECT
+            r.request_id,
+            r.tenant_id,
+            r.registration_id,
+            r.registration_version,
+            r.recipe_id,
+            r.source_repository,
+            r.source_commit,
+            r.input_values_json,
+            r.input_values_sha256,
+            r.requested_by_github_user_id,
+            r.requested_at,
+            r.status,
+            r.github_run_id,
+            r.github_run_url,
+            r.terminal_category,
+            r.terminal_detail,
+            r.updated_at,
+            r.source_ref,
+            r.github_run_api_url,
+            r.lease_owner,
+            r.lease_expires_at,
+            r.dispatch_safe_to_retry,
+            r.dispatch_attempts,
+            r.poll_attempts,
+            r.run_not_found_attempts,
+            r.revision_not_found_attempts,
+            r.dispatch_started_at,
+            v.tenant_id,
+            v.registration_id,
+            v.version,
+            v.github_installation_id,
+            v.github_repository_id,
+            v.github_workflow_id,
+            v.repository_owner,
+            v.repository_name,
+            v.workflow_path,
+            v.workflow_blob_sha,
+            v.dispatch_ref,
+            v.recipe_id,
+            v.candidate_schema_version,
+            v.source_ref_policy_json,
+            v.input_schema_json,
+            v.created_by_github_user_id,
+            v.created_at,
+            v.disabled_by_github_user_id,
+            v.disabled_at
+        FROM image_build_requests AS r
+        INNER JOIN image_recipe_versions AS v
+            ON v.tenant_id = r.tenant_id
+            AND v.registration_id = r.registration_id
+            AND v.version = r.registration_version
+        WHERE r.request_id = $requestId;
+        """;
+    command.Parameters.AddWithValue(
+        "$requestId",
+        requestId.ToString("D"));
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    if (!await reader.ReadAsync(cancellationToken))
+    {
+      return null;
+    }
+
+    var request = ReadRequest(reader);
+    var registration = ReadRecipe(reader, 27);
+    DateTimeOffset? dispatchStartedAt = await reader.IsDBNullAsync(
+        26,
+        cancellationToken)
+        ? null
+        : ParseDate(reader.GetString(26));
+    return new ImageBuildExecutionClaim(
+        request,
+        registration,
+        reader.GetString(19),
+        ParseDate(reader.GetString(20)),
+        reader.GetInt32(21) == 1,
+        reader.GetInt32(22),
+        reader.GetInt32(23),
+        reader.GetInt32(24),
+        reader.GetInt32(25),
+        dispatchStartedAt);
+  }
+
+  private static void AddLeaseIdentityParameters(
+      SqliteCommand command,
+      string tenantId,
+      Guid requestId,
+      string leaseOwner)
+  {
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$requestId",
+        requestId.ToString("D"));
+    command.Parameters.AddWithValue("$leaseOwner", leaseOwner);
+  }
+
+  private async Task<ImageCandidateMutationResult> ExecuteLeasedMutationAsync(
+      SqliteCommand command,
+      string tenantId,
+      Guid requestId,
+      CancellationToken cancellationToken)
+  {
+    try
+    {
+      if (await command.ExecuteNonQueryAsync(cancellationToken) == 1)
+      {
+        return ImageCandidateMutationResult.Succeeded;
+      }
+    }
+    catch (SqliteException exception)
+        when (exception.SqliteErrorCode == 19)
+    {
+      return ImageCandidateMutationResult.InvalidTransition;
+    }
+
+    var durable = await GetBuildRequestOrNullAsync(
+        tenantId,
+        requestId,
+        cancellationToken);
+    return durable is null
+        ? ImageCandidateMutationResult.NotFound
+        : ImageCandidateMutationResult.Conflict;
+  }
+
   private static async Task<ImageCandidate?> GetCandidateOrNullAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -1267,6 +1954,7 @@ internal sealed class SqliteImageCandidateStore(
         "$sourceRepository",
         request.SourceRepository);
     command.Parameters.AddWithValue("$sourceCommit", request.SourceCommit);
+    command.Parameters.AddWithValue("$sourceRef", request.SourceRef);
     command.Parameters.AddWithValue("$inputValuesJson", request.InputValuesJson);
     command.Parameters.AddWithValue(
         "$inputValuesSha256",
@@ -1278,27 +1966,35 @@ internal sealed class SqliteImageCandidateStore(
     command.Parameters.AddWithValue("$updatedAt", Format(request.UpdatedAt));
   }
 
-  private static ImageRecipeRegistration ReadRecipe(SqliteDataReader reader) =>
+  private static ImageRecipeRegistration ReadRecipe(
+      SqliteDataReader reader,
+      int offset = 0) =>
       new(
-          reader.GetString(0),
-          Guid.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
-          reader.GetInt32(2),
-          reader.GetInt64(3),
-          reader.GetInt64(4),
-          reader.GetInt64(5),
-          reader.GetString(6),
-          reader.GetString(7),
-          reader.GetString(8),
-          reader.GetString(9),
-          reader.GetString(10),
-          reader.GetString(11),
-          reader.GetInt32(12),
-          reader.GetString(13),
-          reader.GetString(14),
-          reader.GetString(15),
-          ParseDate(reader.GetString(16)),
-          reader.IsDBNull(17) ? null : reader.GetString(17),
-          reader.IsDBNull(18) ? null : ParseDate(reader.GetString(18)));
+          reader.GetString(offset),
+          Guid.Parse(
+              reader.GetString(offset + 1),
+              CultureInfo.InvariantCulture),
+          reader.GetInt32(offset + 2),
+          reader.GetInt64(offset + 3),
+          reader.GetInt64(offset + 4),
+          reader.GetInt64(offset + 5),
+          reader.GetString(offset + 6),
+          reader.GetString(offset + 7),
+          reader.GetString(offset + 8),
+          reader.GetString(offset + 9),
+          reader.GetString(offset + 10),
+          reader.GetString(offset + 11),
+          reader.GetInt32(offset + 12),
+          reader.GetString(offset + 13),
+          reader.GetString(offset + 14),
+          reader.GetString(offset + 15),
+          ParseDate(reader.GetString(offset + 16)),
+          reader.IsDBNull(offset + 17)
+              ? null
+              : reader.GetString(offset + 17),
+          reader.IsDBNull(offset + 18)
+              ? null
+              : ParseDate(reader.GetString(offset + 18)));
 
   private static ImageBuildRequest ReadRequest(SqliteDataReader reader) =>
       new(
@@ -1318,7 +2014,9 @@ internal sealed class SqliteImageCandidateStore(
           reader.IsDBNull(13) ? null : reader.GetString(13),
           reader.IsDBNull(14) ? null : reader.GetString(14),
           reader.IsDBNull(15) ? null : reader.GetString(15),
-          ParseDate(reader.GetString(16)));
+          ParseDate(reader.GetString(16)),
+          reader.GetString(17),
+          reader.IsDBNull(18) ? null : reader.GetString(18));
 
   private static ImageCandidate ReadCandidate(SqliteDataReader reader)
   {
@@ -1553,7 +2251,9 @@ internal sealed class SqliteImageCandidateStore(
           github_run_url,
           terminal_category,
           terminal_detail,
-          updated_at
+          updated_at,
+          source_ref,
+          github_run_api_url
       FROM image_build_requests
       """;
 }

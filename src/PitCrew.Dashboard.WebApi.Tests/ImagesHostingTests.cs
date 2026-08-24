@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Globalization;
+using System.Text.Json;
 
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -246,6 +247,22 @@ public sealed class ImagesHostingTests
           repository,
           workflow,
           revision);
+      var sourceCommit = new string('e', 40);
+      clientMock.Setup(client => client.ResolveCommitAsync(
+              1001,
+              repository,
+              sourceCommit,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(Success(new GitHubCommitIdentity(sourceCommit)))
+          .Verifiable();
+      clientMock.Setup(client => client.VerifyCommitReachableAsync(
+              1001,
+              repository,
+              sourceCommit,
+              "refs/heads/main",
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(Success(new GitHubCommitReachability(true)))
+          .Verifiable();
 
       await using var factory = CreateFactory(
           fakeTime,
@@ -285,6 +302,38 @@ public sealed class ImagesHostingTests
       var viewerExactResponse = await viewerClient.GetAsync(
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/v1/recipes/registrations/{created!.RegistrationId:D}",
           cancellationToken);
+      var buildRequestId = ParseGuid(
+          "45454545-4545-4545-4545-454545454545");
+      var buildRequest = new RequestImageBuildRequest(
+          buildRequestId,
+          created.RegistrationId,
+          created.Version,
+          "refs/heads/main",
+          sourceCommit,
+          new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+          {
+            ["channel"] = JsonSerializer.SerializeToElement("stable"),
+          });
+      using var administratorBuildResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              administratorClient,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests",
+              administratorSession.AntiforgeryToken,
+              buildRequest,
+              cancellationToken);
+      using var viewerBuildListResponse = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests?limit=10",
+          cancellationToken);
+      using var viewerBuildExactResponse = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests/{buildRequestId:D}",
+          cancellationToken);
+      using var viewerBuildCreateResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              viewerClient,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests",
+              viewerSession.AntiforgeryToken,
+              buildRequest with { RequestId = Guid.NewGuid() },
+              cancellationToken);
       using var viewerCreateResponse =
           await DashboardTestHelpers.PostAuthenticatedAsync(
               viewerClient,
@@ -319,6 +368,14 @@ public sealed class ImagesHostingTests
           .IsEqualTo(HttpStatusCode.OK);
       await Assert.That(viewerExactResponse.StatusCode)
           .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(administratorBuildResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(viewerBuildListResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(viewerBuildExactResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(viewerBuildCreateResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
       await Assert.That(viewerCreateResponse.StatusCode)
           .IsEqualTo(HttpStatusCode.Forbidden);
       await Assert.That(viewerDisableResponse.StatusCode)
@@ -347,6 +404,19 @@ public sealed class ImagesHostingTests
               1001,
               repository,
               revision,
+              It.IsAny<CancellationToken>()),
+          Times.Once());
+      clientMock.Verify(client => client.ResolveCommitAsync(
+              1001,
+              repository,
+              sourceCommit,
+              It.IsAny<CancellationToken>()),
+          Times.Once());
+      clientMock.Verify(client => client.VerifyCommitReachableAsync(
+              1001,
+              repository,
+              sourceCommit,
+              "refs/heads/main",
               It.IsAny<CancellationToken>()),
           Times.Once());
       mocks.VerifyAll();
@@ -636,6 +706,149 @@ public sealed class ImagesHostingTests
               revision,
               It.IsAny<CancellationToken>()),
           Times.Exactly(createdCount + 2));
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Administrator_Creates_Idempotent_Exact_Build_Request_Without_Dispatch(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    var now = new DateTimeOffset(
+        2026,
+        8,
+        24,
+        1,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new TestConfigurationScope(databasePath);
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      var repository = new GitHubRepositoryIdentity(
+          2001,
+          "ncosentino",
+          "pitcrew-dashboard");
+      var workflow = new GitHubWorkflowIdentity(
+          3001,
+          "Build candidate",
+          ".github/workflows/image-candidate.yml",
+          GitHubWorkflowState.Active);
+      var revision = new GitHubWorkflowFileRevision(
+          workflow.Path,
+          new string('d', 40),
+          "release/v1");
+      SetupSuccess(clientMock, repository, workflow, revision);
+      var sourceCommit = new string('a', 40);
+      clientMock.Setup(client => client.ResolveCommitAsync(
+              1001,
+              repository,
+              sourceCommit,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(Success(new GitHubCommitIdentity(sourceCommit)))
+          .Verifiable();
+      clientMock.Setup(client => client.VerifyCommitReachableAsync(
+              1001,
+              repository,
+              sourceCommit,
+              "refs/heads/main",
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(Success(new GitHubCommitReachability(true)))
+          .Verifiable();
+
+      await using var factory = CreateFactory(fakeTime, clientMock.Object);
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var registrationId = ParseGuid(
+          "66666666-6666-6666-6666-666666666666");
+      using var registrationResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/images/v1/recipes/registrations",
+              session.AntiforgeryToken,
+              CreateRequest("pitcrew-default", registrationId),
+              cancellationToken);
+      var requestId = ParseGuid(
+          "77777777-7777-7777-7777-777777777777");
+      var request = new RequestImageBuildRequest(
+          requestId,
+          registrationId,
+          1,
+          "refs/heads/main",
+          sourceCommit,
+          new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+          {
+            ["channel"] = JsonSerializer.SerializeToElement("stable"),
+            ["enableCache"] = JsonSerializer.SerializeToElement(true),
+          });
+      using var createdResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests",
+              session.AntiforgeryToken,
+              request,
+              cancellationToken);
+      using var replayResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests",
+              session.AntiforgeryToken,
+              request,
+              cancellationToken);
+      using var conflictResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests",
+              session.AntiforgeryToken,
+              request with { SourceCommit = new string('b', 40) },
+              cancellationToken);
+      var exact = await client.GetFromJsonAsync<ImageBuildRequestResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests/{requestId:D}",
+          cancellationToken);
+      var list = await client.GetFromJsonAsync<ImageBuildRequestListResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/requests?limit=1",
+          cancellationToken);
+
+      await Assert.That(registrationResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Created);
+      await Assert.That(createdResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(replayResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(conflictResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+      await Assert.That(exact).IsNotNull();
+      await Assert.That(exact!.RequestId).IsEqualTo(requestId);
+      await Assert.That(exact.SourceRef).IsEqualTo("refs/heads/main");
+      await Assert.That(exact.Status).IsEqualTo("requested");
+      await Assert.That(list).IsNotNull();
+      await Assert.That(list!.Requests).HasSingleItem();
+      await Assert.That(list.Truncated).IsFalse()
+          .Because("one durable request fits the requested bound");
+      clientMock.Verify(client => client.ResolveCommitAsync(
+              1001,
+              repository,
+              sourceCommit,
+              It.IsAny<CancellationToken>()),
+          Times.Once());
+      clientMock.Verify(client => client.VerifyCommitReachableAsync(
+              1001,
+              repository,
+              sourceCommit,
+              "refs/heads/main",
+              It.IsAny<CancellationToken>()),
+          Times.Once());
       mocks.VerifyAll();
       clientMock.VerifyNoOtherCalls();
     }
