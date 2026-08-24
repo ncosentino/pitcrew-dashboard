@@ -5,11 +5,18 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/support-canary.yml'
+      - '.github/workflows/prepare-release.yml'
+      - '.github/workflows/verify-support-release-gate.yml'
+      - '.github/workflows/publish-container.yml'
+      - '.github/workflows/publish-host-connector.yml'
+      - '.github/workflows/publish-support-plane.yml'
       - 'assets/support-plane/**'
       - 'scripts/canary/**'
+      - 'scripts/release/**'
       - 'src/PitCrew.Support.*/**'
       - 'src/PitCrew.Dashboard.Features.Support/**'
       - 'src/PitCrew.Dashboard.WebApi/**'
+      - 'tests/Test-SupportReleaseGate.ps1'
   workflow_dispatch:
     inputs:
       dashboard_sha:

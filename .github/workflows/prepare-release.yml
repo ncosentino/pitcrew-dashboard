@@ -1,0 +1,251 @@
+name: Prepare gated release
+run-name: Prepare v${{ inputs.version }} from ${{ inputs.dashboard_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Canonical semantic version without a leading v'
+        required: true
+        type: string
+      dashboard_sha:
+        description: 'Full pitcrew-dashboard main commit SHA'
+        required: true
+        type: string
+      pitcrew_sha:
+        description: 'Full PitCrew commit SHA pinned by the Dashboard policy'
+        required: true
+        type: string
+      mode:
+        description: 'Validate only or create a reviewable draft release'
+        required: true
+        default: 'validate-only'
+        type: choice
+        options:
+          - validate-only
+          - create-draft
+
+permissions: {}
+
+concurrency:
+  group: prepare-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Validate immutable release inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.candidate.outputs.tag }}
+      dashboard-sha: ${{ steps.candidate.outputs.dashboard-sha }}
+      pitcrew-sha: ${{ steps.candidate.outputs.pitcrew-sha }}
+
+    steps:
+      - name: Validate candidate and release identity
+        id: candidate
+        uses: actions/github-script@v8
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          DASHBOARD_SHA: ${{ inputs.dashboard_sha }}
+          PITCREW_SHA: ${{ inputs.pitcrew_sha }}
+        with:
+          script: |
+            const version = process.env.RELEASE_VERSION;
+            const dashboardSha = process.env.DASHBOARD_SHA;
+            const pitCrewSha = process.env.PITCREW_SHA;
+            const shaPattern = /^[a-f0-9]{40}$/;
+            const semVerPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/;
+
+            if (!semVerPattern.test(version)) {
+              throw new Error('Release version must be canonical semantic versioning without a leading v or build metadata.');
+            }
+            if (!shaPattern.test(dashboardSha)) {
+              throw new Error('Dashboard candidate must be a full lowercase commit SHA.');
+            }
+            if (!shaPattern.test(pitCrewSha)) {
+              throw new Error('PitCrew candidate must be a full lowercase commit SHA.');
+            }
+            if (context.ref !== 'refs/heads/main') {
+              throw new Error('Gated releases must be prepared from the main workflow ref.');
+            }
+            if (context.sha !== dashboardSha) {
+              throw new Error('Dashboard input must match the workflow main commit.');
+            }
+
+            const { data: main } = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'main'
+            });
+            if (main.commit.sha !== dashboardSha) {
+              throw new Error('Dashboard input must be the current main commit.');
+            }
+
+            const { data: pitCrewCommit } = await github.rest.repos.getCommit({
+              owner: 'ncosentino',
+              repo: 'pitcrew',
+              ref: pitCrewSha
+            });
+            if (pitCrewCommit.sha !== pitCrewSha) {
+              throw new Error('PitCrew input did not resolve to the exact requested commit.');
+            }
+
+            const tag = `v${version}`;
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`
+              });
+              throw new Error(`Tag ${tag} already exists.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            try {
+              await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag
+              });
+              throw new Error(`Release ${tag} already exists.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            core.setOutput('tag', tag);
+            core.setOutput('dashboard-sha', dashboardSha);
+            core.setOutput('pitcrew-sha', pitCrewSha);
+
+      - name: Check out Dashboard candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.candidate.outputs.dashboard-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate embedded PitCrew policy
+        shell: pwsh
+        env:
+          PITCREW_SHA: ${{ steps.candidate.outputs.pitcrew-sha }}
+        run: |
+          $policy = Get-Content `
+              -LiteralPath assets/support-plane/support-evidence-policy-v0.10.3.json `
+              -Raw `
+              -Encoding utf8 |
+              ConvertFrom-Json
+          if ([string]$policy.pitCrewCommit -cne $env:PITCREW_SHA) {
+              throw 'PitCrew input must match the candidate Dashboard evidence policy.'
+          }
+
+  portable-canary:
+    name: Gate release candidate
+    needs: preflight
+    permissions:
+      contents: read
+    uses: ./.github/workflows/support-canary.yml
+    with:
+      dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
+      pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
+      scenario: support-fresh-enrollment-diagnostic-v1
+      topology_profile: portable
+
+  create-draft:
+    name: Create gated draft release
+    if: inputs.mode == 'create-draft'
+    needs: [preflight, portable-canary]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out gated Dashboard candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.preflight.outputs.dashboard-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Create release gate marker
+        id: marker
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          DASHBOARD_SHA: ${{ needs.preflight.outputs.dashboard-sha }}
+          PITCREW_SHA: ${{ needs.preflight.outputs.pitcrew-sha }}
+        run: |
+          Import-Module ./scripts/release/SupportReleaseGate.psm1 -Force
+          $marker = New-SupportReleaseGateMarker `
+              -ReleaseTag $env:RELEASE_TAG `
+              -DashboardSha $env:DASHBOARD_SHA `
+              -PitCrewSha $env:PITCREW_SHA `
+              -RunId $env:GITHUB_RUN_ID
+          "value=$marker" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Create reviewable draft release
+        id: release
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          DASHBOARD_SHA: ${{ needs.preflight.outputs.dashboard-sha }}
+          RELEASE_MARKER: ${{ steps.marker.outputs.value }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const version = process.env.RELEASE_VERSION;
+            const dashboardSha = process.env.DASHBOARD_SHA;
+            const marker = process.env.RELEASE_MARKER;
+
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`
+              });
+              throw new Error(`Tag ${tag} was created while the canary was running.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            try {
+              await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag
+              });
+              throw new Error(`Release ${tag} was created while the canary was running.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            const { data: release } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              target_commitish: dashboardSha,
+              name: `PitCrew Dashboard ${tag}`,
+              body: marker,
+              draft: true,
+              prerelease: version.includes('-'),
+              generate_release_notes: true
+            });
+
+            if (!release.draft || release.target_commitish !== dashboardSha) {
+              throw new Error('GitHub did not create the expected immutable draft release.');
+            }
+
+            core.setOutput('url', release.html_url);
+            core.notice(`Gated draft release created: ${release.html_url}`);

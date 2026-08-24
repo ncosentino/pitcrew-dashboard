@@ -1,0 +1,103 @@
+name: Verify support release gate
+
+on:
+  workflow_call:
+    inputs:
+      required:
+        description: 'Require published release evidence'
+        required: false
+        default: true
+        type: boolean
+      release_tag:
+        description: 'Published release tag'
+        required: false
+        default: ''
+        type: string
+      release_sha:
+        description: 'Exact release commit SHA'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  verify:
+    name: Support release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Classify non-publishing package run
+        if: ${{ !inputs.required }}
+        shell: pwsh
+        run: |
+          Write-Host (
+              'Release gate evidence is not required because this manual run ' +
+              'cannot upload assets to a GitHub release.')
+
+      - name: Check out release source
+        if: inputs.required
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable canary evidence
+        if: inputs.required
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          if ($env:RELEASE_TAG -cnotmatch '^v[0-9A-Za-z.-]+$') {
+              throw 'Release tag is invalid.'
+          }
+          if ($env:RELEASE_SHA -cnotmatch '^[a-f0-9]{40}$') {
+              throw 'Release SHA must be a full lowercase commit SHA.'
+          }
+
+          Import-Module ./scripts/release/SupportReleaseGate.psm1 -Force
+          $encodedTag = [Uri]::EscapeDataString($env:RELEASE_TAG)
+          $releaseJson = gh api (
+              "repos/$env:GITHUB_REPOSITORY/releases/tags/$encodedTag"
+          ) | Out-String
+          if ($LASTEXITCODE -ne 0) {
+              throw 'GitHub release evidence could not be loaded.'
+          }
+          $release = $releaseJson | ConvertFrom-Json -Depth 20
+          $marker = Read-SupportReleaseGateMarker `
+              -ReleaseBody ([string]$release.body)
+
+          $runJson = gh api (
+              "repos/$env:GITHUB_REPOSITORY/actions/runs/$($marker.RunId)"
+          ) | Out-String
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Release gate workflow evidence could not be loaded.'
+          }
+          $workflowRun = $runJson | ConvertFrom-Json -Depth 20
+
+          $jobsJson = gh api (
+              "repos/$env:GITHUB_REPOSITORY/actions/runs/$($marker.RunId)/jobs" +
+              '?per_page=100'
+          ) | Out-String
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Release gate workflow job evidence could not be loaded.'
+          }
+          $workflowJobs = $jobsJson | ConvertFrom-Json -Depth 20
+
+          $verified = Assert-SupportReleaseGateEvidence `
+              -Release $release `
+              -WorkflowRun $workflowRun `
+              -WorkflowJobs $workflowJobs `
+              -ExpectedRepository $env:GITHUB_REPOSITORY `
+              -ExpectedReleaseSha $env:RELEASE_SHA `
+              -PolicyPath (
+                  './assets/support-plane/support-evidence-policy-v0.10.3.json')
+          Write-Host (
+              "Verified portable support canary run $($verified.RunId) for " +
+              "$($verified.DashboardSha) with PitCrew $($verified.PitCrewSha).")

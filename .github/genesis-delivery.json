@@ -75,6 +75,34 @@
     },
     {
       "source": "repository",
+      "path": ".github/workflows/support-canary.yml",
+      "roles": [
+        "draft-optional",
+        "release-deploy"
+      ],
+      "draftBehavior": "full",
+      "requiredChecks": []
+    },
+    {
+      "source": "repository",
+      "path": ".github/workflows/prepare-release.yml",
+      "roles": [
+        "release-deploy"
+      ],
+      "draftBehavior": "not-applicable",
+      "requiredChecks": []
+    },
+    {
+      "source": "repository",
+      "path": ".github/workflows/verify-support-release-gate.yml",
+      "roles": [
+        "release-deploy"
+      ],
+      "draftBehavior": "not-applicable",
+      "requiredChecks": []
+    },
+    {
+      "source": "repository",
       "path": ".github/workflows/publish-container.yml",
       "roles": [
         "release-deploy"
