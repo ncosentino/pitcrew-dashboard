@@ -523,6 +523,10 @@ Add-Check (
         "(?ms)scenario:.*?options:.*?- support-diagnostic-mode-matrix-v1"
 ) 'The diagnostic-mode matrix scenario is not independently selectable.'
 Add-Check (
+    $supportCanaryWorkflow -match
+        "(?ms)scenario:.*?options:.*?- support-request-rejection-matrix-v1"
+) 'The request-rejection matrix scenario is not independently selectable.'
+Add-Check (
     @(
         $canaryScenarioEntryPaths |
             Where-Object {
@@ -531,6 +535,15 @@ Add-Check (
             }
     ).Count -eq 0
 ) 'A canary scenario entry script rejects the diagnostic-mode matrix.'
+Add-Check (
+    @(
+        $canaryScenarioEntryPaths |
+            Where-Object {
+                (Get-Content -LiteralPath $_ -Raw) -notmatch
+                    "'support-request-rejection-matrix-v1'"
+            }
+    ).Count -eq 0
+) 'A canary scenario entry script rejects the request-rejection matrix.'
 Add-Check (
     $supportRelayScenario -match
         "(?ms)ValidateSet\(.*?'ConnectorOffline'.*?'CapacityMismatch'.*?'JobNotAssigned'.*?'HostPressure'.*?'Full'.*?\)"

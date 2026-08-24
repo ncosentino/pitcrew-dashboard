@@ -142,6 +142,17 @@ if (plan.TopologyProfile == CanaryTopologyProfiles.Containerized)
       ])
       .WithHttpHealthCheck("/health")
       .WaitFor(relay);
+  var rejectedRequestInjector = AddRejectedRequestInjector(
+          builder,
+          relay.GetEndpoint(
+              "http",
+              KnownNetworkIdentifiers.LocalhostNetwork),
+          relaySecret,
+          dashboardAuthorizationKey,
+          dotnet,
+          runRoot,
+          runnerDll)
+      .WaitFor(relay);
   AddRuntimeManifest(
       builder,
       dashboard.GetEndpoint(
@@ -154,7 +165,8 @@ if (plan.TopologyProfile == CanaryTopologyProfiles.Containerized)
       runRoot,
       runnerDll)
       .WaitFor(dashboard)
-      .WaitFor(relay);
+      .WaitFor(relay)
+      .WaitFor(rejectedRequestInjector);
 }
 else
 {
@@ -224,7 +236,7 @@ else
           dashboardResultKey)
       .WithHttpHealthCheck("/health")
       .WaitFor(relay);
-  AddRuntimeManifest(
+  var runtimeManifest = AddRuntimeManifest(
       builder,
       dashboard.GetEndpoint(
           "http",
@@ -237,6 +249,19 @@ else
       runnerDll)
       .WaitFor(dashboard)
       .WaitFor(relay);
+  if (plan.TopologyProfile == CanaryTopologyProfiles.Portable)
+  {
+    var rejectedRequestInjector = AddRejectedRequestInjector(
+            builder,
+            relay.GetEndpoint("http"),
+            relaySecret,
+            dashboardAuthorizationKey,
+            dotnet,
+            runRoot,
+            runnerDll)
+        .WaitFor(relay);
+    runtimeManifest.WaitFor(rejectedRequestInjector);
+  }
 }
 
 await builder.Build().RunAsync();
@@ -263,4 +288,33 @@ static IResourceBuilder<ExecutableResource> AddRuntimeManifest(
     .WithEnvironment(
         "PITCREW_CANARY_RELAY_URL",
         relayEndpoint);
+}
+
+static IResourceBuilder<ExecutableResource>
+    AddRejectedRequestInjector(
+        IDistributedApplicationBuilder builder,
+        EndpointReference relayEndpoint,
+        IResourceBuilder<ParameterResource> relaySecret,
+        IResourceBuilder<ParameterResource> dashboardAuthorizationKey,
+        string dotnet,
+        string runRoot,
+        string runnerDll)
+{
+  return builder.AddExecutable(
+        "rejected-request-injector",
+        dotnet,
+        runRoot,
+        runnerDll,
+        "inject-rejected-requests",
+        "--run-root",
+        runRoot)
+    .WithEnvironment(
+        "PITCREW_CANARY_RELAY_INTERNAL_URL",
+        relayEndpoint)
+    .WithEnvironment(
+        "PITCREW_CANARY_RELAY_SECRET",
+        relaySecret)
+    .WithEnvironment(
+        "PITCREW_CANARY_DASHBOARD_AUTHORIZATION_KEY",
+        dashboardAuthorizationKey);
 }

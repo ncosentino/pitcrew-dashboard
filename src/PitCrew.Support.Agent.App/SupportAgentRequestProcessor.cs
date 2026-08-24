@@ -49,6 +49,10 @@ internal sealed class SupportAgentRequestProcessor(
           payload,
           _jsonOptions);
     }
+    catch (JsonException)
+    {
+      request = null;
+    }
     finally
     {
       CryptographicOperations.ZeroMemory(payload);

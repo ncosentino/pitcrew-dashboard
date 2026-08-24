@@ -1,4 +1,5 @@
 using PitCrew.Support.Canary.Contracts;
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Canary.Tests;
 
@@ -311,6 +312,99 @@ public sealed class CanaryManifestContractTests
   }
 
   [Test]
+  public async Task Rejected_Request_Control_Uses_Closed_Cases_And_Operations()
+  {
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
+        $"rejected-request-control-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try
+    {
+      var runId = Guid.NewGuid().ToString("N");
+      var requestId = Guid.NewGuid();
+      var sessionId = Guid.NewGuid();
+      var nodeId = Guid.NewGuid();
+      var replayId = Guid.NewGuid();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var requestPath = Path.Combine(
+          root,
+          CanaryRejectedRequestControlFile.RequestFileName);
+      var resultPath = Path.Combine(
+          root,
+          CanaryRejectedRequestControlFile.ResultFileName);
+      var enqueue =
+          CanaryRejectedRequestControlFile.CreateEnqueueRequest(
+              runId,
+              requestId,
+              CanaryRejectedRequestCases.ReplaySeed,
+              sessionId,
+              nodeId,
+              nodeKeys.Encryption
+                  .PublicKeySubjectPublicKeyInfoBase64Url,
+              replayId);
+      var result = new CanaryRejectedRequestControlResult(
+          CanaryRejectedRequestControlFile.SchemaVersion,
+          runId,
+          requestId,
+          "succeeded",
+          "request-enqueued");
+
+      CanaryRejectedRequestControlFile.WriteRequest(
+          requestPath,
+          enqueue);
+      CanaryRejectedRequestControlFile.WriteResult(
+          resultPath,
+          result);
+
+      await Assert.That(
+              CanaryRejectedRequestControlFile.ReadRequest(
+                  requestPath))
+          .IsEqualTo(enqueue);
+      await Assert.That(
+              CanaryRejectedRequestControlFile.ReadResult(
+                  resultPath))
+          .IsEqualTo(result);
+      await Assert.That(
+              () => CanaryRejectedRequestControlFile
+                  .CreateEnqueueRequest(
+                      runId,
+                      requestId,
+                      "arbitrary-request",
+                      sessionId,
+                      nodeId,
+                      nodeKeys.Encryption
+                          .PublicKeySubjectPublicKeyInfoBase64Url))
+          .Throws<InvalidDataException>();
+      await Assert.That(
+              () => CanaryRejectedRequestControlFile
+                  .CreateEnqueueRequest(
+                      runId,
+                      requestId,
+                      CanaryRejectedRequestCases.RequestReplay,
+                      sessionId,
+                      nodeId,
+                      nodeKeys.Encryption
+                          .PublicKeySubjectPublicKeyInfoBase64Url))
+          .Throws<InvalidDataException>();
+      await Assert.That(
+              () => CanaryRejectedRequestControlFile.WriteResult(
+                  resultPath,
+                  result with
+                  {
+                    Status = "succeeded",
+                    Disposition =
+                        "request-control-rejected",
+                  }))
+          .Throws<InvalidDataException>();
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+
+  [Test]
   public async Task Scenario_Result_Rejects_Unbounded_Or_Incoherent_Evidence()
   {
     var root = Path.Combine(
@@ -604,6 +698,42 @@ public sealed class CanaryManifestContractTests
           .IsEqualTo(matrix.ScenarioId);
       await Assert.That(readMatrix.Steps)
           .IsEquivalentTo(matrixSteps);
+
+      var rejectionSteps = steps
+          .SelectMany(step =>
+              step.Name ==
+                  "finalize-bootstrap-and-restart"
+                  ?
+                  new[]
+                  {
+                      step,
+                      new CanaryScenarioStepResult(
+                          "verify-bounded-request-rejections",
+                          "succeeded",
+                          "request-rejection-matrix-verified",
+                          1),
+                  }
+                  : [step])
+          .ToArray();
+      var rejections = result with
+      {
+        ScenarioId =
+            "support-request-rejection-matrix-v1",
+        Steps = rejectionSteps,
+        CompletedAt =
+            timestamp.AddMilliseconds(
+                rejectionSteps.Length),
+      };
+      CanaryManifestFile.WriteScenarioResult(
+          path,
+          rejections);
+      var readRejections =
+          CanaryManifestFile.ReadScenarioResult(path);
+
+      await Assert.That(readRejections.ScenarioId)
+          .IsEqualTo(rejections.ScenarioId);
+      await Assert.That(readRejections.Steps)
+          .IsEquivalentTo(rejectionSteps);
     }
     finally
     {

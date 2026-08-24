@@ -29,6 +29,13 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       CanaryScenarioContext,
       CancellationToken,
       Task<string>>? _afterFirstAcceptedPoll;
+  private readonly Func<
+      CanaryRuntimeManifest,
+      CanaryScenarioContext,
+      Guid,
+      string,
+      CancellationToken,
+      Task<string>>? _afterBootstrapFinalization;
   private static readonly JsonSerializerOptions _jsonOptions =
       new(JsonSerializerDefaults.Web)
       {
@@ -55,7 +62,14 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           CanaryScenarioContext,
           CancellationToken,
           Task<string>>? afterFirstAcceptedPoll,
-      IReadOnlyList<string>? diagnosticModes = null)
+      IReadOnlyList<string>? diagnosticModes = null,
+      Func<
+          CanaryRuntimeManifest,
+          CanaryScenarioContext,
+          Guid,
+          string,
+          CancellationToken,
+          Task<string>>? afterBootstrapFinalization = null)
   {
     _scenarioId = scenarioId;
     _requiredCapabilities = new HashSet<string>(
@@ -67,6 +81,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         }.Concat(additionalCapabilities),
         StringComparer.OrdinalIgnoreCase);
     _afterFirstAcceptedPoll = afterFirstAcceptedPoll;
+    _afterBootstrapFinalization =
+        afterBootstrapFinalization;
     _diagnosticModes = diagnosticModes is null
         ? [SupportDiagnosticModes.ConnectorOffline]
         : diagnosticModes.ToArray();
@@ -342,6 +358,29 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             return "second-poll-accepted";
           },
           cancellationToken);
+      if (_afterBootstrapFinalization is not null)
+      {
+        await execution.RunStepAsync(
+            "verify-bounded-request-rejections",
+            async token =>
+            {
+              var category =
+                  await _afterBootstrapFinalization(
+                      runtime,
+                      context,
+                      nodeId,
+                      agentStateRoot,
+                      token);
+              if (installedNode is null &&
+                  (agent is null || agent.HasExited))
+              {
+                throw new CanaryScenarioFailureException(
+                    "agent-exited-before-poll");
+              }
+              return category;
+            },
+            cancellationToken);
+      }
       await execution.RunStepAsync(
           "complete-signed-diagnostic",
           async token =>
