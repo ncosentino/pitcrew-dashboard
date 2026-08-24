@@ -245,6 +245,72 @@ public sealed class CanaryManifestContractTests
   }
 
   [Test]
+  public async Task Topology_Control_Round_Trips_Only_Relay_Restart()
+  {
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
+        $"topology-control-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try
+    {
+      var runId = Guid.NewGuid().ToString("N");
+      var requestId = Guid.NewGuid();
+      var requestPath = Path.Combine(
+          root,
+          CanaryTopologyControlFile.RequestFileName);
+      var resultPath = Path.Combine(
+          root,
+          CanaryTopologyControlFile.ResultFileName);
+      var request =
+          CanaryTopologyControlFile.CreateRestartRelayRequest(
+              runId,
+              requestId);
+      var result = new CanaryTopologyControlResult(
+          CanaryTopologyControlFile.SchemaVersion,
+          runId,
+          requestId,
+          "succeeded",
+          "restart-command-succeeded");
+
+      CanaryTopologyControlFile.WriteRequest(
+          requestPath,
+          request);
+      CanaryTopologyControlFile.WriteResult(
+          resultPath,
+          result);
+
+      await Assert.That(
+              CanaryTopologyControlFile.ReadRequest(requestPath))
+          .IsEqualTo(request);
+      await Assert.That(
+              CanaryTopologyControlFile.ReadResult(resultPath))
+          .IsEqualTo(result);
+      await Assert.That(
+              () => CanaryTopologyControlFile.WriteRequest(
+                  requestPath,
+                  request with
+                  {
+                    Operation = "restart-dashboard",
+                  }))
+          .Throws<InvalidDataException>();
+      await Assert.That(
+              () => CanaryTopologyControlFile.WriteResult(
+                  resultPath,
+                  result with
+                  {
+                    Status = "succeeded",
+                    Disposition = "restart-command-rejected",
+                  }))
+          .Throws<InvalidDataException>();
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+
+  [Test]
   public async Task Scenario_Result_Rejects_Unbounded_Or_Incoherent_Evidence()
   {
     var root = Path.Combine(
@@ -343,6 +409,88 @@ public sealed class CanaryManifestContractTests
               () => CanaryManifestFile.ReadScenarioResult(
                   resultPath))
           .Throws<InvalidDataException>();
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+
+  [Test]
+  public async Task Relay_Restart_Result_Uses_Closed_Evidence_Vocabulary()
+  {
+    var timestamp = DateTimeOffset.UnixEpoch.AddSeconds(1);
+    var steps = new[]
+    {
+        new CanaryScenarioStepResult(
+            "validate-candidate-sources",
+            "succeeded",
+            "candidate-contract-compatible",
+            1),
+        new CanaryScenarioStepResult(
+            "create-enrollment-authorization",
+            "succeeded",
+            "fresh-authorization-created",
+            1),
+        new CanaryScenarioStepResult(
+            "start-diagnostics-broker",
+            "succeeded",
+            "candidate-broker-started",
+            1),
+        new CanaryScenarioStepResult(
+            "first-accepted-poll",
+            "succeeded",
+            "first-poll-accepted",
+            1),
+        new CanaryScenarioStepResult(
+            "restart-relay-and-recover",
+            "succeeded",
+            "relay-restarted",
+            1),
+        new CanaryScenarioStepResult(
+            "finalize-bootstrap-and-restart",
+            "succeeded",
+            "second-poll-accepted",
+            1),
+        new CanaryScenarioStepResult(
+            "complete-signed-diagnostic",
+            "succeeded",
+            "attestation-verified",
+            1),
+        new CanaryScenarioStepResult(
+            "revoke-and-delete-keys",
+            "succeeded",
+            "revoked-and-keys-deleted",
+            1),
+        new CanaryScenarioStepResult(
+            "prove-unrelated-state-unchanged",
+            "succeeded",
+            "connector-runner-and-fixture-unchanged",
+            1),
+    };
+    var result = new CanaryScenarioResult(
+        CanaryManifestFile.ScenarioResultSchemaVersion,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "support-relay-restart-recovery-v1",
+        CanaryTopologyProfiles.Portable,
+        "succeeded",
+        null,
+        steps,
+        timestamp,
+        timestamp.AddMilliseconds(steps.Length));
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
+        $"relay-restart-result-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    var path = Path.Combine(root, "result.json");
+    try
+    {
+      CanaryManifestFile.WriteScenarioResult(path, result);
+
+      await Assert.That(
+              CanaryManifestFile.ReadScenarioResult(path))
+          .IsEqualTo(result);
     }
     finally
     {

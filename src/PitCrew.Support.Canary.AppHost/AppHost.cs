@@ -33,7 +33,9 @@ var dashboardResultKey = builder.AddParameter(
     secret: true);
 builder.Services.AddSingleton(
     new CanaryAppHostOptions(runRoot, runId));
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<CanaryStopRequestMonitor>();
+builder.Services.AddHostedService<CanaryTopologyControlMonitor>();
 
 var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ??
     "dotnet";

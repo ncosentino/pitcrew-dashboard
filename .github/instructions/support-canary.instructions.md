@@ -11,6 +11,10 @@ applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,scripts/release/**,.
   execution, evidence, and teardown independently invocable.
 - Keep AppHost scenario-agnostic. Add scenarios through `ICanaryScenario`,
   explicit registration, and declared runtime capabilities.
+- Topology disruption uses closed run-scoped control contracts. Permit only the
+  exact operation owned by the scenario, keep resource identity inside AppHost,
+  and never add a generic resource name, command, argument, or production fault
+  endpoint.
 - Keep plan, runtime, and scenario-result schemas versioned, bounded, strict,
   and free of credentials, payloads, reports, exception text, private host
   details, and developer paths.
