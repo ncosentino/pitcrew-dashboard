@@ -100,6 +100,14 @@ internal sealed partial class SupportAgentWorker(
         {
           LogRelayUnavailable(_logger);
         }
+        catch (LocalDiagnosticsBrokerRejectedException exception)
+        {
+          _startupStatus.Write(
+              "request-processing",
+              exception.Disposition,
+              exception.GetType());
+          LogBrokerUnavailable(_logger);
+        }
         catch (IOException exception)
         {
           _startupStatus.Write(

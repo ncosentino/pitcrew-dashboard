@@ -443,7 +443,8 @@ records an explicit accepted disposition after its first relay poll; no message,
 stack, path, setting, identity, credential, or payload is persisted.
 Transient broker I/O and timeout failures record separate bounded
 `request-processing` dispositions so a later replay rejection cannot erase the
-first actionable local failure.
+first actionable local failure. Typed broker rejections preserve only the
+broker's closed status; the broker error text remains local and unpersisted.
 
 Evidence verification operations distinguish tree enumeration, unexpected or
 malformed broker ACEs, agent denial count/shape, root metadata, selected evidence
