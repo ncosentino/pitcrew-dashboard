@@ -99,7 +99,9 @@ function New-ReleaseFixture {
 function New-WorkflowRunFixture {
     param(
         [long] $Id = $script:runId,
-        [string] $Name = 'Prepare gated release',
+        [AllowEmptyString()]
+        [string] $Name = '',
+        [string] $Tag = 'v1.2.3',
         [string] $Path = '.github/workflows/prepare-release.yml',
         [string] $Event = 'workflow_dispatch',
         [string] $Branch = 'main',
@@ -108,6 +110,10 @@ function New-WorkflowRunFixture {
         [string] $Conclusion = 'success',
         [string] $Repository = 'ncosentino/pitcrew-dashboard'
     )
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        $Name = "Prepare $Tag from $script:dashboardSha"
+    }
 
     return [pscustomobject]@{
         id = $Id
@@ -173,7 +179,8 @@ $verifiedPrerelease = Assert-SupportReleaseGateEvidence `
             -Tag 'v1.2.3-beta.1' `
             -Prerelease $true `
             -Body $prereleaseMarker) `
-    -WorkflowRun (New-WorkflowRunFixture) `
+    -WorkflowRun (
+        New-WorkflowRunFixture -Tag 'v1.2.3-beta.1') `
     -WorkflowJobs (New-WorkflowJobsFixture) `
     -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
     -ExpectedReleaseSha $dashboardSha `
@@ -263,6 +270,16 @@ Add-RejectionCheck 'Wrong gate workflow' {
         -WorkflowRun (
             New-WorkflowRunFixture `
                 -Path '.github/workflows/support-canary.yml') `
+        -WorkflowJobs (New-WorkflowJobsFixture) `
+        -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
+        -ExpectedReleaseSha $dashboardSha `
+        -PolicyPath $policyPath
+}
+Add-RejectionCheck 'Wrong gate run name' {
+    Assert-SupportReleaseGateEvidence `
+        -Release (New-ReleaseFixture) `
+        -WorkflowRun (
+            New-WorkflowRunFixture -Name 'Prepare gated release') `
         -WorkflowJobs (New-WorkflowJobsFixture) `
         -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
         -ExpectedReleaseSha $dashboardSha `
