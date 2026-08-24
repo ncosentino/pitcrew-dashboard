@@ -96,10 +96,10 @@ current full Dashboard SHA, and the full PitCrew SHA pinned by the candidate
 support evidence policy.
 
 The workflow validates both repositories and the unused release tag, then runs
-`support-fresh-enrollment-diagnostic-v1` through the reusable portable and
-Windows-installed canaries in parallel. `validate-only` stops after that
-evidence. `create-draft` creates a GitHub draft only after both canaries
-succeed. A failed preflight or canary creates no tag or release.
+`support-fresh-enrollment-diagnostic-v1` through the reusable portable,
+containerized, and Windows-installed canaries in parallel. `validate-only`
+stops after that evidence. `create-draft` creates a GitHub draft only after all
+three canaries succeed. A failed preflight or canary creates no tag or release.
 
 The draft contains generated notes plus one bounded gate marker tied to the
 preparation workflow run. Wait for the preparation workflow to complete
@@ -116,15 +116,12 @@ path. It does not require release evidence because its release-upload step is
 disabled. It cannot be used to bypass the published-release gate.
 
 The portable gate has completed on GitHub-hosted Ubuntu in approximately two
-minutes. The Windows-installed gate runs independently on `windows-latest`; its
-measured duration is recorded by each release preparation run. Those are
-observed operating times, not timeout contracts. Release gating still does not
-claim Linux-installed, containerized, or physical-host qualification.
-
-The containerized profile is independently dispatchable and runs on pull
-requests while its duration and reliability are measured. It is not release
-evidence until a separate reviewed change advances the release marker and
-publisher verifier after repeated successful runs.
+minutes. Three pre-gate containerized runs completed in 3m25s, 3m09s, and
+3m22s. The Windows-installed gate runs independently on `windows-latest` and
+remains the measured critical path. These are observed operating times, not
+timeout contracts. Release gating still does not claim Linux-installed,
+multi-architecture registry, production Compose, or physical-host
+qualification.
 
 ## Adding a scenario
 

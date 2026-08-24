@@ -134,13 +134,14 @@ function New-WorkflowJobsFixture {
     param(
         [string] $Status = 'completed',
         [string] $Conclusion = 'success',
-        [AllowEmptyString()]
-        [string] $Name = ''
+        [AllowEmptyCollection()]
+        [string[]] $Name = @()
     )
 
-    $names = if ([string]::IsNullOrWhiteSpace($Name)) {
+    $names = if ($Name.Count -eq 0) {
         @(
             'Gate release candidate / Portable support canary'
+            'Gate containerized candidate / Containerized support canary'
             'Gate installed Windows candidate / Windows-installed support canary'
             'Create gated draft release'
         )
@@ -169,10 +170,29 @@ Add-Check ($parsedMarker.PitCrewSha -ceq $pitCrewSha) (
     'Release marker did not preserve the PitCrew SHA.')
 Add-Check (
     ($parsedMarker.TopologyProfiles -join ',') -ceq
-        'portable,windows-installed'
-) 'Release marker did not preserve both required topology profiles.'
+        'portable,containerized,windows-installed'
+) 'Release marker did not preserve all required topology profiles.'
 Add-Check ($parsedMarker.RunId -eq $runId) (
     'Release marker did not preserve the workflow run ID.')
+
+Add-RejectionCheck 'Missing containerized profile marker' {
+    Read-SupportReleaseGateMarker -ReleaseBody (
+        $releaseBody.Replace(
+            'portable,containerized,windows-installed',
+            'portable,windows-installed'))
+}
+Add-RejectionCheck 'Duplicate containerized profile marker' {
+    Read-SupportReleaseGateMarker -ReleaseBody (
+        $releaseBody.Replace(
+            'portable,containerized,windows-installed',
+            'portable,containerized,containerized,windows-installed'))
+}
+Add-RejectionCheck 'Reordered topology profile marker' {
+    Read-SupportReleaseGateMarker -ReleaseBody (
+        $releaseBody.Replace(
+            'portable,containerized,windows-installed',
+            'containerized,portable,windows-installed'))
+}
 
 $verified = Assert-SupportReleaseGateEvidence `
     -Release (New-ReleaseFixture) `
@@ -368,7 +388,43 @@ Add-RejectionCheck 'Missing Windows-installed gate job' {
         -WorkflowRun (New-WorkflowRunFixture) `
         -WorkflowJobs (
             New-WorkflowJobsFixture `
-                -Name 'Gate release candidate / Portable support canary') `
+                -Name @(
+                    'Gate release candidate / Portable support canary'
+                    'Gate containerized candidate / Containerized support canary'
+                    'Create gated draft release'
+                )) `
+        -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
+        -ExpectedReleaseSha $dashboardSha `
+        -PolicyPath $policyPath
+}
+Add-RejectionCheck 'Missing containerized gate job' {
+    Assert-SupportReleaseGateEvidence `
+        -Release (New-ReleaseFixture) `
+        -WorkflowRun (New-WorkflowRunFixture) `
+        -WorkflowJobs (
+            New-WorkflowJobsFixture `
+                -Name @(
+                    'Gate release candidate / Portable support canary'
+                    'Gate installed Windows candidate / Windows-installed support canary'
+                    'Create gated draft release'
+                )) `
+        -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
+        -ExpectedReleaseSha $dashboardSha `
+        -PolicyPath $policyPath
+}
+Add-RejectionCheck 'Failed containerized gate job' {
+    $workflowJobs = New-WorkflowJobsFixture
+    $containerJob = @(
+        $workflowJobs.jobs | Where-Object {
+            [string]$_.name -ceq
+                'Gate containerized candidate / Containerized support canary'
+        }
+    )
+    $containerJob[0].conclusion = 'failure'
+    Assert-SupportReleaseGateEvidence `
+        -Release (New-ReleaseFixture) `
+        -WorkflowRun (New-WorkflowRunFixture) `
+        -WorkflowJobs $workflowJobs `
         -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
         -ExpectedReleaseSha $dashboardSha `
         -PolicyPath $policyPath
@@ -453,8 +509,9 @@ Add-Check (
     $prepareWorkflow -match
         'scenario: support-fresh-enrollment-diagnostic-v1' -and
     $prepareWorkflow -match 'topology_profile: portable' -and
+    $prepareWorkflow -match 'topology_profile: containerized' -and
     $prepareWorkflow -match 'topology_profile: windows-installed'
-) 'Release preparation does not invoke both required canary profiles.'
+) 'Release preparation does not invoke all required canary profiles.'
 Add-Check (
     $prepareWorkflow -match "context\.ref !== 'refs/heads/main'" -and
     $prepareWorkflow -match
@@ -465,7 +522,7 @@ Add-Check (
 Add-Check (
     $prepareWorkflow -match "if: inputs\.mode == 'create-draft'" -and
     $prepareWorkflow -match
-        'needs: \[preflight, portable-canary, windows-installed-canary\]' -and
+        'needs: \[preflight, portable-canary, containerized-canary, windows-installed-canary\]' -and
     $prepareWorkflow -match 'draft: true' -and
     $prepareWorkflow -notmatch 'draft: false'
 ) 'Release preparation can publish or create a draft before the canary.'

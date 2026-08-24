@@ -36,9 +36,9 @@ applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,scripts/release/**,.
 - Run untrusted pull requests only on public GitHub-hosted capacity with no
   production secrets and no `pull_request_target`.
 - Create release drafts only after the exact Dashboard/PitCrew portable and
-  Windows-installed canaries succeed. Keep one bounded marker in the draft and
-  require publishers to resolve both profiles to the successful same-SHA
-  preparation run.
+  containerized, and Windows-installed canaries succeed. Keep one bounded marker
+  in the draft and require publishers to resolve all three profiles to the
+  successful same-SHA preparation run.
 - Manual package-only workflows may omit gate evidence only when they cannot
   upload release assets. A published release must fail closed on missing,
   duplicate, stale, mismatched, or unsuccessful gate evidence.
