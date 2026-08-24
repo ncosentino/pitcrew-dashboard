@@ -182,7 +182,12 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             if (installedNode is not null)
             {
               await installedNode.WaitForAcceptedPollAsync(token);
-              nodeId = ReadNodeId(agentStateRoot);
+              if (dashboard is null)
+              {
+                throw new CanaryScenarioFailureException(
+                    "dashboard-session-missing");
+              }
+              nodeId = await dashboard.GetEnrolledNodeIdAsync(token);
               return "first-poll-accepted";
             }
             if (string.IsNullOrWhiteSpace(enrollmentCode))

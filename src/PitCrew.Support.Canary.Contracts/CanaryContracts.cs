@@ -251,6 +251,8 @@ public static class CanaryManifestFile
           "second-poll-accepted",
           "step-timeout",
           "support-revocation-rejected",
+          "support-identity-inventory-invalid",
+          "support-identity-inventory-rejected",
           "topology-capability-missing",
           "windows-installation-rejected",
           "windows-installation-unavailable",
