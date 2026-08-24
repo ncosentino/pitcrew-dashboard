@@ -121,7 +121,59 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
             "diagnostic-credential-empty");
   }
 
-  public async Task<Guid> GetEnrolledNodeIdAsync(
+  public async Task<Guid> GetEnrolledNodeIdWithActivityAsync(
+      bool requireResult,
+      CancellationToken cancellationToken)
+  {
+    var identity = await GetEnrolledIdentityAsync(cancellationToken);
+    if (!Guid.TryParse(
+            identity.NodeId,
+            CultureInfo.InvariantCulture,
+            out var nodeId) ||
+        nodeId == Guid.Empty)
+    {
+      throw new CanaryScenarioFailureException(
+          "support-identity-inventory-invalid");
+    }
+    RequireActivity(identity, requireResult);
+    return nodeId;
+  }
+
+  public async Task RequireIdentityActivityAsync(
+      Guid nodeId,
+      bool requireResult,
+      CancellationToken cancellationToken)
+  {
+    var identity = await GetEnrolledIdentityAsync(cancellationToken);
+    if (!Guid.TryParse(
+            identity.NodeId,
+            CultureInfo.InvariantCulture,
+            out var enrolledNodeId) ||
+        enrolledNodeId != nodeId)
+    {
+      throw new CanaryScenarioFailureException(
+          "support-identity-inventory-invalid");
+    }
+    RequireActivity(identity, requireResult);
+  }
+
+  private static void RequireActivity(
+      SupportIdentityResponse identity,
+      bool requireResult)
+  {
+    if (identity.LastPollAt is null)
+    {
+      throw new CanaryScenarioFailureException(
+          "support-identity-last-poll-missing");
+    }
+    if (requireResult && identity.LastResultAt is null)
+    {
+      throw new CanaryScenarioFailureException(
+          "support-identity-last-result-missing");
+    }
+  }
+
+  private async Task<SupportIdentityResponse> GetEnrolledIdentityAsync(
       CancellationToken cancellationToken)
   {
     using var response = await _client.GetAsync(
@@ -146,15 +198,10 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
                 "Active",
                 StringComparison.Ordinal))
         .ToArray();
-    return matches.Length == 1 &&
-        Guid.TryParse(
-            matches[0].NodeId,
-            CultureInfo.InvariantCulture,
-            out var nodeId) &&
-        nodeId != Guid.Empty
-            ? nodeId
-            : throw new CanaryScenarioFailureException(
-                "support-identity-inventory-invalid");
+    return matches.Length == 1
+                ? matches[0]
+                : throw new CanaryScenarioFailureException(
+                    "support-identity-inventory-invalid");
   }
 
   public async Task RevokeAsync(

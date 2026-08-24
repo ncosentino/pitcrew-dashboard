@@ -7,6 +7,7 @@ using PitCrew.Support.Relay.App;
 var builder = WebApplication.CreateBuilder(args);
 var relayOptions = RelayOptions.FromConfiguration(builder.Configuration);
 var store = new SqliteRelayStore(relayOptions.DatabasePath);
+const int MaxNodeActivityBatchSize = 256;
 await store.InitializeAsync(CancellationToken.None);
 builder.Services.AddSingleton(relayOptions);
 builder.Services.AddSingleton(store);
@@ -59,6 +60,31 @@ static IResult ToRotationResult(RelayCredentialRotationStatus status) =>
     };
 
 var internalApi = app.MapGroup("/internal/support/v1");
+internalApi.MapPost("/nodes/activity", async (
+    HttpContext context,
+    RelayNodeActivityRequest request,
+    RelayOptions options,
+    SqliteRelayStore relayStore,
+    CancellationToken cancellationToken) =>
+{
+  if (!HasInternalBearer(context.Request, options))
+  {
+    return Results.Unauthorized();
+  }
+  if (string.IsNullOrWhiteSpace(request.TenantId) ||
+      request.TenantId.Length > 200 ||
+      request.NodeIds is null ||
+      request.NodeIds.Count == 0 ||
+      request.NodeIds.Count > MaxNodeActivityBatchSize ||
+      request.NodeIds.Count != request.NodeIds.Distinct().Count())
+  {
+    return Results.BadRequest();
+  }
+  return Results.Ok(await relayStore.GetNodeActivityAsync(
+      request.TenantId,
+      request.NodeIds,
+      cancellationToken));
+});
 internalApi.MapPost("/nodes", async (
     HttpContext context,
     RelayNodeRegistrationRequest request,
@@ -230,6 +256,7 @@ nodeApi.MapPost("/sessions/{sessionId:guid}/result", async (
     Guid sessionId,
     RelayResultUploadRequest request,
     SqliteRelayStore relayStore,
+    TimeProvider timeProvider,
     CancellationToken cancellationToken) =>
 {
   var bearer = ReadBearer(context.Request);
@@ -247,6 +274,7 @@ nodeApi.MapPost("/sessions/{sessionId:guid}/result", async (
       sessionId,
       bearer,
       request.ResultEnvelope,
+      timeProvider.GetUtcNow(),
       cancellationToken);
   return outcome switch
   {

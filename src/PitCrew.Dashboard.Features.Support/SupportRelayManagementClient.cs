@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Support.Abstractions;
@@ -12,9 +13,12 @@ namespace PitCrew.Dashboard.Features.Support;
 internal sealed class SupportRelayManagementClient(
     IHttpClientFactory _httpClientFactory,
     IOptions<SupportPlaneOptions> _options,
-    TimeProvider _timeProvider)
+    TimeProvider _timeProvider,
+    ILogger<SupportRelayManagementClient> _logger)
 {
   private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
+  private static readonly TimeSpan _maximumActivityClockSkew = TimeSpan.FromMinutes(5);
+  private const int MaxNodeActivityBatchSize = 256;
 
   public async Task<SupportRelayManagementStatus> RegisterNodeAsync(
       SupportIdentityWrite write,
@@ -170,6 +174,103 @@ internal sealed class SupportRelayManagementClient(
         : null;
   }
 
+  public async Task<IReadOnlyList<SupportIdentityActivity>?> GetNodeActivityAsync(
+      string tenantId,
+      IReadOnlyList<Guid> nodeIds,
+      CancellationToken cancellationToken)
+  {
+    if (!IsConfigured)
+    {
+      return null;
+    }
+    if (nodeIds.Count == 0)
+    {
+      return [];
+    }
+    if (nodeIds.Count > MaxNodeActivityBatchSize)
+    {
+      SupportRelayActivityLog.BatchTooLarge(
+          _logger,
+          MaxNodeActivityBatchSize);
+      return null;
+    }
+    try
+    {
+      using var client = CreateClient();
+      using var response = await client.PostAsJsonAsync(
+          "/internal/support/v1/nodes/activity",
+          new RelayNodeActivityRequest(tenantId, nodeIds),
+          _jsonOptions,
+          cancellationToken);
+      if (!response.IsSuccessStatusCode)
+      {
+        SupportRelayActivityLog.NonSuccessStatus(
+            _logger,
+            (int)response.StatusCode);
+        return null;
+      }
+      var activity =
+          await response.Content.ReadFromJsonAsync<List<SupportIdentityActivity>>(
+              _jsonOptions,
+              cancellationToken);
+      var latestActivityAt = _timeProvider
+          .GetUtcNow()
+          .Add(_maximumActivityClockSkew);
+      if (activity is null ||
+          activity.Count > nodeIds.Count ||
+          activity.Select(item => item.NodeId).Distinct().Count() !=
+              activity.Count ||
+          activity.Any(item => !nodeIds.Contains(item.NodeId)) ||
+          activity.Any(item =>
+              !IsValidActivityTimestamp(
+                  item.LastPollAt,
+                  latestActivityAt) ||
+              !IsValidActivityTimestamp(
+                  item.LastResultAt,
+                  latestActivityAt)))
+      {
+        SupportRelayActivityLog.InvalidProjection(_logger);
+        return null;
+      }
+      return activity
+          .Select(item => item with
+          {
+            LastPollAt = item.LastPollAt?.ToUniversalTime(),
+            LastResultAt = item.LastResultAt?.ToUniversalTime(),
+          })
+          .ToArray();
+    }
+    catch (HttpRequestException)
+    {
+      SupportRelayActivityLog.RefreshFailed(
+          _logger,
+          nameof(HttpRequestException));
+      return null;
+    }
+    catch (TaskCanceledException)
+        when (!cancellationToken.IsCancellationRequested)
+    {
+      SupportRelayActivityLog.RefreshFailed(
+          _logger,
+          nameof(TaskCanceledException));
+      return null;
+    }
+    catch (JsonException)
+    {
+      SupportRelayActivityLog.RefreshFailed(
+          _logger,
+          nameof(JsonException));
+      return null;
+    }
+  }
+
+  private static bool IsValidActivityTimestamp(
+      DateTimeOffset? timestamp,
+      DateTimeOffset latestActivityAt) =>
+      timestamp is null ||
+      timestamp >= DateTimeOffset.UnixEpoch &&
+      timestamp <= latestActivityAt;
+
   internal bool IsConfigured
   {
     get
@@ -229,6 +330,10 @@ internal sealed class SupportRelayManagementClient(
       string.IsNullOrEmpty(relayUrl.Query) &&
       string.IsNullOrEmpty(relayUrl.Fragment) &&
       relayUrl.AbsolutePath == "/";
+
+  private sealed record RelayNodeActivityRequest(
+      string TenantId,
+      IReadOnlyList<Guid> NodeIds);
 }
 
 internal enum SupportRelayManagementStatus

@@ -44,6 +44,10 @@ export default function SupportPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshingSessionId, setRefreshingSessionId] = useState<string | null>(null);
+  const [sessionFeedback, setSessionFeedback] = useState<{
+    readonly sessionId: string;
+    readonly message: string;
+  } | null>(null);
   const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
   const activeIdentities = identities.filter((identity) => identity.status === 'Active');
 
@@ -122,12 +126,23 @@ export default function SupportPage() {
   };
 
   const checkSession = async (sessionId: string) => {
+    const previous = sessions.find((candidate) => candidate.sessionId === sessionId);
+    setSessionFeedback(null);
     setRefreshingSessionId(sessionId);
     try {
       const updated = await getSupportSession(tenantId, sessionId);
       setSessions((current) =>
         current.map((candidate) => (candidate.sessionId === sessionId ? updated : candidate)),
       );
+      setSessionFeedback({
+        sessionId,
+        message:
+          previous?.status === updated.status && previous.result === null && updated.result === null
+            ? `No new result is available. Session remains ${updated.status}.`
+            : updated.status === 'Completed'
+              ? 'Result received. Session is Completed.'
+              : `Session status is now ${updated.status}.`,
+      });
       setError(null);
     } catch (caught) {
       setError(
@@ -278,6 +293,11 @@ export default function SupportPage() {
               key={supportSession.sessionId}
               session={supportSession}
               refreshing={refreshingSessionId === supportSession.sessionId}
+              feedback={
+                sessionFeedback?.sessionId === supportSession.sessionId
+                  ? sessionFeedback.message
+                  : null
+              }
               onCheckResult={checkSession}
             />
           ))}
@@ -361,9 +381,15 @@ export function SupportIdentityCard({
       </div>
       <dl className="mt-2 grid gap-1 text-sm">
         {identity.status === 'Active' ? (
-          <div>
-            Last poll: {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
-          </div>
+          <>
+            <div>
+              Last poll: {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
+            </div>
+            <div>
+              Last result:{' '}
+              {identity.lastResultAt ? formatTime(identity.lastResultAt) : 'Unavailable'}
+            </div>
+          </>
         ) : (
           <div>
             {identity.revokedAt
@@ -412,31 +438,33 @@ export function SupportIdentityCard({
 export interface SupportSessionCardProps {
   readonly session: SupportSession;
   readonly refreshing?: boolean;
+  readonly feedback?: string | null;
   readonly onCheckResult?: (sessionId: string) => Promise<void>;
 }
 
 export function SupportSessionCard({
   session,
   refreshing = false,
+  feedback = null,
   onCheckResult,
 }: SupportSessionCardProps) {
   const canCheckResult =
     session.result === null &&
     onCheckResult !== undefined &&
-    ['Queued', 'Dispatched', 'Expired'].includes(session.status);
+    ['Queued', 'Dispatched'].includes(session.status);
+  const tone =
+    session.status === 'Completed'
+      ? 'positive'
+      : session.status === 'Queued' || session.status === 'Dispatched'
+        ? 'caution'
+        : session.status === 'Cancelled'
+          ? 'neutral'
+          : 'critical';
   return (
     <article className="grid gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-medium">{session.diagnosticMode}</h3>
-        <StatusBadge
-          status={
-            session.status === 'Completed'
-              ? 'healthy'
-              : session.status === 'Rejected'
-                ? 'critical'
-                : 'warning'
-          }
-        />
+        <StatusBadge status={session.status} tone={tone} />
       </div>
       <div className="break-all font-mono text-xs text-muted-foreground">{session.sessionId}</div>
       <div className="text-sm text-muted-foreground">
@@ -462,6 +490,11 @@ export function SupportSessionCard({
             {refreshing ? 'Checking result…' : 'Check result'}
           </Button>
         </div>
+      ) : null}
+      {refreshing || feedback ? (
+        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+          {refreshing ? 'Checking for a result…' : feedback}
+        </p>
       ) : null}
       {session.result ? (
         <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">

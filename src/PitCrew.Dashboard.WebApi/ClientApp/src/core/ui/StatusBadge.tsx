@@ -2,6 +2,20 @@ import { cn } from '@/lib/utils';
 
 interface StatusBadgeProps {
   readonly status: string;
+  readonly tone?: 'positive' | 'caution' | 'critical' | 'neutral';
+}
+
+function toneClasses(tone: NonNullable<StatusBadgeProps['tone']>): string {
+  switch (tone) {
+    case 'positive':
+      return 'bg-status-positive text-status-positive-foreground';
+    case 'caution':
+      return 'bg-status-caution text-status-caution-foreground';
+    case 'critical':
+      return 'bg-status-critical text-status-critical-foreground';
+    case 'neutral':
+      return 'bg-muted text-muted-foreground';
+  }
 }
 
 function statusClasses(status: string): string {
@@ -59,13 +73,13 @@ function statusClasses(status: string): string {
   }
 }
 
-/** Renders a generic semantic status label. */
-export function StatusBadge({ status }: StatusBadgeProps) {
+/** Renders a status label with an optional independent semantic tone. */
+export function StatusBadge({ status, tone }: StatusBadgeProps) {
   return (
     <span
       className={cn(
         'inline-flex rounded-full px-2 py-1 text-xs font-semibold capitalize',
-        statusClasses(status),
+        tone ? toneClasses(tone) : statusClasses(status),
       )}
     >
       {status.replaceAll('-', ' ')}

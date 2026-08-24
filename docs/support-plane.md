@@ -19,6 +19,35 @@ separate from connector capacity and manager-recovery operations.
 V1 forbids mutations, shells, generic commands, arbitrary paths, URLs, scripts,
 ports, tunnels, Docker access, and server-supplied executables.
 
+## Relay activity projection
+
+The relay is authoritative only for support transport activity. It advances
+`last_poll_at` after accepting a node credential, including accepted polls with
+no queued session, and advances `last_result_at` only after accepting an opaque
+result for a queued or dispatched session. Rejected credentials, unknown
+sessions, and rejected result transitions do not change either value.
+
+Dashboard requests those timestamps through one internal-bearer batch:
+
+```http
+POST /internal/support/v1/nodes/activity
+Content-Type: application/json
+
+{
+  "tenantId": "<tenant-id>",
+  "nodeIds": ["00000000-0000-0000-0000-000000000000"]
+}
+```
+
+The request allows 1 through 256 distinct node IDs. The response contains only
+matching node IDs plus nullable `lastPollAt` and `lastResultAt`; it contains no
+credentials, envelopes, payloads, sessions, or diagnostic details. Dashboard
+persists valid timestamps monotonically. If the relay is unconfigured,
+unreachable, rejects the request, or returns malformed or out-of-request
+evidence, Dashboard preserves its prior values instead of replacing them with
+null. A last-poll timestamp therefore means only that support relay
+authentication succeeded; it is not connector, runner, profile, or host health.
+
 ## Identity and enrollment
 
 A support node identity is independent from the normal connector identity. The
@@ -238,6 +267,13 @@ without scraping Dashboard pages.
 The Dashboard session list does not decrypt relay results implicitly. Select
 **Check result** on a pending session, or use the single-session API, to fetch,
 verify, decrypt, and persist the completed result.
+
+The support page renders the exact session lifecycle independently from semantic
+severity: `Queued`, `Dispatched`, `Completed`, `Rejected`, `Cancelled`, or
+`Expired`. **Check result** is available only while a session is `Queued` or
+`Dispatched`; terminal sessions do not offer another fetch. A check that returns
+the same status and no result reports that no new result is available through a
+polite live status message rather than appearing inert.
 
 ## Production node isolation
 

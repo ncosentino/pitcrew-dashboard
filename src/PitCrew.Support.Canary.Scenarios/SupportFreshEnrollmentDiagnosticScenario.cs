@@ -187,7 +187,9 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                 throw new CanaryScenarioFailureException(
                     "dashboard-session-missing");
               }
-              nodeId = await dashboard.GetEnrolledNodeIdAsync(token);
+              nodeId = await dashboard.GetEnrolledNodeIdWithActivityAsync(
+                  requireResult: false,
+                  token);
               return "first-poll-accepted";
             }
             if (string.IsNullOrWhiteSpace(enrollmentCode))
@@ -211,6 +213,15 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                 agentStateRoot,
                 token);
             nodeId = ReadNodeId(agentStateRoot);
+            if (dashboard is null)
+            {
+              throw new CanaryScenarioFailureException(
+                  "dashboard-session-missing");
+            }
+            await dashboard.RequireIdentityActivityAsync(
+                nodeId,
+                requireResult: false,
+                token);
             return "first-poll-accepted";
           },
           cancellationToken);
@@ -282,6 +293,10 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                 context,
                 nodeId,
                 diagnosticCredential,
+                token);
+            await dashboard.RequireIdentityActivityAsync(
+                nodeId,
+                requireResult: true,
                 token);
             return "attestation-verified";
           },

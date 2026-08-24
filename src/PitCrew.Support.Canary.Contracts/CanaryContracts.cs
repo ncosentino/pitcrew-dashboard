@@ -251,6 +251,8 @@ public static class CanaryManifestFile
           "second-poll-accepted",
           "step-timeout",
           "support-revocation-rejected",
+          "support-identity-last-poll-missing",
+          "support-identity-last-result-missing",
           "support-identity-inventory-invalid",
           "support-identity-inventory-rejected",
           "topology-capability-missing",
