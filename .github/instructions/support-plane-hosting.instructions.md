@@ -1,5 +1,5 @@
 ---
-applyTo: "src/PitCrew.Support.Relay.App/Dockerfile,.env.hosted.example,.container/support-relay-image.json,deploy/support-relay*.yml,deploy/caddy/Caddyfile.support-relay,docs/hosting/support-relay.md,scripts/Initialize-PitCrewHostedSupportPlane.ps1,tests/Test-HostedSupportPlaneConfiguration.ps1,.github/workflows/{container-ci,publish-container}.yml"
+applyTo: "src/PitCrew.Support.Relay.App/Dockerfile,.env.hosted.example,.container/support-relay-image.json,deploy/support-relay*.yml,deploy/caddy/Caddyfile.support-relay,docs/hosting/{support-relay,support-plane-rollout}.md,scripts/Initialize-PitCrewHostedSupportPlane.ps1,tests/Test-HostedSupportPlaneConfiguration.ps1,.github/workflows/{container-ci,publish-container}.yml"
 ---
 
 # Hosted support-relay boundaries

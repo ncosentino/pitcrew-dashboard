@@ -97,7 +97,7 @@ jobs:
               -ExpectedRepository $env:GITHUB_REPOSITORY `
               -ExpectedReleaseSha $env:RELEASE_SHA `
               -PolicyPath (
-                  './assets/support-plane/support-evidence-policy-v0.10.3.json')
+                  './assets/support-plane/support-evidence-policy-v0.10.8.json')
           Write-Host (
               "Verified support canary run $($verified.RunId) for " +
               "$($verified.DashboardSha) with PitCrew $($verified.PitCrewSha).")

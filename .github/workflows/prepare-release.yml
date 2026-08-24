@@ -137,7 +137,7 @@ jobs:
           PITCREW_SHA: ${{ steps.candidate.outputs.pitcrew-sha }}
         run: |
           $policy = Get-Content `
-              -LiteralPath assets/support-plane/support-evidence-policy-v0.10.3.json `
+              -LiteralPath assets/support-plane/support-evidence-policy-v0.10.8.json `
               -Raw `
               -Encoding utf8 |
               ConvertFrom-Json
@@ -181,10 +181,22 @@ jobs:
       scenario: support-fresh-enrollment-diagnostic-v1
       topology_profile: windows-installed
 
+  linux-installed-canary:
+    name: Gate installed Linux candidate
+    needs: preflight
+    permissions:
+      contents: read
+    uses: ./.github/workflows/support-canary.yml
+    with:
+      dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
+      pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
+      scenario: support-fresh-enrollment-diagnostic-v1
+      topology_profile: linux-installed
+
   create-draft:
     name: Create gated draft release
     if: inputs.mode == 'create-draft'
-    needs: [preflight, portable-canary, containerized-canary, windows-installed-canary]
+    needs: [preflight, portable-canary, containerized-canary, windows-installed-canary, linux-installed-canary]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

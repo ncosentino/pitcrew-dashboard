@@ -292,8 +292,8 @@ try {
         'Instruction and generated mirror counts differ.')
     Add-Check ($result.instructions -ge 130) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 50) (
-        'The documentation map does not contain the expected 50 maintained pages.')
+    Add-Check ($result.docs -eq 51) (
+        'The documentation map does not contain the expected 51 maintained pages.')
     Add-Check ($result.adrs -eq 12) (
         'The ADR index does not contain twelve records.')
 
@@ -377,7 +377,7 @@ try {
             'src/PitCrew.Support.Agent.App/SupportAgentRequestProcessor.cs', `
             'src/PitCrew.Support.Broker.App/SupportDiagnosticsBroker.cs', `
             'src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx', `
-            'assets/support-plane/support-evidence-policy-v0.10.3.json', `
+            'assets/support-plane/support-evidence-policy-v0.10.8.json', `
             'scripts/Install-PitCrewSupportPlane.ps1', `
             'tests/Test-SupportPlaneInstaller.Structural.ps1', `
             '.github/workflows/ci.yml' `

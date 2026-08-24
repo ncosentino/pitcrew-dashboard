@@ -15,6 +15,7 @@ paths:
   - "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/**/*.tsx"
   - "assets/support-plane/**"
   - "docs/support-plane.md"
+  - "docs/hosting/support-plane-rollout.md"
   - "docs/adr/adr-0008-support-plane-v1-read-only-diagnostics.md"
   - "scripts/package-support-plane.ps1"
   - "scripts/Install-PitCrewSupportPlane.ps1"
@@ -30,16 +31,16 @@ paths:
 - Generate ECDSA P-256/RSA-3072 keys locally. Windows uses non-exportable persisted CNG keys and service-only ACLs; Linux uses service-owned `0700` directories and `0600` files and documents root access.
 - Enrollment sends public keys and bounded one-time material only; credentials return node-encrypted. Bound exact retries, reject mismatches, lease/retry relay cleanup durably, persist runtime state locally, and never silently re-enroll disabled/rejected nodes.
 - Rotation uses durable staged relay/Dashboard/local phases. Keep old credentials usable through local commit, pre-accept replacements, block sessions until finalization, resume exact retries, and never use compensation rollback or connector identity.
-- The packaged rotation mode and worker polling share cross-process exclusion; polling reloads identity state.
+- Rotation and polling share a cross-process lock; polling reloads identity state.
 - Anonymous identity routes use separate bounded functional/network limits keyed by a fixed tenant hash and route node GUID, never secrets, bodies, or unbounded IDs.
-- Local removal always requires an explicit preserve-keys or delete-keys choice.
+- Local removal requires an explicit preserve-keys or delete-keys choice.
   Legacy environment-provided node private keys remain disabled unless the explicit
   compatibility gate is enabled.
 - Use only built-in .NET cryptography for v1: canonical fixed-order UTF-8 JSON, AES-256-GCM, RSA-OAEP-SHA256, and ECDSA P-256 IEEE-P1363.
 - The transport process may use the network but cannot read PitCrew state; the broker may read only allowlisted local evidence and owns no outbound network behavior.
 - Production packages use separate identities. Windows pipe ACLs and peer checks allow only product/SYSTEM lifecycle SIDs; Linux requires socket mode `0660`, ownership, `SO_PEERCRED`, and the configured agent UID.
 - The broker has no outbound network. The fixed collector runs in-process. Windows owns enabled service-, service-SID-, and exact-program firewall blocks. Linux requires `PrivateNetwork=true`, `AF_UNIX` only, and no capabilities. Verify effective firewall/systemd state and reject drop-ins.
-- Keep the PitCrew v0.10.3 evidence ACL exact: metadata-only access to its three
+- Keep the PitCrew v0.10.8 evidence ACL exact: metadata-only access to its three
   root-validation files; non-inherited profile-directory enumeration and
   traversal; the fixed collector; object-inherited/default file read only inside
   each selected profile's `support-evidence` directory and connector health.

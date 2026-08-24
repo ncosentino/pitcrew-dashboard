@@ -6,6 +6,7 @@ paths:
   - "src/PitCrew.Support.Agent.App.Tests/*Finalization*Tests.cs"
   - "tests/Test-SupportPlaneInstaller*.ps1"
   - "docs/support-plane.md"
+  - "docs/hosting/support-plane-rollout.md"
 ---
 # Installed enrollment finalization
 

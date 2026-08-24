@@ -11,7 +11,7 @@ $modulePath = Join-Path (
 ) 'scripts' 'release' 'SupportReleaseGate.psm1'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.3.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.8.json'
 $prepareWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'prepare-release.yml'
@@ -168,6 +168,7 @@ function New-WorkflowJobsFixture {
             'Gate release candidate / Portable support canary'
             'Gate containerized candidate / Containerized support canary'
             'Gate installed Windows candidate / Windows-installed support canary'
+            'Gate installed Linux candidate / Linux-installed support canary'
             'Create gated draft release'
         )
     } else {
@@ -195,7 +196,7 @@ Add-Check ($parsedMarker.PitCrewSha -ceq $pitCrewSha) (
     'Release marker did not preserve the PitCrew SHA.')
 Add-Check (
     ($parsedMarker.TopologyProfiles -join ',') -ceq
-        'portable,containerized,windows-installed'
+        'portable,containerized,windows-installed,linux-installed'
 ) 'Release marker did not preserve all required topology profiles.'
 Add-Check ($parsedMarker.RunId -eq $runId) (
     'Release marker did not preserve the workflow run ID.')
@@ -203,20 +204,26 @@ Add-Check ($parsedMarker.RunId -eq $runId) (
 Add-RejectionCheck 'Missing containerized profile marker' {
     Read-SupportReleaseGateMarker -ReleaseBody (
         $releaseBody.Replace(
-            'portable,containerized,windows-installed',
-            'portable,windows-installed'))
+            'portable,containerized,windows-installed,linux-installed',
+            'portable,windows-installed,linux-installed'))
+}
+Add-RejectionCheck 'Missing Linux-installed profile marker' {
+    Read-SupportReleaseGateMarker -ReleaseBody (
+        $releaseBody.Replace(
+            'portable,containerized,windows-installed,linux-installed',
+            'portable,containerized,windows-installed'))
 }
 Add-RejectionCheck 'Duplicate containerized profile marker' {
     Read-SupportReleaseGateMarker -ReleaseBody (
         $releaseBody.Replace(
-            'portable,containerized,windows-installed',
-            'portable,containerized,containerized,windows-installed'))
+            'portable,containerized,windows-installed,linux-installed',
+            'portable,containerized,containerized,windows-installed,linux-installed'))
 }
 Add-RejectionCheck 'Reordered topology profile marker' {
     Read-SupportReleaseGateMarker -ReleaseBody (
         $releaseBody.Replace(
-            'portable,containerized,windows-installed',
-            'containerized,portable,windows-installed'))
+            'portable,containerized,windows-installed,linux-installed',
+            'containerized,portable,windows-installed,linux-installed'))
 }
 
 $verified = Assert-SupportReleaseGateEvidence `
@@ -416,6 +423,7 @@ Add-RejectionCheck 'Missing Windows-installed gate job' {
                 -Name @(
                     'Gate release candidate / Portable support canary'
                     'Gate containerized candidate / Containerized support canary'
+                    'Gate installed Linux candidate / Linux-installed support canary'
                     'Create gated draft release'
                 )) `
         -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
@@ -430,6 +438,23 @@ Add-RejectionCheck 'Missing containerized gate job' {
             New-WorkflowJobsFixture `
                 -Name @(
                     'Gate release candidate / Portable support canary'
+                    'Gate installed Windows candidate / Windows-installed support canary'
+                    'Gate installed Linux candidate / Linux-installed support canary'
+                    'Create gated draft release'
+                )) `
+        -ExpectedRepository 'ncosentino/pitcrew-dashboard' `
+        -ExpectedReleaseSha $dashboardSha `
+        -PolicyPath $policyPath
+}
+Add-RejectionCheck 'Missing Linux-installed gate job' {
+    Assert-SupportReleaseGateEvidence `
+        -Release (New-ReleaseFixture) `
+        -WorkflowRun (New-WorkflowRunFixture) `
+        -WorkflowJobs (
+            New-WorkflowJobsFixture `
+                -Name @(
+                    'Gate release candidate / Portable support canary'
+                    'Gate containerized candidate / Containerized support canary'
                     'Gate installed Windows candidate / Windows-installed support canary'
                     'Create gated draft release'
                 )) `
@@ -641,7 +666,9 @@ Add-Check (
 Add-Check (
     $prepareWorkflow -match "if: inputs\.mode == 'create-draft'" -and
     $prepareWorkflow -match
-        'needs: \[preflight, portable-canary, containerized-canary, windows-installed-canary\]' -and
+        'needs: \[preflight, portable-canary, containerized-canary, windows-installed-canary, linux-installed-canary\]' -and
+    $prepareWorkflow -match
+        '(?ms)^  linux-installed-canary:.*?topology_profile: linux-installed' -and
     $prepareWorkflow -match 'draft: true' -and
     $prepareWorkflow -notmatch 'draft: false'
 ) 'Release preparation can publish or create a draft before the canary.'

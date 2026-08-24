@@ -6,7 +6,7 @@ paths:
   - ".container/support-relay-image.json"
   - "deploy/support-relay*.yml"
   - "deploy/caddy/Caddyfile.support-relay"
-  - "docs/hosting/support-relay.md"
+  - "docs/hosting/{support-relay,support-plane-rollout}.md"
   - "scripts/Initialize-PitCrewHostedSupportPlane.ps1"
   - "tests/Test-HostedSupportPlaneConfiguration.ps1"
   - ".github/workflows/{container-ci,publish-container}.yml"
