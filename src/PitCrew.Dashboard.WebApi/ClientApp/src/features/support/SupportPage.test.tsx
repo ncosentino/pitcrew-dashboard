@@ -76,7 +76,7 @@ function supportSession(
       status === 'Dispatched' || status === 'Completed' || status === 'Rejected'
         ? '2026-08-01T00:00:30+00:00'
         : null,
-    rejectionDisposition: status === 'Rejected' ? 'unsupported-capability' : null,
+    rejectionDisposition: status === 'Rejected' ? 'broker-evidence-access-denied' : null,
     result,
   };
 }
@@ -323,7 +323,8 @@ describe('SupportSessionCard', () => {
     render(<SupportSessionCard session={supportSession('Rejected')} />);
 
     expect(screen.getByText(/First dispatched/)).toBeVisible();
-    expect(screen.getByText('unsupported-capability', { selector: 'code' })).toBeVisible();
+    expect(screen.getByText('broker-evidence-access-denied', { selector: 'code' })).toBeVisible();
+    expect(screen.getByText('The broker cannot read the approved evidence set.')).toBeVisible();
   });
 
   it('announces loading and disables repeated result checks', () => {

@@ -280,6 +280,13 @@ continue to degrade to dispatched-then-expired, and a new agent treats an older
 relay's missing outcome route as non-fatal while retaining its local bounded
 status.
 
+The agent persists the first closed rejection disposition beside replay state
+before reporting it. Relay redelivery or agent restart returns that same
+disposition without rerunning diagnostics. Broker mode/profile rejection,
+missing collector, evidence denial, execution failure, invalid response, local
+I/O failure, and timeout remain distinct. A later replay observation cannot
+replace the first actionable outcome.
+
 The support page renders the exact session lifecycle independently from semantic
 severity: `Queued`, `Dispatched`, `Completed`, `Rejected`, `Cancelled`, or
 `Expired`. **Check result** is available only while a session is `Queued` or

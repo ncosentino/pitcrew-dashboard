@@ -1,5 +1,7 @@
 namespace PitCrew.Support.Agent.App;
 
+using PitCrew.Support.Protocol;
+
 internal sealed class LocalDiagnosticsBrokerRejectedException :
     IOException
 {
@@ -35,20 +37,28 @@ internal sealed class LocalDiagnosticsBrokerRejectedException :
     Disposition = disposition;
   }
 
-  public string Disposition { get; } = "broker-response-invalid";
+  public string Disposition { get; } =
+      SupportRequestRejectionDispositions.BrokerResponseInvalid;
 
   public static LocalDiagnosticsBrokerRejectedException FromStatus(
       string status) =>
       new(
           status switch
           {
-            "InvalidMode" => "broker-invalid-mode",
-            "InvalidProfile" => "broker-invalid-profile",
-            "ScriptMissing" => "broker-script-missing",
+            "InvalidMode" =>
+                SupportRequestRejectionDispositions.BrokerInvalidMode,
+            "InvalidProfile" =>
+                SupportRequestRejectionDispositions.BrokerInvalidProfile,
+            "ScriptMissing" =>
+                SupportRequestRejectionDispositions.BrokerScriptMissing,
             "EvidenceAccessDenied" =>
-                "broker-evidence-access-denied",
-            "ExecutionFailed" => "broker-execution-failed",
-            _ => "broker-response-invalid",
+                SupportRequestRejectionDispositions
+                    .BrokerEvidenceAccessDenied,
+            "ExecutionFailed" =>
+                SupportRequestRejectionDispositions
+                    .BrokerExecutionFailed,
+            _ => SupportRequestRejectionDispositions
+                .BrokerResponseInvalid,
           },
           true);
 }
