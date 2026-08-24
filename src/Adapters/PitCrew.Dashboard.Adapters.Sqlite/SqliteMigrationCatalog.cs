@@ -2860,5 +2860,178 @@ internal static class SqliteMigrationCatalog
               DROP TABLE migration24_image_recipe_fk_check;
 
               """),
+        new(
+              25,
+              "restart-safe-image-build-execution",
+              """
+              ALTER TABLE image_build_requests
+                  ADD COLUMN source_ref TEXT NOT NULL DEFAULT ''
+                      CHECK (length(source_ref) <= 255);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN github_run_api_url TEXT NULL
+                      CHECK (github_run_api_url IS NULL
+                          OR length(github_run_api_url) BETWEEN 1 AND 512);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN next_attempt_at TEXT NOT NULL
+                      DEFAULT '1970-01-01T00:00:00.0000000+00:00';
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN lease_owner TEXT NULL
+                      CHECK (lease_owner IS NULL
+                          OR length(lease_owner) BETWEEN 1 AND 128);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN lease_expires_at TEXT NULL;
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN dispatch_safe_to_retry INTEGER NOT NULL DEFAULT 0
+                      CHECK (dispatch_safe_to_retry IN (0, 1));
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN dispatch_started_at TEXT NULL;
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN dispatch_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (dispatch_attempts >= 0);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN poll_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (poll_attempts >= 0);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN run_not_found_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (run_not_found_attempts >= 0);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN revision_not_found_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (revision_not_found_attempts >= 0);
+
+              ALTER TABLE image_build_requests
+                  ADD COLUMN last_external_status TEXT NULL
+                      CHECK (last_external_status IS NULL
+                          OR length(last_external_status) BETWEEN 1 AND 64);
+
+              DROP INDEX ix_image_build_requests_active;
+
+              CREATE INDEX ix_image_build_requests_due
+                  ON image_build_requests (
+                      next_attempt_at,
+                      requested_at,
+                      tenant_id,
+                      request_id)
+                  WHERE status IN ('requested', 'dispatching', 'building');
+
+              DROP TRIGGER trg_image_build_requests_identity_immutable;
+
+              CREATE TRIGGER trg_image_build_requests_identity_immutable
+              BEFORE UPDATE ON image_build_requests
+              FOR EACH ROW
+              WHEN OLD.request_id <> NEW.request_id
+                OR OLD.tenant_id <> NEW.tenant_id
+                OR OLD.registration_id <> NEW.registration_id
+                OR OLD.registration_version <> NEW.registration_version
+                OR OLD.recipe_id <> NEW.recipe_id
+                OR OLD.source_repository <> NEW.source_repository
+                OR OLD.source_commit <> NEW.source_commit
+                OR OLD.source_ref <> NEW.source_ref
+                OR OLD.input_values_json <> NEW.input_values_json
+                OR OLD.input_values_sha256 <> NEW.input_values_sha256
+                OR OLD.requested_by_github_user_id
+                    <> NEW.requested_by_github_user_id
+                OR OLD.requested_at <> NEW.requested_at
+                OR (OLD.github_run_id IS NOT NULL
+                    AND (OLD.github_run_id <> NEW.github_run_id
+                        OR OLD.github_run_url <> NEW.github_run_url
+                        OR OLD.github_run_api_url <> NEW.github_run_api_url))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image build request identity is immutable');
+              END;
+
+              DROP TRIGGER trg_image_build_requests_monotonic;
+
+              CREATE TRIGGER trg_image_build_requests_monotonic
+              BEFORE UPDATE ON image_build_requests
+              FOR EACH ROW
+              WHEN NEW.updated_at < OLD.updated_at
+                OR OLD.status IN ('ready', 'blocked', 'failed')
+                OR NOT (
+                    OLD.status = NEW.status
+                    OR (OLD.status = 'requested'
+                        AND NEW.status IN ('dispatching', 'blocked', 'failed'))
+                    OR (OLD.status = 'dispatching'
+                        AND NEW.status IN ('building', 'blocked', 'failed'))
+                    OR (OLD.status = 'building'
+                        AND NEW.status IN ('qualifying', 'blocked', 'failed'))
+                    OR (OLD.status = 'qualifying'
+                        AND NEW.status IN ('ready', 'blocked', 'failed')))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'invalid image build request transition');
+              END;
+
+              CREATE TRIGGER trg_image_build_requests_execution_invariants
+              BEFORE UPDATE ON image_build_requests
+              FOR EACH ROW
+              WHEN (NEW.lease_owner IS NULL) <> (NEW.lease_expires_at IS NULL)
+                OR (NEW.status IN ('ready', 'blocked', 'failed', 'qualifying')
+                    AND (NEW.lease_owner IS NOT NULL
+                        OR NEW.dispatch_safe_to_retry <> 0))
+                OR (NEW.dispatch_safe_to_retry = 1
+                    AND NEW.status <> 'dispatching')
+                OR (NEW.status IN ('building', 'qualifying')
+                    AND (NEW.github_run_id IS NULL
+                        OR NEW.github_run_url IS NULL
+                        OR NEW.github_run_api_url IS NULL))
+                OR ((NEW.github_run_id IS NULL)
+                    <> (NEW.github_run_api_url IS NULL))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'invalid image build request execution state');
+              END;
+
+              CREATE TRIGGER trg_image_build_requests_insert_execution
+              BEFORE INSERT ON image_build_requests
+              FOR EACH ROW
+              WHEN NEW.status <> 'requested'
+                OR length(NEW.source_ref) < 1
+                OR NEW.github_run_api_url IS NOT NULL
+                OR NEW.lease_owner IS NOT NULL
+                OR NEW.lease_expires_at IS NOT NULL
+                OR NEW.dispatch_safe_to_retry <> 0
+                OR NEW.dispatch_started_at IS NOT NULL
+                OR NEW.dispatch_attempts <> 0
+                OR NEW.poll_attempts <> 0
+                OR NEW.run_not_found_attempts <> 0
+                OR NEW.revision_not_found_attempts <> 0
+                OR NEW.last_external_status IS NOT NULL
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image build requests must start as unclaimed requested work');
+              END;
+
+              UPDATE image_build_requests
+              SET status = 'blocked',
+                  terminal_category = 'migration-source-ref-missing',
+                  terminal_detail = 'The legacy request lacks exact source-ref authority.',
+                  last_external_status = 'migration-source-ref-missing',
+                  github_run_api_url = CASE
+                      WHEN github_run_id IS NULL THEN NULL
+                      ELSE github_run_url
+                  END
+              WHERE source_ref = ''
+                AND status IN (
+                    'requested',
+                    'dispatching',
+                    'building',
+                    'qualifying');
+
+              """),
     ];
 }

@@ -16,7 +16,7 @@ public sealed class SqliteImageCandidateStoreTests
       "094549A32A957BB0A69F805619F0134BBB168D9B02FE9D2003A7F6DA91310B2C";
 
   [Test]
-  public async Task Migration_24_Applies_And_Recipe_Disable_By_Guid_Is_Idempotent(
+  public async Task Migration_25_Applies_And_Recipe_Disable_By_Guid_Is_Idempotent(
       CancellationToken cancellationToken)
   {
     var databasePath = CreateDatabasePath("migration-recipe");
@@ -75,7 +75,7 @@ public sealed class SqliteImageCandidateStoreTests
           10,
           cancellationToken);
 
-      await Assert.That(migrationVersion).IsEqualTo(24);
+      await Assert.That(migrationVersion).IsEqualTo(25);
       await Assert.That(created)
           .IsEqualTo(ImageCandidateMutationResult.Succeeded);
       await Assert.That(exactReplay)
@@ -100,11 +100,10 @@ public sealed class SqliteImageCandidateStoreTests
   }
 
   [Test]
-  public async Task Migration_24_Upgrades_Origin_Main_Image_Authority_And_Preserves_Checksums(
+  public async Task Migration_25_Upgrades_Exact_Migration_24_And_Preserves_Checksums(
       CancellationToken cancellationToken)
   {
-    const long expectedQualificationCount = 4;
-    var databasePath = CreateDatabasePath("migration-24-upgrade");
+    var databasePath = CreateDatabasePath("migration-25-upgrade");
     try
     {
       await Assert.That(SqliteMigrationCatalog.All
@@ -114,7 +113,7 @@ public sealed class SqliteImageCandidateStoreTests
       var factory = CreateFactory(databasePath);
       await SqliteMigrationTestDatabase.ApplyThroughAsync(
           factory,
-          23,
+          24,
           cancellationToken);
       var accessStore = new SqliteAccessStore(factory);
       var now = DateTimeOffset.Parse(
@@ -131,44 +130,86 @@ public sealed class SqliteImageCandidateStoreTests
           owner,
           now,
           cancellationToken);
-      await accessStore.EnsureTenantOwnerAsync(
-          "tenant-b",
-          "Tenant B",
-          owner,
-          now,
-          cancellationToken);
-
-      var store = new SqliteImageCandidateStore(factory);
       var registrationId = Guid.Parse(
           "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
           CultureInfo.InvariantCulture);
-      var tenantARecipe = CreateRecipe(
-          now,
-          owner.GitHubUserId) with
-      {
-        RegistrationId = registrationId,
-      };
-      var tenantARequest = CreateRequest(
-          tenantARecipe,
-          now.AddMinutes(1));
-      await store.CreateRecipeVersionAsync(
-          tenantARecipe,
-          cancellationToken);
-      await store.CreateBuildRequestAsync(
-          tenantARequest,
-          cancellationToken);
-      await AdvanceToQualifyingAsync(
-          store,
-          tenantARequest,
-          now,
-          cancellationToken);
-      var tenantACandidate = CreateReadyCandidate(
-          tenantARequest,
-          now.AddMinutes(5));
-      await store.StoreCandidateAsync(
-          tenantARequest.TenantId,
-          tenantACandidate,
-          CreatePassedQualifications(tenantACandidate.CandidateId),
+      var requestId = Guid.Parse(
+          "cccccccc-1111-2222-3333-dddddddddddd",
+          CultureInfo.InvariantCulture);
+      const string sourceRefPolicyJson =
+          "{\"allowedSourceRefs\":[\"refs/heads/main\"]}";
+      const string inputSchemaJson =
+          "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{}}";
+      const string emptyInputJson = "{}";
+      await ExecuteNonQueryAsync(
+          factory,
+          $$"""
+          INSERT INTO image_recipe_versions (
+              tenant_id,
+              registration_id,
+              version,
+              github_installation_id,
+              github_repository_id,
+              github_workflow_id,
+              repository_owner,
+              repository_name,
+              workflow_path,
+              workflow_blob_sha,
+              dispatch_ref,
+              recipe_id,
+              candidate_schema_version,
+              source_ref_policy_json,
+              input_schema_json,
+              created_by_github_user_id,
+              created_at)
+          VALUES (
+              'tenant-a',
+              '{{registrationId:D}}',
+              1,
+              1001,
+              2001,
+              3001,
+              'ncosentino',
+              'pitcrew-dashboard',
+              '.github/workflows/image-candidate.yml',
+              '{{new string('a', 40)}}',
+              'release/v1',
+              'pitcrew-default',
+              1,
+              '{{sourceRefPolicyJson}}',
+              '{{inputSchemaJson}}',
+              '{{owner.GitHubUserId}}',
+              '{{now:O}}');
+
+          INSERT INTO image_build_requests (
+              request_id,
+              tenant_id,
+              registration_id,
+              registration_version,
+              recipe_id,
+              source_repository,
+              source_commit,
+              input_values_json,
+              input_values_sha256,
+              requested_by_github_user_id,
+              requested_at,
+              status,
+              updated_at)
+          VALUES (
+              '{{requestId:D}}',
+              'tenant-a',
+              '{{registrationId:D}}',
+              1,
+              'pitcrew-default',
+              'ncosentino/pitcrew-dashboard',
+              '{{new string('b', 40)}}',
+              '{{emptyInputJson}}',
+              '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+              '{{owner.GitHubUserId}}',
+              '{{now.AddMinutes(1):O}}',
+              'requested',
+              '{{now.AddMinutes(1):O}}');
+          """,
           cancellationToken);
       var priorChecksums = await ReadMigrationChecksumsAsync(
           factory,
@@ -176,25 +217,18 @@ public sealed class SqliteImageCandidateStoreTests
 
       await new SqliteMigrationRunner(factory).ApplyAsync(cancellationToken);
 
+      var store = new SqliteImageCandidateStore(factory);
       var afterChecksums = await ReadMigrationChecksumsAsync(
           factory,
           cancellationToken);
       var migratedRecipe = await store.GetRecipeVersionOrNullAsync(
-          tenantARecipe.TenantId,
-          tenantARecipe.RegistrationId,
-          tenantARecipe.Version,
+          "tenant-a",
+          registrationId,
+          1,
           cancellationToken);
       var migratedRequest = await store.GetBuildRequestOrNullAsync(
-          tenantARequest.TenantId,
-          tenantARequest.RequestId,
-          cancellationToken);
-      var readyCandidateCount = await ExecuteScalarAsync<long>(
-          factory,
-          "SELECT COUNT(*) FROM image_candidates WHERE tenant_id = 'tenant-a';",
-          cancellationToken);
-      var qualificationCount = await ExecuteScalarAsync<long>(
-          factory,
-          "SELECT COUNT(*) FROM image_candidate_qualifications;",
+          "tenant-a",
+          requestId,
           cancellationToken);
       var foreignKeyIssues = await ExecuteScalarAsync<long>(
           factory,
@@ -204,28 +238,13 @@ public sealed class SqliteImageCandidateStoreTests
           factory,
           "PRAGMA integrity_check;",
           cancellationToken);
-      var tenantBRecipe = tenantARecipe with
-      {
-        TenantId = "tenant-b",
-        CreatedAt = now.AddMinutes(10),
-      };
-      var tenantBCreate = await store.CreateRecipeVersionAsync(
-          tenantBRecipe,
-          cancellationToken);
-      var tenantBRequest = CreateRequest(
-          tenantBRecipe,
-          now.AddMinutes(11));
-      var tenantBRequestCreate = await store.CreateBuildRequestAsync(
-          tenantBRequest,
-          cancellationToken);
-
-      await Assert.That(priorChecksums.Keys.Max()).IsEqualTo(23);
+      await Assert.That(priorChecksums.Keys.Max()).IsEqualTo(24);
       await Assert.That(priorChecksums[23])
           .IsEqualTo(OriginMainMigration23Checksum);
-      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(24);
-      await Assert.That(afterChecksums[24])
+      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(25);
+      await Assert.That(afterChecksums[25])
           .IsEqualTo(SqliteMigrationCatalog.All
-              .Single(static migration => migration.Version == 24).Checksum);
+              .Single(static migration => migration.Version == 25).Checksum);
       await Assert.That(
               priorChecksums.All(pair =>
                   afterChecksums.TryGetValue(
@@ -233,20 +252,19 @@ public sealed class SqliteImageCandidateStoreTests
                       out var checksum) &&
                   checksum == pair.Value))
           .IsTrue()
-          .Because("prior applied migrations must remain byte-for-byte accepted after migration 24.");
-      await Assert.That(migratedRecipe).IsEqualTo(tenantARecipe);
+          .Because("released migrations 1 through 24 must retain their accepted checksums.");
+      await Assert.That(migratedRecipe).IsNotNull();
+      await Assert.That(migratedRecipe!.RegistrationId)
+          .IsEqualTo(registrationId);
       await Assert.That(migratedRequest).IsNotNull();
       await Assert.That(migratedRequest!.Status)
-          .IsEqualTo(ImageBuildRequestStatus.Ready);
-      await Assert.That(readyCandidateCount).IsEqualTo(1L);
-      await Assert.That(qualificationCount)
-          .IsEqualTo(expectedQualificationCount);
+          .IsEqualTo(ImageBuildRequestStatus.Blocked);
+      await Assert.That(migratedRequest.SourceRef).IsEqualTo(string.Empty);
+      await Assert.That(migratedRequest.GitHubRunApiUrl).IsNull();
+      await Assert.That(migratedRequest.TerminalCategory)
+          .IsEqualTo("migration-source-ref-missing");
       await Assert.That(foreignKeyIssues).IsEqualTo(0L);
       await Assert.That(integrityCheck).IsEqualTo("ok");
-      await Assert.That(tenantBCreate)
-          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
-      await Assert.That(tenantBRequestCreate)
-          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
     }
     finally
     {
@@ -1319,6 +1337,293 @@ public sealed class SqliteImageCandidateStoreTests
     }
   }
 
+  [Test]
+  public async Task Due_Claims_Are_Single_Owner_Lease_Bounded_And_Terminal_Safe(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("execution-claims");
+    try
+    {
+      var context = await CreateContextAsync(
+          databasePath,
+          cancellationToken);
+      var recipe = CreateRecipe(
+          context.Now,
+          context.Owner.GitHubUserId);
+      await context.Store.CreateRecipeVersionAsync(recipe, cancellationToken);
+      var request = CreateRequest(
+          recipe,
+          context.Now.AddMinutes(1)) with
+      {
+        SourceRef = "refs/heads/main",
+      };
+      await context.Store.CreateBuildRequestAsync(request, cancellationToken);
+      var secondStore = new SqliteImageCandidateStore(context.Factory);
+      var concurrentClaims = await Task.WhenAll(
+          context.Store.ClaimDueBuildRequestsAsync(
+              "worker-a",
+              context.Now.AddMinutes(1),
+              context.Now.AddMinutes(3),
+              1,
+              cancellationToken),
+          secondStore.ClaimDueBuildRequestsAsync(
+              "worker-b",
+              context.Now.AddMinutes(1),
+              context.Now.AddMinutes(3),
+              1,
+              cancellationToken));
+      var claimed = concurrentClaims.SelectMany(
+          static claims => claims).ToArray();
+      var beforeExpiry = await secondStore.ClaimDueBuildRequestsAsync(
+          "worker-c",
+          context.Now.AddMinutes(2),
+          context.Now.AddMinutes(4),
+          1,
+          cancellationToken);
+      var afterExpiry = await secondStore.ClaimDueBuildRequestsAsync(
+          "worker-c",
+          context.Now.AddMinutes(3),
+          context.Now.AddMinutes(5),
+          1,
+          cancellationToken);
+      var terminalized = await secondStore.TerminalizeBuildRequestAsync(
+          request.TenantId,
+          request.RequestId,
+          "worker-c",
+          ImageBuildRequestStatus.Failed,
+          "workflow-failure",
+          "The trusted workflow reported failure.",
+          "run-completed-failure",
+          context.Now.AddMinutes(3),
+          cancellationToken);
+      var afterTerminal = await context.Store.ClaimDueBuildRequestsAsync(
+          "worker-d",
+          context.Now.AddMinutes(10),
+          context.Now.AddMinutes(12),
+          10,
+          cancellationToken);
+
+      await Assert.That(claimed).HasSingleItem();
+      await Assert.That(claimed[0].Request.RequestId)
+          .IsEqualTo(request.RequestId);
+      await Assert.That(beforeExpiry).IsEmpty();
+      await Assert.That(afterExpiry).HasSingleItem();
+      await Assert.That(afterExpiry[0].LeaseOwner).IsEqualTo("worker-c");
+      await Assert.That(terminalized)
+          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
+      await Assert.That(afterTerminal).IsEmpty();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Definitive_Dispatch_Rate_Limit_Survives_Reopen_And_Freezes_Run(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("dispatch-retry");
+    try
+    {
+      var context = await CreateContextAsync(
+          databasePath,
+          cancellationToken);
+      var recipe = CreateRecipe(
+          context.Now,
+          context.Owner.GitHubUserId);
+      await context.Store.CreateRecipeVersionAsync(recipe, cancellationToken);
+      var request = CreateRequest(
+          recipe,
+          context.Now.AddMinutes(1)) with
+      {
+        SourceRef = "refs/heads/main",
+      };
+      await context.Store.CreateBuildRequestAsync(request, cancellationToken);
+      var firstClaim = (await context.Store.ClaimDueBuildRequestsAsync(
+          "worker-a",
+          context.Now.AddMinutes(1),
+          context.Now.AddMinutes(3),
+          1,
+          cancellationToken)).Single();
+      await context.Store.MarkDispatchStartedAsync(
+          request.TenantId,
+          request.RequestId,
+          firstClaim.LeaseOwner,
+          context.Now.AddMinutes(1),
+          cancellationToken);
+      var deferred = await context.Store.DeferRateLimitedDispatchAsync(
+          request.TenantId,
+          request.RequestId,
+          firstClaim.LeaseOwner,
+          context.Now.AddMinutes(5),
+          "dispatch-rate-limited",
+          context.Now.AddMinutes(1),
+          cancellationToken);
+
+      var reopened = new SqliteImageCandidateStore(context.Factory);
+      var tooEarly = await reopened.ClaimDueBuildRequestsAsync(
+          "worker-b",
+          context.Now.AddMinutes(4),
+          context.Now.AddMinutes(6),
+          1,
+          cancellationToken);
+      var retryClaim = (await reopened.ClaimDueBuildRequestsAsync(
+          "worker-b",
+          context.Now.AddMinutes(5),
+          context.Now.AddMinutes(7),
+          1,
+          cancellationToken)).Single();
+      await reopened.MarkDispatchStartedAsync(
+          request.TenantId,
+          request.RequestId,
+          retryClaim.LeaseOwner,
+          context.Now.AddMinutes(5),
+          cancellationToken);
+      var succeeded = await reopened.RecordDispatchSucceededAsync(
+          request.TenantId,
+          request.RequestId,
+          retryClaim.LeaseOwner,
+          7001,
+          "https://api.github.example/runs/7001",
+          "https://github.example/runs/7001",
+          context.Now.AddMinutes(6),
+          context.Now.AddMinutes(5),
+          cancellationToken);
+      var stored = await reopened.GetBuildRequestOrNullAsync(
+          request.TenantId,
+          request.RequestId,
+          cancellationToken);
+
+      await Assert.That(deferred)
+          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
+      await Assert.That(tooEarly).IsEmpty();
+      await Assert.That(retryClaim.DispatchSafeToRetry).IsTrue()
+          .Because("the definitive rate-limit disposition is durable");
+      await Assert.That(succeeded)
+          .IsEqualTo(ImageCandidateMutationResult.Succeeded);
+      await Assert.That(stored!.Status)
+          .IsEqualTo(ImageBuildRequestStatus.Building);
+      await Assert.That(stored.GitHubRunId).IsEqualTo(7001);
+      await Assert.That(stored.GitHubRunApiUrl)
+          .IsEqualTo("https://api.github.example/runs/7001");
+      await Assert.That(stored.GitHubRunUrl)
+          .IsEqualTo("https://github.example/runs/7001");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Alternating_NotFound_Phases_Preserve_Independent_Budgets_Across_Reopen(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("independent-not-found-counters");
+    try
+    {
+      var context = await CreateContextAsync(
+          databasePath,
+          cancellationToken);
+      var recipe = CreateRecipe(
+          context.Now,
+          context.Owner.GitHubUserId);
+      await context.Store.CreateRecipeVersionAsync(recipe, cancellationToken);
+      var request = CreateRequest(
+          recipe,
+          context.Now.AddMinutes(1)) with
+      {
+        SourceRef = "refs/heads/main",
+      };
+      await context.Store.CreateBuildRequestAsync(request, cancellationToken);
+      var cursor = context.Now.AddMinutes(1);
+      var dispatchClaim =
+          (await context.Store.ClaimDueBuildRequestsAsync(
+              "dispatch-worker",
+              cursor,
+              cursor.AddMinutes(1),
+              1,
+              cancellationToken)).Single();
+      await context.Store.MarkDispatchStartedAsync(
+          request.TenantId,
+          request.RequestId,
+          dispatchClaim.LeaseOwner,
+          cursor,
+          cancellationToken);
+      await context.Store.RecordDispatchSucceededAsync(
+          request.TenantId,
+          request.RequestId,
+          dispatchClaim.LeaseOwner,
+          7001,
+          "https://api.github.example/runs/7001",
+          "https://github.example/runs/7001",
+          cursor.AddMinutes(1),
+          cursor,
+          cancellationToken);
+      cursor = cursor.AddMinutes(1);
+
+      for (var attempt = 0; attempt < 5; attempt++)
+      {
+        var runStore = new SqliteImageCandidateStore(context.Factory);
+        var runClaim = (await runStore.ClaimDueBuildRequestsAsync(
+            $"run-worker-{attempt}",
+            cursor,
+            cursor.AddMinutes(1),
+            1,
+            cancellationToken)).Single();
+        await runStore.DeferBuildRunPollAsync(
+            request.TenantId,
+            request.RequestId,
+            runClaim.LeaseOwner,
+            cursor.AddMinutes(1),
+            "run-not-found",
+            ImageBuildNotFoundCounterAction.Increment,
+            cursor,
+            cancellationToken);
+        cursor = cursor.AddMinutes(1);
+
+        var revisionStore =
+            new SqliteImageCandidateStore(context.Factory);
+        var revisionClaim =
+            (await revisionStore.ClaimDueBuildRequestsAsync(
+                $"revision-worker-{attempt}",
+                cursor,
+                cursor.AddMinutes(1),
+                1,
+                cancellationToken)).Single();
+        await revisionStore.DeferBuildRevisionPollAsync(
+            request.TenantId,
+            request.RequestId,
+            revisionClaim.LeaseOwner,
+            cursor.AddMinutes(1),
+            "run-revision-not-found",
+            ImageBuildNotFoundCounterAction.Increment,
+            cursor,
+            cancellationToken);
+        cursor = cursor.AddMinutes(1);
+      }
+
+      var reopened = new SqliteImageCandidateStore(context.Factory);
+      var exhausted = (await reopened.ClaimDueBuildRequestsAsync(
+          "inspection-worker",
+          cursor,
+          cursor.AddMinutes(1),
+          1,
+          cancellationToken)).Single();
+
+      await Assert.That(exhausted.RunNotFoundAttempts).IsEqualTo(5);
+      await Assert.That(exhausted.RevisionNotFoundAttempts).IsEqualTo(5);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
   private static async Task<ImageCandidateTestContext> CreateContextAsync(
       string databasePath,
       CancellationToken cancellationToken)
@@ -1488,7 +1793,8 @@ public sealed class SqliteImageCandidateStoreTests
         null,
         null,
         null,
-        requestedAt);
+        requestedAt,
+        "refs/heads/main");
   }
 
   private static ReadyImageCandidate CreateReadyCandidate(

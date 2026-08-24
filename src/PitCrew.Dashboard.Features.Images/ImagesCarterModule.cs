@@ -41,6 +41,132 @@ public sealed class ImagesCarterModule : ICarterModule
             DisableRegistrationAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .AddImageRecipeMutationRateLimit();
+
+    var requestReaders = app.MapGroup(
+            "/api/tenants/{tenantId}/images/requests")
+        .RequireAuthorization(AccessPolicies.TenantViewer);
+    requestReaders.MapGet("", GetBuildRequestsAsync);
+    requestReaders.MapGet("/{requestId:guid}", GetBuildRequestAsync);
+
+    var requestAdministrators = app.MapGroup(
+            "/api/tenants/{tenantId}/images/requests")
+        .RequireAuthorization(AccessPolicies.TenantAdministrator);
+    requestAdministrators.MapPost("", CreateBuildRequestAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+  }
+
+  private static async Task<IResult> GetBuildRequestsAsync(
+      HttpContext context,
+      string tenantId,
+      IImageBuildRequestUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    if (!ReadLimit(context, out var limit, out var error))
+    {
+      return error!;
+    }
+
+    var requests = await unitOfWork.ListAsync(
+        tenantId,
+        limit + 1,
+        cancellationToken);
+    return Results.Ok(new ImageBuildRequestListResponse(
+        requests.Take(limit)
+            .Select(ImageBuildRequestValidation.ToResponse)
+            .ToArray(),
+        requests.Count > limit));
+  }
+
+  private static async Task<IResult> GetBuildRequestAsync(
+      string tenantId,
+      Guid requestId,
+      IImageBuildRequestUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var request = await unitOfWork.GetOrNullAsync(
+        tenantId,
+        requestId,
+        cancellationToken);
+    return request is null
+        ? Results.NotFound(Error(
+            "image_build_request_not_found",
+            "The image build request was not found."))
+        : Results.Ok(ImageBuildRequestValidation.ToResponse(request));
+  }
+
+  private static async Task<IResult> CreateBuildRequestAsync(
+      HttpContext context,
+      string tenantId,
+      RequestImageBuildRequest request,
+      IImageBuildRequestUnitOfWork unitOfWork,
+      TimeProvider timeProvider,
+      CancellationToken cancellationToken)
+  {
+    var result = await unitOfWork.CreateAsync(
+        context.User,
+        tenantId,
+        new RequestImageBuildInput(
+            request.RequestId,
+            request.RegistrationId,
+            request.RegistrationVersion,
+            request.SourceRef ?? string.Empty,
+            request.SourceCommit ?? string.Empty,
+            request.Inputs ??
+                new Dictionary<string, System.Text.Json.JsonElement>(
+                    StringComparer.Ordinal)),
+        cancellationToken);
+    if (result.Status == ImageBuildRequestCommandStatus.RateLimited)
+    {
+      WriteRetryAfterHeader(
+          context,
+          timeProvider,
+          result.RetryAt);
+    }
+
+    return result.Status switch
+    {
+      ImageBuildRequestCommandStatus.Succeeded
+          when result.Request is not null => Results.Accepted(
+              $"/api/tenants/{tenantId}/images/requests/{result.Request.RequestId:D}",
+              ImageBuildRequestValidation.ToResponse(result.Request)),
+      ImageBuildRequestCommandStatus.Unchanged
+          when result.Request is not null => Results.Ok(
+              ImageBuildRequestValidation.ToResponse(result.Request)),
+      ImageBuildRequestCommandStatus.Invalid => Results.BadRequest(
+          Error(
+              result.Code ?? "invalid_image_build_request",
+              result.Error ?? "The image build request is invalid.")),
+      ImageBuildRequestCommandStatus.Conflict => Results.Conflict(
+          Error(
+              result.Code ?? "image_build_request_conflict",
+              result.Error ??
+              "The image build request conflicts with durable state.")),
+      ImageBuildRequestCommandStatus.NotFound => Results.NotFound(
+          Error(
+              result.Code ?? "image_build_request_not_found",
+              result.Error ?? "The image build authority was not found.")),
+      ImageBuildRequestCommandStatus.Forbidden => Results.Json(
+          Error(
+              result.Code ?? "forbidden_image_build_request",
+              result.Error ?? "The image build request is not authorized."),
+          statusCode: StatusCodes.Status403Forbidden),
+      ImageBuildRequestCommandStatus.RateLimited => Results.Json(
+          Error(
+              result.Code ?? "github_image_integration_rate_limited",
+              result.Error ?? "GitHub source validation is rate-limited."),
+          statusCode: StatusCodes.Status429TooManyRequests),
+      ImageBuildRequestCommandStatus.NotConfigured
+          or ImageBuildRequestCommandStatus.Unavailable => Results.Json(
+              Error(
+                  result.Code ?? "github_image_integration_unavailable",
+                  result.Error ??
+                  "GitHub source validation is temporarily unavailable."),
+              statusCode: StatusCodes.Status503ServiceUnavailable),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported image build request result."),
+    };
   }
 
   private static async Task<IResult> GetRegistrationsAsync(

@@ -12,6 +12,7 @@ namespace PitCrew.Dashboard.Features.Images.Abstractions;
 /// <param name="RunHtmlUrl">Exact bounded GitHub web URL.</param>
 /// <param name="CreatedAt">GitHub creation time.</param>
 /// <param name="UpdatedAt">GitHub update time.</param>
+/// <param name="Event">Bounded event that created the workflow run.</param>
 public sealed record GitHubWorkflowRun(
     long Id,
     long WorkflowId,
@@ -21,4 +22,5 @@ public sealed record GitHubWorkflowRun(
     Uri RunApiUrl,
     Uri RunHtmlUrl,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string Event = "");

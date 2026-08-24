@@ -20,6 +20,8 @@ namespace PitCrew.Dashboard.Features.Images.Abstractions;
 /// <param name="TerminalCategory">Bounded closed terminal category, when terminal evidence exists.</param>
 /// <param name="TerminalDetail">Bounded terminal evidence detail, when terminal evidence exists.</param>
 /// <param name="UpdatedAt">Caller-supplied time of the latest durable state.</param>
+/// <param name="SourceRef">Exact allowed source ref used to validate the source commit.</param>
+/// <param name="GitHubRunApiUrl">Exact bounded GitHub workflow run API URL, when known.</param>
 public sealed record ImageBuildRequest(
     string TenantId,
     Guid RequestId,
@@ -37,4 +39,6 @@ public sealed record ImageBuildRequest(
     string? GitHubRunUrl,
     string? TerminalCategory,
     string? TerminalDetail,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string SourceRef = "",
+    string? GitHubRunApiUrl = null);

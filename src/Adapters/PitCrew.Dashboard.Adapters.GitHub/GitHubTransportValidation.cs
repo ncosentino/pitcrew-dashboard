@@ -57,10 +57,20 @@ internal static class GitHubTransportValidation
       !value.EndsWith('.') &&
       !value.EndsWith(".lock", StringComparison.OrdinalIgnoreCase);
 
+  public static bool IsBranchOrTagReference(string? value) =>
+      IsReference(value) && !LooksLikeSha1(value);
+
   public static bool IsSha1(string? value) =>
       value is { Length: 40 } &&
       value.All(static character =>
           character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+  private static bool LooksLikeSha1(string? value) =>
+      value is { Length: 40 } &&
+      value.All(static character =>
+          character is >= '0' and <= '9' or
+              >= 'a' and <= 'f' or
+              >= 'A' and <= 'F');
 
   public static bool CopyInputs(
       IReadOnlyDictionary<string, string>? inputs,
