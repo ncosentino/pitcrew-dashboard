@@ -2237,6 +2237,7 @@ function Invoke-FinalizeEnrollment {
             throw [InvalidOperationException]::new(
                 "The support agent rejected enrollment finalization with disposition '$disposition'.")
         }
+        Restore-AgentSettingsSecurity -Snapshot $settingsSnapshot
         Assert-AgentSettingsSecurityUnchanged -Snapshot $settingsSnapshot
         if ((Get-SupportBrokerRuntimeIdentity) -cne $brokerIdentity) {
             throw 'The support broker changed during enrollment finalization.'
