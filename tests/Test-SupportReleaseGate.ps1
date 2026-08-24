@@ -24,6 +24,11 @@ $supportCanaryWorkflowPath = Join-Path (
 $supportRelayScenarioPath = Join-Path (
     $repositoryRoot
 ) 'scripts' 'canary' 'Invoke-SupportRelayScenario.ps1'
+$canaryScenarioEntryPaths = @(
+    Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanary.ps1'
+    Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanaryScenario.ps1'
+    Join-Path $repositoryRoot 'scripts' 'canary' 'New-SupportCanaryRun.ps1'
+)
 $publishWorkflowPaths = @(
     Join-Path $repositoryRoot '.github' 'workflows' 'publish-container.yml'
     Join-Path $repositoryRoot '.github' 'workflows' 'publish-host-connector.yml'
@@ -517,6 +522,15 @@ Add-Check (
     $supportCanaryWorkflow -match
         "(?ms)scenario:.*?options:.*?- support-diagnostic-mode-matrix-v1"
 ) 'The diagnostic-mode matrix scenario is not independently selectable.'
+Add-Check (
+    @(
+        $canaryScenarioEntryPaths |
+            Where-Object {
+                (Get-Content -LiteralPath $_ -Raw) -notmatch
+                    "'support-diagnostic-mode-matrix-v1'"
+            }
+    ).Count -eq 0
+) 'A canary scenario entry script rejects the diagnostic-mode matrix.'
 Add-Check (
     $supportRelayScenario -match
         "(?ms)ValidateSet\(.*?'ConnectorOffline'.*?'CapacityMismatch'.*?'JobNotAssigned'.*?'HostPressure'.*?'Full'.*?\)"
