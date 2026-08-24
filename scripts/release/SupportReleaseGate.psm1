@@ -11,7 +11,6 @@ $script:ReleaseGateMarkerPattern = (
 )
 $script:RequiredScenario = 'support-fresh-enrollment-diagnostic-v1'
 $script:RequiredTopologyProfile = 'portable'
-$script:RequiredWorkflowName = 'Prepare gated release'
 $script:RequiredWorkflowPath = '.github/workflows/prepare-release.yml'
 $script:CanonicalReleaseTagPattern = (
     '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)' +
@@ -277,7 +276,8 @@ function Assert-SupportReleaseGateEvidence {
         -InputObject $WorkflowRun `
         -PropertyPath 'name' `
         -EvidenceName 'Workflow run evidence')
-    if ($runName -cne $script:RequiredWorkflowName) {
+    $expectedRunName = "Prepare $($marker.ReleaseTag) from $ExpectedReleaseSha"
+    if ($runName -cne $expectedRunName) {
         throw 'Workflow run does not belong to the gated release workflow.'
     }
 
