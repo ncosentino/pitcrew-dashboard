@@ -60,7 +60,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -132,7 +131,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_sha }}
           fetch-depth: 1
           persist-credentials: false
 
