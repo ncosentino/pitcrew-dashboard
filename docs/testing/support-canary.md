@@ -190,6 +190,20 @@ Manual `Publish support plane` dispatch remains a package-only development
 path. It does not require release evidence because its release-upload step is
 disabled. It cannot be used to bypass the published-release gate.
 
+Each publishing workflow verifies the outputs it owns before reporting
+success. Connector and support-package jobs compare local SHA-256 values,
+archive sidecars, published asset sizes, and GitHub's published asset digests.
+Container jobs require the semantic and immutable commit tags to resolve to the
+build output digest, require linux/amd64 and linux/arm64 manifests plus one SBOM
+attestation for each, and verify GitHub provenance against the release commit,
+tag ref, public-hosted runner boundary, and publishing workflow.
+
+`Verify published release` is a read-only manual audit over an existing
+release. It requires the exact release tag and commit, verifies the complete
+41-asset connector/support inventory, and verifies all three GHCR image indexes
+and provenance attestations. It is an aggregate audit surface, not a fourth
+publisher and not a substitute for each publisher's fail-closed verification.
+
 The portable gate has completed on GitHub-hosted Ubuntu in approximately two
 minutes. Three pre-gate containerized runs completed in 3m25s, 3m09s, and
 3m22s. The Windows-installed gate runs independently on `windows-latest` and

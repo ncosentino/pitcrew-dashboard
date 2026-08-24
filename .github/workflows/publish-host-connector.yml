@@ -91,3 +91,26 @@ jobs:
             "$RELEASE_TAG" \
             scripts/Enable-PitCrewCapacityOperations.ps1 \
             --clobber
+
+      - name: Verify connector release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $asset = "pitcrew-connector-$version-$($env:RID).tar.gz"
+          $assets = [Collections.Generic.List[string]]::new()
+          $assets.Add((Join-Path $PWD $asset))
+          $assets.Add((Join-Path $PWD "$asset.sha256"))
+          if ($env:RID -ceq 'linux-x64') {
+              $assets.Add((
+                  Join-Path `
+                      $PWD `
+                      'scripts/Enable-PitCrewCapacityOperations.ps1'
+              ))
+          }
+          ./scripts/release/Test-PublishedReleaseAssets.ps1 `
+              -ReleaseTag $env:RELEASE_TAG `
+              -FilePath $assets.ToArray()

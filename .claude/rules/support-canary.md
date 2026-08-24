@@ -4,7 +4,7 @@ paths:
   - "src/PitCrew.Support.Canary.*/**"
   - "scripts/canary/**"
   - "scripts/release/**"
-  - ".github/workflows/{support-canary,prepare-release,verify-support-release-gate,publish-container,publish-host-connector,publish-support-plane}.yml"
+  - ".github/workflows/{support-canary,prepare-release,verify-support-release-gate,verify-published-release,publish-container,publish-host-connector,publish-support-plane}.yml"
   - "tests/Test-SupportReleaseGate.ps1"
   - "docs/testing/support-canary.md"
   - "docs/adr/adr-0010-extensible-support-canary-harness.md"
