@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 using PitCrew.Support.Relay.App;
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Relay.App.Tests;
 
@@ -123,6 +124,113 @@ public sealed class RelayNodeActivityApiTests
           .IsEqualTo(pollAt);
       await Assert.That(projected.GetProperty("lastResultAt").ValueKind)
           .IsEqualTo(JsonValueKind.Null);
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Request_Outcome_Requires_Node_Credential_And_Closed_Disposition(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      await using var factory = CreateFactory(databasePath);
+      using var client = factory.CreateClient();
+      var store =
+          factory.Services.GetRequiredService<SqliteRelayStore>();
+      var nodeId = Guid.NewGuid();
+      var sessionId = Guid.NewGuid();
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-a")),
+          cancellationToken);
+      await store.EnqueueSessionAsync(
+          new RelaySessionEnqueueRequest(
+              "tenant-a",
+              nodeId,
+              sessionId,
+              DateTimeOffset.Parse(
+                  "2026-08-01T00:05:00+00:00",
+                  CultureInfo.InvariantCulture),
+              "opaque-request"),
+          cancellationToken);
+      var route =
+          $"/api/support-relay/v1/nodes/{nodeId:D}/sessions/{sessionId:D}/outcome";
+
+      using var unauthorized = await client.PostAsJsonAsync(
+          route,
+          new SupportRelayRequestOutcomeRequest(
+              SupportRequestRejectionDispositions
+                  .RequestMalformed),
+          cancellationToken);
+      using var invalidRequest = new HttpRequestMessage(
+          HttpMethod.Post,
+          route)
+      {
+        Content = JsonContent.Create(
+            new SupportRelayRequestOutcomeRequest(
+                "unbounded-reason")),
+      };
+      invalidRequest.Headers.Authorization =
+          new AuthenticationHeaderValue(
+              "Bearer",
+              "credential-a");
+      using var invalid = await client.SendAsync(
+          invalidRequest,
+          cancellationToken);
+      using var validRequest = new HttpRequestMessage(
+          HttpMethod.Post,
+          route)
+      {
+        Content = JsonContent.Create(
+            new SupportRelayRequestOutcomeRequest(
+                SupportRequestRejectionDispositions
+                    .RequestMalformed)),
+      };
+      validRequest.Headers.Authorization =
+          new AuthenticationHeaderValue(
+              "Bearer",
+              "credential-a");
+      using var valid = await client.SendAsync(
+          validRequest,
+          cancellationToken);
+      client.DefaultRequestHeaders.Authorization =
+          new AuthenticationHeaderValue(
+              "Bearer",
+              InternalBearerSecret);
+      using var state = await client.GetAsync(
+          $"/internal/support/v1/sessions/{sessionId:D}",
+          cancellationToken);
+      using var document = JsonDocument.Parse(
+          await state.Content.ReadAsStringAsync(
+              cancellationToken));
+
+      await Assert.That(unauthorized.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(invalid.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      await Assert.That(valid.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(state.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(
+              document.RootElement
+                  .GetProperty("status")
+                  .GetString())
+          .IsEqualTo("rejected");
+      await Assert.That(
+              document.RootElement
+                  .GetProperty("rejectionDisposition")
+                  .GetString())
+          .IsEqualTo(
+              SupportRequestRejectionDispositions
+                  .RequestMalformed);
     }
     finally
     {

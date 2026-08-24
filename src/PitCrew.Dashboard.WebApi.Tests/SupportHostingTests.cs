@@ -138,6 +138,120 @@ public sealed class SupportHostingTests
   }
 
   [Test]
+  public async Task Explicit_Read_Projects_Dispatched_Then_Rejected_Relay_State(
+      CancellationToken cancellationToken)
+  {
+    var databasePath =
+        DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl:
+              "http://support-relay-internal:8080/");
+      var relayHandler = new SupportSessionRelayHandler();
+      await using var factory =
+          new WebApplicationFactory<Program>()
+              .WithWebHostBuilder(
+                  builder => builder.ConfigureServices(
+                      services => services
+                          .AddHttpClient(
+                              SupportRelayManagementHttpClientOptions
+                                  .ClientName)
+                          .ConfigurePrimaryHttpMessageHandler(
+                              () => relayHandler)));
+      using var client = factory.CreateClient();
+      var browserSession =
+          await DashboardTestHelpers.GetSessionAsync(
+              client,
+              cancellationToken);
+      var enrollment =
+          await SupportEnrollmentTestHelper.EnrollAsync(
+              client,
+              browserSession.AntiforgeryToken,
+              SupportKeyFactory.CreateNodeKeys(),
+              cancellationToken);
+      using var createRequest = new HttpRequestMessage(
+          HttpMethod.Post,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions")
+      {
+        Content = JsonContent.Create(
+            new CreateSupportDiagnosticSessionRequest(
+                Guid.Parse(
+                    enrollment.NodeId,
+                    CultureInfo.InvariantCulture),
+                SupportDiagnosticModes.ConnectorOffline,
+                null,
+                300)),
+      };
+      createRequest.Headers.Add(
+          DashboardTestHelpers.AntiforgeryHeader,
+          browserSession.AntiforgeryToken);
+      using var createResponse = await client.SendAsync(
+          createRequest,
+          cancellationToken);
+      var created = await createResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken) ??
+          throw new InvalidOperationException(
+              "Support session response was empty.");
+      var dispatchedAt = created.RequestedAt.AddSeconds(1);
+      relayHandler.Status = "dispatched";
+      using var dispatchedResponse = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions/{created.SessionId}",
+          cancellationToken);
+      var dispatched = await dispatchedResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken) ??
+          throw new InvalidOperationException(
+              "Dispatched session response was empty.");
+      relayHandler.Status = "rejected";
+      relayHandler.DispatchedAt = dispatchedAt;
+      relayHandler.RejectedAt =
+          dispatchedAt.AddSeconds(1);
+      relayHandler.RejectionDisposition =
+          SupportRequestRejectionDispositions
+              .UnsupportedCapability;
+      using var rejectedResponse = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions/{created.SessionId}",
+          cancellationToken);
+      var rejected = await rejectedResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken) ??
+          throw new InvalidOperationException(
+              "Rejected session response was empty.");
+
+      await Assert.That(createResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(created.Status).IsEqualTo("Queued");
+      await Assert.That(created.DispatchedAt).IsNull();
+      await Assert.That(dispatchedResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(dispatched.Status)
+          .IsEqualTo("Dispatched");
+      await Assert.That(dispatched.DispatchedAt)
+          .IsNull();
+      await Assert.That(rejectedResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(rejected.Status)
+          .IsEqualTo("Rejected");
+      await Assert.That(rejected.DispatchedAt)
+          .IsEqualTo(dispatchedAt);
+      await Assert.That(rejected.RejectionDisposition)
+          .IsEqualTo(
+              SupportRequestRejectionDispositions
+                  .UnsupportedCapability);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Browser_Support_Session_Post_Requires_Antiforgery(
       CancellationToken cancellationToken)
   {

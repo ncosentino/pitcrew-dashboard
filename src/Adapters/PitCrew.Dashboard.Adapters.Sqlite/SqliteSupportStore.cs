@@ -1038,6 +1038,88 @@ internal sealed class SqliteSupportStore(
     return sessions;
   }
 
+  public async Task<SupportMutationStatus>
+      UpdateSessionLifecycleAsync(
+          string tenantId,
+          Guid sessionId,
+          SupportDiagnosticSessionStatus status,
+          DateTimeOffset? dispatchedAt,
+          string? rejectionDisposition,
+          DateTimeOffset transitionedAt,
+          CancellationToken cancellationToken)
+  {
+    if (status is not (
+            SupportDiagnosticSessionStatus.Dispatched or
+            SupportDiagnosticSessionStatus.Rejected or
+            SupportDiagnosticSessionStatus.Cancelled or
+            SupportDiagnosticSessionStatus.Expired) ||
+        (status == SupportDiagnosticSessionStatus.Rejected) !=
+            (rejectionDisposition is not null) ||
+        rejectionDisposition is not null &&
+        !SupportRequestRejectionDispositions.IsSupported(
+            rejectionDisposition))
+    {
+      return SupportMutationStatus.Invalid;
+    }
+    await using var connection =
+        await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE support_sessions
+        SET status = $status,
+            dispatched_at = CASE
+                WHEN dispatched_at IS NULL THEN $dispatchedAt
+                WHEN $dispatchedAt IS NULL THEN dispatched_at
+                WHEN dispatched_at <= $dispatchedAt THEN dispatched_at
+                ELSE $dispatchedAt
+            END,
+            rejection_disposition = $rejectionDisposition,
+            completed_at = CASE
+                WHEN $status = 'dispatched' THEN completed_at
+                ELSE COALESCE(completed_at, $transitionedAt)
+            END,
+            cancelled_at = CASE
+                WHEN $status = 'cancelled'
+                THEN COALESCE(cancelled_at, $transitionedAt)
+                ELSE cancelled_at
+            END
+        WHERE tenant_id = $tenantId
+          AND session_id = $sessionId
+          AND (
+              status IN ('queued', 'dispatched')
+              OR (
+                  status = $status
+                  AND (
+                      rejection_disposition IS $rejectionDisposition
+                      OR rejection_disposition = $rejectionDisposition)));
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$sessionId",
+        sessionId.ToString("D"));
+    command.Parameters.AddWithValue(
+        "$status",
+        status.ToString().ToLowerInvariant());
+    command.Parameters.AddWithValue(
+        "$dispatchedAt",
+        dispatchedAt is null
+            ? DBNull.Value
+            : Format(dispatchedAt.Value));
+    command.Parameters.AddWithValue(
+        "$rejectionDisposition",
+        rejectionDisposition is null
+            ? DBNull.Value
+            : rejectionDisposition);
+    command.Parameters.AddWithValue(
+        "$transitionedAt",
+        Format(transitionedAt));
+    return await command.ExecuteNonQueryAsync(
+        cancellationToken) == 1
+        ? SupportMutationStatus.Succeeded
+        : SupportMutationStatus.Conflict;
+  }
+
   public async Task<SupportMutationStatus> CancelSessionAsync(
       string tenantId,
       Guid sessionId,
@@ -1118,6 +1200,8 @@ internal sealed class SqliteSupportStore(
           s.requested_at,
           s.expires_at,
           s.request_envelope_json,
+          s.dispatched_at,
+          s.rejection_disposition,
           s.completed_at,
           s.result_envelope_json,
           s.report_json,
@@ -1390,12 +1474,12 @@ internal sealed class SqliteSupportStore(
 
   private static SupportDiagnosticSession ReadSession(SqliteDataReader reader)
   {
-    var report = reader.IsDBNull(16)
+    var report = reader.IsDBNull(18)
         ? (JsonElement?)null
-        : JsonDocument.Parse(reader.GetString(16)).RootElement.Clone();
-    var attestation = reader.IsDBNull(18)
+        : JsonDocument.Parse(reader.GetString(18)).RootElement.Clone();
+    var attestation = reader.IsDBNull(20)
         ? null
-        : JsonSerializer.Deserialize<SupportResultAttestation>(reader.GetString(18), SupportJsonOptions);
+        : JsonSerializer.Deserialize<SupportResultAttestation>(reader.GetString(20), SupportJsonOptions);
     return new SupportDiagnosticSession(
         reader.GetString(0),
         Guid.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
@@ -1413,11 +1497,13 @@ internal sealed class SqliteSupportStore(
         JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(13), SupportJsonOptions) ??
             throw new InvalidOperationException("Stored support request envelope was invalid."),
         ReadNullableDate(reader, 14),
-        reader.IsDBNull(15)
+        reader.IsDBNull(15) ? null : reader.GetString(15),
+        ReadNullableDate(reader, 16),
+        reader.IsDBNull(17)
             ? null
-            : JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(15), SupportJsonOptions),
+            : JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(17), SupportJsonOptions),
         report,
-        reader.IsDBNull(17) ? null : reader.GetString(17),
+        reader.IsDBNull(19) ? null : reader.GetString(19),
         attestation);
   }
 

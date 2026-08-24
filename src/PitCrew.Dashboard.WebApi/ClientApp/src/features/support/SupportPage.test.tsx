@@ -72,6 +72,11 @@ function supportSession(
     status,
     requestedAt: '2026-08-01T00:00:00+00:00',
     expiresAt: '2026-08-01T00:05:00+00:00',
+    dispatchedAt:
+      status === 'Dispatched' || status === 'Completed' || status === 'Rejected'
+        ? '2026-08-01T00:00:30+00:00'
+        : null,
+    rejectionDisposition: status === 'Rejected' ? 'unsupported-capability' : null,
     result,
   };
 }
@@ -313,6 +318,13 @@ describe('SupportSessionCard', () => {
       expect(screen.queryByRole('button', { name: 'Check result' })).not.toBeInTheDocument();
     },
   );
+
+  it('renders bounded dispatch and rejection evidence', () => {
+    render(<SupportSessionCard session={supportSession('Rejected')} />);
+
+    expect(screen.getByText(/First dispatched/)).toBeVisible();
+    expect(screen.getByText('unsupported-capability', { selector: 'code' })).toBeVisible();
+  });
 
   it('announces loading and disables repeated result checks', () => {
     render(

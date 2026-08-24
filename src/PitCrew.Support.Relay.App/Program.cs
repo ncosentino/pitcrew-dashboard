@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 using PitCrew.Support.Relay.App;
+using PitCrew.Support.Protocol;
 
 var builder = WebApplication.CreateBuilder(args);
 var relayOptions = RelayOptions.FromConfiguration(builder.Configuration);
@@ -280,6 +281,44 @@ nodeApi.MapPost("/sessions/{sessionId:guid}/result", async (
   {
     RelayResultUploadOutcome.Succeeded => Results.NoContent(),
     RelayResultUploadOutcome.CredentialRejected => Results.Unauthorized(),
+    _ => Results.NotFound(),
+  };
+});
+nodeApi.MapPost("/sessions/{sessionId:guid}/outcome", async (
+    HttpContext context,
+    Guid nodeId,
+    Guid sessionId,
+    SupportRelayRequestOutcomeRequest request,
+    SqliteRelayStore relayStore,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken) =>
+{
+  var bearer = ReadBearer(context.Request);
+  if (string.IsNullOrWhiteSpace(bearer))
+  {
+    return Results.Unauthorized();
+  }
+  if (string.IsNullOrWhiteSpace(request.Disposition) ||
+      !SupportRequestRejectionDispositions.IsSupported(
+          request.Disposition))
+  {
+    return Results.BadRequest();
+  }
+  var outcome = await relayStore.ReportRequestOutcomeAsync(
+      nodeId,
+      sessionId,
+      bearer,
+      request.Disposition,
+      timeProvider.GetUtcNow(),
+      cancellationToken);
+  return outcome switch
+  {
+    RelayRequestOutcomeStatus.Succeeded =>
+        Results.NoContent(),
+    RelayRequestOutcomeStatus.CredentialRejected =>
+        Results.Unauthorized(),
+    RelayRequestOutcomeStatus.Conflict =>
+        Results.Conflict(),
     _ => Results.NotFound(),
   };
 });

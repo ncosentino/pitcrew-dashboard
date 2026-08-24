@@ -126,6 +126,11 @@ public sealed class RelayStoreTests
       await Assert.That(result.Session).IsNotNull();
       await Assert.That(result.Session!.SessionId).IsEqualTo(sessionA);
       await Assert.That(result.Session.RequestEnvelope).IsEqualTo("{\"opaque\":true}");
+      await Assert.That(result.Session.DispatchedAt)
+          .IsEqualTo(
+              DateTimeOffset.Parse(
+                  "2026-08-01T00:00:00+00:00",
+                  CultureInfo.InvariantCulture));
     }
     finally
     {

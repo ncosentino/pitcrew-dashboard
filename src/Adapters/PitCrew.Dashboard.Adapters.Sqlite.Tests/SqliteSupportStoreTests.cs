@@ -144,11 +144,23 @@ public sealed class SqliteSupportStoreTests
               now.AddHours(1)),
           cancellationToken);
       var session = CreateSession("tenant-a", nodeId, now.AddMinutes(1));
+      var rejectedSession = CreateSession(
+          "tenant-a",
+          nodeId,
+          now.AddMinutes(1).AddSeconds(1));
       var created = await supportStore.CreateSessionAsync(
           session,
           keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
           keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
           cancellationToken);
+      var rejectedCreated =
+          await supportStore.CreateSessionAsync(
+              rejectedSession,
+              keys.Signing
+                  .PublicKeySubjectPublicKeyInfoBase64Url,
+              keys.Encryption
+                  .PublicKeySubjectPublicKeyInfoBase64Url,
+              cancellationToken);
       var crossTenant = await supportStore.GetSessionOrNullAsync(
           "tenant-b",
           session.SessionId,
@@ -158,6 +170,34 @@ public sealed class SqliteSupportStoreTests
           session.SessionId,
           now.AddMinutes(2),
           cancellationToken);
+      var dispatchedAt = now.AddMinutes(2);
+      var dispatched =
+          await supportStore.UpdateSessionLifecycleAsync(
+              "tenant-a",
+              session.SessionId,
+              SupportDiagnosticSessionStatus.Dispatched,
+              dispatchedAt,
+              null,
+              dispatchedAt,
+              cancellationToken);
+      var rejected =
+          await supportStore.UpdateSessionLifecycleAsync(
+              "tenant-a",
+              rejectedSession.SessionId,
+              SupportDiagnosticSessionStatus.Rejected,
+              dispatchedAt,
+              "unsupported-capability",
+              dispatchedAt.AddSeconds(1),
+              cancellationToken);
+      var rejectedRegression =
+          await supportStore.UpdateSessionLifecycleAsync(
+              "tenant-a",
+              rejectedSession.SessionId,
+              SupportDiagnosticSessionStatus.Dispatched,
+              dispatchedAt.AddSeconds(2),
+              null,
+              dispatchedAt.AddSeconds(2),
+              cancellationToken);
       var completed = await supportStore.CompleteSessionAsync(
           "tenant-a",
           session.SessionId,
@@ -175,14 +215,36 @@ public sealed class SqliteSupportStoreTests
           "tenant-a",
           session.SessionId,
           cancellationToken);
+      var storedRejected =
+          await supportStore.GetSessionOrNullAsync(
+              "tenant-a",
+              rejectedSession.SessionId,
+              cancellationToken);
 
       await Assert.That(created).IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(rejectedCreated)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
       await Assert.That(crossTenant).IsNull();
       await Assert.That(cancelWrongTenant).IsEqualTo(SupportMutationStatus.Conflict);
+      await Assert.That(dispatched)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(rejected)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(rejectedRegression)
+          .IsEqualTo(SupportMutationStatus.Conflict);
       await Assert.That(completed).IsEqualTo(SupportMutationStatus.Succeeded);
       await Assert.That(stored).IsNotNull();
       await Assert.That(stored!.Status).IsEqualTo(SupportDiagnosticSessionStatus.Completed);
+      await Assert.That(stored.DispatchedAt)
+          .IsEqualTo(dispatchedAt);
       await Assert.That(stored.Markdown).IsEqualTo("# Report");
+      await Assert.That(storedRejected).IsNotNull();
+      await Assert.That(storedRejected!.Status)
+          .IsEqualTo(SupportDiagnosticSessionStatus.Rejected);
+      await Assert.That(storedRejected.DispatchedAt)
+          .IsEqualTo(dispatchedAt);
+      await Assert.That(storedRejected.RejectionDisposition)
+          .IsEqualTo("unsupported-capability");
     }
     finally
     {
@@ -238,6 +300,8 @@ public sealed class SqliteSupportStoreTests
         requestedAt,
         request.ExpiresAt,
         envelope,
+        null,
+        null,
         null,
         null,
         null,

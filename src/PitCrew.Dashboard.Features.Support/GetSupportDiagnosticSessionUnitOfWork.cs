@@ -8,6 +8,7 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
     SupportPrincipalAuthorizer _authorizer,
     PitCrew.Dashboard.Features.Access.IDiagnosticAccessScopeAccessor _diagnosticScopeAccessor,
     ISupportStore _supportStore,
+    SupportRelayManagementClient _relayClient,
     SupportRelayResultIngestor _resultIngestor,
     TimeProvider _timeProvider) : IGetSupportDiagnosticSessionUnitOfWork
 {
@@ -40,12 +41,33 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
         (session.Status is SupportDiagnosticSessionStatus.Queued or
             SupportDiagnosticSessionStatus.Dispatched))
     {
-      session = await _resultIngestor.IngestOrCurrentAsync(
+      session = await ProjectRelayLifecycleAsync(
           session,
           identity,
           cancellationToken);
     }
-    session = WithCurrentLifecycle(session);
+    if ((session.Status is
+            SupportDiagnosticSessionStatus.Queued or
+            SupportDiagnosticSessionStatus.Dispatched) &&
+        session.ExpiresAt <= _timeProvider.GetUtcNow())
+    {
+      _ = await _supportStore.UpdateSessionLifecycleAsync(
+          session.TenantId,
+          session.SessionId,
+          SupportDiagnosticSessionStatus.Expired,
+          session.DispatchedAt,
+          null,
+          session.ExpiresAt,
+          cancellationToken);
+      session = await _supportStore.GetSessionOrNullAsync(
+          session.TenantId,
+          session.SessionId,
+          cancellationToken) ?? session with
+          {
+            Status = SupportDiagnosticSessionStatus.Expired,
+            CompletedAt = session.ExpiresAt,
+          };
+    }
     return new SupportSessionMutation(SupportMutationStatus.Succeeded, null, session);
   }
 
@@ -88,4 +110,89 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
             Status = SupportDiagnosticSessionStatus.Expired,
           }
           : session;
+
+  private async Task<SupportDiagnosticSession>
+      ProjectRelayLifecycleAsync(
+          SupportDiagnosticSession session,
+          SupportIdentity identity,
+          CancellationToken cancellationToken)
+  {
+    var state = await _relayClient.GetSessionStateOrNullAsync(
+        session.SessionId,
+        cancellationToken);
+    if (state is null ||
+        !string.Equals(
+            state.TenantId,
+            session.TenantId,
+            StringComparison.Ordinal) ||
+        state.NodeId != session.NodeId ||
+        state.SessionId != session.SessionId ||
+        state.ExpiresAt != session.ExpiresAt)
+    {
+      return session;
+    }
+    if (state.DispatchedAt is not null &&
+        session.DispatchedAt is null)
+    {
+      _ = await _supportStore.UpdateSessionLifecycleAsync(
+          session.TenantId,
+          session.SessionId,
+          SupportDiagnosticSessionStatus.Dispatched,
+          state.DispatchedAt,
+          null,
+          state.DispatchedAt.Value,
+          cancellationToken);
+      session = await _supportStore.GetSessionOrNullAsync(
+          session.TenantId,
+          session.SessionId,
+          cancellationToken) ?? session with
+          {
+            Status = SupportDiagnosticSessionStatus.Dispatched,
+            DispatchedAt = state.DispatchedAt,
+          };
+    }
+    if (state.Status == SupportDiagnosticSessionStatus.Completed)
+    {
+      return await _resultIngestor.IngestOrCurrentAsync(
+          session,
+          identity,
+          cancellationToken);
+    }
+    if (state.Status is not (
+            SupportDiagnosticSessionStatus.Dispatched or
+            SupportDiagnosticSessionStatus.Rejected or
+            SupportDiagnosticSessionStatus.Cancelled or
+            SupportDiagnosticSessionStatus.Expired))
+    {
+      return session;
+    }
+    var transitionedAt = state.Status switch
+    {
+      SupportDiagnosticSessionStatus.Rejected =>
+          state.RejectedAt ?? _timeProvider.GetUtcNow(),
+      SupportDiagnosticSessionStatus.Expired =>
+          state.ExpiresAt,
+      _ => _timeProvider.GetUtcNow(),
+    };
+    _ = await _supportStore.UpdateSessionLifecycleAsync(
+        session.TenantId,
+        session.SessionId,
+        state.Status,
+        state.DispatchedAt,
+        state.RejectionDisposition,
+        transitionedAt,
+        cancellationToken);
+    return await _supportStore.GetSessionOrNullAsync(
+        session.TenantId,
+        session.SessionId,
+        cancellationToken) ?? session with
+        {
+          Status = state.Status,
+          DispatchedAt =
+              session.DispatchedAt ?? state.DispatchedAt,
+          RejectionDisposition =
+              state.RejectionDisposition,
+          CompletedAt = transitionedAt,
+        };
+  }
 }

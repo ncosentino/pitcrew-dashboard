@@ -102,6 +102,8 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         null,
         null,
         null,
+        null,
+        null,
         null);
     var status = await _supportStore.CreateSessionAsync(
         session,

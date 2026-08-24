@@ -181,6 +181,19 @@ internal sealed partial class SupportAgentWorker(
           _logger,
           poll.Response.SessionId,
           disposition);
+      var report = await _relayClient.ReportRejectionAsync(
+          options,
+          poll.Response.SessionId,
+          disposition,
+          cancellationToken);
+      if (report ==
+          SupportRelayOutcomeReportStatus.CredentialRejected)
+      {
+        await _identityStore.MarkAuthorizationRejectedAsync(
+            cancellationToken);
+        SupportAgentIdentityLog.CredentialRejected(_logger);
+        return false;
+      }
       return true;
     }
     var upload = await _relayClient.UploadResultAsync(
@@ -211,39 +224,54 @@ internal sealed partial class SupportAgentWorker(
       result.Status switch
       {
         SupportAgentRequestProcessingStatus.EnvelopeUnsupported =>
-            "envelope-unsupported",
+            SupportRequestRejectionDispositions
+                .EnvelopeUnsupported,
         SupportAgentRequestProcessingStatus.EnvelopeSignatureRejected =>
-            "envelope-signature-rejected",
+            SupportRequestRejectionDispositions
+                .EnvelopeSignatureRejected,
         SupportAgentRequestProcessingStatus.EnvelopePayloadRejected =>
-            "envelope-payload-rejected",
+            SupportRequestRejectionDispositions
+                .EnvelopePayloadRejected,
         SupportAgentRequestProcessingStatus.RequestMalformed =>
-            "request-malformed",
+            SupportRequestRejectionDispositions
+                .RequestMalformed,
         SupportAgentRequestProcessingStatus.SessionMismatch =>
-            "session-mismatch",
+            SupportRequestRejectionDispositions
+                .SessionMismatch,
         SupportAgentRequestProcessingStatus.ValidationRejected =>
             result.ValidationStatus switch
             {
               SupportRequestValidationStatus.WrongTenantOrNode =>
-                  "wrong-tenant-or-node",
+                  SupportRequestRejectionDispositions
+                      .WrongTenantOrNode,
               SupportRequestValidationStatus.UnsupportedCapability =>
-                  "unsupported-capability",
+                  SupportRequestRejectionDispositions
+                      .UnsupportedCapability,
               SupportRequestValidationStatus.UnsupportedDiagnosticMode =>
-                  "unsupported-diagnostic-mode",
+                  SupportRequestRejectionDispositions
+                      .UnsupportedDiagnosticMode,
               SupportRequestValidationStatus.Expired =>
-                  "request-expired",
+                  SupportRequestRejectionDispositions
+                      .RequestExpired,
               SupportRequestValidationStatus.InvalidNonce =>
-                  "invalid-nonce",
+                  SupportRequestRejectionDispositions
+                      .InvalidNonce,
               SupportRequestValidationStatus.Replay =>
-                  "request-replay",
-              _ => "validation-rejected",
+                  SupportRequestRejectionDispositions
+                      .RequestReplay,
+              _ => SupportRequestRejectionDispositions
+                  .ValidationRejected,
             },
         SupportAgentRequestProcessingStatus.ReplayPending =>
-            "replay-pending",
+            SupportRequestRejectionDispositions.ReplayPending,
         SupportAgentRequestProcessingStatus.BrokerMarkdownRejected =>
-            "broker-markdown-rejected",
+            SupportRequestRejectionDispositions
+                .BrokerMarkdownRejected,
         SupportAgentRequestProcessingStatus.BrokerReportRejected =>
-            "broker-report-rejected",
-        _ => "result-unavailable",
+            SupportRequestRejectionDispositions
+                .BrokerReportRejected,
+        _ => SupportRequestRejectionDispositions
+            .ResultUnavailable,
       };
 
   [LoggerMessage(

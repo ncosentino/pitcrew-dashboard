@@ -109,4 +109,53 @@ internal sealed class SupportRelayTransportClient(
       _ => SupportRelayUploadOutcome.SessionRejected,
     };
   }
+
+  public async Task<SupportRelayOutcomeReportStatus>
+      ReportRejectionAsync(
+          SupportAgentOptions options,
+          Guid sessionId,
+          string disposition,
+          CancellationToken cancellationToken)
+  {
+    using var client = _httpClientFactory.CreateClient(
+        SupportRelayTransportHttpClientOptions.ClientName);
+    using var request = new HttpRequestMessage(
+        HttpMethod.Post,
+        new Uri(
+            options.RelayUrl,
+            $"/api/support-relay/v1/nodes/{options.NodeId:D}/sessions/{sessionId:D}/outcome"))
+    {
+      Content = JsonContent.Create(
+          new SupportRelayRequestOutcomeRequest(disposition),
+          options: _jsonOptions),
+    };
+    request.Headers.Authorization = new AuthenticationHeaderValue(
+        "Bearer",
+        options.TransportCredential);
+    using var response = await client.SendAsync(
+        request,
+        cancellationToken);
+    if (response.StatusCode is
+        System.Net.HttpStatusCode.Unauthorized or
+        System.Net.HttpStatusCode.Forbidden)
+    {
+      return SupportRelayOutcomeReportStatus
+          .CredentialRejected;
+    }
+    if (response.StatusCode ==
+        System.Net.HttpStatusCode.NoContent)
+    {
+      return SupportRelayOutcomeReportStatus.Succeeded;
+    }
+    if (response.StatusCode is
+        System.Net.HttpStatusCode.NotFound or
+        System.Net.HttpStatusCode.Conflict)
+    {
+      return SupportRelayOutcomeReportStatus
+          .SessionUnavailable;
+    }
+    response.EnsureSuccessStatusCode();
+    throw new InvalidOperationException(
+        "A successful rejection outcome response had an unsupported status.");
+  }
 }

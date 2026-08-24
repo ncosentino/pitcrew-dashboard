@@ -26,4 +26,7 @@ internal sealed record RelaySessionRecord(
     string Status,
     DateTimeOffset ExpiresAt,
     string RequestEnvelope,
-    string? ResultEnvelope);
+    string? ResultEnvelope,
+    DateTimeOffset? DispatchedAt,
+    DateTimeOffset? RejectedAt,
+    string? RejectionDisposition);

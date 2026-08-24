@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Support.Abstractions;
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Dashboard.Features.Support;
 
@@ -174,6 +175,110 @@ internal sealed class SupportRelayManagementClient(
         : null;
   }
 
+  public async Task<SupportRelaySessionState?>
+      GetSessionStateOrNullAsync(
+          Guid sessionId,
+          CancellationToken cancellationToken)
+  {
+    if (!IsConfigured)
+    {
+      return null;
+    }
+    try
+    {
+      return await GetSessionStateCoreAsync(
+          sessionId,
+          cancellationToken);
+    }
+    catch (HttpRequestException)
+    {
+      SupportRelayLifecycleLog.RefreshFailed(
+          _logger,
+          nameof(HttpRequestException));
+      return null;
+    }
+    catch (TaskCanceledException)
+        when (!cancellationToken.IsCancellationRequested)
+    {
+      SupportRelayLifecycleLog.RefreshFailed(
+          _logger,
+          nameof(TaskCanceledException));
+      return null;
+    }
+    catch (JsonException)
+    {
+      SupportRelayLifecycleLog.RefreshFailed(
+          _logger,
+          nameof(JsonException));
+      return null;
+    }
+  }
+
+  private async Task<SupportRelaySessionState?>
+      GetSessionStateCoreAsync(
+          Guid sessionId,
+          CancellationToken cancellationToken)
+  {
+    using var client = CreateClient();
+    using var response = await client.GetAsync(
+        $"/internal/support/v1/sessions/{sessionId:D}",
+        cancellationToken);
+    if (!response.IsSuccessStatusCode)
+    {
+      SupportRelayLifecycleLog.NonSuccessStatus(
+          _logger,
+          (int)response.StatusCode);
+      return null;
+    }
+    var state = await response.Content
+        .ReadFromJsonAsync<RelaySessionStateDto>(
+            _jsonOptions,
+            cancellationToken);
+    var latestActivityAt = _timeProvider
+        .GetUtcNow()
+        .Add(_maximumActivityClockSkew);
+    if (state is null ||
+        string.IsNullOrWhiteSpace(state.TenantId) ||
+        state.TenantId.Length > 200 ||
+        state.NodeId == Guid.Empty ||
+        state.SessionId != sessionId ||
+        !Enum.TryParse<SupportDiagnosticSessionStatus>(
+            state.Status,
+            ignoreCase: true,
+            out var status) ||
+        !Enum.IsDefined(status) ||
+        (status == SupportDiagnosticSessionStatus.Rejected) !=
+            (state.RejectionDisposition is not null) ||
+        (status == SupportDiagnosticSessionStatus.Rejected) !=
+            (state.RejectedAt is not null) ||
+        status == SupportDiagnosticSessionStatus.Queued &&
+            (state.DispatchedAt is not null ||
+             state.RejectedAt is not null) ||
+        status == SupportDiagnosticSessionStatus.Rejected &&
+            state.DispatchedAt is null ||
+        state.RejectionDisposition is not null &&
+        !SupportRequestRejectionDispositions.IsSupported(
+            state.RejectionDisposition) ||
+        !IsValidActivityTimestamp(
+            state.DispatchedAt,
+            latestActivityAt) ||
+        !IsValidActivityTimestamp(
+            state.RejectedAt,
+            latestActivityAt))
+    {
+      return null;
+    }
+    return new SupportRelaySessionState(
+        state.TenantId,
+        state.NodeId,
+        state.SessionId,
+        status,
+        state.ExpiresAt.ToUniversalTime(),
+        state.DispatchedAt?.ToUniversalTime(),
+        state.RejectedAt?.ToUniversalTime(),
+        state.RejectionDisposition);
+  }
+
   public async Task<IReadOnlyList<SupportIdentityActivity>?> GetNodeActivityAsync(
       string tenantId,
       IReadOnlyList<Guid> nodeIds,
@@ -334,6 +439,16 @@ internal sealed class SupportRelayManagementClient(
   private sealed record RelayNodeActivityRequest(
       string TenantId,
       IReadOnlyList<Guid> NodeIds);
+
+  private sealed record RelaySessionStateDto(
+      string TenantId,
+      Guid NodeId,
+      Guid SessionId,
+      string Status,
+      DateTimeOffset ExpiresAt,
+      DateTimeOffset? DispatchedAt,
+      DateTimeOffset? RejectedAt,
+      string? RejectionDisposition);
 }
 
 internal enum SupportRelayManagementStatus
