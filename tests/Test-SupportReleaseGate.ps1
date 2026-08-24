@@ -24,6 +24,9 @@ $supportCanaryWorkflowPath = Join-Path (
 $publishedVerificationWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'verify-published-release.yml'
+$publishedContainerVerifierPath = Join-Path (
+    $repositoryRoot
+) 'scripts' 'release' 'Test-PublishedContainerImage.ps1'
 $ciWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'ci.yml'
@@ -497,6 +500,14 @@ $parseErrors = $null
     [ref]$parseErrors) | Out-Null
 Add-Check ($parseErrors.Count -eq 0) (
     'Support release gate module has PowerShell syntax errors.')
+$tokens = $null
+$parseErrors = $null
+[Management.Automation.Language.Parser]::ParseFile(
+    $publishedContainerVerifierPath,
+    [ref]$tokens,
+    [ref]$parseErrors) | Out-Null
+Add-Check ($parseErrors.Count -eq 0) (
+    'Published container verifier has PowerShell syntax errors.')
 
 $prepareWorkflow = Get-Content -LiteralPath $prepareWorkflowPath -Raw
 $verifyWorkflow = Get-Content -LiteralPath $verifyWorkflowPath -Raw
@@ -505,6 +516,9 @@ $supportCanaryWorkflow = Get-Content `
     -Raw
 $publishedVerificationWorkflow = Get-Content `
     -LiteralPath $publishedVerificationWorkflowPath `
+    -Raw
+$publishedContainerVerifier = Get-Content `
+    -LiteralPath $publishedContainerVerifierPath `
     -Raw
 $ciWorkflow = Get-Content -LiteralPath $ciWorkflowPath -Raw
 $supportRelayScenario = Get-Content `
@@ -693,6 +707,16 @@ Add-Check (
     $containerPublisher -match
         'RequireProvenanceAttestation'
 ) 'Container publication does not verify tags, indexes, and provenance after publishing.'
+Add-Check (
+    $publishedContainerVerifier.Contains(
+        "--format '{{json .Manifest}}'",
+        [StringComparison]::Ordinal) -and
+    $publishedContainerVerifier -match
+        '\$semanticDigest\s*=\s*\[string\]\$semanticIndex\.digest' -and
+    $publishedContainerVerifier -match
+        '\$immutableDigest\s*=\s*\[string\]\$immutableIndex\.digest' -and
+    $publishedContainerVerifier -notmatch '--raw|Get-FileHash'
+) 'Container verification does not derive tag digests from structured registry metadata.'
 Add-Check (
     $publishedVerificationWorkflow -match
         '(?m)^  workflow_dispatch:\r?$' -and

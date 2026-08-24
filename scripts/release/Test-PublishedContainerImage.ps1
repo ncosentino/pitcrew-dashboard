@@ -62,29 +62,19 @@ try {
                 @{ Reference = $semanticReference; Path = $manifestPaths.Semantic },
                 @{ Reference = $immutableReference; Path = $manifestPaths.Immutable }
             )) {
-            $errorPath = "$($entry.Path).error"
-            $process = Start-Process `
-                -FilePath docker `
-                -ArgumentList @(
-                    'buildx',
-                    'imagetools',
-                    'inspect',
-                    '--raw',
-                    $entry.Reference
-                ) `
-                -NoNewWindow `
-                -PassThru `
-                -Wait `
-                -RedirectStandardOutput $entry.Path `
-                -RedirectStandardError $errorPath
-            try {
-                if ($process.ExitCode -ne 0) {
-                    $succeeded = $false
-                    break
-                }
-            } finally {
-                $process.Dispose()
+            $manifestJson = docker buildx imagetools inspect `
+                $entry.Reference `
+                --format '{{json .Manifest}}' |
+                Out-String
+            if ($LASTEXITCODE -ne 0 -or
+                [Text.Encoding]::UTF8.GetByteCount($manifestJson) -gt 1MB) {
+                $succeeded = $false
+                break
             }
+            [IO.File]::WriteAllText(
+                $entry.Path,
+                $manifestJson,
+                [Text.UTF8Encoding]::new($false))
         }
         if ($succeeded) {
             try {
@@ -97,16 +87,18 @@ try {
                     throw [InvalidDataException]::new(
                         'A published image index is empty or oversized.')
                 }
-                $semanticDigest = 'sha256:' + (
-                    Get-FileHash `
-                        -LiteralPath $semanticItem.FullName `
-                        -Algorithm SHA256
-                ).Hash.ToLowerInvariant()
-                $immutableDigest = 'sha256:' + (
-                    Get-FileHash `
-                        -LiteralPath $immutableItem.FullName `
-                        -Algorithm SHA256
-                ).Hash.ToLowerInvariant()
+                $semanticIndex = Get-Content `
+                    -LiteralPath $semanticItem.FullName `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json -Depth 20
+                $immutableIndex = Get-Content `
+                    -LiteralPath $immutableItem.FullName `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json -Depth 20
+                $semanticDigest = [string]$semanticIndex.digest
+                $immutableDigest = [string]$immutableIndex.digest
                 $resolvedExpected = if (
                     [string]::IsNullOrWhiteSpace($ExpectedDigest)
                 ) {
@@ -114,16 +106,11 @@ try {
                 } else {
                     $ExpectedDigest
                 }
-                $index = Get-Content `
-                    -LiteralPath $semanticItem.FullName `
-                    -Raw `
-                    -Encoding UTF8 |
-                    ConvertFrom-Json -Depth 20
                 $verified = Assert-PublishedContainerIndex `
                     -ExpectedDigest $resolvedExpected `
                     -SemanticDigest $semanticDigest `
                     -ImmutableDigest $immutableDigest `
-                    -Index $index
+                    -Index $semanticIndex
                 $lastFailure = $null
                 break
             } catch [InvalidDataException] {
