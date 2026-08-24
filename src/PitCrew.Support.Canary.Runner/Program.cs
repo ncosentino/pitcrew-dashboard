@@ -61,6 +61,19 @@ internal static class CanaryRunnerProgram
         plan.PitCrew,
         EnsureOrigin(dashboardUrl),
         EnsureOrigin(relayUrl),
+        GetCapabilities(plan.TopologyProfile),
+        DateTimeOffset.UtcNow);
+    CanaryManifestFile.WriteRuntime(
+        Path.Combine(runRoot, "runtime.json"),
+        runtime);
+    return 0;
+  }
+
+  private static IReadOnlyList<string> GetCapabilities(
+      string topologyProfile) =>
+      topologyProfile switch
+      {
+        CanaryTopologyProfiles.Portable =>
         [
             CanaryCapabilities.DashboardHttp,
             CanaryCapabilities.RelayHttp,
@@ -68,12 +81,17 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.SupportBrokerProcess,
             CanaryCapabilities.PitCrewFileOnlyEvidence,
         ],
-        DateTimeOffset.UtcNow);
-    CanaryManifestFile.WriteRuntime(
-        Path.Combine(runRoot, "runtime.json"),
-        runtime);
-    return 0;
-  }
+        CanaryTopologyProfiles.WindowsInstalled =>
+        [
+            CanaryCapabilities.DashboardHttp,
+            CanaryCapabilities.RelayHttp,
+            CanaryCapabilities.PitCrewFileOnlyEvidence,
+            CanaryCapabilities.WindowsInstalledServices,
+            CanaryCapabilities.WindowsServiceIsolation,
+        ],
+        _ => throw new InvalidDataException(
+            "The canary topology profile is unsupported."),
+      };
 
   private static async Task<int> RunScenarioAsync(
       string[] args,

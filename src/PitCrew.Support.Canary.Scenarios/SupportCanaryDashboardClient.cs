@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 
@@ -9,6 +10,7 @@ namespace PitCrew.Support.Canary.Scenarios;
 internal sealed class SupportCanaryDashboardClient : IDisposable
 {
   private const string TenantId = "local";
+  internal const string EnrollmentDisplayName = "Canary support node";
   private const string AntiforgeryHeader =
       "X-PitCrew-Antiforgery";
   private readonly HttpClient _client;
@@ -63,7 +65,7 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
     {
       Content = JsonContent.Create(
           new CreateSupportEnrollmentAuthorizationRequest(
-              "Canary support node")),
+              EnrollmentDisplayName)),
     };
     request.Headers.Add(
         AntiforgeryHeader,
@@ -111,11 +113,48 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
       throw new CanaryScenarioFailureException(
           "diagnostic-credential-rejected");
     }
+
     return await response.Content.ReadFromJsonAsync<
         DiagnosticCredentialCreatedResponse>(
             cancellationToken) ??
         throw new CanaryScenarioFailureException(
             "diagnostic-credential-empty");
+  }
+
+  public async Task<Guid> GetEnrolledNodeIdAsync(
+      CancellationToken cancellationToken)
+  {
+    using var response = await _client.GetAsync(
+        $"/api/tenants/{TenantId}/support/v1/identities",
+        cancellationToken);
+    if (!response.IsSuccessStatusCode)
+    {
+      throw new CanaryScenarioFailureException(
+          "support-identity-inventory-rejected");
+    }
+    var identities = await response.Content
+        .ReadFromJsonAsync<List<SupportIdentityResponse>>(
+            cancellationToken) ?? [];
+    var matches = identities
+        .Where(identity =>
+            string.Equals(
+                identity.DisplayName,
+                EnrollmentDisplayName,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                identity.Status,
+                "Active",
+                StringComparison.Ordinal))
+        .ToArray();
+    return matches.Length == 1 &&
+        Guid.TryParse(
+            matches[0].NodeId,
+            CultureInfo.InvariantCulture,
+            out var nodeId) &&
+        nodeId != Guid.Empty
+            ? nodeId
+            : throw new CanaryScenarioFailureException(
+                "support-identity-inventory-invalid");
   }
 
   public async Task RevokeAsync(

@@ -157,10 +157,22 @@ jobs:
       scenario: support-fresh-enrollment-diagnostic-v1
       topology_profile: portable
 
+  windows-installed-canary:
+    name: Gate installed Windows candidate
+    needs: preflight
+    permissions:
+      contents: read
+    uses: ./.github/workflows/support-canary.yml
+    with:
+      dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
+      pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
+      scenario: support-fresh-enrollment-diagnostic-v1
+      topology_profile: windows-installed
+
   create-draft:
     name: Create gated draft release
     if: inputs.mode == 'create-draft'
-    needs: [preflight, portable-canary]
+    needs: [preflight, portable-canary, windows-installed-canary]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

@@ -99,5 +99,5 @@ jobs:
               -PolicyPath (
                   './assets/support-plane/support-evidence-policy-v0.10.3.json')
           Write-Host (
-              "Verified portable support canary run $($verified.RunId) for " +
+              "Verified support canary run $($verified.RunId) for " +
               "$($verified.DashboardSha) with PitCrew $($verified.PitCrewSha).")

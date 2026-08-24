@@ -74,6 +74,72 @@ public sealed class CanaryManifestContractTests
   }
 
   [Test]
+  public async Task Windows_Installed_Manifests_Use_Closed_Capabilities()
+  {
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
+        $"windows-manifest-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try
+    {
+      var runId = Guid.NewGuid().ToString("N");
+      var dashboard = new CanarySourceRevision(
+          "ncosentino/pitcrew-dashboard",
+          new string('a', 40));
+      var pitCrew = new CanarySourceRevision(
+          "ncosentino/pitcrew",
+          new string('b', 40));
+      var plan = new CanaryPlanManifest(
+          CanaryManifestFile.PlanSchemaVersion,
+          runId,
+          CanaryTopologyProfiles.WindowsInstalled,
+          ["support-fresh-enrollment-diagnostic-v1"],
+          dashboard,
+          pitCrew,
+          DateTimeOffset.UnixEpoch);
+      var runtime = new CanaryRuntimeManifest(
+          CanaryManifestFile.RuntimeSchemaVersion,
+          runId,
+          CanaryTopologyProfiles.WindowsInstalled,
+          dashboard,
+          pitCrew,
+          "http://localhost:5000/",
+          "http://localhost:5001/",
+          [
+              CanaryCapabilities.DashboardHttp,
+              CanaryCapabilities.RelayHttp,
+              CanaryCapabilities.PitCrewFileOnlyEvidence,
+              CanaryCapabilities.WindowsInstalledServices,
+              CanaryCapabilities.WindowsServiceIsolation,
+          ],
+          DateTimeOffset.UnixEpoch);
+
+      CanaryManifestFile.WritePlan(
+          Path.Combine(root, "plan.json"),
+          plan);
+      CanaryManifestFile.WriteRuntime(
+          Path.Combine(root, "runtime.json"),
+          runtime);
+
+      await Assert.That(
+              CanaryManifestFile.ReadPlan(
+                  Path.Combine(root, "plan.json"))
+                  .TopologyProfile)
+          .IsEqualTo(CanaryTopologyProfiles.WindowsInstalled);
+      await Assert.That(
+              CanaryManifestFile.ReadRuntime(
+                  Path.Combine(root, "runtime.json"))
+                  .Capabilities)
+          .Contains(CanaryCapabilities.WindowsInstalledServices);
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+
+  [Test]
   public async Task Scenario_Result_Rejects_Unbounded_Or_Incoherent_Evidence()
   {
     var root = Path.Combine(

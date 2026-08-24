@@ -369,7 +369,8 @@ release asset names for the selected version and native architecture. Every
 archive is verified against its SHA-256 sidecar before extraction.
 
 Lifecycle actions are `Update`, `Disable`, `Enable`, `Rollback`,
-`RepairEvidenceAcl`, `Verify`, `DiagnoseFailure`, and `Uninstall`.
+`FinalizeEnrollment`, `RepairEvidenceAcl`, `Verify`, `DiagnoseFailure`, and
+`Uninstall`.
 Failed lifecycle mutations persist one protected bounded record containing only
 the lifecycle action, phase, operation, exception type, native exit code when
 available, rollback status, and occurrence time. It never contains exception
@@ -387,8 +388,8 @@ lifecycle, missing enrollment material, pending identity creation, Dashboard
 enrollment rejection, local enrollment commit, and unavailable legacy
 configuration.
 `Verify` includes those bounded fields when the Windows agent stops. The agent
-clears the status after its first relay poll is accepted; no message, stack,
-path, setting, identity, credential, or payload is persisted.
+records an explicit accepted disposition after its first relay poll; no message,
+stack, path, setting, identity, credential, or payload is persisted.
 
 Evidence verification operations distinguish tree enumeration, unexpected or
 malformed broker ACEs, agent denial count/shape, root metadata, selected evidence
@@ -411,6 +412,23 @@ Every lifecycle action, including `Verify`, holds a privileged installer lock.
 The empty lock remains after uninstall so releasing one lifecycle action cannot
 race creation of a second lock inode; it contains no installation or identity
 data.
+
+After the first accepted poll, run the typed finalization action from the
+installed package:
+
+```powershell
+./Install-PitCrewSupportPlane.ps1 -Action FinalizeEnrollment -AllowMachineChanges
+```
+
+`FinalizeEnrollment` requires an enabled managed installation and an Active
+local identity. It stops only the agent, leaves the broker process unchanged,
+and asks the agent service identity to preserve an exact protected backup before
+removing `DashboardUrl`, `TenantId`, `DisplayName`, and `EnrollmentCode`.
+The installer verifies unchanged settings ownership/ACLs, restarts only the
+agent, and requires a second accepted relay poll before deleting the backup.
+Failure restores the exact prior settings through the agent identity, restores
+the prior service state, and records bounded rollback evidence. Re-running the
+action after success is idempotent.
 
 Uninstall requires an explicit `-IdentityHandling PreserveKeys` or
 `-IdentityHandling DeleteKeys` choice. `PreserveKeys` retains the complete
@@ -463,8 +481,9 @@ optional private-network Compose overlay described in
 [Hosted support relay](hosting/support-relay.md). Dashboard keys remain outside
 the relay container; only the shared internal bearer crosses that boundary.
 
-The agent archive includes `support-agent.env.example`. Remove the one-time
-enrollment code from the service environment after enrollment. Hardened
+The agent archive includes `support-agent.env.example`. Use
+`FinalizeEnrollment` to remove one-time bootstrap material after enrollment;
+do not edit protected service settings manually. Hardened
 configuration does not accept node private PKCS#8 values. Existing manual
 configuration remains available only when
 `PitCrewSupport__Agent__AllowLegacyPrivateKeyConfiguration=true`; it is a

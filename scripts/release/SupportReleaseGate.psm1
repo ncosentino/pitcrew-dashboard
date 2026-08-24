@@ -1,16 +1,19 @@
 Set-StrictMode -Version Latest
 
 $script:ReleaseGateMarkerPattern = (
-    '(?m)^<!-- pitcrew-support-canary-gate:v1 ' +
+    '(?m)^<!-- pitcrew-support-canary-gate:v2 ' +
     'release-tag=(?<releaseTag>v[0-9A-Za-z.-]+) ' +
     'dashboard-sha=(?<dashboardSha>[a-f0-9]{40}) ' +
     'pitcrew-sha=(?<pitcrewSha>[a-f0-9]{40}) ' +
     'scenario=(?<scenario>[a-z0-9-]+) ' +
-    'topology-profile=(?<topologyProfile>[a-z0-9-]+) ' +
+    'topology-profiles=(?<topologyProfiles>[a-z0-9,-]+) ' +
     'run-id=(?<runId>[1-9][0-9]*) -->\r?$'
 )
 $script:RequiredScenario = 'support-fresh-enrollment-diagnostic-v1'
-$script:RequiredTopologyProfile = 'portable'
+$script:RequiredTopologyProfiles = @(
+    'portable',
+    'windows-installed'
+)
 $script:RequiredWorkflowPath = '.github/workflows/prepare-release.yml'
 $script:CanonicalReleaseTagPattern = (
     '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)' +
@@ -100,12 +103,12 @@ function New-SupportReleaseGateMarker {
     }
 
     return (
-        '<!-- pitcrew-support-canary-gate:v1 ' +
+        '<!-- pitcrew-support-canary-gate:v2 ' +
         "release-tag=$ReleaseTag " +
         "dashboard-sha=$DashboardSha " +
         "pitcrew-sha=$PitCrewSha " +
         "scenario=$script:RequiredScenario " +
-        "topology-profile=$script:RequiredTopologyProfile " +
+        "topology-profiles=$($script:RequiredTopologyProfiles -join ',') " +
         "run-id=$RunId -->"
     )
 }
@@ -138,7 +141,9 @@ function Read-SupportReleaseGateMarker {
         DashboardSha = $match.Groups['dashboardSha'].Value
         PitCrewSha = $match.Groups['pitcrewSha'].Value
         Scenario = $match.Groups['scenario'].Value
-        TopologyProfile = $match.Groups['topologyProfile'].Value
+        TopologyProfiles = @(
+            $match.Groups['topologyProfiles'].Value.Split(',')
+        )
         RunId = $runId
     }
 
@@ -146,8 +151,11 @@ function Read-SupportReleaseGateMarker {
     if ($marker.Scenario -cne $script:RequiredScenario) {
         throw "Release gate scenario must be '$script:RequiredScenario'."
     }
-    if ($marker.TopologyProfile -cne $script:RequiredTopologyProfile) {
-        throw "Release gate topology profile must be '$script:RequiredTopologyProfile'."
+    if (
+        ($marker.TopologyProfiles -join ',') -cne
+            ($script:RequiredTopologyProfiles -join ',')
+    ) {
+        throw 'Release gate topology profiles are incomplete or out of order.'
     }
 
     return $marker
@@ -329,20 +337,26 @@ function Assert-SupportReleaseGateEvidence {
         -InputObject $WorkflowJobs `
         -PropertyPath 'jobs' `
         -EvidenceName 'Workflow job evidence')
-    $draftJobs = @(
-        $jobs |
-            Where-Object {
-                [string]$_.name -ceq 'Create gated draft release'
-            }
-    )
-    if ($draftJobs.Count -ne 1) {
-        throw 'Release gate workflow must contain one draft-creation job.'
-    }
-    if (
-        [string]$draftJobs[0].status -cne 'completed' -or
-        [string]$draftJobs[0].conclusion -cne 'success'
-    ) {
-        throw 'Release gate draft-creation job did not complete successfully.'
+    foreach ($requiredJobName in @(
+        'Gate release candidate / Portable support canary',
+        'Gate installed Windows candidate / Windows-installed support canary',
+        'Create gated draft release'
+    )) {
+        $requiredJobs = @(
+            $jobs |
+                Where-Object {
+                    [string]$_.name -ceq $requiredJobName
+                }
+        )
+        if ($requiredJobs.Count -ne 1) {
+            throw "Release gate workflow must contain one '$requiredJobName' job."
+        }
+        if (
+            [string]$requiredJobs[0].status -cne 'completed' -or
+            [string]$requiredJobs[0].conclusion -cne 'success'
+        ) {
+            throw "Release gate job '$requiredJobName' did not complete successfully."
+        }
     }
 
     return $marker

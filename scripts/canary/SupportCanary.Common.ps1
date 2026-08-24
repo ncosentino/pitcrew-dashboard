@@ -45,7 +45,10 @@ function Read-SupportCanaryPlan {
         ConvertFrom-Json -Depth 20 -ErrorAction Stop
     if ($plan.schemaVersion -ne 1 -or
         [string]$plan.runId -notmatch '^[a-f0-9]{32}$' -or
-        [string]$plan.topologyProfile -cne 'portable' -or
+        [string]$plan.topologyProfile -notin @(
+            'portable',
+            'windows-installed'
+        ) -or
         [string]$plan.dashboard.commit -notmatch '^[a-f0-9]{40}$' -or
         [string]$plan.pitCrew.commit -notmatch '^[a-f0-9]{40}$') {
         throw 'The canary plan manifest is invalid.'

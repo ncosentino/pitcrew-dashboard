@@ -23,7 +23,7 @@ param(
         'support-fresh-enrollment-diagnostic-v1')]
     [string]$Scenario = 'support-fresh-enrollment-diagnostic-v1',
 
-    [ValidateSet('portable')]
+    [ValidateSet('portable', 'windows-installed')]
     [string]$TopologyProfile = 'portable',
 
     [ValidateSet('Debug', 'Release')]
@@ -51,12 +51,20 @@ try {
         -RunRoot $runRoot `
         -DashboardSourceRoot $DashboardSourceRoot `
         -Configuration $Configuration
+    $scenarioTimeoutSeconds = if (
+        $TopologyProfile -ceq 'windows-installed'
+    ) {
+        600
+    } else {
+        300
+    }
     & (Join-Path $PSScriptRoot 'Invoke-SupportCanaryScenario.ps1') `
         -RunRoot $runRoot `
         -DashboardSourceRoot $DashboardSourceRoot `
         -PitCrewSourceRoot $PitCrewSourceRoot `
         -Scenario $Scenario `
-        -Configuration $Configuration
+        -Configuration $Configuration `
+        -TimeoutSeconds $scenarioTimeoutSeconds
 } finally {
     if (Test-Path `
             -LiteralPath (Join-Path $runRoot 'topology-process.json') `
