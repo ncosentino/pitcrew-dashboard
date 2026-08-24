@@ -7,6 +7,7 @@ namespace PitCrew.Support.Canary.Scenarios;
 internal sealed class LinuxCanaryCommandRunner(string _workingDirectory)
 {
   private const int MaximumPrivilegedFileBytes = 4096;
+  private const int MaximumCommandOutputBytes = 32768;
   private readonly IReadOnlyDictionary<string, string> _emptyEnvironment =
       new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -99,7 +100,7 @@ internal sealed class LinuxCanaryCommandRunner(string _workingDirectory)
       return null;
     }
     if (Encoding.UTF8.GetByteCount(result.StandardOutput) >
-        MaximumPrivilegedFileBytes)
+        MaximumCommandOutputBytes)
     {
       throw new CanaryScenarioFailureException(
           "linux-service-inspection-failed");

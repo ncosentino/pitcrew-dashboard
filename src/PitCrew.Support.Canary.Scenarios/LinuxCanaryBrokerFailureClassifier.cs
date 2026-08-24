@@ -22,7 +22,8 @@ internal sealed class LinuxCanaryBrokerFailureClassifier(
         cancellationToken);
     if (activeState != "active")
     {
-      return "agent-broker-process-stopped";
+      return await ClassifyStoppedBrokerAsync(
+          cancellationToken);
     }
     var restarts = await ReadSystemdPropertyAsync(
         BrokerServiceName,
@@ -98,4 +99,68 @@ internal sealed class LinuxCanaryBrokerFailureClassifier(
               "--value",
           ],
           cancellationToken);
+
+  private async Task<string> ClassifyStoppedBrokerAsync(
+      CancellationToken cancellationToken)
+  {
+    var journal = await _commands.ReadCommandOutputAsync(
+        "sudo",
+        [
+            "-n",
+            "journalctl",
+            "--unit",
+            BrokerServiceName,
+            "--no-pager",
+            "--output=cat",
+            "--lines=80",
+        ],
+        cancellationToken);
+    if (journal is null)
+    {
+      return "agent-broker-process-stopped";
+    }
+    if (journal.Contains(
+        nameof(UnauthorizedAccessException),
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-access-denied";
+    }
+    if (journal.Contains(
+            nameof(DirectoryNotFoundException),
+            StringComparison.Ordinal) ||
+        journal.Contains(
+            nameof(FileNotFoundException),
+            StringComparison.Ordinal) ||
+        journal.Contains(
+            nameof(IOException),
+            StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-file-system";
+    }
+    if (journal.Contains(
+            "System.Management.Automation",
+            StringComparison.Ordinal) ||
+        journal.Contains(
+            "PowerShell",
+            StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-powershell";
+    }
+    if (journal.Contains(
+        nameof(InvalidOperationException),
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-invalid-operation";
+    }
+    if (journal.Contains(
+            nameof(System.Net.Sockets.SocketException),
+            StringComparison.Ordinal) ||
+        journal.Contains(
+            nameof(System.ComponentModel.Win32Exception),
+            StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-socket";
+    }
+    return "agent-broker-crash-unclassified";
+  }
 }
