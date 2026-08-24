@@ -81,6 +81,17 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.SupportBrokerProcess,
             CanaryCapabilities.PitCrewFileOnlyEvidence,
         ],
+        CanaryTopologyProfiles.Containerized =>
+        [
+            CanaryCapabilities.DashboardHttp,
+            CanaryCapabilities.RelayHttp,
+            CanaryCapabilities.SupportAgentProcess,
+            CanaryCapabilities.SupportBrokerProcess,
+            CanaryCapabilities.PitCrewFileOnlyEvidence,
+            CanaryCapabilities.CandidateContainerImages,
+            CanaryCapabilities.ContainerSessionNetwork,
+            CanaryCapabilities.ContainerRunScopedStorage,
+        ],
         CanaryTopologyProfiles.WindowsInstalled =>
         [
             CanaryCapabilities.DashboardHttp,

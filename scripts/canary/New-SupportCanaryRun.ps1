@@ -24,7 +24,7 @@ param(
     [string[]]$Scenario = @(
         'support-fresh-enrollment-diagnostic-v1'),
 
-    [ValidateSet('portable', 'windows-installed')]
+    [ValidateSet('portable', 'containerized', 'windows-installed')]
     [string]$TopologyProfile = 'portable'
 )
 

@@ -23,7 +23,7 @@ param(
         'support-fresh-enrollment-diagnostic-v1')]
     [string]$Scenario = 'support-fresh-enrollment-diagnostic-v1',
 
-    [ValidateSet('portable', 'windows-installed')]
+    [ValidateSet('portable', 'containerized', 'windows-installed')]
     [string]$TopologyProfile = 'portable',
 
     [ValidateSet('Debug', 'Release')]
@@ -66,9 +66,16 @@ try {
         -Configuration $Configuration `
         -TimeoutSeconds $scenarioTimeoutSeconds
 } finally {
-    if (Test-Path `
-            -LiteralPath (Join-Path $runRoot 'topology-process.json') `
-            -PathType Leaf) {
+    $hasTopologyProcess = Test-Path `
+        -LiteralPath (Join-Path $runRoot 'topology-process.json') `
+        -PathType Leaf
+    $hasContainerBuild = (
+        $TopologyProfile -ceq 'containerized' -and
+        (Test-Path `
+            -LiteralPath (Join-Path $runRoot 'container-topology.json') `
+            -PathType Leaf)
+    )
+    if ($hasTopologyProcess -or $hasContainerBuild) {
         & (Join-Path $PSScriptRoot 'Stop-SupportCanaryTopology.ps1') `
             -RunRoot $runRoot
     }

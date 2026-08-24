@@ -42,6 +42,7 @@ on:
         type: choice
         options:
           - portable
+          - containerized
           - windows-installed
   workflow_call:
     inputs:
@@ -184,6 +185,106 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: support-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/support-canary/*/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  containerized:
+    name: Containerized support canary
+    if: >-
+      github.event_name == 'pull_request' ||
+      inputs.topology_profile == 'containerized'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Resolve Dashboard candidate
+        id: dashboard
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SHA: ${{ inputs.dashboard_sha || '' }}
+          PULL_REQUEST_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          $sha = if ($env:EVENT_NAME -eq 'pull_request') {
+              $env:PULL_REQUEST_SHA
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:INPUT_SHA)) {
+              $env:INPUT_SHA
+          } else {
+              $env:CURRENT_SHA
+          }
+          if ($sha -cnotmatch '^[a-f0-9]{40}$') {
+              throw 'Dashboard candidate must be a full lowercase commit SHA.'
+          }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+      - name: Check out Dashboard candidate
+        uses: actions/checkout@v7
+        with:
+          repository: ncosentino/pitcrew-dashboard
+          ref: ${{ steps.dashboard.outputs.sha }}
+          path: dashboard
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve PitCrew candidate
+        id: pitcrew
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SHA: ${{ inputs.pitcrew_sha || '' }}
+        run: |
+          $sha = $env:INPUT_SHA
+          if ($env:EVENT_NAME -eq 'pull_request') {
+              $policy = Get-Content `
+                  -LiteralPath dashboard/assets/support-plane/support-evidence-policy-v0.10.3.json `
+                  -Raw `
+                  -Encoding utf8 |
+                  ConvertFrom-Json
+              $sha = [string]$policy.pitCrewCommit
+          }
+          if ($sha -cnotmatch '^[a-f0-9]{40}$') {
+              throw 'PitCrew candidate must be a full lowercase commit SHA.'
+          }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+      - name: Check out PitCrew candidate
+        uses: actions/checkout@v7
+        with:
+          repository: ncosentino/pitcrew
+          ref: ${{ steps.pitcrew.outputs.sha }}
+          path: pitcrew
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: dashboard/global.json
+
+      - name: Run containerized candidate canary
+        shell: pwsh
+        env:
+          DASHBOARD_SHA: ${{ steps.dashboard.outputs.sha }}
+          PITCREW_SHA: ${{ steps.pitcrew.outputs.sha }}
+          SCENARIO: ${{ inputs.scenario || 'support-fresh-enrollment-diagnostic-v1' }}
+          DOCKER_BUILDKIT: '1'
+        run: |
+          ./dashboard/scripts/canary/Invoke-SupportCanary.ps1 `
+              -DashboardSourceRoot "$PWD/dashboard" `
+              -DashboardCommit $env:DASHBOARD_SHA `
+              -PitCrewSourceRoot "$PWD/pitcrew" `
+              -PitCrewCommit $env:PITCREW_SHA `
+              -OutputRoot "$env:RUNNER_TEMP/support-canary" `
+              -Scenario $env:SCENARIO `
+              -TopologyProfile containerized `
+              -Configuration Release
+
+      - name: Upload bounded scenario result
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: support-canary-container-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/support-canary/*/evidence/*.json
           if-no-files-found: warn
           retention-days: 7

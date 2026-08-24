@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PitCrew.Dashboard.WebApi\PitCrew.Dashboard.WebApi.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\PitCrew.Support.Relay.App\PitCrew.Support.Relay.App.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PitCrew.Support.Canary.Contracts\PitCrew.Support.Canary.Contracts.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\PitCrew.Support.Canary.Runner\PitCrew.Support.Canary.Runner.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 

@@ -14,7 +14,8 @@ Every run requires:
 - one registered scenario; and
 - one topology profile.
 
-The portable and `windows-installed` profiles currently support:
+The portable, `containerized`, and `windows-installed` profiles currently
+support:
 
 - `topology-smoke-v1`
 - `support-fresh-enrollment-diagnostic-v1`
@@ -29,6 +30,16 @@ the agent and broker under separate Windows service identities, exercises the
 same registered scenario, verifies the named-pipe/firewall/service boundary,
 uses the typed enrollment-finalization action, and removes the complete
 installation. It does not run on self-hosted capacity or a live PitCrew node.
+
+The containerized profile runs only on disposable public Linux-hosted
+infrastructure. It builds exact run-scoped Dashboard and relay images from the
+selected source, verifies their content-addressed IDs and source labels, and
+starts them with read-only roots, dropped capabilities, no-new-privileges,
+bounded tmpfs mounts, Aspire session networking, and exact run-scoped data
+volumes. The host-side agent and broker execute the same registered scenario
+through loopback endpoints. Teardown uses recorded container IDs and exact
+volume/image identities. This proves candidate container execution, not
+production Compose, multi-architecture, registry, or physical-host behavior.
 
 ## One-command run
 
@@ -85,10 +96,10 @@ current full Dashboard SHA, and the full PitCrew SHA pinned by the candidate
 support evidence policy.
 
 The workflow validates both repositories and the unused release tag, then runs
-`support-fresh-enrollment-diagnostic-v1` through the reusable portable canary.
-`validate-only` stops after that evidence. `create-draft` creates a GitHub draft
-only after the canary succeeds. A failed preflight or canary creates no tag or
-release.
+`support-fresh-enrollment-diagnostic-v1` through the reusable portable and
+Windows-installed canaries in parallel. `validate-only` stops after that
+evidence. `create-draft` creates a GitHub draft only after both canaries
+succeed. A failed preflight or canary creates no tag or release.
 
 The draft contains generated notes plus one bounded gate marker tied to the
 preparation workflow run. Wait for the preparation workflow to complete
@@ -109,6 +120,11 @@ minutes. The Windows-installed gate runs independently on `windows-latest`; its
 measured duration is recorded by each release preparation run. Those are
 observed operating times, not timeout contracts. Release gating still does not
 claim Linux-installed, containerized, or physical-host qualification.
+
+The containerized profile is independently dispatchable and runs on pull
+requests while its duration and reliability are measured. It is not release
+evidence until a separate reviewed change advances the release marker and
+publisher verifier after repeated successful runs.
 
 ## Adding a scenario
 

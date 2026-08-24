@@ -140,6 +140,111 @@ public sealed class CanaryManifestContractTests
   }
 
   [Test]
+  public async Task Containerized_Manifests_Use_Exact_Run_Scoped_Identities()
+  {
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
+        $"container-manifest-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try
+    {
+      var runId = Guid.NewGuid().ToString("N");
+      var dashboard = new CanarySourceRevision(
+          "ncosentino/pitcrew-dashboard",
+          new string('a', 40));
+      var pitCrew = new CanarySourceRevision(
+          "ncosentino/pitcrew",
+          new string('b', 40));
+      var plan = new CanaryPlanManifest(
+          CanaryManifestFile.PlanSchemaVersion,
+          runId,
+          CanaryTopologyProfiles.Containerized,
+          ["support-fresh-enrollment-diagnostic-v1"],
+          dashboard,
+          pitCrew,
+          DateTimeOffset.UnixEpoch);
+      var topology = new CanaryContainerTopologyManifest(
+          CanaryContainerTopologyManifestFile.SchemaVersion,
+          runId,
+          dashboard,
+          new CanaryContainerImageIdentity(
+              $"pitcrew-support-canary-dashboard:{runId}",
+              $"sha256:{new string('c', 64)}"),
+          new CanaryContainerImageIdentity(
+              $"pitcrew-support-canary-relay:{runId}",
+              $"sha256:{new string('d', 64)}"),
+          $"pitcrew-canary-{runId}-dashboard",
+          $"pitcrew-canary-{runId}-relay",
+          $"pitcrew-canary-{runId}-dashboard-data",
+          $"pitcrew-canary-{runId}-relay-data",
+          DateTimeOffset.UnixEpoch);
+      var runtime = new CanaryRuntimeManifest(
+          CanaryManifestFile.RuntimeSchemaVersion,
+          runId,
+          CanaryTopologyProfiles.Containerized,
+          dashboard,
+          pitCrew,
+          "http://localhost:5000/",
+          "http://localhost:5001/",
+          [
+              CanaryCapabilities.DashboardHttp,
+              CanaryCapabilities.RelayHttp,
+              CanaryCapabilities.SupportAgentProcess,
+              CanaryCapabilities.SupportBrokerProcess,
+              CanaryCapabilities.PitCrewFileOnlyEvidence,
+              CanaryCapabilities.CandidateContainerImages,
+              CanaryCapabilities.ContainerSessionNetwork,
+              CanaryCapabilities.ContainerRunScopedStorage,
+          ],
+          DateTimeOffset.UnixEpoch);
+      var topologyPath = Path.Combine(
+          root,
+          "container-topology.json");
+
+      CanaryManifestFile.WritePlan(
+          Path.Combine(root, "plan.json"),
+          plan);
+      CanaryContainerTopologyManifestFile.Write(
+          topologyPath,
+          topology);
+      CanaryManifestFile.WriteRuntime(
+          Path.Combine(root, "runtime.json"),
+          runtime);
+      var readTopology =
+          CanaryContainerTopologyManifestFile.Read(topologyPath);
+
+      await Assert.That(
+              CanaryManifestFile.ReadPlan(
+                  Path.Combine(root, "plan.json"))
+                  .TopologyProfile)
+          .IsEqualTo(CanaryTopologyProfiles.Containerized);
+      await Assert.That(readTopology)
+          .IsEqualTo(topology);
+      await Assert.That(
+              CanaryManifestFile.ReadRuntime(
+                  Path.Combine(root, "runtime.json"))
+                  .Capabilities)
+          .Contains(CanaryCapabilities.CandidateContainerImages);
+      await Assert.That(
+              () => CanaryContainerTopologyManifestFile.Write(
+                  topologyPath,
+                  topology with
+                  {
+                    RelayImage = topology.RelayImage with
+                    {
+                      Reference = "unscoped:latest",
+                    },
+                  }))
+          .Throws<InvalidDataException>();
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+
+  [Test]
   public async Task Scenario_Result_Rejects_Unbounded_Or_Incoherent_Evidence()
   {
     var root = Path.Combine(

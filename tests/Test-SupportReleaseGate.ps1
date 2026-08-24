@@ -435,8 +435,18 @@ Add-Check (
     $verifyWorkflow -notmatch 'self-hosted' -and
     $supportCanaryWorkflow -notmatch 'self-hosted' -and
     $supportCanaryWorkflow -match
-        '(?ms)^  windows-installed:.*?runs-on: windows-latest'
+        '(?ms)^  windows-installed:.*?runs-on: windows-latest' -and
+    $supportCanaryWorkflow -match
+        '(?ms)^  containerized:.*?runs-on: ubuntu-latest'
 ) 'Release gating crosses the public hosted-runner trust boundary.'
+Add-Check (
+    $supportCanaryWorkflow -match
+        "(?ms)topology_profile:.*?options:.*?- containerized" -and
+    $supportCanaryWorkflow -match
+        '(?ms)^  containerized:.*?-TopologyProfile containerized' -and
+    $supportCanaryWorkflow -match
+        'support-canary-container-\$\{\{ github\.run_id \}\}'
+) 'The containerized canary is not independently invocable on public infrastructure.'
 Add-Check (
     $prepareWorkflow -match
         'uses: \./\.github/workflows/support-canary\.yml' -and

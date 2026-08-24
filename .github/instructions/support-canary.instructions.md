@@ -25,6 +25,11 @@ applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,scripts/release/**,.
   GitHub-hosted Windows runner. Use the packaged installer, separate service
   identities, typed finalization, exact local cleanup, and the same registered
   scenario; never substitute a self-hosted or live node.
+- The containerized profile runs only on disposable public Linux-hosted
+  infrastructure. Build exact run-scoped Dashboard and relay images from the
+  selected source, verify immutable local image IDs and labels, use Aspire-owned
+  session networking plus run-scoped storage, record container IDs before
+  cleanup, and never infer production Compose or multi-architecture evidence.
 - Use the same scenario implementation from the external runner and
   `Aspire.Hosting.Testing`; do not duplicate scenario steps in tests or
   workflows.
