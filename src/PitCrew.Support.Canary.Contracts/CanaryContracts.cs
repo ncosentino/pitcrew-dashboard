@@ -307,6 +307,8 @@ public static class CanaryManifestFile
           "linux-installed-host-not-clean",
           "linux-installed-platform-required",
           "linux-installed-sudo-required",
+          "linux-pitcrew-cleanup-rejected",
+          "linux-pitcrew-fixture-rejected",
           "linux-service-boundary-invalid",
           "linux-service-inspection-failed",
           "linux-services-installed",

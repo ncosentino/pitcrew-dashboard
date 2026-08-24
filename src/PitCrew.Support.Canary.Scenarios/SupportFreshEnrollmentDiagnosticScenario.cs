@@ -189,7 +189,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       }
       installedNode = new LinuxInstalledCanaryNode(
           context,
-          fixtureRoot);
+          fixtureRoot,
+          runtime.RunId);
       agentStateRoot = installedNode.AgentStateRoot;
     }
     else if (

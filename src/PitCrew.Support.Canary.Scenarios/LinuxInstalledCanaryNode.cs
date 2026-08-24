@@ -28,17 +28,18 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
       {
         WriteIndented = true,
       };
-  private readonly string _fixtureRoot;
   private readonly string _runRoot;
   private readonly string _installerPath;
   private readonly string _artifactRoot;
   private readonly LinuxCanaryCommandRunner _commands;
   private readonly LinuxCanaryConnectorFixture _connectorFixture;
+  private readonly LinuxCanaryPitCrewFixture _pitCrewFixture;
   private bool _installed;
 
   public LinuxInstalledCanaryNode(
       CanaryScenarioContext context,
-      string fixtureRoot)
+      string fixtureRoot,
+      string runId)
   {
     if (!OperatingSystem.IsLinux() ||
         RuntimeInformation.OSArchitecture != Architecture.X64)
@@ -47,11 +48,14 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
           "linux-installed-platform-required");
     }
 
-    _fixtureRoot = fixtureRoot;
     _runRoot = context.RunRoot;
     _commands = new LinuxCanaryCommandRunner(context.RunRoot);
     _connectorFixture = new LinuxCanaryConnectorFixture(
         context.RunRoot,
+        _commands);
+    _pitCrewFixture = new LinuxCanaryPitCrewFixture(
+        fixtureRoot,
+        runId,
         _commands);
     AgentStateRoot = "/var/lib/pitcrew-support-agent";
     _artifactRoot = Path.Combine(
@@ -93,6 +97,7 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
           "linux-installed-host-not-clean");
     }
 
+    await _pitCrewFixture.CreateAsync(cancellationToken);
     await _connectorFixture.CreateAsync(cancellationToken);
     var scenarioRoot = Path.Combine(
         _runRoot,
@@ -115,7 +120,7 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
               "-Version",
               CandidateVersion,
               "-PitCrewRoot",
-              _fixtureRoot,
+              _pitCrewFixture.Root,
               "-Profiles",
               "default",
               "-AgentSettingsPath",
@@ -261,7 +266,10 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
   }
 
   public void AssertUnrelatedStateUnchanged()
-      => _connectorFixture.AssertUnchanged();
+  {
+    _connectorFixture.AssertUnchanged();
+    _pitCrewFixture.AssertUnchanged();
+  }
 
   public async Task<string?> ReadRequestDispositionAsync(
       CancellationToken cancellationToken)
@@ -309,6 +317,14 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
     try
     {
       await _connectorFixture.DisposeAsync();
+    }
+    catch (Exception exception)
+    {
+      cleanupFailure ??= exception;
+    }
+    try
+    {
+      await _pitCrewFixture.DisposeAsync();
     }
     catch (Exception exception)
     {

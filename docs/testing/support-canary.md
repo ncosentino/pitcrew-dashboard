@@ -57,8 +57,10 @@ network isolation, Unix socket ownership/mode and peer credentials, exact
 evidence ACLs, bootstrap finalization, and service health. Revocation and
 DeleteKeys then remove the units, product users/groups, package roots, and
 protected state. The canary refuses pre-existing product identities or paths,
-creates and removes only its exact connector-health fixture, and never runs on
-self-hosted capacity or a live PitCrew node.
+copies the file-only PitCrew fixture to an exact run-scoped systemd-visible
+root, proves both fixture copies unchanged, removes its exact fixture and
+connector-health roots, and never runs on self-hosted capacity or a live
+PitCrew node.
 
 ## One-command run
 
