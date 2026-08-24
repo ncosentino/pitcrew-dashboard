@@ -182,6 +182,236 @@ public sealed class SupportAgentRequestProcessorTests
     }
   }
 
+  [Test]
+  public async Task Malformed_Request_Returns_Bounded_Result(
+      CancellationToken cancellationToken)
+  {
+    var replayRoot = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-replay-{Guid.NewGuid():N}");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var dashboardKeys = SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var sessionId = Guid.NewGuid();
+      var broker = new CountingDiagnosticsBroker();
+      var processor = new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              replayRoot,
+              nodeId),
+          broker,
+          new AgentReplayCache(replayRoot),
+          new FakeTimeProvider(now));
+      var envelope = CreateEnvelope(
+          Encoding.UTF8.GetBytes("{]"),
+          dashboardKeys,
+          nodeKeys);
+
+      var result = await processor.ProcessAsync(
+          sessionId,
+          envelope,
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.RequestMalformed);
+      await Assert.That(result.ResultEnvelope).IsNull();
+      await Assert.That(broker.CallCount).IsEqualTo(0);
+    }
+    finally
+    {
+      if (Directory.Exists(replayRoot))
+      {
+        Directory.Delete(replayRoot, recursive: true);
+      }
+    }
+  }
+
+  [Test]
+  public async Task Invalid_Broker_Output_Returns_Bounded_Rejections(
+      CancellationToken cancellationToken)
+  {
+    var root = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-rejections-{Guid.NewGuid():N}");
+    var markdownReplayRoot = Path.Combine(root, "markdown");
+    var reportReplayRoot = Path.Combine(root, "report");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var dashboardKeys = SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var markdownRequest = CreateRequest(
+          nodeId,
+          Guid.NewGuid(),
+          now,
+          "nonce-markdown-abcdefghijklmnopqrstuvwxyz");
+      var reportRequest = CreateRequest(
+          nodeId,
+          Guid.NewGuid(),
+          now,
+          "nonce-report-abcdefghijklmnopqrstuvwxyz12");
+      var markdownProcessor = new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              markdownReplayRoot,
+              nodeId),
+          new InvalidDiagnosticsBroker(
+              true),
+          new AgentReplayCache(markdownReplayRoot),
+          new FakeTimeProvider(now));
+      var reportProcessor = new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              reportReplayRoot,
+              nodeId),
+          new InvalidDiagnosticsBroker(
+              false),
+          new AgentReplayCache(reportReplayRoot),
+          new FakeTimeProvider(now));
+
+      var markdownResult =
+          await markdownProcessor.ProcessAsync(
+              markdownRequest.SessionId,
+              CreateEnvelope(
+                  SupportCanonicalJson.SerializeRequest(
+                      markdownRequest),
+                  dashboardKeys,
+                  nodeKeys),
+              cancellationToken);
+      var reportResult = await reportProcessor.ProcessAsync(
+          reportRequest.SessionId,
+          CreateEnvelope(
+              SupportCanonicalJson.SerializeRequest(
+                  reportRequest),
+              dashboardKeys,
+              nodeKeys),
+          cancellationToken);
+
+      await Assert.That(markdownResult.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus
+                  .BrokerMarkdownRejected);
+      await Assert.That(markdownResult.ResultEnvelope)
+          .IsNull();
+      await Assert.That(reportResult.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus
+                  .BrokerReportRejected);
+      await Assert.That(reportResult.ResultEnvelope)
+          .IsNull();
+    }
+    finally
+    {
+      if (Directory.Exists(root))
+      {
+        Directory.Delete(root, recursive: true);
+      }
+    }
+  }
+
+  private static SupportAgentOptions CreateOptions(
+      SupportDashboardKeySet dashboardKeys,
+      SupportNodeKeySet nodeKeys,
+      string replayRoot,
+      Guid nodeId) =>
+      new(
+          "tenant-a",
+          nodeId,
+          new Uri("https://dashboard.example.com"),
+          new Uri("https://relay.example.com"),
+          "transport",
+          dashboardKeys.AuthorizationSigning
+              .PublicKeySubjectPublicKeyInfoBase64Url,
+          dashboardKeys.ResultEncryption
+              .PublicKeySubjectPublicKeyInfoBase64Url,
+          replayRoot,
+          "unused",
+          "/unused",
+          new LegacySupportNodePrivateKeySource(
+              nodeKeys.Signing.PrivateKeyPkcs8Base64Url,
+              nodeKeys.Encryption.PrivateKeyPkcs8Base64Url));
+
+  private static SupportDiagnosticRequest CreateRequest(
+      Guid nodeId,
+      Guid sessionId,
+      DateTimeOffset now,
+      string nonce) =>
+      new(
+          "support-plane-v1",
+          "tenant-a",
+          nodeId,
+          sessionId,
+          SupportCapability.DiagnosticsSnapshotV1,
+          1,
+          SupportDiagnosticModes.ConnectorOffline,
+          null,
+          new string('a', 32),
+          now,
+          now.AddMinutes(10),
+          nonce);
+
+  private static SupportEnvelope CreateEnvelope(
+      byte[] payload,
+      SupportDashboardKeySet dashboardKeys,
+      SupportNodeKeySet nodeKeys)
+  {
+    using var dashboardSigning =
+        SupportKeyFactory.ImportEcdsaPrivateKey(
+            dashboardKeys.AuthorizationSigning
+                .PrivateKeyPkcs8Base64Url);
+    using var nodeEncryption =
+        SupportKeyFactory.ImportRsaPublicKey(
+            nodeKeys.Encryption
+                .PublicKeySubjectPublicKeyInfoBase64Url);
+    return SupportEnvelopeCryptography.Seal(
+        payload,
+        nodeEncryption,
+        dashboardSigning,
+        "dashboard",
+        "node");
+  }
+
+  private static LocalDiagnosticsResult CreateDiagnosticsResult(
+      LocalDiagnosticsRequest request,
+      string markdown,
+      string? diagnosticMode = null)
+  {
+    using var document = JsonSerializer.SerializeToDocument(new
+    {
+      schemaVersion = 1,
+      collectorVersion = "1.1.0",
+      collectorSha256 = new string('a', 64),
+      packageId = request.PackageId,
+      diagnosticMode =
+          diagnosticMode ?? request.DiagnosticMode,
+      collectionScope = "file-only",
+      platform = "Windows",
+      platformSource = "detected",
+      profile = request.ProfileId ?? "default",
+      pitcrewRoot = "<pitcrew-root>",
+      startedAt = "2026-08-01T00:00:00+00:00",
+      completedAt = "2026-08-01T00:00:01+00:00",
+      verifiedMeasurements = new { state = "bounded" },
+      unavailableEvidence = Array.Empty<object>(),
+      hypotheses = Array.Empty<object>(),
+    });
+    return new LocalDiagnosticsResult(
+        document.RootElement.Clone(),
+        markdown);
+  }
+
   private sealed class CountingDiagnosticsBroker : ILocalDiagnosticsBroker
   {
     public int CallCount { get; private set; }
@@ -191,27 +421,27 @@ public sealed class SupportAgentRequestProcessorTests
         CancellationToken cancellationToken)
     {
       CallCount++;
-      using var document = JsonSerializer.SerializeToDocument(new
-      {
-        schemaVersion = 1,
-        collectorVersion = "1.1.0",
-        collectorSha256 = new string('a', 64),
-        packageId = request.PackageId,
-        diagnosticMode = request.DiagnosticMode,
-        collectionScope = "file-only",
-        platform = "Windows",
-        platformSource = "detected",
-        profile = request.ProfileId ?? "default",
-        pitcrewRoot = "<pitcrew-root>",
-        startedAt = "2026-08-01T00:00:00+00:00",
-        completedAt = "2026-08-01T00:00:01+00:00",
-        verifiedMeasurements = new { state = "bounded" },
-        unavailableEvidence = Array.Empty<object>(),
-        hypotheses = Array.Empty<object>(),
-      });
-      return Task.FromResult(new LocalDiagnosticsResult(
-          document.RootElement.Clone(),
-          "# Diagnostics"));
+      return Task.FromResult(
+          CreateDiagnosticsResult(
+              request,
+              "# Diagnostics"));
     }
+  }
+
+  private sealed class InvalidDiagnosticsBroker(
+      bool _rejectMarkdown) : ILocalDiagnosticsBroker
+  {
+    public Task<LocalDiagnosticsResult> ExecuteAsync(
+        LocalDiagnosticsRequest request,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(
+            CreateDiagnosticsResult(
+                request,
+                _rejectMarkdown
+                    ? "https://example.com/?secret=value"
+                    : "# Diagnostics",
+                _rejectMarkdown
+                    ? null
+                    : SupportDiagnosticModes.Full));
   }
 }

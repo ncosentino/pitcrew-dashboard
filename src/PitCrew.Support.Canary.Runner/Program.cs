@@ -1,6 +1,7 @@
 using System.Globalization;
 
 using PitCrew.Support.Canary.Contracts;
+using PitCrew.Support.Canary.Runner;
 using PitCrew.Support.Canary.Scenarios;
 
 #pragma warning disable NLF0001 // This executable's stdout/stderr are its bounded CLI contract.
@@ -26,6 +27,10 @@ internal static class CanaryRunnerProgram
         "run" => await RunScenarioAsync(
             args[1..],
             cancellationToken),
+        "inject-rejected-requests" =>
+            await RunRejectedRequestInjectorAsync(
+                args[1..],
+                cancellationToken),
         "list" => ListScenarios(),
         _ => Fail("command-unsupported"),
       };
@@ -42,6 +47,38 @@ internal static class CanaryRunnerProgram
     {
       return Fail("filesystem-forbidden");
     }
+  }
+
+  private static async Task<int>
+      RunRejectedRequestInjectorAsync(
+          string[] args,
+          CancellationToken cancellationToken)
+  {
+    var runRoot = ReadRequiredArgument(args, "--run-root");
+    var plan = CanaryManifestFile.ReadPlan(
+        Path.Combine(runRoot, "plan.json"));
+    var relayInternalUrl = new Uri(
+        EnsureOrigin(
+            ReadRequiredEnvironment(
+                "PITCREW_CANARY_RELAY_INTERNAL_URL")),
+        UriKind.Absolute);
+    if (!relayInternalUrl.IsLoopback ||
+        relayInternalUrl.Scheme != Uri.UriSchemeHttp)
+    {
+      throw new InvalidDataException(
+          "The rejected-request injector relay origin is invalid.");
+    }
+    await CanaryRejectedRequestInjector.RunAsync(
+        Path.GetFullPath(runRoot),
+        plan.RunId,
+        relayInternalUrl,
+        ReadRequiredEnvironment(
+            "PITCREW_CANARY_RELAY_SECRET"),
+        ReadRequiredEnvironment(
+            "PITCREW_CANARY_DASHBOARD_AUTHORIZATION_KEY"),
+        TimeProvider.System,
+        cancellationToken);
+    return 0;
   }
 
   private static int EmitRuntime(string[] args)
@@ -81,6 +118,7 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.SupportBrokerProcess,
             CanaryCapabilities.PitCrewFileOnlyEvidence,
             CanaryCapabilities.RelayRestartControl,
+            CanaryCapabilities.RejectedRequestInjection,
         ],
         CanaryTopologyProfiles.Containerized =>
         [
@@ -93,6 +131,7 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.ContainerSessionNetwork,
             CanaryCapabilities.ContainerRunScopedStorage,
             CanaryCapabilities.RelayRestartControl,
+            CanaryCapabilities.RejectedRequestInjection,
         ],
         CanaryTopologyProfiles.WindowsInstalled =>
         [

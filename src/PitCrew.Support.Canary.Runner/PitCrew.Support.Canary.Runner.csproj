@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PitCrew.Support.Canary.Contracts\PitCrew.Support.Canary.Contracts.csproj" />
     <ProjectReference Include="..\PitCrew.Support.Canary.Scenarios\PitCrew.Support.Canary.Scenarios.csproj" />
+    <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
   </ItemGroup>
 
   <ItemGroup>

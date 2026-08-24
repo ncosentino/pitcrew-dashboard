@@ -215,6 +215,24 @@ diagnostic modes sequentially for one enrolled node. Each mode must pass the
 PitCrew verifier and node-attestation checks. Evidence exposes one bounded
 matrix-success category and no reports or mode-specific host data.
 
+The fourth scenario, `support-request-rejection-matrix-v1`, adds one
+run-scoped request-injection capability on portable and containerized profiles.
+An AppHost-owned candidate process receives ephemeral Dashboard signing and
+relay-management secrets through environment, constructs only nine closed
+request shapes, and enqueues or cancels their exact sessions through the real
+relay. The real agent must report bounded malformed, session-mismatch,
+tenant/node, capability, diagnostic-mode, expiry, nonce, and replay outcomes
+before the existing workflow completes a valid signed diagnostic and cleanup.
+The injector accepts no arbitrary envelope, endpoint, tenant, resource, command,
+or diagnostic input. It is not exposed by production Dashboard, relay, agent,
+or broker applications.
+
+The Windows-installed profile does not advertise request injection because the
+harness does not bypass installed service ACLs to obtain the node public-key
+descriptor. Unsafe broker-output outcomes remain focused agent boundary tests;
+the canary does not substitute or add a production fault mode to the real
+broker.
+
 ## CI and trust boundary
 
 Dashboard provides a reusable and manually dispatchable workflow with exact

@@ -22,6 +22,10 @@ support:
 - `support-diagnostic-mode-matrix-v1`
 - `support-relay-restart-recovery-v1`
 
+The portable and `containerized` profiles additionally support:
+
+- `support-request-rejection-matrix-v1`
+
 Dashboard's embedded support evidence policy pins the PitCrew commit accepted by
 the broker. Selecting another PitCrew SHA intentionally fails before enrollment
 rather than replacing the collector with a lookalike.
@@ -90,6 +94,26 @@ verifier. Every mode must return a completed result with a valid node
 attestation; the publishable evidence records only the bounded
 `diagnostic-mode-matrix-verified` category rather than reports or mode-specific
 host data.
+
+`support-request-rejection-matrix-v1` runs only on portable and containerized
+profiles. A run-scoped injector receives the ephemeral Dashboard authorization
+key and relay-management bearer through process environment, then enqueues nine
+closed request shapes through the real relay: malformed JSON, session mismatch,
+wrong tenant/node, unsupported capability, unsupported diagnostic mode,
+expired authorization, invalid nonce, a valid replay seed, and the repeated
+nonce. The real agent must emit the expected bounded disposition for every
+case. The scenario cancels each rejected relay session, then completes the
+normal signed diagnostic, revocation/DeleteKeys, and unchanged-state proof.
+
+The injector accepts no arbitrary envelope, URL, tenant, resource, command, or
+diagnostic value. Its file contract contains only the run and control IDs,
+closed case, relay session and enrolled node IDs, node public encryption key,
+and optional replay group. Dashboard signing and relay-management secrets are
+never persisted. The scenario does not run against `windows-installed` because
+the canary deliberately does not bypass the installed service ACL to read the
+node public-key descriptor. Broker report/markdown corruption remains a focused
+agent boundary test: the hosted canary does not replace or fault-enable the real
+broker to manufacture unsafe output.
 
 ## Evidence and secrets
 

@@ -97,6 +97,13 @@ public static class CanaryCapabilities
   /// </summary>
   public const string RelayRestartControl =
       "relay-restart-control";
+
+  /// <summary>
+  /// A run-scoped adapter may enqueue only the closed rejected-request cases
+  /// and cancel their exact relay sessions.
+  /// </summary>
+  public const string RejectedRequestInjection =
+      "rejected-request-injection";
 }
 
 /// <summary>
@@ -205,6 +212,7 @@ public static class CanaryManifestFile
           "prove-unrelated-state-unchanged",
           "relay-health",
           "restart-relay-and-recover",
+          "verify-bounded-request-rejections",
           "revoke-and-delete-keys",
           "scenario-execution",
           "start-diagnostics-broker",
@@ -280,6 +288,9 @@ public static class CanaryManifestFile
           "relay-restarted",
           "relay-restart-rejected",
           "relay-restart-timeout",
+          "request-injection-control-rejected",
+          "request-rejection-matrix-mismatch",
+          "request-rejection-matrix-verified",
           "scenario-cancelled",
           "scenario-failed",
           "scenario-result-invalid",

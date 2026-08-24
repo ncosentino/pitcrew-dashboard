@@ -12,6 +12,7 @@ public static class CanaryScenarioRegistry
         new SupportFreshEnrollmentDiagnosticScenario(),
         new SupportDiagnosticModeMatrixScenario(),
         new SupportRelayRestartRecoveryScenario(),
+        new SupportRejectedRequestMatrixScenario(),
         new TopologySmokeScenario(),
       }.ToDictionary(
           scenario => scenario.Id,
