@@ -6,7 +6,7 @@ internal sealed class LinuxCanaryConnectorFixture(
     string _runRoot,
     LinuxCanaryCommandRunner _commands) : IAsyncDisposable
 {
-  private const string ConnectorRoot =
+  public const string Root =
       "/var/lib/pitcrew-connector";
   private static readonly string[] _fileNames =
   [
@@ -24,10 +24,10 @@ internal sealed class LinuxCanaryConnectorFixture(
   public async Task CreateAsync(
       CancellationToken cancellationToken)
   {
-    _connectorRootCreated = !Directory.Exists(ConnectorRoot);
+    _connectorRootCreated = !Directory.Exists(Root);
     if (_connectorRootCreated &&
         await _commands.RunSudoAsync(
-            ["install", "-d", "-m", "0755", ConnectorRoot],
+            ["install", "-d", "-m", "0755", Root],
             TimeSpan.FromSeconds(15),
             cancellationToken) != 0)
     {
@@ -43,7 +43,7 @@ internal sealed class LinuxCanaryConnectorFixture(
       if (_connectorRootCreated)
       {
         var cleanupExitCode = await _commands.RunSudoAsync(
-            ["rmdir", "--", ConnectorRoot],
+            ["rmdir", "--", Root],
             TimeSpan.FromSeconds(15),
             cancellationToken);
         if (cleanupExitCode != 0)
@@ -151,7 +151,7 @@ internal sealed class LinuxCanaryConnectorFixture(
     }
     if (_connectorRootCreated &&
         await _commands.RunSudoAsync(
-            ["rmdir", "--", ConnectorRoot],
+            ["rmdir", "--", Root],
             TimeSpan.FromSeconds(15),
             CancellationToken.None) != 0)
     {

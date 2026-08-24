@@ -428,6 +428,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                   diagnosticMode,
                   nodeId,
                   diagnosticCredential,
+                  installedNode,
+                  agentStateRoot,
                   token);
             }
             await dashboard.RequireIdentityActivityAsync(
@@ -801,6 +803,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       string diagnosticMode,
       Guid nodeId,
       string diagnosticCredential,
+      IInstalledCanaryNode? installedNode,
+      string agentStateRoot,
       CancellationToken cancellationToken)
   {
     var scenarioRoot = Path.Combine(
@@ -898,8 +902,12 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     if (exitCode != 0 ||
         !File.Exists(resultPath))
     {
+      var disposition = installedNode is null
+          ? ReadAgentRequestDisposition(agentStateRoot)
+          : await installedNode.ReadRequestDispositionAsync(
+              cancellationToken);
       throw new CanaryScenarioFailureException(
-          ReadAgentRequestDisposition(context.RunRoot) ??
+          disposition ??
           "pitcrew-verifier-rejected-result");
     }
     using var result = JsonDocument.Parse(
@@ -919,12 +927,10 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
   }
 
   private static string? ReadAgentRequestDisposition(
-      string runRoot)
+      string agentStateRoot)
   {
     var statusPath = Path.Combine(
-        runRoot,
-        "services",
-        "agent",
+        agentStateRoot,
         "agent-startup-status.json");
     if (!File.Exists(statusPath))
     {

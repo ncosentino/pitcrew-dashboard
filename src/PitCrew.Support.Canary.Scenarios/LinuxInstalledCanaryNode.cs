@@ -263,6 +263,20 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
   public void AssertUnrelatedStateUnchanged()
       => _connectorFixture.AssertUnchanged();
 
+  public async Task<string?> ReadRequestDispositionAsync(
+      CancellationToken cancellationToken)
+  {
+    var content = await _commands.ReadPrivilegedFileAsync(
+        Path.Combine(
+            AgentStateRoot,
+            "agent-startup-status.json"),
+        allowUnavailable: true,
+        cancellationToken);
+    return content is null
+        ? null
+        : ReadRequestDisposition(content);
+  }
+
   public async ValueTask DisposeAsync()
   {
     Exception? cleanupFailure = null;
@@ -359,7 +373,8 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
       Directory.Exists(AgentStateRoot) ||
       Directory.Exists(BrokerStateRoot) ||
       Directory.Exists(InstallerStateRoot) ||
-      Directory.Exists(LinuxCanaryConnectorFixture.HealthRoot) ||
+      Directory.Exists(LinuxCanaryConnectorFixture.Root) ||
+      Directory.Exists(RuntimeRoot) ||
       File.Exists(AgentUnitPath) ||
       File.Exists(BrokerUnitPath) ||
       await _commands.AccountExistsAsync(
@@ -483,5 +498,22 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
     {
       File.Delete(path);
     }
+  }
+
+  private static string? ReadRequestDisposition(string content)
+  {
+    using var status = JsonDocument.Parse(content);
+    var root = status.RootElement;
+    if (root.GetProperty("phase").GetString() !=
+        "request-processing")
+    {
+      return null;
+    }
+    var disposition = root
+        .GetProperty("disposition")
+        .GetString();
+    return disposition == "completed"
+        ? null
+        : $"agent-{disposition}";
   }
 }

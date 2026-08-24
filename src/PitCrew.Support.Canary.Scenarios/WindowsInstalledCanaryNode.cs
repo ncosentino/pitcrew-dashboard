@@ -283,6 +283,34 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
     }
   }
 
+  public async Task<string?> ReadRequestDispositionAsync(
+      CancellationToken cancellationToken)
+  {
+    var statusPath = Path.Combine(
+        AgentStateRoot,
+        "agent-startup-status.json");
+    if (!File.Exists(statusPath))
+    {
+      return null;
+    }
+    using var status = JsonDocument.Parse(
+        await File.ReadAllTextAsync(
+            statusPath,
+            cancellationToken));
+    var root = status.RootElement;
+    if (root.GetProperty("phase").GetString() !=
+        "request-processing")
+    {
+      return null;
+    }
+    var disposition = root
+        .GetProperty("disposition")
+        .GetString();
+    return disposition == "completed"
+        ? null
+        : $"agent-{disposition}";
+  }
+
   public async ValueTask DisposeAsync()
   {
     Exception? cleanupFailure = null;
