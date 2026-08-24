@@ -84,6 +84,29 @@ internal sealed class LinuxCanaryCommandRunner(string _workingDirectory)
     return result.StandardOutput;
   }
 
+  public async Task<string?> ReadCommandOutputAsync(
+      string fileName,
+      IReadOnlyList<string> arguments,
+      CancellationToken cancellationToken)
+  {
+    var result = await RunCapturedAsync(
+        fileName,
+        arguments,
+        TimeSpan.FromSeconds(10),
+        cancellationToken);
+    if (result.ExitCode != 0)
+    {
+      return null;
+    }
+    if (Encoding.UTF8.GetByteCount(result.StandardOutput) >
+        MaximumPrivilegedFileBytes)
+    {
+      throw new CanaryScenarioFailureException(
+          "linux-service-inspection-failed");
+    }
+    return result.StandardOutput.Trim();
+  }
+
   private async Task<CapturedProcessResult> RunCapturedAsync(
       string fileName,
       IReadOnlyList<string> arguments,

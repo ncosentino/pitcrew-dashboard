@@ -34,6 +34,8 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
   private readonly LinuxCanaryCommandRunner _commands;
   private readonly LinuxCanaryConnectorFixture _connectorFixture;
   private readonly LinuxCanaryPitCrewFixture _pitCrewFixture;
+  private readonly LinuxCanaryBrokerFailureClassifier
+      _brokerFailureClassifier;
   private bool _installed;
 
   public LinuxInstalledCanaryNode(
@@ -57,6 +59,8 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
         fixtureRoot,
         runId,
         _commands);
+    _brokerFailureClassifier =
+        new LinuxCanaryBrokerFailureClassifier(_commands);
     AgentStateRoot = "/var/lib/pitcrew-support-agent";
     _artifactRoot = Path.Combine(
         context.RunRoot,
@@ -280,9 +284,13 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
             "agent-startup-status.json"),
         allowUnavailable: true,
         cancellationToken);
-    return content is null
+    var disposition = content is null
         ? null
         : ReadRequestDisposition(content);
+    return disposition == "agent-broker-io-unavailable"
+        ? await _brokerFailureClassifier.ClassifyAsync(
+            cancellationToken)
+        : disposition;
   }
 
   public async Task<string?> ObserveRequestFailureAsync(
@@ -557,4 +565,5 @@ internal sealed class LinuxInstalledCanaryNode : IInstalledCanaryNode
         ? null
         : $"agent-{disposition}";
   }
+
 }
