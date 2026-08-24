@@ -62,7 +62,7 @@ function supportSession(
   result: SupportSession['result'] = null,
 ): SupportSession {
   return {
-    sessionId: '22222222-2222-2222-2222-222222222222',
+    sessionId: '22222222-2222-4222-8222-222222222222',
     nodeId: activeIdentity.nodeId,
     diagnosticMode: 'ConnectorOffline',
     profileId: null,
@@ -284,7 +284,7 @@ describe('SupportSessionCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Check result' }));
 
-    expect(checkResult).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222');
+    expect(checkResult).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222');
   });
 
   it.each(['Queued', 'Dispatched', 'Completed', 'Rejected', 'Cancelled', 'Expired'] as const)(
@@ -341,7 +341,7 @@ describe('SupportSessionCard', () => {
     await user.tab();
     await user.keyboard('{Enter}');
 
-    expect(checkResult).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222');
+    expect(checkResult).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222');
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByRole('status')).toHaveTextContent(
       'No new result is available. Session remains Queued.',
