@@ -23,5 +23,8 @@ internal interface IInstalledCanaryNode : IAsyncDisposable
   Task<string?> ReadRequestDispositionAsync(
       CancellationToken cancellationToken);
 
+  Task<string?> ObserveRequestFailureAsync(
+      CancellationToken cancellationToken);
+
   void AssertUnrelatedStateUnchanged();
 }

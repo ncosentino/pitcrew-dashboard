@@ -244,6 +244,8 @@ public static class CanaryManifestFile
       {
           "agent-broker-markdown-rejected",
           "agent-broker-report-rejected",
+          "agent-broker-io-unavailable",
+          "agent-broker-timeout",
           "agent-credential-rejected",
           "agent-enrollment-rejected",
           "agent-envelope-payload-rejected",

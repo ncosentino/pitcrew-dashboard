@@ -311,6 +311,31 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         : $"agent-{disposition}";
   }
 
+  public async Task<string?> ObserveRequestFailureAsync(
+      CancellationToken cancellationToken)
+  {
+    using var timer = new PeriodicTimer(
+        TimeSpan.FromMilliseconds(250));
+    try
+    {
+      while (await timer.WaitForNextTickAsync(cancellationToken))
+      {
+        var disposition = await ReadRequestDispositionAsync(
+            cancellationToken);
+        if (disposition is not null)
+        {
+          return disposition;
+        }
+      }
+    }
+    catch (OperationCanceledException)
+        when (cancellationToken.IsCancellationRequested)
+    {
+      return null;
+    }
+    return null;
+  }
+
   public async ValueTask DisposeAsync()
   {
     Exception? cleanupFailure = null;

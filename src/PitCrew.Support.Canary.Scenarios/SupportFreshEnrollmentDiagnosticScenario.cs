@@ -865,41 +865,64 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         "pitcrew-remote-diagnostics",
         "scripts",
         "Invoke-PitCrewSupportRelay.ps1");
-    var exitCode = await CandidateProcess.RunToolAsync(
-        "pwsh",
-        scenarioRoot,
-        new Dictionary<string, string>(
-            StringComparer.OrdinalIgnoreCase)
-        {
-          ["PITCREW_DIAGNOSTICS_CREDENTIAL"] =
-              diagnosticCredential,
-        },
-        [
-            "-NoProfile",
-            "-NonInteractive",
-            "-File",
-            wrapperPath,
-            "-SupportRelayScriptPath",
-            supportRelayScriptPath,
-            "-DashboardUrl",
-            runtime.DashboardUrl,
-            "-TenantId",
-            TenantId,
-            "-DashboardNodeId",
-            nodeId.ToString("D"),
-            "-DiagnosticMode",
-            diagnosticMode,
-            "-PreflightPath",
-            preflightPath,
-            "-OutputDirectory",
-            outputRoot,
-            "-ResultPath",
-            resultPath,
-            "-TimeoutSeconds",
-            "120",
-        ],
-        TimeSpan.FromSeconds(180),
-        cancellationToken);
+    using var observationCancellation =
+        CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+    var observedFailure =
+        installedNode?.ObserveRequestFailureAsync(
+            observationCancellation.Token);
+    string? firstFailure = null;
+    int exitCode;
+    try
+    {
+      exitCode = await CandidateProcess.RunToolAsync(
+          "pwsh",
+          scenarioRoot,
+          new Dictionary<string, string>(
+              StringComparer.OrdinalIgnoreCase)
+          {
+            ["PITCREW_DIAGNOSTICS_CREDENTIAL"] =
+                diagnosticCredential,
+          },
+          [
+              "-NoProfile",
+              "-NonInteractive",
+              "-File",
+              wrapperPath,
+              "-SupportRelayScriptPath",
+              supportRelayScriptPath,
+              "-DashboardUrl",
+              runtime.DashboardUrl,
+              "-TenantId",
+              TenantId,
+              "-DashboardNodeId",
+              nodeId.ToString("D"),
+              "-DiagnosticMode",
+              diagnosticMode,
+              "-PreflightPath",
+              preflightPath,
+              "-OutputDirectory",
+              outputRoot,
+              "-ResultPath",
+              resultPath,
+              "-TimeoutSeconds",
+              "120",
+          ],
+          TimeSpan.FromSeconds(180),
+          cancellationToken);
+    }
+    finally
+    {
+      if (observedFailure?.IsCompletedSuccessfully == true)
+      {
+        firstFailure = await observedFailure;
+      }
+      await observationCancellation.CancelAsync();
+      if (observedFailure is not null)
+      {
+        firstFailure ??= await observedFailure;
+      }
+    }
     if (exitCode != 0 ||
         !File.Exists(resultPath))
     {
@@ -908,6 +931,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           : await installedNode.ReadRequestDispositionAsync(
               cancellationToken);
       throw new CanaryScenarioFailureException(
+          firstFailure ??
           disposition ??
           "pitcrew-verifier-rejected-result");
     }

@@ -100,12 +100,20 @@ internal sealed partial class SupportAgentWorker(
         {
           LogRelayUnavailable(_logger);
         }
-        catch (IOException)
+        catch (IOException exception)
         {
+          _startupStatus.Write(
+              "request-processing",
+              "broker-io-unavailable",
+              exception.GetType());
           LogBrokerUnavailable(_logger);
         }
-        catch (TimeoutException)
+        catch (TimeoutException exception)
         {
+          _startupStatus.Write(
+              "request-processing",
+              "broker-timeout",
+              exception.GetType());
           LogBrokerUnavailable(_logger);
         }
         catch (System.Text.Json.JsonException)
