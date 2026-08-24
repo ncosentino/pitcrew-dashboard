@@ -201,8 +201,11 @@ tag ref, public-hosted runner boundary, and publishing workflow.
 `Verify published release` is a read-only manual audit over an existing
 release. It requires the exact release tag and commit, verifies the complete
 41-asset connector/support inventory, and verifies all three GHCR image indexes
-and provenance attestations. It is an aggregate audit surface, not a fourth
-publisher and not a substitute for each publisher's fail-closed verification.
+and provenance attestations. The workflow executes the trusted current verifier
+from the default branch; the requested historical commit is data whose release
+identity and outputs are verified, never executable workflow source. It is an
+aggregate audit surface, not a fourth publisher and not a substitute for each
+publisher's fail-closed verification.
 
 The portable gate has completed on GitHub-hosted Ubuntu in approximately two
 minutes. Three pre-gate containerized runs completed in 3m25s, 3m09s, and

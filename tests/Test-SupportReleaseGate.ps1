@@ -700,6 +700,8 @@ Add-Check (
         '(?m)^  release:\r?$' -and
     $publishedVerificationWorkflow -notmatch
         'pull_request_target|self-hosted' -and
+    $publishedVerificationWorkflow -notmatch
+        'ref: \$\{\{ inputs\.release_sha \}\}' -and
     $publishedVerificationWorkflow -match
         '(?m)^  packages: read\r?$' -and
     $publishedVerificationWorkflow -match
