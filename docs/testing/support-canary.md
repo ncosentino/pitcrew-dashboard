@@ -102,8 +102,9 @@ closed request shapes through the real relay: malformed JSON, session mismatch,
 wrong tenant/node, unsupported capability, unsupported diagnostic mode,
 expired authorization, invalid nonce, a valid replay seed, and the repeated
 nonce. The real agent must emit the expected bounded disposition for every
-case. The scenario cancels each rejected relay session, then completes the
-normal signed diagnostic, revocation/DeleteKeys, and unchanged-state proof.
+case, and the relay must make each rejection terminal before the agent advances.
+The scenario then completes the normal signed diagnostic,
+revocation/DeleteKeys, and unchanged-state proof.
 
 The injector accepts no arbitrary envelope, URL, tenant, resource, command, or
 diagnostic value. Its file contract contains only the run and control IDs,

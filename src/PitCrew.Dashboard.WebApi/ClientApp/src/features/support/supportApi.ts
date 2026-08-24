@@ -27,6 +27,24 @@ export const supportResultSchema = z.object({
   markdown: z.string(),
   attestation: supportAttestationSchema,
 });
+export const supportRejectionDispositionSchema = z.enum([
+  'envelope-unsupported',
+  'envelope-signature-rejected',
+  'envelope-payload-rejected',
+  'request-malformed',
+  'session-mismatch',
+  'wrong-tenant-or-node',
+  'unsupported-capability',
+  'unsupported-diagnostic-mode',
+  'request-expired',
+  'invalid-nonce',
+  'request-replay',
+  'replay-pending',
+  'broker-markdown-rejected',
+  'broker-report-rejected',
+  'validation-rejected',
+  'result-unavailable',
+]);
 export const supportSessionSchema = z.object({
   sessionId: z.string().uuid(),
   nodeId: z.string().uuid(),
@@ -38,6 +56,8 @@ export const supportSessionSchema = z.object({
   status: z.enum(['Queued', 'Dispatched', 'Completed', 'Rejected', 'Cancelled', 'Expired']),
   requestedAt: offsetDateTimeSchema,
   expiresAt: offsetDateTimeSchema,
+  dispatchedAt: offsetDateTimeSchema.nullable(),
+  rejectionDisposition: supportRejectionDispositionSchema.nullable(),
   result: supportResultSchema.nullable(),
 });
 export const supportSessionsSchema = z.array(supportSessionSchema);

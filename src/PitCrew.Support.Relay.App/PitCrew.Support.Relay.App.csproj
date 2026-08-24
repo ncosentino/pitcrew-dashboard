@@ -10,4 +10,8 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
+  </ItemGroup>
+
 </Project>

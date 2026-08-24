@@ -3033,5 +3033,58 @@ internal static class SqliteMigrationCatalog
                     'qualifying');
 
               """),
+        new(
+              26,
+              "support-session-lifecycle-projection",
+              """
+              ALTER TABLE support_sessions
+                  ADD COLUMN dispatched_at TEXT NULL;
+
+              ALTER TABLE support_sessions
+                  ADD COLUMN rejection_disposition TEXT NULL
+                      CHECK (rejection_disposition IS NULL
+                          OR rejection_disposition IN (
+                              'envelope-unsupported',
+                              'envelope-signature-rejected',
+                              'envelope-payload-rejected',
+                              'request-malformed',
+                              'session-mismatch',
+                              'wrong-tenant-or-node',
+                              'unsupported-capability',
+                              'unsupported-diagnostic-mode',
+                              'request-expired',
+                              'invalid-nonce',
+                              'request-replay',
+                              'replay-pending',
+                              'broker-markdown-rejected',
+                              'broker-report-rejected',
+                              'validation-rejected',
+                              'result-unavailable'));
+
+              CREATE TRIGGER
+                  trg_support_sessions_rejection_disposition_insert
+              BEFORE INSERT ON support_sessions
+              FOR EACH ROW
+              WHEN (NEW.status = 'rejected')
+                  <> (NEW.rejection_disposition IS NOT NULL)
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'support rejection disposition must match rejected status');
+              END;
+
+              CREATE TRIGGER
+                  trg_support_sessions_rejection_disposition_update
+              BEFORE UPDATE OF status, rejection_disposition
+                  ON support_sessions
+              FOR EACH ROW
+              WHEN (NEW.status = 'rejected')
+                  <> (NEW.rejection_disposition IS NOT NULL)
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'support rejection disposition must match rejected status');
+              END;
+              """),
     ];
 }

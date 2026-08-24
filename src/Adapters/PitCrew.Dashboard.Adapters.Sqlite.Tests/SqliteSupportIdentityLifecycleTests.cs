@@ -725,6 +725,8 @@ public sealed class SqliteSupportIdentityLifecycleTests
         null,
         null,
         null,
+        null,
+        null,
         null);
   }
 

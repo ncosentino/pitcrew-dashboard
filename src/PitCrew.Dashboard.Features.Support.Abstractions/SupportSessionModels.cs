@@ -34,6 +34,8 @@ public sealed record SupportDiagnosticSessionInput(
 /// <param name="RequestedAt">Dashboard authorization time.</param>
 /// <param name="ExpiresAt">Time the node must reject the request.</param>
 /// <param name="RequestEnvelope">Opaque sealed request envelope queued through the relay.</param>
+/// <param name="DispatchedAt">First relay dispatch time when observed.</param>
+/// <param name="RejectionDisposition">Closed agent rejection disposition.</param>
 /// <param name="CompletedAt">Completion time when terminal.</param>
 /// <param name="ResultEnvelope">Opaque sealed result envelope uploaded through the relay.</param>
 /// <param name="Report">Verified report JSON after Dashboard decryption.</param>
@@ -54,6 +56,8 @@ public sealed record SupportDiagnosticSession(
     DateTimeOffset RequestedAt,
     DateTimeOffset ExpiresAt,
     SupportEnvelope RequestEnvelope,
+    DateTimeOffset? DispatchedAt,
+    string? RejectionDisposition,
     DateTimeOffset? CompletedAt,
     SupportEnvelope? ResultEnvelope,
     JsonElement? Report,

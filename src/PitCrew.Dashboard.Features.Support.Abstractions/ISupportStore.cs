@@ -292,6 +292,29 @@ public interface ISupportStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Advances one queued or dispatched session to relay-observed lifecycle
+  /// state.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the session.</param>
+  /// <param name="sessionId">Session identifier.</param>
+  /// <param name="status">Dispatched or terminal projected state.</param>
+  /// <param name="dispatchedAt">First dispatch time when known.</param>
+  /// <param name="rejectionDisposition">
+  /// Closed rejection disposition for rejected state.
+  /// </param>
+  /// <param name="transitionedAt">Time the projected transition was observed.</param>
+  /// <param name="cancellationToken">Token that cancels the mutation.</param>
+  /// <returns>Mutation status.</returns>
+  Task<SupportMutationStatus> UpdateSessionLifecycleAsync(
+      string tenantId,
+      Guid sessionId,
+      SupportDiagnosticSessionStatus status,
+      DateTimeOffset? dispatchedAt,
+      string? rejectionDisposition,
+      DateTimeOffset transitionedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Cancels a queued or dispatched diagnostic session.
   /// </summary>
   /// <param name="tenantId">Tenant that owns the session.</param>

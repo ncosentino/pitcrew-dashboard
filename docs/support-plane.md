@@ -264,16 +264,31 @@ The attestation payload is canonical UTF-8 JSON containing `tenantId`, `nodeId`,
 `markdown`. The PitCrew PowerShell diagnostic skill can verify the signature
 without scraping Dashboard pages.
 
-The Dashboard session list does not decrypt relay results implicitly. Select
-**Check result** on a pending session, or use the single-session API, to fetch,
-verify, decrypt, and persist the completed result.
+The Dashboard session list remains storage-only and does not call the relay once
+per row. Select **Check result** on a pending session, or use the single-session
+API, to project the exact relay lifecycle. Dashboard persists the first relay
+dispatch time and any closed agent rejection disposition. Relay `completed`
+state causes Dashboard to fetch the opaque result, but Dashboard reports
+`Completed` only after decrypting and verifying the node-signed payload.
+
+When the agent cannot produce a result, it posts one closed disposition to the
+exact transport-authenticated relay session. The request contains no tenant,
+node, envelope, report, nonce, path, exception, command, or free-form reason.
+Relay retries are idempotent for the same disposition; cancellation, expiry,
+completion, and a conflicting prior rejection remain terminal. Older agents
+continue to degrade to dispatched-then-expired, and a new agent treats an older
+relay's missing outcome route as non-fatal while retaining its local bounded
+status.
 
 The support page renders the exact session lifecycle independently from semantic
 severity: `Queued`, `Dispatched`, `Completed`, `Rejected`, `Cancelled`, or
 `Expired`. **Check result** is available only while a session is `Queued` or
 `Dispatched`; terminal sessions do not offer another fetch. A check that returns
 the same status and no result reports that no new result is available through a
-polite live status message rather than appearing inert.
+polite live status message rather than appearing inert. Dispatched and later
+states show the first dispatch time when known. Rejected sessions also show the
+closed rejection disposition; they never display relay payloads or free-form
+agent output.
 
 ## Production node isolation
 

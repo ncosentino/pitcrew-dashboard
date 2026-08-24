@@ -301,6 +301,8 @@ public sealed class SupportCarterModule : ICarterModule
           session.Status.ToString(),
           session.RequestedAt,
           session.ExpiresAt,
+          session.DispatchedAt,
+          session.RejectionDisposition,
           session.Report is not null &&
           session.Markdown is not null &&
           session.Attestation is not null

@@ -2,6 +2,8 @@ using System.Globalization;
 
 using Microsoft.Data.Sqlite;
 
+using PitCrew.Support.Protocol;
+
 namespace PitCrew.Support.Relay.App;
 
 internal sealed class SqliteRelayStore(string _databasePath)
@@ -30,12 +32,40 @@ internal sealed class SqliteRelayStore(string _databasePath)
                 'queued',
                 'dispatched',
                 'completed',
+                'rejected',
                 'cancelled',
                 'expired')),
+            dispatched_at TEXT NULL,
+            rejected_at TEXT NULL,
+            rejection_disposition TEXT NULL CHECK (
+                rejection_disposition IS NULL
+                OR rejection_disposition IN (
+                    'envelope-unsupported',
+                    'envelope-signature-rejected',
+                    'envelope-payload-rejected',
+                    'request-malformed',
+                    'session-mismatch',
+                    'wrong-tenant-or-node',
+                    'unsupported-capability',
+                    'unsupported-diagnostic-mode',
+                    'request-expired',
+                    'invalid-nonce',
+                    'request-replay',
+                    'replay-pending',
+                    'broker-markdown-rejected',
+                    'broker-report-rejected',
+                    'validation-rejected',
+                    'result-unavailable')),
             expires_at TEXT NOT NULL,
             request_envelope_json TEXT NOT NULL,
             result_envelope_json TEXT NULL,
-            FOREIGN KEY (node_id) REFERENCES relay_nodes(node_id)
+            FOREIGN KEY (node_id) REFERENCES relay_nodes(node_id),
+            CHECK (
+                (status = 'rejected'
+                    AND rejection_disposition IS NOT NULL)
+                OR
+                (status <> 'rejected'
+                    AND rejection_disposition IS NULL))
         );
 
         CREATE INDEX IF NOT EXISTS ix_relay_sessions_node_status_expiry
@@ -60,6 +90,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
                 replacement_transport_credential_hash);
         """;
     await command.ExecuteNonQueryAsync(cancellationToken);
+    await EnsureSessionLifecycleSchemaAsync(
+        connection,
+        cancellationToken);
     await EnsureColumnAsync(
         connection,
         "relay_nodes",
@@ -292,6 +325,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
             tenant_id,
             node_id,
             status,
+            dispatched_at,
+            rejected_at,
+            rejection_disposition,
             expires_at,
             request_envelope_json)
         SELECT
@@ -387,6 +423,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
             node_id,
             session_id,
             status,
+            dispatched_at,
+            rejected_at,
+            rejection_disposition,
             expires_at,
             request_envelope_json,
             result_envelope_json
@@ -412,16 +451,24 @@ internal sealed class SqliteRelayStore(string _databasePath)
     update.CommandText =
         """
         UPDATE relay_sessions
-        SET status = 'dispatched'
+        SET status = 'dispatched',
+            dispatched_at = COALESCE(dispatched_at, $dispatchedAt)
         WHERE session_id = $sessionId
           AND status = 'queued';
         """;
     update.Parameters.AddWithValue("$sessionId", record.SessionId.ToString("D"));
+    update.Parameters.AddWithValue(
+        "$dispatchedAt",
+        FormatUtc(now));
     await update.ExecuteNonQueryAsync(cancellationToken);
     await transaction.CommitAsync(cancellationToken);
     return new RelayPollOutcome(
         true,
-        record with { Status = "dispatched" });
+        record with
+        {
+          Status = "dispatched",
+          DispatchedAt = record.DispatchedAt ?? now,
+        });
   }
 
   public async Task<RelayResultUploadOutcome> UploadResultAsync(
@@ -477,6 +524,94 @@ internal sealed class SqliteRelayStore(string _databasePath)
     return changed
         ? RelayResultUploadOutcome.Succeeded
         : RelayResultUploadOutcome.SessionRejected;
+  }
+
+  public async Task<RelayRequestOutcomeStatus>
+      ReportRequestOutcomeAsync(
+          Guid nodeId,
+          Guid sessionId,
+          string credential,
+          string disposition,
+          DateTimeOffset rejectedAt,
+          CancellationToken cancellationToken)
+  {
+    if (!SupportRequestRejectionDispositions.IsSupported(
+        disposition))
+    {
+      return RelayRequestOutcomeStatus.Conflict;
+    }
+    await using var connection =
+        await OpenAsync(cancellationToken);
+    await using var transaction =
+        (SqliteTransaction)await connection
+            .BeginTransactionAsync(cancellationToken);
+    if (!await IsNodeCredentialValidAsync(
+            connection,
+            transaction,
+            nodeId,
+            credential,
+            cancellationToken))
+    {
+      await transaction.RollbackAsync(cancellationToken);
+      return RelayRequestOutcomeStatus.CredentialRejected;
+    }
+    await using var update = connection.CreateCommand();
+    update.Transaction = transaction;
+    update.CommandText =
+        """
+        UPDATE relay_sessions
+        SET status = 'rejected',
+            dispatched_at = COALESCE(
+                dispatched_at,
+                $rejectedAt),
+            rejected_at = COALESCE(rejected_at, $rejectedAt),
+            rejection_disposition = $disposition
+        WHERE node_id = $nodeId
+          AND session_id = $sessionId
+          AND (
+              status IN ('queued', 'dispatched')
+              OR (
+                  status = 'rejected'
+                  AND rejection_disposition = $disposition));
+        """;
+    update.Parameters.AddWithValue(
+        "$nodeId",
+        nodeId.ToString("D"));
+    update.Parameters.AddWithValue(
+        "$sessionId",
+        sessionId.ToString("D"));
+    update.Parameters.AddWithValue(
+        "$rejectedAt",
+        FormatUtc(rejectedAt));
+    update.Parameters.AddWithValue(
+        "$disposition",
+        disposition);
+    if (await update.ExecuteNonQueryAsync(cancellationToken) == 1)
+    {
+      await transaction.CommitAsync(cancellationToken);
+      return RelayRequestOutcomeStatus.Succeeded;
+    }
+    await using var inspect = connection.CreateCommand();
+    inspect.Transaction = transaction;
+    inspect.CommandText =
+        """
+        SELECT status
+        FROM relay_sessions
+        WHERE node_id = $nodeId
+          AND session_id = $sessionId;
+        """;
+    inspect.Parameters.AddWithValue(
+        "$nodeId",
+        nodeId.ToString("D"));
+    inspect.Parameters.AddWithValue(
+        "$sessionId",
+        sessionId.ToString("D"));
+    var status = await inspect.ExecuteScalarAsync(
+        cancellationToken) as string;
+    await transaction.CommitAsync(cancellationToken);
+    return status == "rejected"
+        ? RelayRequestOutcomeStatus.Conflict
+        : RelayRequestOutcomeStatus.SessionUnavailable;
   }
 
   public async Task<IReadOnlyList<RelayNodeActivityRecord>> GetNodeActivityAsync(
@@ -542,6 +677,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
             node_id,
             session_id,
             status,
+            dispatched_at,
+            rejected_at,
+            rejection_disposition,
             expires_at,
             request_envelope_json,
             result_envelope_json
@@ -707,6 +845,124 @@ internal sealed class SqliteRelayStore(string _databasePath)
     await alter.ExecuteNonQueryAsync(cancellationToken);
   }
 
+  private static async Task EnsureSessionLifecycleSchemaAsync(
+      SqliteConnection connection,
+      CancellationToken cancellationToken)
+  {
+    await using var inspect = connection.CreateCommand();
+    inspect.CommandText =
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = 'relay_sessions';
+        """;
+    var schema = await inspect.ExecuteScalarAsync(
+        cancellationToken) as string;
+    if (schema is not null &&
+        schema.Contains(
+            "'rejected'",
+            StringComparison.Ordinal) &&
+        schema.Contains(
+            "rejection_disposition",
+            StringComparison.Ordinal) &&
+        schema.Contains(
+            "dispatched_at",
+            StringComparison.Ordinal))
+    {
+      return;
+    }
+    await using var transaction =
+        (SqliteTransaction)await connection
+            .BeginTransactionAsync(cancellationToken);
+    await using var migrate = connection.CreateCommand();
+    migrate.Transaction = transaction;
+    migrate.CommandText =
+        """
+        ALTER TABLE relay_sessions
+            RENAME TO relay_sessions_legacy;
+
+        CREATE TABLE relay_sessions (
+            session_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'queued',
+                'dispatched',
+                'completed',
+                'rejected',
+                'cancelled',
+                'expired')),
+            dispatched_at TEXT NULL,
+            rejected_at TEXT NULL,
+            rejection_disposition TEXT NULL CHECK (
+                rejection_disposition IS NULL
+                OR rejection_disposition IN (
+                    'envelope-unsupported',
+                    'envelope-signature-rejected',
+                    'envelope-payload-rejected',
+                    'request-malformed',
+                    'session-mismatch',
+                    'wrong-tenant-or-node',
+                    'unsupported-capability',
+                    'unsupported-diagnostic-mode',
+                    'request-expired',
+                    'invalid-nonce',
+                    'request-replay',
+                    'replay-pending',
+                    'broker-markdown-rejected',
+                    'broker-report-rejected',
+                    'validation-rejected',
+                    'result-unavailable')),
+            expires_at TEXT NOT NULL,
+            request_envelope_json TEXT NOT NULL,
+            result_envelope_json TEXT NULL,
+            FOREIGN KEY (node_id) REFERENCES relay_nodes(node_id),
+            CHECK (
+                (status = 'rejected'
+                    AND rejection_disposition IS NOT NULL)
+                OR
+                (status <> 'rejected'
+                    AND rejection_disposition IS NULL))
+        );
+
+        INSERT INTO relay_sessions (
+            session_id,
+            tenant_id,
+            node_id,
+            status,
+            dispatched_at,
+            rejected_at,
+            rejection_disposition,
+            expires_at,
+            request_envelope_json,
+            result_envelope_json)
+        SELECT
+            session_id,
+            tenant_id,
+            node_id,
+            status,
+            NULL,
+            NULL,
+            NULL,
+            expires_at,
+            request_envelope_json,
+            result_envelope_json
+        FROM relay_sessions_legacy;
+
+        DROP TABLE relay_sessions_legacy;
+
+        CREATE INDEX ix_relay_sessions_node_status_expiry
+            ON relay_sessions (
+                node_id,
+                status,
+                expires_at,
+                session_id);
+        """;
+    await migrate.ExecuteNonQueryAsync(cancellationToken);
+    await transaction.CommitAsync(cancellationToken);
+  }
+
   private static async Task<bool> IsNodeCredentialValidAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -743,8 +999,19 @@ internal sealed class SqliteRelayStore(string _databasePath)
           Guid.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
           Guid.Parse(reader.GetString(2), CultureInfo.InvariantCulture),
           reader.GetString(3),
-          DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
-          reader.GetString(5),
+          DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture),
+          reader.GetString(8),
+          reader.IsDBNull(9) ? null : reader.GetString(9),
+          reader.IsDBNull(4)
+              ? null
+              : DateTimeOffset.Parse(
+                  reader.GetString(4),
+                  CultureInfo.InvariantCulture),
+          reader.IsDBNull(5)
+              ? null
+              : DateTimeOffset.Parse(
+                  reader.GetString(5),
+                  CultureInfo.InvariantCulture),
           reader.IsDBNull(6) ? null : reader.GetString(6));
 
   private static string Format(DateTimeOffset value) =>

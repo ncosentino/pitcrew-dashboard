@@ -116,20 +116,6 @@ public sealed class SupportRejectedRequestMatrixScenario : ICanaryScenario
           expectation.ExpectedDisposition,
           context.TimeProvider,
           cancellationToken);
-      if (expectation.ExpectedDisposition != "completed")
-      {
-        await ExecuteControlAsync(
-            context.RunRoot,
-            runtime.RunId,
-            CanaryRejectedRequestControlFile
-                .CreateCancellationRequest(
-                    runtime.RunId,
-                    Guid.NewGuid(),
-                    sessionId),
-            "request-cancelled",
-            context.TimeProvider,
-            cancellationToken);
-      }
     }
     return "request-rejection-matrix-verified";
   }

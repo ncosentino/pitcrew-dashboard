@@ -126,6 +126,19 @@ public sealed record CreateSupportDiagnosticSessionRequest(
 /// <summary>
 /// Response for one support diagnostic session.
 /// </summary>
+/// <param name="SessionId">Stable session identifier.</param>
+/// <param name="NodeId">Target support node identifier.</param>
+/// <param name="DiagnosticMode">Closed diagnostic mode.</param>
+/// <param name="ProfileId">Optional PitCrew profile.</param>
+/// <param name="Capability">Authorized support capability.</param>
+/// <param name="RequestDigest">Canonical request digest.</param>
+/// <param name="NodeSigningKeyFingerprint">Pinned node signing key.</param>
+/// <param name="Status">Current session lifecycle.</param>
+/// <param name="RequestedAt">Dashboard authorization time.</param>
+/// <param name="ExpiresAt">Terminal request expiry.</param>
+/// <param name="DispatchedAt">First relay dispatch when known.</param>
+/// <param name="RejectionDisposition">Closed agent rejection outcome.</param>
+/// <param name="Result">Verified completed result.</param>
 public sealed record SupportDiagnosticSessionResponse(
     string SessionId,
     string NodeId,
@@ -137,6 +150,8 @@ public sealed record SupportDiagnosticSessionResponse(
     string Status,
     DateTimeOffset RequestedAt,
     DateTimeOffset ExpiresAt,
+    DateTimeOffset? DispatchedAt,
+    string? RejectionDisposition,
     SupportDiagnosticResultResponse? Result);
 
 /// <summary>

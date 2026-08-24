@@ -470,6 +470,19 @@ export function SupportSessionCard({
       <div className="text-sm text-muted-foreground">
         Requested {formatTime(session.requestedAt)} · expires {formatTime(session.expiresAt)}
       </div>
+      {session.dispatchedAt ? (
+        <div className="text-sm text-muted-foreground">
+          First dispatched {formatTime(session.dispatchedAt)}
+        </div>
+      ) : null}
+      {session.rejectionDisposition ? (
+        <div className="text-sm text-muted-foreground">
+          Rejection disposition:{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+            {session.rejectionDisposition}
+          </code>
+        </div>
+      ) : null}
       {session.result ? (
         <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
           {JSON.stringify(session.result.report, null, 2)}
