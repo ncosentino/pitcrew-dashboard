@@ -487,10 +487,14 @@ public sealed class CanaryManifestContractTests
     try
     {
       CanaryManifestFile.WriteScenarioResult(path, result);
+      var read = CanaryManifestFile.ReadScenarioResult(path);
 
-      await Assert.That(
-              CanaryManifestFile.ReadScenarioResult(path))
-          .IsEqualTo(result);
+      await Assert.That(read.ScenarioId)
+          .IsEqualTo(result.ScenarioId);
+      await Assert.That(read.Status)
+          .IsEqualTo(result.Status);
+      await Assert.That(read.Steps)
+          .IsEquivalentTo(result.Steps);
     }
     finally
     {

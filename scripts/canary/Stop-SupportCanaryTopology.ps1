@@ -12,7 +12,64 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'SupportCanary.Common.ps1')
 
+function Update-ContainerRuntimeRecord {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RunRoot,
+
+        [Parameter(Mandatory)]
+        [object]$Plan,
+
+        [Parameter(Mandatory)]
+        [object]$Topology
+    )
+
+    $dashboardContainerId = [string](
+        & docker container inspect `
+            --format '{{.Id}}' `
+            ([string]$Topology.dashboardContainerName)
+    )
+    $relayContainerId = [string](
+        & docker container inspect `
+            --format '{{.Id}}' `
+            ([string]$Topology.relayContainerName)
+    )
+    $dashboardContainerId = $dashboardContainerId.Trim()
+    $relayContainerId = $relayContainerId.Trim()
+    if ($LASTEXITCODE -ne 0 -or
+        $dashboardContainerId -cnotmatch '^[a-f0-9]{64}$' -or
+        $relayContainerId -cnotmatch '^[a-f0-9]{64}$') {
+        throw 'The current canary container IDs are unavailable.'
+    }
+    Assert-SupportCanaryContainerInstance `
+        -ContainerId $dashboardContainerId `
+        -ExpectedImageId ([string]$Topology.dashboardImage.imageId) `
+        -RunId ([string]$Plan.runId) `
+        -Component dashboard
+    Assert-SupportCanaryContainerInstance `
+        -ContainerId $relayContainerId `
+        -ExpectedImageId ([string]$Topology.relayImage.imageId) `
+        -RunId ([string]$Plan.runId) `
+        -Component relay
+    Write-SupportCanaryJson `
+        -LiteralPath (Join-Path $RunRoot 'container-runtime.json') `
+        -Value ([PSCustomObject][ordered]@{
+            schemaVersion = 1
+            runId = [string]$Plan.runId
+            dashboardContainerId = $dashboardContainerId
+            relayContainerId = $relayContainerId
+        }) `
+        -Overwrite
+}
+
 $plan = Read-SupportCanaryPlan -RunRoot $RunRoot
+$containerTopology = if (
+    [string]$plan.topologyProfile -ceq 'containerized'
+) {
+    Read-SupportCanaryContainerTopology -RunRoot $RunRoot
+} else {
+    $null
+}
 $processPath = Join-Path $RunRoot 'topology-process.json'
 $hasProcessState = Test-Path -LiteralPath $processPath -PathType Leaf
 if (-not $hasProcessState -and
@@ -46,6 +103,12 @@ if ($hasProcessState) {
                 ($actualStart - $expectedStart).TotalSeconds) -gt 1) {
             throw 'The canary topology process identity no longer matches.'
         }
+        if ($null -ne $containerTopology) {
+            Update-ContainerRuntimeRecord `
+                -RunRoot $RunRoot `
+                -Plan $plan `
+                -Topology $containerTopology
+        }
         [IO.File]::WriteAllText(
             (Join-Path $RunRoot 'stop.request'),
             [string]$plan.runId,
@@ -61,7 +124,7 @@ if ($hasProcessState) {
 }
 
 if ([string]$plan.topologyProfile -ceq 'containerized') {
-    $topology = Read-SupportCanaryContainerTopology -RunRoot $RunRoot
+    $topology = $containerTopology
     $containerRuntimePath = Join-Path $RunRoot 'container-runtime.json'
     if (Test-Path -LiteralPath $containerRuntimePath -PathType Leaf) {
         $runtimeItem = Get-Item -LiteralPath $containerRuntimePath -Force
@@ -110,6 +173,16 @@ if ([string]$plan.topologyProfile -ceq 'containerized') {
                     '--force',
                     $container.Id
                 )
+            }
+        }
+        foreach ($containerName in @(
+                [string]$topology.dashboardContainerName,
+                [string]$topology.relayContainerName
+            )) {
+            if (Test-SupportCanaryDockerObject `
+                    -Kind container `
+                    -Identity $containerName) {
+                throw 'An unrecorded run-scoped canary container remains.'
             }
         }
     } else {
