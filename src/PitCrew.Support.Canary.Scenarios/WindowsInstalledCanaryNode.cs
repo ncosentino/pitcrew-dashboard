@@ -395,7 +395,8 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
           SocketPath = "/run/pitcrew-support/broker.sock",
           DashboardUrl = dashboardUrl,
           TenantId = "local",
-          DisplayName = "Canary Windows support node",
+          DisplayName =
+              SupportCanaryDashboardClient.EnrollmentDisplayName,
           EnrollmentCode = enrollmentCode,
         },
       },

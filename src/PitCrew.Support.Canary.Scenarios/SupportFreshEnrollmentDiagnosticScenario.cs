@@ -511,7 +511,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           SocketPath = socketPath,
           DashboardUrl = dashboardUrl,
           TenantId,
-          DisplayName = "Canary support node",
+          DisplayName =
+              SupportCanaryDashboardClient.EnrollmentDisplayName,
           EnrollmentCode = enrollmentCode,
         },
       },

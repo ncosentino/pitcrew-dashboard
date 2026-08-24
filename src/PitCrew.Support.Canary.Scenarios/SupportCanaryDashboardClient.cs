@@ -9,6 +9,7 @@ namespace PitCrew.Support.Canary.Scenarios;
 internal sealed class SupportCanaryDashboardClient : IDisposable
 {
   private const string TenantId = "local";
+  internal const string EnrollmentDisplayName = "Canary support node";
   private const string AntiforgeryHeader =
       "X-PitCrew-Antiforgery";
   private readonly HttpClient _client;
@@ -63,7 +64,7 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
     {
       Content = JsonContent.Create(
           new CreateSupportEnrollmentAuthorizationRequest(
-              "Canary support node")),
+              EnrollmentDisplayName)),
     };
     request.Headers.Add(
         AntiforgeryHeader,
