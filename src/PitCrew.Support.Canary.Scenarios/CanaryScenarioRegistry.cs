@@ -10,6 +10,7 @@ public static class CanaryScenarioRegistry
       new ICanaryScenario[]
       {
         new SupportFreshEnrollmentDiagnosticScenario(),
+        new SupportRelayRestartRecoveryScenario(),
         new TopologySmokeScenario(),
       }.ToDictionary(
           scenario => scenario.Id,

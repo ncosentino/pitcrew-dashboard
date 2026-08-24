@@ -396,7 +396,9 @@ function Write-SupportCanaryJson {
         [string]$LiteralPath,
 
         [Parameter(Mandatory)]
-        [object]$Value
+        [object]$Value,
+
+        [switch]$Overwrite
     )
 
     $temporaryPath = "$LiteralPath.$([Guid]::NewGuid().ToString('N')).tmp"
@@ -406,7 +408,10 @@ function Write-SupportCanaryJson {
             (($Value | ConvertTo-Json -Depth 20) + "`n"),
             [Text.UTF8Encoding]::new($false)
         )
-        [IO.File]::Move($temporaryPath, $LiteralPath, $false)
+        [IO.File]::Move(
+            $temporaryPath,
+            $LiteralPath,
+            [bool]$Overwrite)
     } finally {
         if (Test-Path -LiteralPath $temporaryPath) {
             Remove-Item -LiteralPath $temporaryPath -Force

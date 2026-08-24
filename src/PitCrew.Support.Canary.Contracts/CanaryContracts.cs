@@ -90,6 +90,13 @@ public static class CanaryCapabilities
   /// </summary>
   public const string ContainerRunScopedStorage =
       "container-run-scoped-storage";
+
+  /// <summary>
+  /// The AppHost accepts one typed run-scoped request to restart only the
+  /// support-relay resource.
+  /// </summary>
+  public const string RelayRestartControl =
+      "relay-restart-control";
 }
 
 /// <summary>
@@ -197,6 +204,7 @@ public static class CanaryManifestFile
           "first-accepted-poll",
           "prove-unrelated-state-unchanged",
           "relay-health",
+          "restart-relay-and-recover",
           "revoke-and-delete-keys",
           "scenario-execution",
           "start-diagnostics-broker",
@@ -268,6 +276,9 @@ public static class CanaryManifestFile
           "pitcrew-verifier-rejected-result",
           "revocation-state-missing",
           "revoked-and-keys-deleted",
+          "relay-restarted",
+          "relay-restart-rejected",
+          "relay-restart-timeout",
           "scenario-cancelled",
           "scenario-failed",
           "scenario-result-invalid",

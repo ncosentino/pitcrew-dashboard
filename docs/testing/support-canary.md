@@ -19,6 +19,7 @@ support:
 
 - `topology-smoke-v1`
 - `support-fresh-enrollment-diagnostic-v1`
+- `support-relay-restart-recovery-v1`
 
 Dashboard's embedded support evidence policy pins the PitCrew commit accepted by
 the broker. Selecting another PitCrew SHA intentionally fails before enrollment
@@ -68,6 +69,17 @@ Use the individual scripts when developing topology or scenarios:
 Scaffolding and topology execution are independent: a run can be inspected after
 scaffolding, and multiple registered scenarios can attach to a compatible
 running topology without changing AppHost orchestration.
+
+`support-relay-restart-recovery-v1` composes the fresh-enrollment workflow with
+one typed AppHost control request after the first accepted poll. The AppHost
+stops only its exact `support-relay` resource through Aspire's closed resource
+command, holds the outage for 18 seconds so the existing 15-second agent poll
+cadence crosses it, then starts the relay. The scenario requires the original
+portable/container agent to remain alive, relay health, bootstrap
+finalization, the second accepted poll, signed diagnostic completion,
+revocation/DeleteKeys, and unchanged unrelated state. The control files contain
+only run ID, request ID, operation, status, and bounded disposition; no generic
+resource name or command crosses the scenario boundary.
 
 ## Evidence and secrets
 

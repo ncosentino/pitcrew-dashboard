@@ -18,26 +18,59 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     ICanaryScenario
 {
   private const string TenantId = "local";
-  private const string ScenarioId =
+  private const string DefaultScenarioId =
       "support-fresh-enrollment-diagnostic-v1";
+  private readonly string _scenarioId;
+  private readonly IReadOnlySet<string> _requiredCapabilities;
+  private readonly Func<
+      CanaryRuntimeManifest,
+      CanaryScenarioContext,
+      CancellationToken,
+      Task<string>>? _afterFirstAcceptedPoll;
   private static readonly JsonSerializerOptions _jsonOptions =
       new(JsonSerializerDefaults.Web)
       {
         WriteIndented = true,
       };
 
-  /// <inheritdoc />
-  public string Id => ScenarioId;
+  /// <summary>
+  /// Initializes the default fresh-enrollment diagnostic scenario.
+  /// </summary>
+  public SupportFreshEnrollmentDiagnosticScenario()
+      : this(
+          DefaultScenarioId,
+          [],
+          afterFirstAcceptedPoll: null)
+  {
+  }
+
+  internal SupportFreshEnrollmentDiagnosticScenario(
+      string scenarioId,
+      IEnumerable<string> additionalCapabilities,
+      Func<
+          CanaryRuntimeManifest,
+          CanaryScenarioContext,
+          CancellationToken,
+          Task<string>>? afterFirstAcceptedPoll)
+  {
+    _scenarioId = scenarioId;
+    _requiredCapabilities = new HashSet<string>(
+        new[]
+        {
+            CanaryCapabilities.DashboardHttp,
+            CanaryCapabilities.RelayHttp,
+            CanaryCapabilities.PitCrewFileOnlyEvidence,
+        }.Concat(additionalCapabilities),
+        StringComparer.OrdinalIgnoreCase);
+    _afterFirstAcceptedPoll = afterFirstAcceptedPoll;
+  }
 
   /// <inheritdoc />
-  public IReadOnlySet<string> RequiredCapabilities { get; } =
-      new HashSet<string>(
-      [
-          CanaryCapabilities.DashboardHttp,
-          CanaryCapabilities.RelayHttp,
-          CanaryCapabilities.PitCrewFileOnlyEvidence,
-      ],
-      StringComparer.OrdinalIgnoreCase);
+  public string Id => _scenarioId;
+
+  /// <inheritdoc />
+  public IReadOnlySet<string> RequiredCapabilities =>
+      _requiredCapabilities;
 
   /// <inheritdoc />
   public async Task<CanaryScenarioResult> RunAsync(
@@ -225,6 +258,26 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             return "first-poll-accepted";
           },
           cancellationToken);
+      if (_afterFirstAcceptedPoll is not null)
+      {
+        await execution.RunStepAsync(
+            "restart-relay-and-recover",
+            async token =>
+            {
+              var category = await _afterFirstAcceptedPoll(
+                  runtime,
+                  context,
+                  token);
+              if (installedNode is null &&
+                  (agent is null || agent.HasExited))
+              {
+                throw new CanaryScenarioFailureException(
+                    "agent-exited-before-poll");
+              }
+              return category;
+            },
+            cancellationToken);
+      }
       await execution.RunStepAsync(
           "finalize-bootstrap-and-restart",
           async token =>
@@ -291,6 +344,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             await InvokePitCrewVerifierAsync(
                 runtime,
                 context,
+                Id,
                 nodeId,
                 diagnosticCredential,
                 token);
@@ -659,6 +713,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
   private static async Task InvokePitCrewVerifierAsync(
       CanaryRuntimeManifest runtime,
       CanaryScenarioContext context,
+      string scenarioId,
       Guid nodeId,
       string diagnosticCredential,
       CancellationToken cancellationToken)
@@ -666,7 +721,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     var scenarioRoot = Path.Combine(
         context.RunRoot,
         "scenario",
-        ScenarioId);
+        scenarioId);
     Directory.CreateDirectory(scenarioRoot);
     var preflightPath = Path.Combine(
         scenarioRoot,

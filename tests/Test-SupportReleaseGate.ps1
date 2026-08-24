@@ -504,6 +504,10 @@ Add-Check (
         'support-canary-container-\$\{\{ github\.run_id \}\}'
 ) 'The containerized canary is not independently invocable on public infrastructure.'
 Add-Check (
+    $supportCanaryWorkflow -match
+        "(?ms)scenario:.*?options:.*?- support-relay-restart-recovery-v1"
+) 'The relay-restart scenario is not independently selectable.'
+Add-Check (
     $prepareWorkflow -match
         'uses: \./\.github/workflows/support-canary\.yml' -and
     $prepareWorkflow -match

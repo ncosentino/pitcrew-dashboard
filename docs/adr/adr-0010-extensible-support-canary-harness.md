@@ -175,6 +175,13 @@ redacted result, and exits nonzero on failure. Tests invoke the same scenario
 object against an AppHost created by `Aspire.Hosting.Testing`; they do not copy
 scenario steps into a test-specific workflow.
 
+Topology disruption is exposed only through versioned run-scoped control files.
+The initial control operation is exactly `restart-relay`; the scenario cannot
+name a resource or command. AppHost maps that operation to Aspire's stop and
+start commands for its unique `support-relay` resource and returns only a
+bounded success or rejection disposition. No control endpoint or command seam
+is added to Dashboard, relay, agent, or broker production code.
+
 The first release scenario,
 `support-fresh-enrollment-diagnostic-v1`, performs:
 
@@ -194,6 +201,13 @@ The portable profile runs the agent and broker as unprivileged candidate
 processes. It proves process, protocol, cryptography, and file-only collection
 compatibility. It does not claim service identity, ACL, firewall, systemd,
 Windows Service Control Manager, or installed-package evidence.
+
+The second scenario, `support-relay-restart-recovery-v1`, composes that same
+workflow with the typed relay restart after its first accepted poll. It then
+requires relay health recovery, bootstrap finalization, the second accepted
+poll, signed diagnostic completion, revocation, DeleteKeys, and unchanged
+unrelated state. Adding it does not change AppHost resource topology or GitHub
+workflow control flow.
 
 ## CI and trust boundary
 

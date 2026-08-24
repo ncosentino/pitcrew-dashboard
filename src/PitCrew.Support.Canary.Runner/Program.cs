@@ -80,6 +80,7 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.SupportAgentProcess,
             CanaryCapabilities.SupportBrokerProcess,
             CanaryCapabilities.PitCrewFileOnlyEvidence,
+            CanaryCapabilities.RelayRestartControl,
         ],
         CanaryTopologyProfiles.Containerized =>
         [
@@ -91,6 +92,7 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.CandidateContainerImages,
             CanaryCapabilities.ContainerSessionNetwork,
             CanaryCapabilities.ContainerRunScopedStorage,
+            CanaryCapabilities.RelayRestartControl,
         ],
         CanaryTopologyProfiles.WindowsInstalled =>
         [
@@ -99,6 +101,7 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.PitCrewFileOnlyEvidence,
             CanaryCapabilities.WindowsInstalledServices,
             CanaryCapabilities.WindowsServiceIsolation,
+            CanaryCapabilities.RelayRestartControl,
         ],
         _ => throw new InvalidDataException(
             "The canary topology profile is unsupported."),
