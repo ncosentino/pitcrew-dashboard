@@ -15,6 +15,16 @@ param(
     [Guid]$DashboardNodeId,
 
     [Parameter(Mandatory)]
+    [ValidateSet(
+        'ConnectorOffline',
+        'CapacityMismatch',
+        'JobNotAssigned',
+        'HostPressure',
+        'Full'
+    )]
+    [string]$DiagnosticMode,
+
+    [Parameter(Mandatory)]
     [string]$PreflightPath,
 
     [Parameter(Mandatory)]
@@ -41,7 +51,7 @@ $result = & $SupportRelayScriptPath `
     -DashboardUrl $DashboardUrl `
     -TenantId $TenantId `
     -DashboardNodeId $DashboardNodeId `
-    -DiagnosticMode ConnectorOffline `
+    -DiagnosticMode $DiagnosticMode `
     -Profile default `
     -PreflightPath $PreflightPath `
     -OutputDirectory $OutputDirectory `

@@ -253,6 +253,7 @@ public static class CanaryManifestFile
           "dashboard-session-missing",
           "dashboard-session-rejected",
           "delete-keys-unconfirmed",
+          "diagnostic-mode-matrix-verified",
           "diagnostic-credential-empty",
           "diagnostic-credential-rejected",
           "enrollment-authorization-empty",

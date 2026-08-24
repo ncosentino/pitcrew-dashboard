@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 
 using PitCrew.Support.Canary.Contracts;
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Canary.Scenarios;
 
@@ -22,6 +23,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       "support-fresh-enrollment-diagnostic-v1";
   private readonly string _scenarioId;
   private readonly IReadOnlySet<string> _requiredCapabilities;
+  private readonly IReadOnlyList<string> _diagnosticModes;
   private readonly Func<
       CanaryRuntimeManifest,
       CanaryScenarioContext,
@@ -40,7 +42,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       : this(
           DefaultScenarioId,
           [],
-          afterFirstAcceptedPoll: null)
+          afterFirstAcceptedPoll: null,
+          [SupportDiagnosticModes.ConnectorOffline])
   {
   }
 
@@ -51,7 +54,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           CanaryRuntimeManifest,
           CanaryScenarioContext,
           CancellationToken,
-          Task<string>>? afterFirstAcceptedPoll)
+          Task<string>>? afterFirstAcceptedPoll,
+      IReadOnlyList<string>? diagnosticModes = null)
   {
     _scenarioId = scenarioId;
     _requiredCapabilities = new HashSet<string>(
@@ -63,6 +67,19 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         }.Concat(additionalCapabilities),
         StringComparer.OrdinalIgnoreCase);
     _afterFirstAcceptedPoll = afterFirstAcceptedPoll;
+    _diagnosticModes = diagnosticModes is null
+        ? [SupportDiagnosticModes.ConnectorOffline]
+        : diagnosticModes.ToArray();
+    if (_diagnosticModes.Count == 0 ||
+        _diagnosticModes.Any(mode =>
+            !SupportDiagnosticModes.IsSupported(mode)) ||
+        _diagnosticModes.Distinct(StringComparer.Ordinal).Count() !=
+            _diagnosticModes.Count)
+    {
+      throw new ArgumentException(
+          "Diagnostic modes must be a unique non-empty subset of the closed support protocol.",
+          nameof(diagnosticModes));
+    }
   }
 
   /// <inheritdoc />
@@ -341,18 +358,24 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                     context.TimeProvider.GetUtcNow().AddHours(1),
                     token);
             diagnosticCredential = credential.Value;
-            await InvokePitCrewVerifierAsync(
-                runtime,
-                context,
-                Id,
-                nodeId,
-                diagnosticCredential,
-                token);
+            foreach (var diagnosticMode in _diagnosticModes)
+            {
+              await InvokePitCrewVerifierAsync(
+                  runtime,
+                  context,
+                  Id,
+                  diagnosticMode,
+                  nodeId,
+                  diagnosticCredential,
+                  token);
+            }
             await dashboard.RequireIdentityActivityAsync(
                 nodeId,
                 requireResult: true,
                 token);
-            return "attestation-verified";
+            return _diagnosticModes.Count == 1
+                ? "attestation-verified"
+                : "diagnostic-mode-matrix-verified";
           },
           cancellationToken);
       await execution.RunStepAsync(
@@ -714,6 +737,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       CanaryRuntimeManifest runtime,
       CanaryScenarioContext context,
       string scenarioId,
+      string diagnosticMode,
       Guid nodeId,
       string diagnosticCredential,
       CancellationToken cancellationToken)
@@ -721,7 +745,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     var scenarioRoot = Path.Combine(
         context.RunRoot,
         "scenario",
-        scenarioId);
+        scenarioId,
+        diagnosticMode);
     Directory.CreateDirectory(scenarioRoot);
     var preflightPath = Path.Combine(
         scenarioRoot,
@@ -734,7 +759,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
               schemaVersion = 1,
               capturedAt =
                   context.TimeProvider.GetUtcNow(),
-              diagnosticMode = "ConnectorOffline",
+              diagnosticMode,
               dashboard = new
               {
                 nodeId,
@@ -796,6 +821,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             TenantId,
             "-DashboardNodeId",
             nodeId.ToString("D"),
+            "-DiagnosticMode",
+            diagnosticMode,
             "-PreflightPath",
             preflightPath,
             "-OutputDirectory",

@@ -19,6 +19,7 @@ support:
 
 - `topology-smoke-v1`
 - `support-fresh-enrollment-diagnostic-v1`
+- `support-diagnostic-mode-matrix-v1`
 - `support-relay-restart-recovery-v1`
 
 Dashboard's embedded support evidence policy pins the PitCrew commit accepted by
@@ -80,6 +81,15 @@ finalization, the second accepted poll, signed diagnostic completion,
 revocation/DeleteKeys, and unchanged unrelated state. The control files contain
 only run ID, request ID, operation, status, and bounded disposition; no generic
 resource name or command crosses the scenario boundary.
+
+`support-diagnostic-mode-matrix-v1` composes the same enrollment, finalization,
+revocation, cleanup, and unchanged-state workflow without a topology-control
+capability. It sequentially completes `ConnectorOffline`, `CapacityMismatch`,
+`JobNotAssigned`, `HostPressure`, and `Full` through the actual PitCrew relay
+verifier. Every mode must return a completed result with a valid node
+attestation; the publishable evidence records only the bounded
+`diagnostic-mode-matrix-verified` category rather than reports or mode-specific
+host data.
 
 ## Evidence and secrets
 
