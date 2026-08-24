@@ -336,6 +336,17 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
     return null;
   }
 
+  public Task PrepareRequestObservationAsync(
+      CancellationToken cancellationToken)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    DeleteIfPresent(
+        Path.Combine(
+            AgentStateRoot,
+            "agent-startup-status.json"));
+    return Task.CompletedTask;
+  }
+
   public async ValueTask DisposeAsync()
   {
     Exception? cleanupFailure = null;

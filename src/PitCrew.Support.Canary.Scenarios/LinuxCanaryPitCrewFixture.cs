@@ -37,7 +37,11 @@ internal sealed class LinuxCanaryPitCrewFixture : IAsyncDisposable
   public async Task CreateAsync(
       CancellationToken cancellationToken)
   {
-    if (Directory.Exists(RunRoot))
+    if (Directory.Exists(RunRoot) ||
+        File.Exists(RunRoot) ||
+        (Directory.Exists(BaseRoot) &&
+         (File.GetAttributes(BaseRoot) &
+             FileAttributes.ReparsePoint) != 0))
     {
       throw new CanaryScenarioFailureException(
           "linux-pitcrew-fixture-rejected");

@@ -865,6 +865,11 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         "pitcrew-remote-diagnostics",
         "scripts",
         "Invoke-PitCrewSupportRelay.ps1");
+    if (installedNode is not null)
+    {
+      await installedNode.PrepareRequestObservationAsync(
+          cancellationToken);
+    }
     using var observationCancellation =
         CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
