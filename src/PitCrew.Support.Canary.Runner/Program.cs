@@ -142,6 +142,15 @@ internal static class CanaryRunnerProgram
             CanaryCapabilities.WindowsServiceIsolation,
             CanaryCapabilities.RelayRestartControl,
         ],
+        CanaryTopologyProfiles.LinuxInstalled =>
+        [
+            CanaryCapabilities.DashboardHttp,
+            CanaryCapabilities.RelayHttp,
+            CanaryCapabilities.PitCrewFileOnlyEvidence,
+            CanaryCapabilities.LinuxInstalledServices,
+            CanaryCapabilities.LinuxSystemdIsolation,
+            CanaryCapabilities.RelayRestartControl,
+        ],
         _ => throw new InvalidDataException(
             "The canary topology profile is unsupported."),
       };

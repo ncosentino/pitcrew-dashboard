@@ -27,7 +27,11 @@ param(
         'support-terminal-lifecycle-v1')]
     [string]$Scenario = 'support-fresh-enrollment-diagnostic-v1',
 
-    [ValidateSet('portable', 'containerized', 'windows-installed')]
+    [ValidateSet(
+        'portable',
+        'containerized',
+        'windows-installed',
+        'linux-installed')]
     [string]$TopologyProfile = 'portable',
 
     [ValidateSet('Debug', 'Release')]
@@ -56,7 +60,10 @@ try {
         -DashboardSourceRoot $DashboardSourceRoot `
         -Configuration $Configuration
     $scenarioTimeoutSeconds = if (
-        $TopologyProfile -ceq 'windows-installed'
+        $TopologyProfile -in @(
+            'windows-installed',
+            'linux-installed'
+        )
     ) {
         600
     } else {

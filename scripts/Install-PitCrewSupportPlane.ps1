@@ -2659,7 +2659,7 @@ User=$linuxBrokerUser
 Group=$linuxIpcGroup
 SupplementaryGroups=$linuxBrokerUser
 WorkingDirectory=$($Paths.BrokerStateRoot)
-Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$brokerBundleRoot
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$brokerBundleRoot HOME=$($Paths.BrokerStateRoot)
 ExecStart=$(ConvertTo-SystemdArgument $brokerExecutable) --contentRoot $brokerContentRoot
 Restart=on-failure
 RestartSec=5
@@ -3052,7 +3052,9 @@ function Assert-EffectiveLinuxServiceBoundary {
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `
         -Directive 'Environment' `
-        -Expected "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $Paths.BrokerStateRoot 'bundle')"
+        -Expected (
+            "DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $Paths.BrokerStateRoot 'bundle') HOME=$($Paths.BrokerStateRoot)"
+        )
     Assert-SystemdUnitDirective `
         -Unit $linuxBrokerService `
         -ExpectedFragmentPath $Paths.BrokerUnitPath `

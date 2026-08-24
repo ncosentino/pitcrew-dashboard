@@ -161,6 +161,16 @@ teardown. This profile proves candidate image execution, session-network
 communication, and run-scoped storage; production Compose topology,
 multi-architecture indexes, and physical-host behavior remain separate evidence.
 
+The `linux-installed` profile keeps Dashboard and relay under the same
+Aspire-managed executable topology while installing candidate agent and broker
+packages through the product Linux installer on a disposable GitHub-hosted
+Ubuntu runner. It requires separate product users and groups, exact Unix socket
+ownership and mode, peer-credential enforcement, broker network isolation,
+typed bootstrap finalization, agent-only restart, revocation and DeleteKeys,
+and complete package, unit, identity, and state cleanup. The profile inspects
+only bounded non-secret service evidence through the runner's passwordless
+administrative boundary and never targets a self-hosted or live node.
+
 ## Scenario layer
 
 `ICanaryScenario` is the extension seam. A scenario has one stable identifier,
@@ -245,9 +255,9 @@ unchanged-state workflow.
 
 Dashboard provides a reusable and manually dispatchable workflow with exact
 Dashboard SHA, PitCrew SHA, scenario ID, and topology profile inputs. Pull
-requests run portable and containerized profiles on public GitHub-hosted Ubuntu
-and the Windows-installed profile on public GitHub-hosted Windows, using the
-pull-request SHA and the broker policy's pinned PitCrew SHA.
+requests run portable, containerized, and Linux-installed profiles on public
+GitHub-hosted Ubuntu and the Windows-installed profile on public GitHub-hosted
+Windows, using the pull-request SHA and the broker policy's pinned PitCrew SHA.
 
 The workflow uses no production secrets, no `pull_request_target`, and no
 self-hosted runners. It uploads only the bounded scenario result. Run state,

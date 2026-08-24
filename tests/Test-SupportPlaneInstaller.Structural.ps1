@@ -442,7 +442,7 @@ try {
         $boundaryPaths.BrokerUnitPath,
         (@(
             "WorkingDirectory=$($boundaryPaths.BrokerStateRoot)"
-            "Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $boundaryPaths.BrokerStateRoot 'bundle')"
+            "Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=$(Join-Path $boundaryPaths.BrokerStateRoot 'bundle') HOME=$($boundaryPaths.BrokerStateRoot)"
             'PrivateNetwork=true'
             'RestrictAddressFamilies=AF_UNIX'
             'IPAddressDeny=any'

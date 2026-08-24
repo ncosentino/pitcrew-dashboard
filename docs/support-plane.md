@@ -324,8 +324,10 @@ installations that overlap its fixed service names or product roots.
   `RestrictAddressFamilies=AF_UNIX`, `IPAddressDeny=any`, an empty capability
   bounding set, and read-only system protection. `ProtectHome=tmpfs` hides home
   trees while an exact read-only bind exposes the locally configured PitCrew
-  root when it is located beneath one. The agent retains only `AF_UNIX`,
-  `AF_INET`, and `AF_INET6`.
+  root when it is located beneath one. The broker's `HOME` is its protected
+  writable state root so the embedded PowerShell runtime never depends on the
+  service account's intentionally nonexistent login home. The agent retains
+  only `AF_UNIX`, `AF_INET`, and `AF_INET6`.
 - Lifecycle verification reads effective properties with `systemctl show`,
   rather than trusting the base unit text. The current installer owns no
   drop-ins, so any non-empty effective `DropInPaths` fails verification, as do
@@ -441,6 +443,10 @@ configuration.
 `Verify` includes those bounded fields when the Windows agent stops. The agent
 records an explicit accepted disposition after its first relay poll; no message,
 stack, path, setting, identity, credential, or payload is persisted.
+Transient broker I/O and timeout failures record separate bounded
+`request-processing` dispositions so a later replay rejection cannot erase the
+first actionable local failure. Typed broker rejections preserve only the
+broker's closed status; the broker error text remains local and unpersisted.
 
 Evidence verification operations distinguish tree enumeration, unexpected or
 malformed broker ACEs, agent denial count/shape, root metadata, selected evidence

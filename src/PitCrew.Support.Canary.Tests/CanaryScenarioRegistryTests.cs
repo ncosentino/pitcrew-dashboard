@@ -24,6 +24,9 @@ public sealed class CanaryScenarioRegistryTests
     await Assert.That(scenario.RequiredCapabilities)
         .DoesNotContain(
             CanaryCapabilities.WindowsInstalledServices);
+    await Assert.That(scenario.RequiredCapabilities)
+        .DoesNotContain(
+            CanaryCapabilities.LinuxInstalledServices);
     await Assert.That(CanaryScenarioRegistry.ScenarioIds)
         .Contains(scenarioId);
   }
@@ -46,6 +49,9 @@ public sealed class CanaryScenarioRegistryTests
     await Assert.That(scenario.RequiredCapabilities)
         .DoesNotContain(
             CanaryCapabilities.WindowsInstalledServices);
+    await Assert.That(scenario.RequiredCapabilities)
+        .DoesNotContain(
+            CanaryCapabilities.LinuxInstalledServices);
     await Assert.That(
             SupportRejectedRequestMatrixScenario
                 .ExpectedDispositions.Count)

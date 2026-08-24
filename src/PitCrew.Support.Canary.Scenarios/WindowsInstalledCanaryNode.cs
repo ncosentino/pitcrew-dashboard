@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace PitCrew.Support.Canary.Scenarios;
 
-internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
+internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
 {
   private const string CandidateVersion = "0.0.0-canary";
   private const string AgentServiceName = "PitCrewSupportAgent";
@@ -84,6 +84,8 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
   }
 
   public string AgentStateRoot { get; }
+
+  public string InstallationCategory => "windows-services-installed";
 
   public async Task InstallAsync(
       string dashboardUrl,
@@ -172,6 +174,7 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
       throw new CanaryScenarioFailureException(
           "bootstrap-finalization-rejected");
     }
+    VerifyBootstrapRemoved();
     await VerifyAsync(cancellationToken);
   }
 
@@ -278,6 +281,70 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
       throw new CanaryScenarioFailureException(
           "connector-health-fixture-mutated");
     }
+  }
+
+  public async Task<string?> ReadRequestDispositionAsync(
+      CancellationToken cancellationToken)
+  {
+    var statusPath = Path.Combine(
+        AgentStateRoot,
+        "agent-startup-status.json");
+    if (!File.Exists(statusPath))
+    {
+      return null;
+    }
+    using var status = JsonDocument.Parse(
+        await File.ReadAllTextAsync(
+            statusPath,
+            cancellationToken));
+    var root = status.RootElement;
+    if (root.GetProperty("phase").GetString() !=
+        "request-processing")
+    {
+      return null;
+    }
+    var disposition = root
+        .GetProperty("disposition")
+        .GetString();
+    return disposition == "completed"
+        ? null
+        : $"agent-{disposition}";
+  }
+
+  public async Task<string?> ObserveRequestFailureAsync(
+      CancellationToken cancellationToken)
+  {
+    using var timer = new PeriodicTimer(
+        TimeSpan.FromMilliseconds(250));
+    try
+    {
+      while (await timer.WaitForNextTickAsync(cancellationToken))
+      {
+        var disposition = await ReadRequestDispositionAsync(
+            cancellationToken);
+        if (disposition is not null)
+        {
+          return disposition;
+        }
+      }
+    }
+    catch (OperationCanceledException)
+        when (cancellationToken.IsCancellationRequested)
+    {
+      return null;
+    }
+    return null;
+  }
+
+  public Task PrepareRequestObservationAsync(
+      CancellationToken cancellationToken)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    DeleteIfPresent(
+        Path.Combine(
+            AgentStateRoot,
+            "agent-startup-status.json"));
+    return Task.CompletedTask;
   }
 
   public async ValueTask DisposeAsync()
@@ -433,6 +500,32 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
               WriteIndented = true,
             }) + "\n",
         new UTF8Encoding(false));
+  }
+
+  private void VerifyBootstrapRemoved()
+  {
+    using var document = JsonDocument.Parse(
+        File.ReadAllText(
+            Path.Combine(
+                AgentStateRoot,
+                "appsettings.json")));
+    var agent = document.RootElement
+        .GetProperty("pitCrewSupport")
+        .GetProperty("agent");
+    foreach (var propertyName in new[]
+    {
+        "dashboardUrl",
+        "tenantId",
+        "displayName",
+        "enrollmentCode",
+    })
+    {
+      if (agent.TryGetProperty(propertyName, out _))
+      {
+        throw new CanaryScenarioFailureException(
+            "bootstrap-material-retained");
+      }
+    }
   }
 
   private static IReadOnlyDictionary<string, string> SnapshotFiles(

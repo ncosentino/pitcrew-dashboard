@@ -27,7 +27,8 @@ internal sealed class NamedPipeDiagnosticsBroker(string _pipeName) : ILocalDiagn
     if (!string.Equals(response.Status, "Succeeded", StringComparison.Ordinal) ||
         response.Response is null)
     {
-      throw new IOException("Broker rejected the support diagnostic request.");
+      throw LocalDiagnosticsBrokerRejectedException.FromStatus(
+          response.Status);
     }
     return new LocalDiagnosticsResult(
         response.Response.Report,

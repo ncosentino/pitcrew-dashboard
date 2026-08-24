@@ -26,6 +26,12 @@ public static class CanaryTopologyProfiles
   /// run as isolated Windows services installed on a disposable host.
   /// </summary>
   public const string WindowsInstalled = "windows-installed";
+
+  /// <summary>
+  /// Runs Dashboard and relay under Aspire while the packaged agent and broker
+  /// run as isolated systemd services installed on a disposable host.
+  /// </summary>
+  public const string LinuxInstalled = "linux-installed";
 }
 
 /// <summary>
@@ -71,6 +77,20 @@ public static class CanaryCapabilities
   /// </summary>
   public const string WindowsServiceIsolation =
       "windows-service-isolation";
+
+  /// <summary>
+  /// The candidate support installer may manage the agent and broker as
+  /// systemd services under separate Linux identities.
+  /// </summary>
+  public const string LinuxInstalledServices =
+      "linux-installed-services";
+
+  /// <summary>
+  /// The installed Linux broker boundary includes Unix peer credentials,
+  /// socket ownership and mode, and systemd network isolation.
+  /// </summary>
+  public const string LinuxSystemdIsolation =
+      "linux-systemd-isolation";
 
   /// <summary>
   /// Dashboard and relay run from candidate container images whose local image
@@ -224,6 +244,31 @@ public static class CanaryManifestFile
       {
           "agent-broker-markdown-rejected",
           "agent-broker-report-rejected",
+          "agent-broker-io-unavailable",
+          "agent-broker-timeout",
+          "agent-broker-transport-unavailable",
+          "agent-broker-crash-access-denied",
+          "agent-broker-crash-directory-not-found",
+          "agent-broker-crash-diagnostics-execution",
+          "agent-broker-crash-evidence-validation",
+          "agent-broker-crash-file-not-found",
+          "agent-broker-crash-invalid-operation",
+          "agent-broker-crash-io",
+          "agent-broker-crash-peer-read",
+          "agent-broker-crash-powershell",
+          "agent-broker-crash-request-read",
+          "agent-broker-crash-response-write",
+          "agent-broker-crash-socket",
+          "agent-broker-crash-unclassified",
+          "agent-broker-evidence-access-denied",
+          "agent-broker-execution-failed",
+          "agent-broker-invalid-mode",
+          "agent-broker-invalid-profile",
+          "agent-broker-process-restarted",
+          "agent-broker-process-stopped",
+          "agent-broker-peer-mismatch",
+          "agent-broker-response-invalid",
+          "agent-broker-script-missing",
           "agent-credential-rejected",
           "agent-enrollment-rejected",
           "agent-envelope-payload-rejected",
@@ -279,6 +324,21 @@ public static class CanaryManifestFile
           "http-unavailable",
           "json-contract-invalid",
           "linux-process-identity-unavailable",
+          "linux-connector-cleanup-rejected",
+          "linux-connector-fixture-rejected",
+          "linux-installation-rejected",
+          "linux-installation-unavailable",
+          "linux-installed-artifact-missing",
+          "linux-installed-host-not-clean",
+          "linux-installed-platform-required",
+          "linux-installed-sudo-required",
+          "linux-pitcrew-cleanup-rejected",
+          "linux-pitcrew-fixture-rejected",
+          "linux-service-boundary-invalid",
+          "linux-service-inspection-failed",
+          "linux-services-installed",
+          "linux-uninstall-incomplete",
+          "linux-uninstall-rejected",
           "operating-system-unsupported",
           "pitcrew-fixture-mutated",
           "pitcrew-policy-incompatible",
@@ -652,7 +712,8 @@ public static class CanaryManifestFile
       value is
           CanaryTopologyProfiles.Portable or
           CanaryTopologyProfiles.Containerized or
-          CanaryTopologyProfiles.WindowsInstalled;
+          CanaryTopologyProfiles.WindowsInstalled or
+          CanaryTopologyProfiles.LinuxInstalled;
 
   private static bool IsLoopbackOrigin(string? value) =>
       value is not null &&

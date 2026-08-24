@@ -143,7 +143,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         "PitCrew.Support.Broker.App");
     CandidateProcess? agent = null;
     CandidateProcess? broker = null;
-    WindowsInstalledCanaryNode? installedNode = null;
+    IInstalledCanaryNode? installedNode = null;
     SupportCanaryDashboardClient? dashboard = null;
     string? antiforgeryToken = null;
     string? enrollmentCode = null;
@@ -171,6 +171,26 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       installedNode = new WindowsInstalledCanaryNode(
           context,
           fixtureRoot);
+      agentStateRoot = installedNode.AgentStateRoot;
+    }
+    else if (runtime.TopologyProfile ==
+        CanaryTopologyProfiles.LinuxInstalled)
+    {
+      if (!OperatingSystem.IsLinux() ||
+          !runtime.Capabilities.Contains(
+              CanaryCapabilities.LinuxInstalledServices,
+              StringComparer.Ordinal) ||
+          !runtime.Capabilities.Contains(
+              CanaryCapabilities.LinuxSystemdIsolation,
+              StringComparer.Ordinal))
+      {
+        throw new CanaryScenarioFailureException(
+            "topology-capability-missing");
+      }
+      installedNode = new LinuxInstalledCanaryNode(
+          context,
+          fixtureRoot,
+          runtime.RunId);
       agentStateRoot = installedNode.AgentStateRoot;
     }
     else if (
@@ -231,7 +251,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                   runtime.DashboardUrl,
                   enrollmentCode,
                   token);
-              return "windows-services-installed";
+              return installedNode.InstallationCategory;
             }
 #pragma warning disable IDISP003 // The nullable slot is owned and disposed by the scenario finally block.
             broker = CandidateProcess.Start(
@@ -322,7 +342,6 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             if (installedNode is not null)
             {
               await installedNode.FinalizeAndRestartAsync(token);
-              VerifyBootstrapRemoved(agentStateRoot);
               return "second-poll-accepted";
             }
             if (agent is null)
@@ -410,6 +429,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                   diagnosticMode,
                   nodeId,
                   diagnosticCredential,
+                  installedNode,
+                  agentStateRoot,
                   token);
             }
             await dashboard.RequireIdentityActivityAsync(
@@ -783,6 +804,8 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       string diagnosticMode,
       Guid nodeId,
       string diagnosticCredential,
+      IInstalledCanaryNode? installedNode,
+      string agentStateRoot,
       CancellationToken cancellationToken)
   {
     var scenarioRoot = Path.Combine(
@@ -842,46 +865,79 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         "pitcrew-remote-diagnostics",
         "scripts",
         "Invoke-PitCrewSupportRelay.ps1");
-    var exitCode = await CandidateProcess.RunToolAsync(
-        "pwsh",
-        scenarioRoot,
-        new Dictionary<string, string>(
-            StringComparer.OrdinalIgnoreCase)
-        {
-          ["PITCREW_DIAGNOSTICS_CREDENTIAL"] =
-              diagnosticCredential,
-        },
-        [
-            "-NoProfile",
-            "-NonInteractive",
-            "-File",
-            wrapperPath,
-            "-SupportRelayScriptPath",
-            supportRelayScriptPath,
-            "-DashboardUrl",
-            runtime.DashboardUrl,
-            "-TenantId",
-            TenantId,
-            "-DashboardNodeId",
-            nodeId.ToString("D"),
-            "-DiagnosticMode",
-            diagnosticMode,
-            "-PreflightPath",
-            preflightPath,
-            "-OutputDirectory",
-            outputRoot,
-            "-ResultPath",
-            resultPath,
-            "-TimeoutSeconds",
-            "120",
-        ],
-        TimeSpan.FromSeconds(180),
-        cancellationToken);
+    if (installedNode is not null)
+    {
+      await installedNode.PrepareRequestObservationAsync(
+          cancellationToken);
+    }
+    using var observationCancellation =
+        CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+    var observedFailure =
+        installedNode?.ObserveRequestFailureAsync(
+            observationCancellation.Token);
+    string? firstFailure = null;
+    int exitCode;
+    try
+    {
+      exitCode = await CandidateProcess.RunToolAsync(
+          "pwsh",
+          scenarioRoot,
+          new Dictionary<string, string>(
+              StringComparer.OrdinalIgnoreCase)
+          {
+            ["PITCREW_DIAGNOSTICS_CREDENTIAL"] =
+                diagnosticCredential,
+          },
+          [
+              "-NoProfile",
+              "-NonInteractive",
+              "-File",
+              wrapperPath,
+              "-SupportRelayScriptPath",
+              supportRelayScriptPath,
+              "-DashboardUrl",
+              runtime.DashboardUrl,
+              "-TenantId",
+              TenantId,
+              "-DashboardNodeId",
+              nodeId.ToString("D"),
+              "-DiagnosticMode",
+              diagnosticMode,
+              "-PreflightPath",
+              preflightPath,
+              "-OutputDirectory",
+              outputRoot,
+              "-ResultPath",
+              resultPath,
+              "-TimeoutSeconds",
+              "120",
+          ],
+          TimeSpan.FromSeconds(180),
+          cancellationToken);
+    }
+    finally
+    {
+      if (observedFailure?.IsCompletedSuccessfully == true)
+      {
+        firstFailure = await observedFailure;
+      }
+      await observationCancellation.CancelAsync();
+      if (observedFailure is not null)
+      {
+        firstFailure ??= await observedFailure;
+      }
+    }
     if (exitCode != 0 ||
         !File.Exists(resultPath))
     {
+      var disposition = installedNode is null
+          ? ReadAgentRequestDisposition(agentStateRoot)
+          : await installedNode.ReadRequestDispositionAsync(
+              cancellationToken);
       throw new CanaryScenarioFailureException(
-          ReadAgentRequestDisposition(context.RunRoot) ??
+          firstFailure ??
+          disposition ??
           "pitcrew-verifier-rejected-result");
     }
     using var result = JsonDocument.Parse(
@@ -901,12 +957,10 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
   }
 
   private static string? ReadAgentRequestDisposition(
-      string runRoot)
+      string agentStateRoot)
   {
     var statusPath = Path.Combine(
-        runRoot,
-        "services",
-        "agent",
+        agentStateRoot,
         "agent-startup-status.json");
     if (!File.Exists(statusPath))
     {
