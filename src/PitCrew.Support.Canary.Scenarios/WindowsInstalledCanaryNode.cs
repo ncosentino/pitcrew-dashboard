@@ -15,6 +15,9 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
   private readonly string _installerPath;
   private readonly string _artifactRoot;
   private readonly string _connectorHealthRoot;
+  private readonly string _agentInstallRoot;
+  private readonly string _brokerInstallRoot;
+  private readonly string _brokerStateRoot;
   private readonly IReadOnlyDictionary<string, string> _emptyEnvironment =
       new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
   private IReadOnlyDictionary<string, string>? _connectorSnapshot;
@@ -42,11 +45,28 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
     _fixtureRoot = fixtureRoot;
     var commonData = Environment.GetFolderPath(
         Environment.SpecialFolder.CommonApplicationData);
+    var programFiles = Environment.GetFolderPath(
+        Environment.SpecialFolder.ProgramFiles);
+    _agentInstallRoot = Path.Combine(
+        programFiles,
+        "PitCrew",
+        "Support",
+        "Agent");
+    _brokerInstallRoot = Path.Combine(
+        programFiles,
+        "PitCrew",
+        "Support",
+        "Broker");
     AgentStateRoot = Path.Combine(
         commonData,
         "PitCrew",
         "Support",
         "Agent");
+    _brokerStateRoot = Path.Combine(
+        commonData,
+        "PitCrew",
+        "Support",
+        "Broker");
     _connectorHealthRoot = Path.Combine(
         commonData,
         "PitCrew",
@@ -179,7 +199,10 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
           "windows-uninstall-rejected");
     }
     _installed = false;
-    if (Directory.Exists(AgentStateRoot) ||
+    if (Directory.Exists(_agentInstallRoot) ||
+        Directory.Exists(_brokerInstallRoot) ||
+        Directory.Exists(AgentStateRoot) ||
+        Directory.Exists(_brokerStateRoot) ||
         await ServiceExistsAsync(
             AgentServiceName,
             cancellationToken) ||
@@ -452,8 +475,20 @@ internal sealed class WindowsInstalledCanaryNode : IAsyncDisposable
     using var process = Process.Start(startInfo) ??
         throw new IOException(
             "Windows service inspection did not start.");
+    var standardOutput = process.StandardOutput.ReadToEndAsync(
+        cancellationToken);
+    var standardError = process.StandardError.ReadToEndAsync(
+        cancellationToken);
     await process.WaitForExitAsync(cancellationToken);
-    return process.ExitCode == 0;
+    _ = await standardOutput;
+    _ = await standardError;
+    return process.ExitCode switch
+    {
+      0 => true,
+      1060 => false,
+      _ => throw new CanaryScenarioFailureException(
+          "windows-service-inspection-failed"),
+    };
   }
 
   private static void DeleteIfPresent(string path)

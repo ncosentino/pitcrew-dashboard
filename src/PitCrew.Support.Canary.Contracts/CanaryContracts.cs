@@ -262,6 +262,7 @@ public static class CanaryManifestFile
           "windows-installed-platform-required",
           "windows-process-sid-unavailable",
           "windows-service-boundary-invalid",
+          "windows-service-inspection-failed",
           "windows-services-installed",
           "windows-uninstall-incomplete",
           "windows-uninstall-rejected",
