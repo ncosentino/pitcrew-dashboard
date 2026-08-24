@@ -335,6 +335,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
             $tenantId,
             $nodeId,
             'queued',
+            NULL,
+            NULL,
+            NULL,
             $expiresAt,
             $requestEnvelope
         FROM relay_nodes
