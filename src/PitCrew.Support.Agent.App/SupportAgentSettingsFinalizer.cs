@@ -67,10 +67,21 @@ internal static class SupportAgentSettingsFinalizer
       {
         return SupportEnrollmentRollbackStatus.SettingsInvalid;
       }
-      File.Move(
-          backupPath,
-          settingsPath,
-          overwrite: true);
+      if (OperatingSystem.IsWindows())
+      {
+        File.Replace(
+            backupPath,
+            settingsPath,
+            destinationBackupFileName: null,
+            ignoreMetadataErrors: false);
+      }
+      else
+      {
+        File.Move(
+            backupPath,
+            settingsPath,
+            overwrite: true);
+      }
       return SupportEnrollmentRollbackStatus.Succeeded;
     }
     catch (IOException)
@@ -209,10 +220,21 @@ internal static class SupportAgentSettingsFinalizer
             temporaryPath,
             File.GetUnixFileMode(settingsPath));
       }
-      File.Move(
-          temporaryPath,
-          settingsPath,
-          overwrite: true);
+      if (OperatingSystem.IsWindows())
+      {
+        File.Replace(
+            temporaryPath,
+            settingsPath,
+            destinationBackupFileName: null,
+            ignoreMetadataErrors: false);
+      }
+      else
+      {
+        File.Move(
+            temporaryPath,
+            settingsPath,
+            overwrite: true);
+      }
       return SupportEnrollmentFinalizationStatus.Succeeded;
     }
     catch (IOException)
