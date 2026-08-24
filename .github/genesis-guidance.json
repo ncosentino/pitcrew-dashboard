@@ -334,6 +334,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0012-bounded-relay-owned-support-session-lifecycle.md",
+        "title": "ADR-0012: Bounded relay-owned support session lifecycle projection",
+        "section": "Architecture decisions",
+        "order": 112,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",
