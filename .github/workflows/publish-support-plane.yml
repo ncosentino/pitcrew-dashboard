@@ -93,8 +93,27 @@ jobs:
           archive_dir="artifacts/support-plane-${rid}/archives"
           gh release upload "$RELEASE_TAG" "$archive_dir"/*.tar.gz "$archive_dir"/*.sha256 --clobber
 
+      - name: Verify support release assets
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $archiveRoot = "artifacts/support-plane-$($env:RID)/archives"
+          $assets = @(
+              Get-ChildItem -LiteralPath $archiveRoot -File |
+                  Select-Object -ExpandProperty FullName
+          )
+          ./scripts/release/Test-PublishedReleaseAssets.ps1 `
+              -ReleaseTag $env:RELEASE_TAG `
+              -ExpectedReleaseSha $env:RELEASE_SHA `
+              -FilePath $assets
+
       - name: Upload support package artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: support-plane-${{ matrix.rid }}
           path: artifacts/support-plane-${{ matrix.rid }}/archives/*

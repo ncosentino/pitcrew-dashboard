@@ -573,6 +573,10 @@ jobs:
         shell: pwsh
         run: ./tests/Test-SupportReleaseGate.ps1
 
+      - name: Validate published release verification
+        shell: pwsh
+        run: ./tests/Test-PublishedReleaseVerification.ps1
+
       - name: Package Linux support plane
         shell: pwsh
         run: |

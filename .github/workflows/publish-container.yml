@@ -135,3 +135,24 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      - name: Verify published image
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          EXPECTED_DIGEST: ${{ steps.push.outputs.digest }}
+          REQUIRE_PROVENANCE: ${{ github.event.repository.visibility == 'public' || vars.ENABLE_CONTAINER_ATTESTATION == 'true' }}
+        run: |
+          $arguments = @{
+              ImageName = $env:IMAGE_NAME
+              ReleaseTag = $env:RELEASE_TAG
+              ReleaseSha = $env:RELEASE_SHA
+              ExpectedDigest = $env:EXPECTED_DIGEST
+          }
+          if ($env:REQUIRE_PROVENANCE -ceq 'true') {
+              $arguments.RequireProvenanceAttestation = $true
+          }
+          ./scripts/release/Test-PublishedContainerImage.ps1 @arguments

@@ -7,6 +7,7 @@ on:
       - '.github/workflows/support-canary.yml'
       - '.github/workflows/prepare-release.yml'
       - '.github/workflows/verify-support-release-gate.yml'
+      - '.github/workflows/verify-published-release.yml'
       - '.github/workflows/publish-container.yml'
       - '.github/workflows/publish-host-connector.yml'
       - '.github/workflows/publish-support-plane.yml'

@@ -21,6 +21,12 @@ $verifyWorkflowPath = Join-Path (
 $supportCanaryWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'support-canary.yml'
+$publishedVerificationWorkflowPath = Join-Path (
+    $repositoryRoot
+) '.github' 'workflows' 'verify-published-release.yml'
+$ciWorkflowPath = Join-Path (
+    $repositoryRoot
+) '.github' 'workflows' 'ci.yml'
 $supportRelayScenarioPath = Join-Path (
     $repositoryRoot
 ) 'scripts' 'canary' 'Invoke-SupportRelayScenario.ps1'
@@ -497,6 +503,10 @@ $verifyWorkflow = Get-Content -LiteralPath $verifyWorkflowPath -Raw
 $supportCanaryWorkflow = Get-Content `
     -LiteralPath $supportCanaryWorkflowPath `
     -Raw
+$publishedVerificationWorkflow = Get-Content `
+    -LiteralPath $publishedVerificationWorkflowPath `
+    -Raw
+$ciWorkflow = Get-Content -LiteralPath $ciWorkflowPath -Raw
 $supportRelayScenario = Get-Content `
     -LiteralPath $supportRelayScenarioPath `
     -Raw
@@ -639,8 +649,74 @@ Add-Check (
         "'\.github/workflows/prepare-release\.yml'" -and
     $supportCanaryWorkflow -match
         "'\.github/workflows/verify-support-release-gate\.yml'" -and
+    $supportCanaryWorkflow -match
+        "'\.github/workflows/verify-published-release\.yml'" -and
     $supportCanaryWorkflow -match "'scripts/release/\*\*'"
 ) 'Release-gate changes do not trigger the portable canary.'
+
+$supportPublisher = Get-Content `
+    -LiteralPath (
+        Join-Path `
+            $repositoryRoot `
+            '.github/workflows/publish-support-plane.yml'
+    ) `
+    -Raw
+$connectorPublisher = Get-Content `
+    -LiteralPath (
+        Join-Path `
+            $repositoryRoot `
+            '.github/workflows/publish-host-connector.yml'
+    ) `
+    -Raw
+$containerPublisher = Get-Content `
+    -LiteralPath (
+        Join-Path `
+            $repositoryRoot `
+            '.github/workflows/publish-container.yml'
+    ) `
+    -Raw
+Add-Check (
+    $supportPublisher -match 'actions/upload-artifact@v6' -and
+    $supportPublisher -notmatch 'actions/upload-artifact@v5' -and
+    $supportPublisher -match
+        'Test-PublishedReleaseAssets\.ps1'
+) 'Support publication does not use supported artifacts and verify published digests.'
+Add-Check (
+    $connectorPublisher -match
+        'Test-PublishedReleaseAssets\.ps1' -and
+    $connectorPublisher -match
+        'Enable-PitCrewCapacityOperations\.ps1'
+) 'Connector publication does not verify archives, sidecars, and the operator installer.'
+Add-Check (
+    $containerPublisher -match
+        '(?ms)Attest image provenance.*?Verify published image.*?Test-PublishedContainerImage\.ps1' -and
+    $containerPublisher -match
+        'RequireProvenanceAttestation'
+) 'Container publication does not verify tags, indexes, and provenance after publishing.'
+Add-Check (
+    $publishedVerificationWorkflow -match
+        '(?m)^  workflow_dispatch:\r?$' -and
+    $publishedVerificationWorkflow -notmatch
+        '(?m)^  release:\r?$' -and
+    $publishedVerificationWorkflow -notmatch
+        'pull_request_target|self-hosted' -and
+    $publishedVerificationWorkflow -match
+        '(?m)^  packages: read\r?$' -and
+    $publishedVerificationWorkflow -match
+        '(?m)^  attestations: read\r?$' -and
+    $publishedVerificationWorkflow -match
+        '(?ms)^  preflight:.*?target_commitish.*?^  assets:.*?needs: preflight' -and
+    $publishedVerificationWorkflow -match
+        '(?ms)^  images:.*?needs: preflight' -and
+    $publishedVerificationWorkflow -match
+        'Test-PublishedReleaseAssets\.ps1' -and
+    $publishedVerificationWorkflow -match
+        'Test-PublishedContainerImage\.ps1'
+) 'Published release verification is not a read-only complete hosted audit.'
+Add-Check (
+    $ciWorkflow -match
+        'Test-PublishedReleaseVerification\.ps1'
+) 'CI does not execute the offline published-release verification contract.'
 
 foreach ($publishWorkflowPath in $publishWorkflowPaths) {
     $publishWorkflow = Get-Content -LiteralPath $publishWorkflowPath -Raw
