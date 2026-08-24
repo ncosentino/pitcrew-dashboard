@@ -526,7 +526,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         context.DashboardSourceRoot,
         "assets",
         "support-plane",
-        "support-evidence-policy-v0.10.3.json");
+        "support-evidence-policy-v0.10.8.json");
     using var policy = JsonDocument.Parse(
         File.ReadAllText(policyPath));
     var root = policy.RootElement;

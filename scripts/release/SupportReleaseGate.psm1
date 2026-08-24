@@ -13,7 +13,8 @@ $script:RequiredScenario = 'support-fresh-enrollment-diagnostic-v1'
 $script:RequiredTopologyProfiles = @(
     'portable',
     'containerized',
-    'windows-installed'
+    'windows-installed',
+    'linux-installed'
 )
 $script:RequiredWorkflowPath = '.github/workflows/prepare-release.yml'
 $script:CanonicalReleaseTagPattern = (
@@ -342,6 +343,7 @@ function Assert-SupportReleaseGateEvidence {
         'Gate release candidate / Portable support canary',
         'Gate containerized candidate / Containerized support canary',
         'Gate installed Windows candidate / Windows-installed support canary',
+        'Gate installed Linux candidate / Linux-installed support canary',
         'Create gated draft release'
     )) {
         $requiredJobs = @(

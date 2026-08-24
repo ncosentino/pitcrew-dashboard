@@ -337,12 +337,12 @@ installations that overlap its fixed service names or product roots.
   `/var/lib/pitcrew-support-broker`; versioned binaries use separate roots below
   `/opt`.
 
-## Exact PitCrew v0.10.3 evidence ACL
+## Exact PitCrew v0.10.8 evidence ACL
 
 The package-owned
-`support-evidence-policy-v0.10.3.json` is the shared runtime, installer, and test
-contract, verified against PitCrew v0.10.3 commit
-`4fbafcafca1aa659a07b2f5deb96edc5d3eb3269` and collector
+`support-evidence-policy-v0.10.8.json` is the shared runtime, installer, and test
+contract, verified against PitCrew v0.10.8 commit
+`a9fc5884b7e1aea6ef731c701401c46a51d0d3f5` and collector
 SHA-256
 `18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580`.
 Installer and runtime canonicalize UTF-8 line endings to LF before hashing, so
@@ -540,6 +540,9 @@ Hosted deployments use the independently versioned, non-root relay image and
 optional private-network Compose overlay described in
 [Hosted support relay](hosting/support-relay.md). Dashboard keys remain outside
 the relay container; only the shared internal bearer crosses that boundary.
+Use the [support-plane release rollout](hosting/support-plane-rollout.md) to
+preflight a qualified release pair, stage each boundary, preserve rollback
+commit points, and complete Dashboard-only acceptance.
 
 The agent archive includes `support-agent.env.example`. Use
 `FinalizeEnrollment` to remove one-time bootstrap material after enrollment;
@@ -571,7 +574,7 @@ Support agent, broker, and relay remain separate .NET projects. The deterministi
 packaging script publishes their self-contained archives plus a platform-tagged
 installer archive and SHA-256 sidecars for `linux-x64`, `linux-arm64`,
 `win-x64`, and `win-arm64` by default. The installer archive contains the
-lifecycle script, agent configuration example, and pinned PitCrew v0.10.3
+lifecycle script, agent configuration example, and pinned PitCrew v0.10.8
 evidence policy.
 
 Hosted Windows and Linux lifecycle jobs establish a public `example.com:443`

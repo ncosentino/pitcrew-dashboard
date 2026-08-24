@@ -6,7 +6,7 @@ namespace PitCrew.Support.Broker.App;
 internal static class SupportEvidencePolicy
 {
   private const string ResourceName =
-      "PitCrew.Support.Broker.App.support-evidence-policy-v0.10.3.json";
+      "PitCrew.Support.Broker.App.support-evidence-policy-v0.10.8.json";
   private static readonly string[] _installationSentinels =
       ["Setup-Runner.ps1", "RunnerProfiles.Functions.ps1", "docker-compose.yml"];
   private static readonly string[] _profileProjectionFiles =
@@ -37,11 +37,11 @@ internal static class SupportEvidencePolicy
     if (policy.SchemaVersion != 2 ||
         !string.Equals(
             policy.PitCrewVersion,
-            "0.10.3",
+            "0.10.8",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.PitCrewCommit,
-            "4fbafcafca1aa659a07b2f5deb96edc5d3eb3269",
+            "a9fc5884b7e1aea6ef731c701401c46a51d0d3f5",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.CollectorRelativePath,

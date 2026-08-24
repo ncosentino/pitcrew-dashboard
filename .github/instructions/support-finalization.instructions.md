@@ -1,5 +1,5 @@
 ---
-applyTo: "scripts/Install-PitCrewSupportPlane.ps1,src/PitCrew.Support.Agent.App/{Program,SupportAgentSettingsFinalizer,SupportEnrollmentFinalizationRequestWorker}.cs,src/PitCrew.Support.Agent.App.Tests/*Finalization*Tests.cs,tests/Test-SupportPlaneInstaller*.ps1,docs/support-plane.md"
+applyTo: "scripts/Install-PitCrewSupportPlane.ps1,src/PitCrew.Support.Agent.App/{Program,SupportAgentSettingsFinalizer,SupportEnrollmentFinalizationRequestWorker}.cs,src/PitCrew.Support.Agent.App.Tests/*Finalization*Tests.cs,tests/Test-SupportPlaneInstaller*.ps1,docs/support-plane.md,docs/hosting/support-plane-rollout.md"
 ---
 
 # Installed enrollment finalization

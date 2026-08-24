@@ -384,9 +384,9 @@ public sealed class SupportDiagnosticsBrokerTests
         .Append(policy.CollectorRelativePath)
         .ToArray();
 
-    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.3");
+    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.8");
     await Assert.That(policy.PitCrewCommit)
-        .IsEqualTo("4fbafcafca1aa659a07b2f5deb96edc5d3eb3269");
+        .IsEqualTo("a9fc5884b7e1aea6ef731c701401c46a51d0d3f5");
     await Assert.That(policy.CollectorSha256)
         .IsEqualTo(
             "18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580");

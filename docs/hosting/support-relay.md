@@ -23,13 +23,17 @@ Keep `PITCREW_DASHBOARD_VERSION` and `PITCREW_SUPPORT_RELAY_VERSION` independent
 pinned. A Dashboard update must not silently replace the relay, and a relay rollback
 must not replace Dashboard.
 
+Use the [support-plane release rollout](support-plane-rollout.md) when
+coordinating the hosted services with a released PitCrew node and support
+package.
+
 ## Initialize configuration
 
 Run the repository script once before rendering the support overlay:
 
 ```powershell
 ./scripts/Initialize-PitCrewHostedSupportPlane.ps1 `
-    -Version 0.12.2 `
+    -Version <compatible-dashboard-version> `
     -RelayDomain '<relay-domain>' `
     -EnvFile .env.hosted
 ```

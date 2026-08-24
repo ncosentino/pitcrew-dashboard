@@ -173,6 +173,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/hosting/support-plane-rollout.md",
+        "title": "Support-plane release rollout",
+        "section": "Deployment",
+        "order": 326,
+        "owner": "repository"
+      },
+      {
         "path": "docs/hosting/custom-ingress.md",
         "title": "Custom ingress contract",
         "section": "Deployment",

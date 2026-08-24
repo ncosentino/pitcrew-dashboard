@@ -172,9 +172,10 @@ support evidence policy.
 
 The workflow validates both repositories and the unused release tag, then runs
 `support-fresh-enrollment-diagnostic-v1` through the reusable portable,
-containerized, and Windows-installed canaries in parallel. `validate-only`
-stops after that evidence. `create-draft` creates a GitHub draft only after all
-three canaries succeed. A failed preflight or canary creates no tag or release.
+containerized, Windows-installed, and Linux-installed canaries in parallel.
+`validate-only` stops after that evidence. `create-draft` creates a GitHub draft
+only after all four canaries succeed. A failed preflight or canary creates no
+tag or release.
 
 The draft contains generated notes plus one bounded gate marker tied to the
 preparation workflow run. Wait for the preparation workflow to complete
@@ -211,9 +212,9 @@ The portable gate has completed on GitHub-hosted Ubuntu in approximately two
 minutes. Three pre-gate containerized runs completed in 3m25s, 3m09s, and
 3m22s. The Windows-installed gate runs independently on `windows-latest` and
 remains the measured critical path. These are observed operating times, not
-timeout contracts. Release gating still does not claim Linux-installed,
-multi-architecture registry, production Compose, or physical-host
-qualification.
+timeout contracts. Release gating still does not claim production Compose or
+physical-host qualification. Published-image verification separately owns the
+multi-architecture registry and attestation evidence.
 
 ## Adding a scenario
 

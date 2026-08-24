@@ -17,7 +17,7 @@ $networkProbePath = Join-Path (
 ) 'tests' 'PitCrew.Support.NetworkProbe.App' 'Program.cs'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.3.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.8.json'
 $connectorHealthJournalPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Connector.Features.Sync' 'ConnectorHealthJournal.cs'
@@ -1300,12 +1300,12 @@ $policy = Get-Content `
     ConvertFrom-Json -Depth 10
 Add-Check (
     $policy.schemaVersion -eq 2 -and
-    $policy.pitCrewVersion -eq '0.10.3'
-) 'The evidence ACL policy is not pinned to PitCrew v0.10.3 contract v2.'
+    $policy.pitCrewVersion -eq '0.10.8'
+) 'The evidence ACL policy is not pinned to PitCrew v0.10.8 contract v2.'
 Add-Check (
     $policy.pitCrewCommit -eq
-        '4fbafcafca1aa659a07b2f5deb96edc5d3eb3269'
-) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.3 collector commit.'
+        'a9fc5884b7e1aea6ef731c701401c46a51d0d3f5'
+) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.8 collector commit.'
 Add-Check (
     $policy.collectorSha256 -eq
         '18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580' -and
