@@ -36,6 +36,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       string,
       CancellationToken,
       Task<string>>? _afterBootstrapFinalization;
+  private readonly string _afterBootstrapStepName;
   private static readonly JsonSerializerOptions _jsonOptions =
       new(JsonSerializerDefaults.Web)
       {
@@ -69,7 +70,9 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
           Guid,
           string,
           CancellationToken,
-          Task<string>>? afterBootstrapFinalization = null)
+          Task<string>>? afterBootstrapFinalization = null,
+      string afterBootstrapStepName =
+          "verify-bounded-request-rejections")
   {
     _scenarioId = scenarioId;
     _requiredCapabilities = new HashSet<string>(
@@ -83,6 +86,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
     _afterFirstAcceptedPoll = afterFirstAcceptedPoll;
     _afterBootstrapFinalization =
         afterBootstrapFinalization;
+    _afterBootstrapStepName = afterBootstrapStepName;
     _diagnosticModes = diagnosticModes is null
         ? [SupportDiagnosticModes.ConnectorOffline]
         : diagnosticModes.ToArray();
@@ -361,7 +365,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
       if (_afterBootstrapFinalization is not null)
       {
         await execution.RunStepAsync(
-            "verify-bounded-request-rejections",
+            _afterBootstrapStepName,
             async token =>
             {
               var category =

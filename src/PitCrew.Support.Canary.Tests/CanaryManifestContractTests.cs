@@ -734,6 +734,42 @@ public sealed class CanaryManifestContractTests
           .IsEqualTo(rejections.ScenarioId);
       await Assert.That(readRejections.Steps)
           .IsEquivalentTo(rejectionSteps);
+
+      var lifecycleSteps = steps
+          .SelectMany(step =>
+              step.Name ==
+                  "finalize-bootstrap-and-restart"
+                  ?
+                  new[]
+                  {
+                      step,
+                      new CanaryScenarioStepResult(
+                          "verify-terminal-session-lifecycle",
+                          "succeeded",
+                          "terminal-session-lifecycle-verified",
+                          1),
+                  }
+                  : [step])
+          .ToArray();
+      var lifecycle = result with
+      {
+        ScenarioId =
+            "support-terminal-lifecycle-v1",
+        Steps = lifecycleSteps,
+        CompletedAt =
+            timestamp.AddMilliseconds(
+                lifecycleSteps.Length),
+      };
+      CanaryManifestFile.WriteScenarioResult(
+          path,
+          lifecycle);
+      var readLifecycle =
+          CanaryManifestFile.ReadScenarioResult(path);
+
+      await Assert.That(readLifecycle.ScenarioId)
+          .IsEqualTo(lifecycle.ScenarioId);
+      await Assert.That(readLifecycle.Steps)
+          .IsEquivalentTo(lifecycleSteps);
     }
     finally
     {

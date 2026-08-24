@@ -23,7 +23,8 @@ param(
         'support-fresh-enrollment-diagnostic-v1',
         'support-diagnostic-mode-matrix-v1',
         'support-relay-restart-recovery-v1',
-        'support-request-rejection-matrix-v1')]
+        'support-request-rejection-matrix-v1',
+        'support-terminal-lifecycle-v1')]
     [string[]]$Scenario = @(
         'support-fresh-enrollment-diagnostic-v1'),
 

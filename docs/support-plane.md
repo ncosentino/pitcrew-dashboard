@@ -519,6 +519,9 @@ is 300 through 86,400 seconds and the default is 3,600. Durable relay cleanup ru
 at startup and then every
 `PitCrew__SupportPlane__RelayCleanupIntervalSeconds`; its validated range is 1
 through 3,600 seconds and the default is 30.
+`PitCrew__SupportPlane__MaximumSessionLifetimeSeconds` caps an otherwise valid
+requested session lifetime; its validated range is 30 through 3,600 seconds and
+the default is 900.
 
 Start the relay first, then Dashboard, then the broker and agent. The relay
 serves `/healthz`. The broker resolves profiles only from

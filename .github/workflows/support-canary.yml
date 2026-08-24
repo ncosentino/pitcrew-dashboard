@@ -37,6 +37,7 @@ on:
           - support-diagnostic-mode-matrix-v1
           - support-relay-restart-recovery-v1
           - support-request-rejection-matrix-v1
+          - support-terminal-lifecycle-v1
           - topology-smoke-v1
       topology_profile:
         description: 'Topology capability profile'
