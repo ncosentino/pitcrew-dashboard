@@ -121,10 +121,14 @@ function Assert-PublishedReleaseAssets {
 
         [string[]]$ExpectedAssetName = @(),
 
-        [ValidatePattern('^[a-f0-9]{40}$')]
         [string]$ExpectedReleaseSha = ''
     )
 
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedReleaseSha) -and
+        $ExpectedReleaseSha -cnotmatch '^[a-f0-9]{40}$') {
+        throw [InvalidDataException]::new(
+            'The expected release commit is invalid.')
+    }
     if ([bool]$Release.draft -or
         @($Release.assets).Count -gt 200) {
         throw [InvalidDataException]::new(

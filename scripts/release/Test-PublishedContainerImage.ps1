@@ -77,9 +77,13 @@ try {
                 -Wait `
                 -RedirectStandardOutput $entry.Path `
                 -RedirectStandardError $errorPath
-            if ($process.ExitCode -ne 0) {
-                $succeeded = $false
-                break
+            try {
+                if ($process.ExitCode -ne 0) {
+                    $succeeded = $false
+                    break
+                }
+            } finally {
+                $process.Dispose()
             }
         }
         if ($succeeded) {

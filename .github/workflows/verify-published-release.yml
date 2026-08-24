@@ -22,8 +22,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Release identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify release tag and commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          $tagPattern = '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          if ($env:RELEASE_TAG -cnotmatch $tagPattern -or
+              $env:RELEASE_SHA -cnotmatch '^[a-f0-9]{40}$') {
+              throw 'Release verification requires a canonical tag and full commit SHA.'
+          }
+          $encodedTag = [Uri]::EscapeDataString($env:RELEASE_TAG)
+          $releaseJson = gh api (
+              "repos/$env:GITHUB_REPOSITORY/releases/tags/$encodedTag"
+          ) | Out-String
+          if ($LASTEXITCODE -ne 0 -or $releaseJson.Length -gt 4MB) {
+              throw 'Published release identity is unavailable or oversized.'
+          }
+          $release = $releaseJson | ConvertFrom-Json -Depth 20
+          if ([bool]$release.draft -or
+              [string]$release.target_commitish -cne $env:RELEASE_SHA) {
+              throw 'Published release identity does not match the requested commit.'
+          }
+
   assets:
     name: Release assets
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -85,6 +116,7 @@ jobs:
 
   images:
     name: Image ${{ matrix.name }}
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:

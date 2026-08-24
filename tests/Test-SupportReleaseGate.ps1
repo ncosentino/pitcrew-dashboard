@@ -705,6 +705,10 @@ Add-Check (
     $publishedVerificationWorkflow -match
         '(?m)^  attestations: read\r?$' -and
     $publishedVerificationWorkflow -match
+        '(?ms)^  preflight:.*?target_commitish.*?^  assets:.*?needs: preflight' -and
+    $publishedVerificationWorkflow -match
+        '(?ms)^  images:.*?needs: preflight' -and
+    $publishedVerificationWorkflow -match
         'Test-PublishedReleaseAssets\.ps1' -and
     $publishedVerificationWorkflow -match
         'Test-PublishedContainerImage\.ps1'

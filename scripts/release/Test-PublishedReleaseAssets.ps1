@@ -15,7 +15,6 @@ param(
 
     [string[]]$ExpectedAssetName = @(),
 
-    [ValidatePattern('^[a-f0-9]{40}$')]
     [string]$ExpectedReleaseSha = '',
 
     [ValidateRange(1, 30)]
@@ -32,6 +31,10 @@ if ([string]::IsNullOrWhiteSpace($env:GITHUB_REPOSITORY) -or
     $env:GITHUB_REPOSITORY -cnotmatch
         '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
     throw 'GITHUB_REPOSITORY must identify the release repository.'
+}
+if (-not [string]::IsNullOrWhiteSpace($ExpectedReleaseSha) -and
+    $ExpectedReleaseSha -cnotmatch '^[a-f0-9]{40}$') {
+    throw 'ExpectedReleaseSha must be a full lowercase commit SHA when provided.'
 }
 Import-Module (
     Join-Path $PSScriptRoot 'PublishedReleaseVerification.psm1'
