@@ -138,6 +138,36 @@ internal sealed class LinuxCanaryBrokerFailureClassifier(
       return "agent-broker-crash-file-not-found";
     }
     if (journal.Contains(
+        "UnixPeerCredentialReader",
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-peer-read";
+    }
+    if (journal.Contains(
+        "SupportBrokerPipeCodec.ReadAsync",
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-request-read";
+    }
+    if (journal.Contains(
+        "SupportEvidenceAccessValidator",
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-evidence-validation";
+    }
+    if (journal.Contains(
+        "SupportDiagnosticsBroker",
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-diagnostics-execution";
+    }
+    if (journal.Contains(
+        "SupportBrokerPipeCodec.WriteAsync",
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-response-write";
+    }
+    if (journal.Contains(
         nameof(IOException),
         StringComparison.Ordinal))
     {
