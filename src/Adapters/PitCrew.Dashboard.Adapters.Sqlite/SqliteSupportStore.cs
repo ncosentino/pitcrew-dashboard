@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 using Microsoft.Data.Sqlite;
@@ -13,6 +14,8 @@ namespace PitCrew.Dashboard.Adapters.Sqlite;
 internal sealed class SqliteSupportStore(
     SqliteConnectionFactory _connectionFactory) : ISupportStore
 {
+  private const int MaxActivityBatchSize = 256;
+
   public async Task<SupportMutationStatus> CreateEnrollmentAsync(
       SupportEnrollment enrollment,
       CancellationToken cancellationToken)
@@ -505,6 +508,83 @@ internal sealed class SqliteSupportStore(
       identities.Add(ReadIdentity(reader));
     }
     return identities;
+  }
+
+  public async Task UpdateIdentityActivityAsync(
+      string tenantId,
+      IReadOnlyList<SupportIdentityActivity> activity,
+      CancellationToken cancellationToken)
+  {
+    if (activity.Count == 0)
+    {
+      return;
+    }
+    ArgumentOutOfRangeException.ThrowIfGreaterThan(
+        activity.Count,
+        MaxActivityBatchSize,
+        nameof(activity));
+    await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    var values = new StringBuilder(activity.Count * 64);
+    for (var index = 0; index < activity.Count; index++)
+    {
+      if (index > 0)
+      {
+        values.Append(", ");
+      }
+      var suffix = index.ToString(CultureInfo.InvariantCulture);
+      var nodeParameterName = $"$nodeId{suffix}";
+      var pollParameterName = $"$lastPollAt{suffix}";
+      var resultParameterName = $"$lastResultAt{suffix}";
+      values
+          .Append('(')
+          .Append(nodeParameterName)
+          .Append(", ")
+          .Append(pollParameterName)
+          .Append(", ")
+          .Append(resultParameterName)
+          .Append(')');
+      var item = activity[index];
+      command.Parameters
+          .Add(nodeParameterName, SqliteType.Text)
+          .Value = item.NodeId.ToString("D", CultureInfo.InvariantCulture);
+      command.Parameters
+          .Add(pollParameterName, SqliteType.Text)
+          .Value = item.LastPollAt is null
+              ? DBNull.Value
+              : Format(item.LastPollAt.Value.ToUniversalTime());
+      command.Parameters
+          .Add(resultParameterName, SqliteType.Text)
+          .Value = item.LastResultAt is null
+              ? DBNull.Value
+              : Format(item.LastResultAt.Value.ToUniversalTime());
+    }
+    command.CommandText =
+        $"""
+        WITH activity(node_id, last_poll_at, last_result_at) AS (
+            VALUES {values}
+        )
+        UPDATE support_nodes AS target
+        SET last_poll_at = CASE
+                WHEN activity.last_poll_at IS NOT NULL
+                  AND (target.last_poll_at IS NULL
+                    OR target.last_poll_at < activity.last_poll_at)
+                THEN activity.last_poll_at
+                ELSE target.last_poll_at
+            END,
+            last_result_at = CASE
+                WHEN activity.last_result_at IS NOT NULL
+                  AND (target.last_result_at IS NULL
+                    OR target.last_result_at < activity.last_result_at)
+                THEN activity.last_result_at
+                ELSE target.last_result_at
+            END
+        FROM activity
+        WHERE target.tenant_id = $tenantId
+          AND target.node_id = activity.node_id;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   public async Task<SupportIdentity?> GetIdentityOrNullAsync(

@@ -9,6 +9,73 @@ namespace PitCrew.Support.Relay.App.Tests;
 public sealed class RelayStoreTests
 {
   [Test]
+  public async Task Initialize_Upgrades_Legacy_Node_Activity_Without_Data_Loss(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var nodeId = Guid.NewGuid();
+      const string tenantId = "tenant-a";
+      var credentialHash = RelayCredentialHash.Hash("credential-a");
+      await using (var connection = new SqliteConnection(
+          $"Data Source={databasePath}"))
+      {
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            CREATE TABLE relay_nodes (
+                node_id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                transport_credential_hash TEXT NOT NULL UNIQUE,
+                revoked_at TEXT NULL
+            );
+            INSERT INTO relay_nodes (
+                node_id,
+                tenant_id,
+                transport_credential_hash,
+                revoked_at)
+            VALUES ($nodeId, $tenantId, $credentialHash, NULL);
+            """;
+        command.Parameters.AddWithValue(
+            "$nodeId",
+            nodeId.ToString("D", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$tenantId", tenantId);
+        command.Parameters.AddWithValue(
+            "$credentialHash",
+            credentialHash);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+      }
+
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var pollAt = DateTimeOffset.Parse(
+          "2026-08-01T00:01:00+00:00",
+          CultureInfo.InvariantCulture);
+      var poll = await store.PollAsync(
+          nodeId,
+          "credential-a",
+          pollAt,
+          cancellationToken);
+      var activity = await store.GetNodeActivityAsync(
+          tenantId,
+          [nodeId],
+          cancellationToken);
+
+      await Assert.That(poll.CredentialAccepted).IsTrue();
+      await Assert.That(activity).HasSingleItem();
+      await Assert.That(activity[0].NodeId).IsEqualTo(nodeId);
+      await Assert.That(activity[0].LastPollAt).IsEqualTo(pollAt);
+      await Assert.That(activity[0].LastResultAt).IsNull();
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Poll_Returns_Only_Target_Node_Opaque_Request(
       CancellationToken cancellationToken)
   {
@@ -132,12 +199,18 @@ public sealed class RelayStoreTests
           sessionId,
           "wrong",
           "opaque-result",
+          DateTimeOffset.Parse(
+              "2026-08-01T00:02:00+00:00",
+              CultureInfo.InvariantCulture),
           cancellationToken);
       var uploaded = await store.UploadResultAsync(
           nodeId,
           sessionId,
           "credential-a",
           "opaque-result",
+          DateTimeOffset.Parse(
+              "2026-08-01T00:03:00+00:00",
+              CultureInfo.InvariantCulture),
           cancellationToken);
       var stored = await store.GetSessionAsync(sessionId, cancellationToken);
 
@@ -297,6 +370,89 @@ public sealed class RelayStoreTests
   }
 
   [Test]
+  public async Task Activity_Is_Tenant_Bounded_And_Monotonic(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var nodeA = Guid.NewGuid();
+      var nodeB = Guid.NewGuid();
+      var sessionId = Guid.NewGuid();
+      var pollAt = DateTimeOffset.Parse(
+          "2026-08-01T00:01:00+00:00",
+          CultureInfo.InvariantCulture);
+      var resultAt = pollAt.AddMinutes(1);
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeA,
+              RelayCredentialHash.Hash("credential-a")),
+          cancellationToken);
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-b",
+              nodeB,
+              RelayCredentialHash.Hash("credential-b")),
+          cancellationToken);
+      await store.EnqueueSessionAsync(
+          new RelaySessionEnqueueRequest(
+              "tenant-a",
+              nodeA,
+              sessionId,
+              resultAt.AddMinutes(5),
+              "opaque-request"),
+          cancellationToken);
+
+      await store.PollAsync(
+          nodeA,
+          "wrong",
+          pollAt.AddMinutes(1),
+          cancellationToken);
+      await store.PollAsync(
+          nodeA,
+          "credential-a",
+          pollAt,
+          cancellationToken);
+      await store.PollAsync(
+          nodeA,
+          "credential-a",
+          pollAt.AddMinutes(-1),
+          cancellationToken);
+      await store.UploadResultAsync(
+          nodeA,
+          sessionId,
+          "credential-a",
+          "opaque-result",
+          resultAt,
+          cancellationToken);
+      await store.UploadResultAsync(
+          nodeA,
+          Guid.NewGuid(),
+          "credential-a",
+          "rejected-result",
+          resultAt.AddMinutes(1),
+          cancellationToken);
+
+      var activity = await store.GetNodeActivityAsync(
+          "tenant-a",
+          [nodeA, nodeB],
+          cancellationToken);
+
+      await Assert.That(activity).HasSingleItem();
+      await Assert.That(activity[0].NodeId).IsEqualTo(nodeA);
+      await Assert.That(activity[0].LastPollAt).IsEqualTo(pollAt);
+      await Assert.That(activity[0].LastResultAt).IsEqualTo(resultAt);
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Revocation_Rejects_The_Next_Poll_And_Result_Exchange(
       CancellationToken cancellationToken)
   {
@@ -330,6 +486,7 @@ public sealed class RelayStoreTests
           Guid.NewGuid(),
           "credential-active",
           "opaque-result",
+          now,
           cancellationToken);
 
       await Assert.That(poll.CredentialAccepted).IsFalse();

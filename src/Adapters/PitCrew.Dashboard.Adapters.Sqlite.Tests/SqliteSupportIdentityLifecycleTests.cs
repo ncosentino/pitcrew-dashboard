@@ -13,6 +13,78 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 public sealed class SqliteSupportIdentityLifecycleTests
 {
   [Test]
+  public async Task Activity_Projection_Is_Monotonic_And_Tenant_Bound(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var context = await CreateContextAsync(databasePath, cancellationToken);
+      var nodeA = Guid.NewGuid();
+      var nodeB = Guid.NewGuid();
+      await context.Store.CreateIdentityAsync(
+          CreateIdentityWrite(
+              CreateEnrollment(
+                  "tenant-a",
+                  "enrollment-hash-activity-a",
+                  context.Now,
+                  context.Owner.GitHubUserId),
+              nodeA,
+              SupportKeyFactory.CreateNodeKeys(),
+              "transport-hash-activity-a"),
+          cancellationToken);
+      await context.Store.CreateIdentityAsync(
+          CreateIdentityWrite(
+              CreateEnrollment(
+                  "tenant-b",
+                  "enrollment-hash-activity-b",
+                  context.Now,
+                  context.Owner.GitHubUserId),
+              nodeB,
+              SupportKeyFactory.CreateNodeKeys(),
+              "transport-hash-activity-b"),
+          cancellationToken);
+      var pollAt = context.Now.AddMinutes(2);
+      var resultAt = context.Now.AddMinutes(3);
+
+      await context.Store.UpdateIdentityActivityAsync(
+          "tenant-a",
+          [
+            new SupportIdentityActivity(nodeA, pollAt, resultAt),
+            new SupportIdentityActivity(
+                nodeB,
+                pollAt.AddMinutes(1),
+                resultAt.AddMinutes(1)),
+          ],
+          cancellationToken);
+      await context.Store.UpdateIdentityActivityAsync(
+          "tenant-a",
+          [new SupportIdentityActivity(nodeA, pollAt.AddMinutes(-1), null)],
+          cancellationToken);
+
+      var identityA = await context.Store.GetIdentityOrNullAsync(
+          "tenant-a",
+          nodeA,
+          cancellationToken);
+      var identityB = await context.Store.GetIdentityOrNullAsync(
+          "tenant-b",
+          nodeB,
+          cancellationToken);
+
+      await Assert.That(identityA).IsNotNull();
+      await Assert.That(identityA!.LastPollAt).IsEqualTo(pollAt);
+      await Assert.That(identityA.LastResultAt).IsEqualTo(resultAt);
+      await Assert.That(identityB).IsNotNull();
+      await Assert.That(identityB!.LastPollAt).IsNull();
+      await Assert.That(identityB.LastResultAt).IsNull();
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Enrollment_Is_Tenant_Bound_Expires_And_Cannot_Replay(
       CancellationToken cancellationToken)
   {

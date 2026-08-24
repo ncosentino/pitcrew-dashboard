@@ -15,3 +15,4 @@ and explicit supersession links.
 | [ADR-0008](adr-0008-support-plane-v1-read-only-diagnostics.md) | Accepted | Add a separate optional read-only support plane with opaque relay, independent node identity, and split transport/broker processes. |
 | [ADR-0009](adr-0009-trusted-image-candidate-orchestration.md) | Accepted | Use a GitHub App to dispatch immutable registered image workflows and poll exact runs for bounded candidate artifacts. |
 | [ADR-0010](adr-0010-extensible-support-canary-harness.md) | Accepted | Use a layered Aspire topology with independent source, scaffold, scenario, evidence, and CI adapters. |
+| [ADR-0011](adr-0011-bounded-relay-activity-projection.md) | Accepted | Project bounded, tenant-scoped relay activity into durable Dashboard support identities. |

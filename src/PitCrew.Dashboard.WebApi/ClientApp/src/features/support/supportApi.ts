@@ -35,7 +35,7 @@ export const supportSessionSchema = z.object({
   capability: z.literal('pitcrew.diagnostics.snapshot.v1'),
   requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
   nodeSigningKeyFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-  status: z.string(),
+  status: z.enum(['Queued', 'Dispatched', 'Completed', 'Rejected', 'Cancelled', 'Expired']),
   requestedAt: offsetDateTimeSchema,
   expiresAt: offsetDateTimeSchema,
   result: supportResultSchema.nullable(),

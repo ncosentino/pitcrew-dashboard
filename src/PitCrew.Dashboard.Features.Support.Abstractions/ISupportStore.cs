@@ -152,6 +152,20 @@ public interface ISupportStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Advances relay-observed activity timestamps for tenant-owned identities.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the identities.</param>
+  /// <param name="activity">Activity projection containing at most 256 identities.</param>
+  /// <param name="cancellationToken">Token that cancels the mutation.</param>
+  /// <exception cref="ArgumentOutOfRangeException">
+  /// Thrown when <paramref name="activity" /> exceeds the bounded projection size.
+  /// </exception>
+  Task UpdateIdentityActivityAsync(
+      string tenantId,
+      IReadOnlyList<SupportIdentityActivity> activity,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Loads one tenant-owned support identity.
   /// </summary>
   /// <param name="tenantId">Tenant that should own the node.</param>

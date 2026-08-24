@@ -17,7 +17,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
             node_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
             transport_credential_hash TEXT NOT NULL UNIQUE,
-            revoked_at TEXT NULL
+            revoked_at TEXT NULL,
+            last_poll_at TEXT NULL,
+            last_result_at TEXT NULL
         );
 
         CREATE TABLE IF NOT EXISTS relay_sessions (
@@ -58,6 +60,18 @@ internal sealed class SqliteRelayStore(string _databasePath)
                 replacement_transport_credential_hash);
         """;
     await command.ExecuteNonQueryAsync(cancellationToken);
+    await EnsureColumnAsync(
+        connection,
+        "relay_nodes",
+        "last_poll_at",
+        "TEXT NULL",
+        cancellationToken);
+    await EnsureColumnAsync(
+        connection,
+        "relay_nodes",
+        "last_result_at",
+        "TEXT NULL",
+        cancellationToken);
   }
 
   public async Task<bool> RegisterNodeAsync(
@@ -331,6 +345,24 @@ internal sealed class SqliteRelayStore(string _databasePath)
       await transaction.RollbackAsync(cancellationToken);
       return new RelayPollOutcome(false, null);
     }
+    await using (var updateActivity = connection.CreateCommand())
+    {
+      updateActivity.Transaction = transaction;
+      updateActivity.CommandText =
+          """
+          UPDATE relay_nodes
+          SET last_poll_at = CASE
+              WHEN last_poll_at IS NULL OR last_poll_at < $lastPollAt
+              THEN $lastPollAt
+              ELSE last_poll_at
+          END
+          WHERE node_id = $nodeId
+            AND revoked_at IS NULL;
+          """;
+      updateActivity.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+      updateActivity.Parameters.AddWithValue("$lastPollAt", FormatUtc(now));
+      await updateActivity.ExecuteNonQueryAsync(cancellationToken);
+    }
     await using (var expire = connection.CreateCommand())
     {
       expire.Transaction = transaction;
@@ -397,6 +429,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
       Guid sessionId,
       string credential,
       string resultEnvelope,
+      DateTimeOffset completedAt,
       CancellationToken cancellationToken)
   {
     await using var connection = await OpenAsync(cancellationToken);
@@ -421,10 +454,79 @@ internal sealed class SqliteRelayStore(string _databasePath)
     command.Parameters.AddWithValue("$sessionId", sessionId.ToString("D"));
     command.Parameters.AddWithValue("$resultEnvelope", resultEnvelope);
     var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    if (changed)
+    {
+      await using var updateActivity = connection.CreateCommand();
+      updateActivity.Transaction = transaction;
+      updateActivity.CommandText =
+          """
+          UPDATE relay_nodes
+          SET last_result_at = CASE
+              WHEN last_result_at IS NULL OR last_result_at < $lastResultAt
+              THEN $lastResultAt
+              ELSE last_result_at
+          END
+          WHERE node_id = $nodeId
+            AND revoked_at IS NULL;
+          """;
+      updateActivity.Parameters.AddWithValue("$nodeId", nodeId.ToString("D"));
+      updateActivity.Parameters.AddWithValue("$lastResultAt", FormatUtc(completedAt));
+      await updateActivity.ExecuteNonQueryAsync(cancellationToken);
+    }
     await transaction.CommitAsync(cancellationToken);
     return changed
         ? RelayResultUploadOutcome.Succeeded
         : RelayResultUploadOutcome.SessionRejected;
+  }
+
+  public async Task<IReadOnlyList<RelayNodeActivityRecord>> GetNodeActivityAsync(
+      string tenantId,
+      IReadOnlyList<Guid> nodeIds,
+      CancellationToken cancellationToken)
+  {
+    if (nodeIds.Count == 0)
+    {
+      return [];
+    }
+    await using var connection = await OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    var nodeParameters = new string[nodeIds.Count];
+    for (var index = 0; index < nodeIds.Count; index++)
+    {
+      var parameterName = $"$nodeId{index}";
+      nodeParameters[index] = parameterName;
+      command.Parameters.AddWithValue(
+          parameterName,
+          nodeIds[index].ToString("D"));
+    }
+    command.CommandText =
+        $"""
+        SELECT node_id, last_poll_at, last_result_at
+        FROM relay_nodes
+        WHERE tenant_id = $tenantId
+          AND node_id IN ({string.Join(", ", nodeParameters)})
+        ORDER BY node_id;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    var activity = new List<RelayNodeActivityRecord>(nodeIds.Count);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      activity.Add(
+          new RelayNodeActivityRecord(
+              Guid.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+              await reader.IsDBNullAsync(1, cancellationToken)
+                  ? null
+                  : DateTimeOffset.Parse(
+                      reader.GetString(1),
+                      CultureInfo.InvariantCulture),
+              await reader.IsDBNullAsync(2, cancellationToken)
+                  ? null
+                  : DateTimeOffset.Parse(
+                      reader.GetString(2),
+                      CultureInfo.InvariantCulture)));
+    }
+    return activity;
   }
 
   public async Task<RelaySessionRecord?> GetSessionAsync(
@@ -577,6 +679,34 @@ internal sealed class SqliteRelayStore(string _databasePath)
     return connection;
   }
 
+  private static async Task EnsureColumnAsync(
+      SqliteConnection connection,
+      string tableName,
+      string columnName,
+      string definition,
+      CancellationToken cancellationToken)
+  {
+    await using var inspect = connection.CreateCommand();
+    inspect.CommandText = $"PRAGMA table_info({tableName});";
+    await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+    {
+      while (await reader.ReadAsync(cancellationToken))
+      {
+        if (string.Equals(
+            reader.GetString(1),
+            columnName,
+            StringComparison.Ordinal))
+        {
+          return;
+        }
+      }
+    }
+    await using var alter = connection.CreateCommand();
+    alter.CommandText =
+        $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition};";
+    await alter.ExecuteNonQueryAsync(cancellationToken);
+  }
+
   private static async Task<bool> IsNodeCredentialValidAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -619,4 +749,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
 
   private static string Format(DateTimeOffset value) =>
       value.ToString("O", CultureInfo.InvariantCulture);
+
+  private static string FormatUtc(DateTimeOffset value) =>
+      value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 }

@@ -327,6 +327,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0011-bounded-relay-activity-projection.md",
+        "title": "ADR-0011: Bounded relay activity projection",
+        "section": "Architecture decisions",
+        "order": 111,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",

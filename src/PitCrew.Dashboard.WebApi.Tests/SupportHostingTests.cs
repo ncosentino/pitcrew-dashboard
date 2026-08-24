@@ -10,7 +10,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support;
@@ -486,6 +488,109 @@ public sealed class SupportHostingTests
 
       await Assert.That(limited.StatusCode)
           .IsEqualTo(HttpStatusCode.TooManyRequests);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Identity_List_Projects_And_Preserves_Relay_Activity(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl: "http://support-relay-internal:8080/");
+      var pollAt = DateTimeOffset.Parse(
+          "2026-08-01T00:01:00+00:00",
+          CultureInfo.InvariantCulture);
+      var resultAt = pollAt.AddMinutes(1);
+      var now = resultAt.AddMinutes(1);
+      var fakeTime = new FakeTimeProvider(now);
+      var relayHandler = new SupportActivityRelayHandler(
+          pollAt,
+          resultAt);
+      await using var factory = new WebApplicationFactory<Program>()
+          .WithWebHostBuilder(
+              builder => builder.ConfigureServices(
+                  services =>
+                  {
+                    services.RemoveAll<TimeProvider>();
+                    services.AddSingleton<TimeProvider>(fakeTime);
+                    services
+                        .AddHttpClient(
+                          SupportRelayManagementHttpClientOptions.ClientName)
+                        .ConfigurePrimaryHttpMessageHandler(
+                            () => relayHandler);
+                  }));
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var enrollment = await SupportEnrollmentTestHelper.EnrollAsync(
+          client,
+          session.AntiforgeryToken,
+          SupportKeyFactory.CreateNodeKeys(),
+          cancellationToken);
+
+      using var projectedResponse = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/identities",
+          cancellationToken);
+      using var projectedDocument = JsonDocument.Parse(
+          await projectedResponse.Content.ReadAsStringAsync(cancellationToken));
+      var projected = projectedDocument.RootElement[0];
+      relayHandler.FailActivity = true;
+      using var preservedResponse = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/identities",
+          cancellationToken);
+      using var preservedDocument = JsonDocument.Parse(
+          await preservedResponse.Content.ReadAsStringAsync(cancellationToken));
+      var preserved = preservedDocument.RootElement[0];
+      relayHandler.FailActivity = false;
+      relayHandler.SetActivity(
+          now.AddMinutes(6),
+          now.AddMinutes(7));
+      using var invalidResponse = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/identities",
+          cancellationToken);
+      using var invalidDocument = JsonDocument.Parse(
+          await invalidResponse.Content.ReadAsStringAsync(cancellationToken));
+      var invalidPreserved = invalidDocument.RootElement[0];
+
+      await Assert.That(projectedResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(relayHandler.ActivityRequestCount).IsEqualTo(3);
+      await Assert.That(relayHandler.LastTenantId)
+          .IsEqualTo(DashboardTestHelpers.TenantId);
+      await Assert.That(relayHandler.LastNodeIds)
+          .IsEquivalentTo([
+            Guid.Parse(
+                enrollment.NodeId,
+                CultureInfo.InvariantCulture),
+          ]);
+      await Assert.That(projected.GetProperty("lastPollAt").GetDateTimeOffset())
+          .IsEqualTo(pollAt);
+      await Assert.That(projected.GetProperty("lastResultAt").GetDateTimeOffset())
+          .IsEqualTo(resultAt);
+      await Assert.That(preservedResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(preserved.GetProperty("lastPollAt").GetDateTimeOffset())
+          .IsEqualTo(pollAt);
+      await Assert.That(preserved.GetProperty("lastResultAt").GetDateTimeOffset())
+          .IsEqualTo(resultAt);
+      await Assert.That(invalidResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(invalidPreserved.GetProperty("lastPollAt").GetDateTimeOffset())
+          .IsEqualTo(pollAt);
+      await Assert.That(invalidPreserved.GetProperty("lastResultAt").GetDateTimeOffset())
+          .IsEqualTo(resultAt);
     }
     finally
     {
