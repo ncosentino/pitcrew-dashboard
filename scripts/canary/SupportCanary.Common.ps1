@@ -48,7 +48,8 @@ function Read-SupportCanaryPlan {
         [string]$plan.topologyProfile -notin @(
             'portable',
             'containerized',
-            'windows-installed'
+            'windows-installed',
+            'linux-installed'
         ) -or
         [string]$plan.dashboard.commit -notmatch '^[a-f0-9]{40}$' -or
         [string]$plan.pitCrew.commit -notmatch '^[a-f0-9]{40}$') {

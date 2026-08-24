@@ -141,6 +141,72 @@ public sealed class CanaryManifestContractTests
   }
 
   [Test]
+  public async Task Linux_Installed_Manifests_Use_Closed_Capabilities()
+  {
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        "pitcrew-support-canary-tests",
+        $"linux-manifest-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(root);
+    try
+    {
+      var runId = Guid.NewGuid().ToString("N");
+      var dashboard = new CanarySourceRevision(
+          "ncosentino/pitcrew-dashboard",
+          new string('a', 40));
+      var pitCrew = new CanarySourceRevision(
+          "ncosentino/pitcrew",
+          new string('b', 40));
+      var plan = new CanaryPlanManifest(
+          CanaryManifestFile.PlanSchemaVersion,
+          runId,
+          CanaryTopologyProfiles.LinuxInstalled,
+          ["support-fresh-enrollment-diagnostic-v1"],
+          dashboard,
+          pitCrew,
+          DateTimeOffset.UnixEpoch);
+      var runtime = new CanaryRuntimeManifest(
+          CanaryManifestFile.RuntimeSchemaVersion,
+          runId,
+          CanaryTopologyProfiles.LinuxInstalled,
+          dashboard,
+          pitCrew,
+          "http://localhost:5000/",
+          "http://localhost:5001/",
+          [
+              CanaryCapabilities.DashboardHttp,
+              CanaryCapabilities.RelayHttp,
+              CanaryCapabilities.PitCrewFileOnlyEvidence,
+              CanaryCapabilities.LinuxInstalledServices,
+              CanaryCapabilities.LinuxSystemdIsolation,
+          ],
+          DateTimeOffset.UnixEpoch);
+
+      CanaryManifestFile.WritePlan(
+          Path.Combine(root, "plan.json"),
+          plan);
+      CanaryManifestFile.WriteRuntime(
+          Path.Combine(root, "runtime.json"),
+          runtime);
+
+      await Assert.That(
+              CanaryManifestFile.ReadPlan(
+                  Path.Combine(root, "plan.json"))
+                  .TopologyProfile)
+          .IsEqualTo(CanaryTopologyProfiles.LinuxInstalled);
+      await Assert.That(
+              CanaryManifestFile.ReadRuntime(
+                  Path.Combine(root, "runtime.json"))
+                  .Capabilities)
+          .Contains(CanaryCapabilities.LinuxInstalledServices);
+    }
+    finally
+    {
+      Directory.Delete(root, recursive: true);
+    }
+  }
+
+  [Test]
   public async Task Containerized_Manifests_Use_Exact_Run_Scoped_Identities()
   {
     var root = Path.Combine(

@@ -29,6 +29,12 @@ applyTo: "src/PitCrew.Support.Canary.*/**,scripts/canary/**,scripts/release/**,.
   GitHub-hosted Windows runner. Use the packaged installer, separate service
   identities, typed finalization, exact local cleanup, and the same registered
   scenario; never substitute a self-hosted or live node.
+- The Linux-installed profile runs only on a disposable standard GitHub-hosted
+  Ubuntu runner with passwordless administrative access. Use the packaged
+  installer, separate product identities, exact Unix socket and systemd
+  isolation verification, typed finalization, bounded privileged inspection,
+  exact local cleanup, and the same registered scenario; never substitute a
+  self-hosted or live node.
 - The containerized profile runs only on disposable public Linux-hosted
   infrastructure. Build exact run-scoped Dashboard and relay images from the
   selected source, verify immutable local image IDs and labels, use Aspire-owned

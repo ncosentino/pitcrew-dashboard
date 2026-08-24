@@ -29,6 +29,14 @@ $canaryScenarioEntryPaths = @(
     Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanaryScenario.ps1'
     Join-Path $repositoryRoot 'scripts' 'canary' 'New-SupportCanaryRun.ps1'
 )
+$canaryTopologyEntryPaths = @(
+    Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanary.ps1'
+    Join-Path $repositoryRoot 'scripts' 'canary' 'New-SupportCanaryRun.ps1'
+    Join-Path $repositoryRoot 'scripts' 'canary' 'SupportCanary.Common.ps1'
+)
+$canaryBuildPath = Join-Path (
+    $repositoryRoot
+) 'scripts' 'canary' 'Build-SupportCanary.ps1'
 $publishWorkflowPaths = @(
     Join-Path $repositoryRoot '.github' 'workflows' 'publish-container.yml'
     Join-Path $repositoryRoot '.github' 'workflows' 'publish-host-connector.yml'
@@ -504,7 +512,9 @@ Add-Check (
     $supportCanaryWorkflow -match
         '(?ms)^  windows-installed:.*?runs-on: windows-latest' -and
     $supportCanaryWorkflow -match
-        '(?ms)^  containerized:.*?runs-on: ubuntu-latest'
+        '(?ms)^  containerized:.*?runs-on: ubuntu-latest' -and
+    $supportCanaryWorkflow -match
+        '(?ms)^  linux-installed:.*?runs-on: ubuntu-latest'
 ) 'Release gating crosses the public hosted-runner trust boundary.'
 Add-Check (
     $supportCanaryWorkflow -match
@@ -514,6 +524,27 @@ Add-Check (
     $supportCanaryWorkflow -match
         'support-canary-container-\$\{\{ github\.run_id \}\}'
 ) 'The containerized canary is not independently invocable on public infrastructure.'
+Add-Check (
+    $supportCanaryWorkflow -match
+        "(?ms)topology_profile:.*?options:.*?- linux-installed" -and
+    $supportCanaryWorkflow -match
+        '(?ms)^  linux-installed:.*?-TopologyProfile linux-installed' -and
+    $supportCanaryWorkflow -match
+        'support-canary-linux-\$\{\{ github\.run_id \}\}'
+) 'The Linux-installed canary is not independently invocable on public infrastructure.'
+Add-Check (
+    @(
+        $canaryTopologyEntryPaths |
+            Where-Object {
+                (Get-Content -LiteralPath $_ -Raw) -notmatch
+                    "'linux-installed'"
+            }
+    ).Count -eq 0
+) 'A canary topology entry script rejects the Linux-installed profile.'
+Add-Check (
+    (Get-Content -LiteralPath $canaryBuildPath -Raw) -match
+        "(?ms)topologyProfile -ceq 'linux-installed'.*?RuntimeIdentifiers'.*?'linux-x64'"
+) 'The Linux-installed canary does not package the candidate Linux artifacts.'
 Add-Check (
     $supportCanaryWorkflow -match
         "(?ms)scenario:.*?options:.*?- support-relay-restart-recovery-v1"

@@ -14,8 +14,8 @@ Every run requires:
 - one registered scenario; and
 - one topology profile.
 
-The portable, `containerized`, and `windows-installed` profiles currently
-support:
+The portable, `containerized`, `windows-installed`, and `linux-installed`
+profiles currently support:
 
 - `topology-smoke-v1`
 - `support-fresh-enrollment-diagnostic-v1`
@@ -47,6 +47,18 @@ volumes. The host-side agent and broker execute the same registered scenario
 through loopback endpoints. Teardown uses recorded container IDs and exact
 volume/image identities. This proves candidate container execution, not
 production Compose, multi-architecture, registry, or physical-host behavior.
+
+The Linux-installed profile runs only on a disposable standard GitHub-hosted
+Ubuntu runner with passwordless administrative access. It packages the exact
+candidate source for `linux-x64`, installs the agent and broker under separate
+product users through the product installer, and exercises the same registered
+scenario. Installer verification must prove systemd service definitions,
+network isolation, Unix socket ownership/mode and peer credentials, exact
+evidence ACLs, bootstrap finalization, and service health. Revocation and
+DeleteKeys then remove the units, product users/groups, package roots, and
+protected state. The canary refuses pre-existing product identities or paths,
+creates and removes only its exact connector-health fixture, and never runs on
+self-hosted capacity or a live PitCrew node.
 
 ## One-command run
 
@@ -144,8 +156,10 @@ environment and never appear in a manifest or command argument.
 `.github/workflows/support-canary.yml` is reusable and manually dispatchable.
 It accepts exact Dashboard and PitCrew SHAs, scenario ID, and topology profile.
 Pull requests use public GitHub-hosted Ubuntu and the PitCrew commit pinned by
-the candidate Dashboard policy. The workflow uses no production credentials and
-never runs untrusted code through `pull_request_target` or self-hosted capacity.
+the candidate Dashboard policy. Portable, containerized, and Linux-installed
+jobs run independently on Ubuntu; Windows-installed runs on Windows. The
+workflow uses no production credentials and never runs untrusted code through
+`pull_request_target` or self-hosted capacity.
 
 ## Release gating
 

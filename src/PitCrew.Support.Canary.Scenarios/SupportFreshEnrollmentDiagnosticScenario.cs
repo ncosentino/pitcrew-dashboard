@@ -143,7 +143,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
         "PitCrew.Support.Broker.App");
     CandidateProcess? agent = null;
     CandidateProcess? broker = null;
-    WindowsInstalledCanaryNode? installedNode = null;
+    IInstalledCanaryNode? installedNode = null;
     SupportCanaryDashboardClient? dashboard = null;
     string? antiforgeryToken = null;
     string? enrollmentCode = null;
@@ -169,6 +169,25 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             "topology-capability-missing");
       }
       installedNode = new WindowsInstalledCanaryNode(
+          context,
+          fixtureRoot);
+      agentStateRoot = installedNode.AgentStateRoot;
+    }
+    else if (runtime.TopologyProfile ==
+        CanaryTopologyProfiles.LinuxInstalled)
+    {
+      if (!OperatingSystem.IsLinux() ||
+          !runtime.Capabilities.Contains(
+              CanaryCapabilities.LinuxInstalledServices,
+              StringComparer.Ordinal) ||
+          !runtime.Capabilities.Contains(
+              CanaryCapabilities.LinuxSystemdIsolation,
+              StringComparer.Ordinal))
+      {
+        throw new CanaryScenarioFailureException(
+            "topology-capability-missing");
+      }
+      installedNode = new LinuxInstalledCanaryNode(
           context,
           fixtureRoot);
       agentStateRoot = installedNode.AgentStateRoot;
@@ -231,7 +250,7 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
                   runtime.DashboardUrl,
                   enrollmentCode,
                   token);
-              return "windows-services-installed";
+              return installedNode.InstallationCategory;
             }
 #pragma warning disable IDISP003 // The nullable slot is owned and disposed by the scenario finally block.
             broker = CandidateProcess.Start(
@@ -322,7 +341,6 @@ public sealed class SupportFreshEnrollmentDiagnosticScenario :
             if (installedNode is not null)
             {
               await installedNode.FinalizeAndRestartAsync(token);
-              VerifyBootstrapRemoved(agentStateRoot);
               return "second-poll-accepted";
             }
             if (agent is null)

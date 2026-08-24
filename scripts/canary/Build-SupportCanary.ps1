@@ -62,6 +62,25 @@ if ([string]$plan.topologyProfile -ceq 'windows-installed') {
     )
 }
 
+if ([string]$plan.topologyProfile -ceq 'linux-installed') {
+    if (-not $IsLinux) {
+        throw 'The linux-installed canary profile requires Linux.'
+    }
+    Invoke-SupportCanaryNative pwsh @(
+        '-NoProfile',
+        '-File',
+        (Join-Path $DashboardSourceRoot 'scripts/package-support-plane.ps1'),
+        '-Configuration',
+        $Configuration,
+        '-Version',
+        '0.0.0-canary',
+        '-RuntimeIdentifiers',
+        'linux-x64',
+        '-OutputRoot',
+        (Join-Path $RunRoot 'artifacts/support-plane')
+    )
+}
+
 if ([string]$plan.topologyProfile -ceq 'containerized') {
     if (-not $IsLinux) {
         throw 'The containerized canary profile requires a Linux host.'
