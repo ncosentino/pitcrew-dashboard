@@ -130,6 +130,9 @@ if (plan.TopologyProfile == CanaryTopologyProfiles.Containerized)
       .WithEnvironment(
           "PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8",
           dashboardResultKey)
+      .WithEnvironment(
+          "PitCrew__SupportPlane__MaximumSessionLifetimeSeconds",
+          "30")
       .WithVolume(
           topology.DashboardVolumeName,
           "/var/lib/pitcrew-dashboard")
@@ -234,6 +237,9 @@ else
       .WithEnvironment(
           "PitCrew__SupportPlane__ResultDecryptionPrivateKeyPkcs8",
           dashboardResultKey)
+      .WithEnvironment(
+          "PitCrew__SupportPlane__MaximumSessionLifetimeSeconds",
+          "30")
       .WithHttpHealthCheck("/health")
       .WaitFor(relay);
   var runtimeManifest = AddRuntimeManifest(

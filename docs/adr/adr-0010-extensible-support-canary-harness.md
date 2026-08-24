@@ -233,6 +233,14 @@ descriptor. Unsafe broker-output outcomes remain focused agent boundary tests;
 the canary does not substitute or add a production fault mode to the real
 broker.
 
+The fifth scenario, `support-terminal-lifecycle-v1`, enrolls a dormant
+run-scoped identity beside the active candidate agent. The dormant identity
+proves queued, cancelled, expired, and rejected state without racing or pausing
+the active agent; it uses the production enrollment, relay poll, and bounded
+outcome routes. The active agent proves dispatched and completed state. The
+scenario then returns to the existing signed-diagnostic, revocation, and
+unchanged-state workflow.
+
 ## CI and trust boundary
 
 Dashboard provides a reusable and manually dispatchable workflow with exact

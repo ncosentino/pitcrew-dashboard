@@ -21,6 +21,7 @@ support:
 - `support-fresh-enrollment-diagnostic-v1`
 - `support-diagnostic-mode-matrix-v1`
 - `support-relay-restart-recovery-v1`
+- `support-terminal-lifecycle-v1`
 
 The portable and `containerized` profiles additionally support:
 
@@ -115,6 +116,17 @@ the canary deliberately does not bypass the installed service ACL to read the
 node public-key descriptor. Broker report/markdown corruption remains a focused
 agent boundary test: the hosted canary does not replace or fault-enable the real
 broker to manufacture unsafe output.
+
+`support-terminal-lifecycle-v1` composes the same active-node workflow and adds
+one dormant, run-scoped support identity. A queued session is read before any
+poll and then cancelled. A second dormant session expires under the canary's
+30-second maximum lifetime. The dormant node then uses its real transport
+credential to poll and report one closed rejection. Finally, the active
+candidate agent completes a normal Dashboard-created session. The scenario
+requires queued, cancelled, expired, dispatched, rejected, and completed state,
+retained first-dispatch evidence, the bounded rejection disposition, and a
+verified result before the base workflow performs its independent signed
+diagnostic and cleanup.
 
 ## Evidence and secrets
 

@@ -69,6 +69,6 @@ public sealed class SupportPlaneOptions
   /// <summary>
   /// Gets or sets the maximum diagnostic session lifetime in seconds.
   /// </summary>
-  [Range(300, 3600)]
+  [Range(30, 3600)]
   public int MaximumSessionLifetimeSeconds { get; set; } = 900;
 }

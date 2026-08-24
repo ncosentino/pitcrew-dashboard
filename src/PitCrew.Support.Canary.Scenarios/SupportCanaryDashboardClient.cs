@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support;
+using PitCrew.Support.Protocol;
 
 namespace PitCrew.Support.Canary.Scenarios;
 
@@ -58,6 +59,16 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
       CreateEnrollmentAuthorizationAsync(
           string antiforgeryToken,
           CancellationToken cancellationToken)
+      => await CreateEnrollmentAuthorizationAsync(
+          antiforgeryToken,
+          EnrollmentDisplayName,
+          cancellationToken);
+
+  public async Task<CreatedSupportEnrollmentAuthorizationResponse>
+      CreateEnrollmentAuthorizationAsync(
+          string antiforgeryToken,
+          string displayName,
+          CancellationToken cancellationToken)
   {
     using var request = new HttpRequestMessage(
         HttpMethod.Post,
@@ -65,7 +76,7 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
     {
       Content = JsonContent.Create(
           new CreateSupportEnrollmentAuthorizationRequest(
-              EnrollmentDisplayName)),
+              displayName)),
     };
     request.Headers.Add(
         AntiforgeryHeader,
@@ -83,6 +94,111 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
             cancellationToken) ??
         throw new CanaryScenarioFailureException(
             "enrollment-authorization-empty");
+  }
+
+  public async Task<SupportEnrollmentCompletionResponse>
+      CompleteEnrollmentAsync(
+          string enrollmentCode,
+          Guid completionId,
+          string signingPublicKey,
+          string encryptionPublicKey,
+          CancellationToken cancellationToken)
+  {
+    using var response = await _client.PostAsJsonAsync(
+        "/api/support-agent/v1/enrollments/complete",
+        new CompleteSupportEnrollmentRequest(
+            TenantId,
+            enrollmentCode,
+            completionId,
+            signingPublicKey,
+            encryptionPublicKey),
+        cancellationToken);
+    if (response.StatusCode != HttpStatusCode.OK)
+    {
+      throw new CanaryScenarioFailureException(
+          "enrollment-authorization-rejected");
+    }
+    return await response.Content.ReadFromJsonAsync<
+        SupportEnrollmentCompletionResponse>(
+            cancellationToken) ??
+        throw new CanaryScenarioFailureException(
+            "enrollment-authorization-empty");
+  }
+
+  public async Task<SupportDiagnosticSessionResponse>
+      CreateSupportSessionAsync(
+          string antiforgeryToken,
+          Guid nodeId,
+          CancellationToken cancellationToken)
+  {
+    using var request = new HttpRequestMessage(
+        HttpMethod.Post,
+        $"/api/tenants/{TenantId}/support/v1/sessions")
+    {
+      Content = JsonContent.Create(
+          new CreateSupportDiagnosticSessionRequest(
+              nodeId,
+              SupportDiagnosticModes.ConnectorOffline,
+              null,
+              300)),
+    };
+    request.Headers.Add(
+        AntiforgeryHeader,
+        antiforgeryToken);
+    using var response = await _client.SendAsync(
+        request,
+        cancellationToken);
+    if (response.StatusCode != HttpStatusCode.Accepted)
+    {
+      throw new CanaryScenarioFailureException(
+          "dashboard-session-rejected");
+    }
+    return await response.Content.ReadFromJsonAsync<
+        SupportDiagnosticSessionResponse>(
+            cancellationToken) ??
+        throw new CanaryScenarioFailureException(
+            "dashboard-session-empty");
+  }
+
+  public async Task<SupportDiagnosticSessionResponse>
+      GetSupportSessionAsync(
+          Guid sessionId,
+          CancellationToken cancellationToken)
+  {
+    using var response = await _client.GetAsync(
+        $"/api/tenants/{TenantId}/support/v1/sessions/{sessionId:D}",
+        cancellationToken);
+    if (response.StatusCode != HttpStatusCode.OK)
+    {
+      throw new CanaryScenarioFailureException(
+          "dashboard-session-rejected");
+    }
+    return await response.Content.ReadFromJsonAsync<
+        SupportDiagnosticSessionResponse>(
+            cancellationToken) ??
+        throw new CanaryScenarioFailureException(
+            "dashboard-session-empty");
+  }
+
+  public async Task CancelSupportSessionAsync(
+      string antiforgeryToken,
+      Guid sessionId,
+      CancellationToken cancellationToken)
+  {
+    using var request = new HttpRequestMessage(
+        HttpMethod.Post,
+        $"/api/tenants/{TenantId}/support/v1/sessions/{sessionId:D}/cancel");
+    request.Headers.Add(
+        AntiforgeryHeader,
+        antiforgeryToken);
+    using var response = await _client.SendAsync(
+        request,
+        cancellationToken);
+    if (response.StatusCode != HttpStatusCode.NoContent)
+    {
+      throw new CanaryScenarioFailureException(
+          "dashboard-session-rejected");
+    }
   }
 
   public async Task<DiagnosticCredentialCreatedResponse>
