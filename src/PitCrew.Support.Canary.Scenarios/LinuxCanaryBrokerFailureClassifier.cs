@@ -126,16 +126,22 @@ internal sealed class LinuxCanaryBrokerFailureClassifier(
       return "agent-broker-crash-access-denied";
     }
     if (journal.Contains(
-            nameof(DirectoryNotFoundException),
-            StringComparison.Ordinal) ||
-        journal.Contains(
-            nameof(FileNotFoundException),
-            StringComparison.Ordinal) ||
-        journal.Contains(
-            nameof(IOException),
-            StringComparison.Ordinal))
+        nameof(DirectoryNotFoundException),
+        StringComparison.Ordinal))
     {
-      return "agent-broker-crash-file-system";
+      return "agent-broker-crash-directory-not-found";
+    }
+    if (journal.Contains(
+        nameof(FileNotFoundException),
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-file-not-found";
+    }
+    if (journal.Contains(
+        nameof(IOException),
+        StringComparison.Ordinal))
+    {
+      return "agent-broker-crash-io";
     }
     if (journal.Contains(
             "System.Management.Automation",
