@@ -130,6 +130,20 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
           string antiforgeryToken,
           Guid nodeId,
           CancellationToken cancellationToken)
+      => await CreateSupportSessionAsync(
+          antiforgeryToken,
+          nodeId,
+          SupportDiagnosticModes.ConnectorOffline,
+          profileId: null,
+          cancellationToken);
+
+  public async Task<SupportDiagnosticSessionResponse>
+      CreateSupportSessionAsync(
+          string antiforgeryToken,
+          Guid nodeId,
+          string diagnosticMode,
+          string? profileId,
+          CancellationToken cancellationToken)
   {
     using var request = new HttpRequestMessage(
         HttpMethod.Post,
@@ -138,8 +152,8 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
       Content = JsonContent.Create(
           new CreateSupportDiagnosticSessionRequest(
               nodeId,
-              SupportDiagnosticModes.ConnectorOffline,
-              null,
+              diagnosticMode,
+              profileId,
               300)),
     };
     request.Headers.Add(

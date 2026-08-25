@@ -154,7 +154,7 @@ jobs:
     with:
       dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
       pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
-      scenario: support-fresh-enrollment-diagnostic-v1
+      scenario: support-terminal-lifecycle-v1
       topology_profile: portable
 
   containerized-canary:
@@ -166,7 +166,7 @@ jobs:
     with:
       dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
       pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
-      scenario: support-fresh-enrollment-diagnostic-v1
+      scenario: support-terminal-lifecycle-v1
       topology_profile: containerized
 
   windows-installed-canary:
@@ -178,7 +178,7 @@ jobs:
     with:
       dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
       pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
-      scenario: support-fresh-enrollment-diagnostic-v1
+      scenario: support-terminal-lifecycle-v1
       topology_profile: windows-installed
 
   linux-installed-canary:
@@ -190,7 +190,7 @@ jobs:
     with:
       dashboard_sha: ${{ needs.preflight.outputs.dashboard-sha }}
       pitcrew_sha: ${{ needs.preflight.outputs.pitcrew-sha }}
-      scenario: support-fresh-enrollment-diagnostic-v1
+      scenario: support-terminal-lifecycle-v1
       topology_profile: linux-installed
 
   create-draft:

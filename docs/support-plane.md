@@ -287,6 +287,12 @@ missing collector, evidence denial, execution failure, invalid response, local
 I/O failure, and timeout remain distinct. A later replay observation cannot
 replace the first actionable outcome.
 
+Relay storage derives its rejection constraint from that shared closed
+vocabulary. Startup replaces an older, narrower lifecycle constraint
+transactionally while preserving existing session status, dispatch, rejection,
+request, and result evidence. Every protocol-supported broker rejection must
+therefore reach the same terminal relay and Dashboard projection path.
+
 Empty, oversized, or malformed serialized relay envelopes enter the same typed
 processing path and produce `envelope-payload-rejected`. They are never treated
 as successful empty polls after the relay has dispatched a session.

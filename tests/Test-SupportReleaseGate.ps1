@@ -650,11 +650,14 @@ Add-Check (
 Add-Check (
     $prepareWorkflow -match
         'uses: \./\.github/workflows/support-canary\.yml' -and
-    $prepareWorkflow -match
-        'scenario: support-fresh-enrollment-diagnostic-v1' -and
+    ([regex]::Matches(
+        $prepareWorkflow,
+        'scenario: support-terminal-lifecycle-v1'
+    )).Count -eq 4 -and
     $prepareWorkflow -match 'topology_profile: portable' -and
     $prepareWorkflow -match 'topology_profile: containerized' -and
-    $prepareWorkflow -match 'topology_profile: windows-installed'
+    $prepareWorkflow -match 'topology_profile: windows-installed' -and
+    $prepareWorkflow -match 'topology_profile: linux-installed'
 ) 'Release preparation does not invoke all required canary profiles.'
 Add-Check (
     $prepareWorkflow -match "context\.ref !== 'refs/heads/main'" -and

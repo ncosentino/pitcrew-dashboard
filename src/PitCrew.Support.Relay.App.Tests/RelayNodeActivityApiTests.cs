@@ -132,6 +132,71 @@ public sealed class RelayNodeActivityApiTests
   }
 
   [Test]
+  public async Task Broker_Rejection_Projects_Through_The_Node_Outcome_Api(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      await using var factory = CreateFactory(databasePath);
+      using var client = factory.CreateClient();
+      var store =
+          factory.Services.GetRequiredService<SqliteRelayStore>();
+      var nodeId = Guid.NewGuid();
+      var sessionId = Guid.NewGuid();
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-a")),
+          cancellationToken);
+      await store.EnqueueSessionAsync(
+          new RelaySessionEnqueueRequest(
+              "tenant-a",
+              nodeId,
+              sessionId,
+              DateTimeOffset.Parse(
+                  "2099-08-01T00:05:00+00:00",
+                  CultureInfo.InvariantCulture),
+              "opaque-request"),
+          cancellationToken);
+      using var request = new HttpRequestMessage(
+          HttpMethod.Post,
+          $"/api/support-relay/v1/nodes/{nodeId:D}/sessions/{sessionId:D}/outcome")
+      {
+        Content = JsonContent.Create(
+            new SupportRelayRequestOutcomeRequest(
+                SupportRequestRejectionDispositions
+                    .BrokerEvidenceAccessDenied)),
+      };
+      request.Headers.Authorization =
+          new AuthenticationHeaderValue(
+              "Bearer",
+              "credential-a");
+
+      using var response = await client.SendAsync(
+          request,
+          cancellationToken);
+      var stored = await store.GetSessionAsync(
+          sessionId,
+          cancellationToken);
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(stored).IsNotNull();
+      await Assert.That(stored!.Status).IsEqualTo("rejected");
+      await Assert.That(stored.RejectionDisposition)
+          .IsEqualTo(
+              SupportRequestRejectionDispositions
+                  .BrokerEvidenceAccessDenied);
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Request_Outcome_Requires_Node_Credential_And_Closed_Disposition(
       CancellationToken cancellationToken)
   {

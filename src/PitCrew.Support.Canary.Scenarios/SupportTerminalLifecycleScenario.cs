@@ -21,6 +21,8 @@ public sealed class SupportTerminalLifecycleScenario : ICanaryScenario
       "support-terminal-lifecycle-v1";
   private const string DormantDisplayName =
       "Canary dormant lifecycle node";
+  private const string UnconfiguredProfileId =
+      "canary-unconfigured";
   private static readonly JsonSerializerOptions _jsonOptions =
       new(JsonSerializerDefaults.Web);
   private readonly SupportFreshEnrollmentDiagnosticScenario _inner =
@@ -131,6 +133,32 @@ public sealed class SupportTerminalLifecycleScenario : ICanaryScenario
     if (rejected.RejectionDisposition !=
         SupportRequestRejectionDispositions
             .UnsupportedCapability)
+    {
+      throw new CanaryScenarioFailureException(
+          "terminal-lifecycle-matrix-mismatch");
+    }
+
+    var brokerRejecting =
+        await dashboard.CreateSupportSessionAsync(
+            antiforgeryToken,
+            activeNodeId,
+            SupportDiagnosticModes.ConnectorOffline,
+            UnconfiguredProfileId,
+            cancellationToken);
+    var brokerRejected = await WaitForStatusAsync(
+        dashboard,
+        ParseSessionId(brokerRejecting),
+        "Rejected",
+        context.TimeProvider,
+        cancellationToken);
+    RequireStatus(
+        brokerRejected,
+        "Rejected",
+        requireDispatch: true,
+        requireResult: false);
+    if (brokerRejected.RejectionDisposition !=
+        SupportRequestRejectionDispositions
+            .BrokerInvalidProfile)
     {
       throw new CanaryScenarioFailureException(
           "terminal-lifecycle-matrix-mismatch");
