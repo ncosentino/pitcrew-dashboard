@@ -8,13 +8,19 @@ namespace PitCrew.Support.Relay.App;
 
 internal sealed class SqliteRelayStore(string _databasePath)
 {
+  private static readonly string _supportedRejectionDispositionSql =
+      string.Join(
+          ",\n                    ",
+          SupportRequestRejectionDispositions.All.Select(
+              ToSqlStringLiteral));
+
   public async Task InitializeAsync(CancellationToken cancellationToken)
   {
     Directory.CreateDirectory(Path.GetDirectoryName(_databasePath) ?? ".");
     await using var connection = await OpenAsync(cancellationToken);
     await using var command = connection.CreateCommand();
     command.CommandText =
-        """
+        $"""
         CREATE TABLE IF NOT EXISTS relay_nodes (
             node_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
@@ -40,22 +46,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
             rejection_disposition TEXT NULL CHECK (
                 rejection_disposition IS NULL
                 OR rejection_disposition IN (
-                    'envelope-unsupported',
-                    'envelope-signature-rejected',
-                    'envelope-payload-rejected',
-                    'request-malformed',
-                    'session-mismatch',
-                    'wrong-tenant-or-node',
-                    'unsupported-capability',
-                    'unsupported-diagnostic-mode',
-                    'request-expired',
-                    'invalid-nonce',
-                    'request-replay',
-                    'replay-pending',
-                    'broker-markdown-rejected',
-                    'broker-report-rejected',
-                    'validation-rejected',
-                    'result-unavailable')),
+                    {_supportedRejectionDispositionSql})),
             expires_at TEXT NOT NULL,
             request_envelope_json TEXT NOT NULL,
             result_envelope_json TEXT NULL,
@@ -871,17 +862,48 @@ internal sealed class SqliteRelayStore(string _databasePath)
             StringComparison.Ordinal) &&
         schema.Contains(
             "dispatched_at",
-            StringComparison.Ordinal))
+            StringComparison.Ordinal) &&
+        SupportRequestRejectionDispositions.All.All(
+            disposition => schema.Contains(
+                ToSqlStringLiteral(disposition),
+                StringComparison.Ordinal)))
     {
       return;
     }
+    var hasRejectedStatus = schema?.Contains(
+        "'rejected'",
+        StringComparison.Ordinal) ?? false;
+    var hasLifecycleColumns =
+        schema?.Contains(
+            "dispatched_at",
+            StringComparison.Ordinal) == true &&
+        schema.Contains(
+            "rejected_at",
+            StringComparison.Ordinal) &&
+        schema.Contains(
+            "rejection_disposition",
+            StringComparison.Ordinal);
+    if (hasRejectedStatus && !hasLifecycleColumns)
+    {
+      throw new InvalidOperationException(
+          "The relay session lifecycle schema is incomplete.");
+    }
+    var dispatchedAtSelection = hasLifecycleColumns
+        ? "dispatched_at"
+        : "NULL";
+    var rejectedAtSelection = hasLifecycleColumns
+        ? "rejected_at"
+        : "NULL";
+    var rejectionDispositionSelection = hasLifecycleColumns
+        ? "rejection_disposition"
+        : "NULL";
     await using var transaction =
         (SqliteTransaction)await connection
             .BeginTransactionAsync(cancellationToken);
     await using var migrate = connection.CreateCommand();
     migrate.Transaction = transaction;
     migrate.CommandText =
-        """
+        $"""
         ALTER TABLE relay_sessions
             RENAME TO relay_sessions_legacy;
 
@@ -901,22 +923,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
             rejection_disposition TEXT NULL CHECK (
                 rejection_disposition IS NULL
                 OR rejection_disposition IN (
-                    'envelope-unsupported',
-                    'envelope-signature-rejected',
-                    'envelope-payload-rejected',
-                    'request-malformed',
-                    'session-mismatch',
-                    'wrong-tenant-or-node',
-                    'unsupported-capability',
-                    'unsupported-diagnostic-mode',
-                    'request-expired',
-                    'invalid-nonce',
-                    'request-replay',
-                    'replay-pending',
-                    'broker-markdown-rejected',
-                    'broker-report-rejected',
-                    'validation-rejected',
-                    'result-unavailable')),
+                    {_supportedRejectionDispositionSql})),
             expires_at TEXT NOT NULL,
             request_envelope_json TEXT NOT NULL,
             result_envelope_json TEXT NULL,
@@ -945,9 +952,9 @@ internal sealed class SqliteRelayStore(string _databasePath)
             tenant_id,
             node_id,
             status,
-            NULL,
-            NULL,
-            NULL,
+            {dispatchedAtSelection},
+            {rejectedAtSelection},
+            {rejectionDispositionSelection},
             expires_at,
             request_envelope_json,
             result_envelope_json
@@ -1022,4 +1029,10 @@ internal sealed class SqliteRelayStore(string _databasePath)
 
   private static string FormatUtc(DateTimeOffset value) =>
       value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+
+  private static string ToSqlStringLiteral(string value) =>
+      $"'{value.Replace(
+          "'",
+          "''",
+          StringComparison.Ordinal)}'";
 }

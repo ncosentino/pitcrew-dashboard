@@ -135,12 +135,14 @@ broker to manufacture unsafe output.
 one dormant, run-scoped support identity. A queued session is read before any
 poll and then cancelled. A second dormant session expires under the canary's
 30-second maximum lifetime. The dormant node then uses its real transport
-credential to poll and report one closed rejection. Finally, the active
-candidate agent completes a normal Dashboard-created session. The scenario
-requires queued, cancelled, expired, dispatched, rejected, and completed state,
-retained first-dispatch evidence, the bounded rejection disposition, and a
-verified result before the base workflow performs its independent signed
-diagnostic and cleanup.
+credential to poll and report one closed protocol rejection. The active
+candidate agent then sends a valid request for an unconfigured profile through
+the real broker and must project the broker's closed rejection through the real
+relay into Dashboard before completing a normal Dashboard-created session. The
+scenario requires queued, cancelled, expired, dispatched, protocol-rejected,
+broker-rejected, and completed state, retained first-dispatch evidence, both
+bounded rejection dispositions, and a verified result before the base workflow
+performs its independent signed diagnostic and cleanup.
 
 ## Evidence and secrets
 
@@ -171,11 +173,12 @@ current full Dashboard SHA, and the full PitCrew SHA pinned by the candidate
 support evidence policy.
 
 The workflow validates both repositories and the unused release tag, then runs
-`support-fresh-enrollment-diagnostic-v1` through the reusable portable,
-containerized, Windows-installed, and Linux-installed canaries in parallel.
-`validate-only` stops after that evidence. `create-draft` creates a GitHub draft
-only after all four canaries succeed. A failed preflight or canary creates no
-tag or release.
+`support-terminal-lifecycle-v1` through the reusable portable, containerized,
+Windows-installed, and Linux-installed canaries in parallel. That gate includes
+fresh enrollment and a valid signed diagnostic plus real agent/broker rejection
+projection through relay storage into Dashboard. `validate-only` stops after
+that evidence. `create-draft` creates a GitHub draft only after all four
+canaries succeed. A failed preflight or canary creates no tag or release.
 
 The draft contains generated notes plus one bounded gate marker tied to the
 preparation workflow run. Wait for the preparation workflow to complete
