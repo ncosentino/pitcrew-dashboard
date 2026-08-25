@@ -9,32 +9,7 @@ namespace PitCrew.Support.Agent.App;
 internal sealed record AgentRelayPollResponse(
     Guid SessionId,
     string RequestEnvelope,
-    DateTimeOffset ExpiresAt)
-{
-  private static readonly JsonSerializerOptions _jsonOptions =
-      new(JsonSerializerDefaults.Web);
-
-  public SupportEnvelope? GetRequestEnvelopeOrNull() =>
-      DeserializeEnvelopeOrNull(RequestEnvelope);
-
-  private static SupportEnvelope? DeserializeEnvelopeOrNull(string value)
-  {
-    if (string.IsNullOrWhiteSpace(value) || value.Length > 1_048_576)
-    {
-      return null;
-    }
-    try
-    {
-      return JsonSerializer.Deserialize<SupportEnvelope>(
-          value,
-          _jsonOptions);
-    }
-    catch (System.Text.Json.JsonException)
-    {
-      return null;
-    }
-  }
-}
+    DateTimeOffset ExpiresAt);
 
 internal sealed class SupportRelayTransportClient(
     IHttpClientFactory _httpClientFactory)

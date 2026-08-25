@@ -184,14 +184,13 @@ internal sealed partial class SupportAgentWorker(
       SupportAgentIdentityLog.CredentialRejected(_logger);
       return false;
     }
-    var requestEnvelope = poll.Response?.GetRequestEnvelopeOrNull();
-    if (poll.Response is null || requestEnvelope is null)
+    if (poll.Response is null)
     {
       return true;
     }
     var result = await processor.ProcessAsync(
         poll.Response.SessionId,
-        requestEnvelope,
+        poll.Response.RequestEnvelope,
         cancellationToken);
     if (result.ResultEnvelope is null)
     {

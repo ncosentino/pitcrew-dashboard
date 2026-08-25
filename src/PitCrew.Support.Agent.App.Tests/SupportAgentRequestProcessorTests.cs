@@ -68,8 +68,17 @@ public sealed class SupportAgentRequestProcessorTests
           "dashboard",
           "node");
 
-      var first = await processor.ProcessAsync(sessionId, envelope, cancellationToken);
-      var second = await processor.ProcessAsync(sessionId, envelope, cancellationToken);
+      var serializedEnvelope = JsonSerializer.Serialize(
+          envelope,
+          new JsonSerializerOptions(JsonSerializerDefaults.Web));
+      var first = await processor.ProcessAsync(
+          sessionId,
+          serializedEnvelope,
+          cancellationToken);
+      var second = await processor.ProcessAsync(
+          sessionId,
+          serializedEnvelope,
+          cancellationToken);
 
       await Assert.That(first.Status)
           .IsEqualTo(
@@ -98,6 +107,87 @@ public sealed class SupportAgentRequestProcessorTests
       await Assert.That(package).IsNotNull();
       await Assert.That(Encoding.UTF8.GetString(SupportBase64Url.Decode(package!.PayloadBase64Url)))
           .Contains("# Diagnostics");
+    }
+    finally
+    {
+      if (Directory.Exists(replayRoot))
+      {
+        Directory.Delete(replayRoot, recursive: true);
+      }
+    }
+  }
+
+  [Test]
+  public async Task Malformed_Serialized_Envelope_Returns_Bounded_Rejection(
+      CancellationToken cancellationToken)
+  {
+    var replayRoot = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-envelope-{Guid.NewGuid():N}");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var dashboardKeys =
+          SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var broker = new CountingDiagnosticsBroker();
+      var processor = new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              replayRoot,
+              nodeId),
+          broker,
+          new AgentReplayCache(replayRoot),
+          new FakeTimeProvider(now));
+      foreach (var serializedEnvelope in new[]
+      {
+        string.Empty,
+        "{]",
+        new string('x', 1_048_577),
+      })
+      {
+        var sessionId = Guid.NewGuid();
+        var result = await processor.ProcessAsync(
+            sessionId,
+            serializedEnvelope,
+            cancellationToken);
+        var redelivered =
+            await new SupportAgentRequestProcessor(
+                CreateOptions(
+                    dashboardKeys,
+                    nodeKeys,
+                    replayRoot,
+                    nodeId),
+                broker,
+                new AgentReplayCache(replayRoot),
+                new FakeTimeProvider(now)).ProcessAsync(
+                    sessionId,
+                    serializedEnvelope,
+                    cancellationToken);
+
+        await Assert.That(result.Status)
+            .IsEqualTo(
+                SupportAgentRequestProcessingStatus
+                    .EnvelopePayloadRejected);
+        await Assert.That(result.RejectionDisposition)
+            .IsEqualTo(
+                SupportRequestRejectionDispositions
+                    .EnvelopePayloadRejected);
+        await Assert.That(result.ResultEnvelope).IsNull();
+        await Assert.That(redelivered.Status)
+            .IsEqualTo(
+                SupportAgentRequestProcessingStatus
+                    .CachedRejection);
+        await Assert.That(redelivered.RejectionDisposition)
+            .IsEqualTo(
+                SupportRequestRejectionDispositions
+                    .EnvelopePayloadRejected);
+      }
+      await Assert.That(broker.CallCount).IsEqualTo(0);
     }
     finally
     {
