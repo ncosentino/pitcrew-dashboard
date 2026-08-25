@@ -34,7 +34,7 @@ internal static class SupportEvidencePolicy
         new JsonSerializerOptions(JsonSerializerDefaults.Web)) ??
         throw new InvalidOperationException(
             "The embedded support evidence policy is invalid.");
-    if (policy.SchemaVersion != 2 ||
+    if (policy.SchemaVersion != 3 ||
         !string.Equals(
             policy.PitCrewVersion,
             "0.10.8",
@@ -63,6 +63,8 @@ internal static class SupportEvidencePolicy
             policy.ProfileEvidenceDirectory,
             "support-evidence",
             StringComparison.Ordinal) ||
+        policy.MaximumPersistentDirectoryEntries != 32 ||
+        policy.MaximumTransientDirectoryEntries != 256 ||
         !string.Equals(
             policy.WindowsEvidenceInheritance,
             "object-inherit-read-ace",

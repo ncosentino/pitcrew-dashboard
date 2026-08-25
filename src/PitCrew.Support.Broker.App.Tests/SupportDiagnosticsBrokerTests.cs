@@ -156,22 +156,25 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
-  public async Task Broker_Allows_Atomic_Temporary_Evidence_File(
+  public async Task Broker_Allows_Bounded_Atomic_Temporary_Evidence_Backlog(
       CancellationToken cancellationToken)
   {
     var root = SupportBrokerTestHost.CreatePitCrewRoot();
     try
     {
       var policy = SupportEvidencePolicy.Load();
-      await File.WriteAllTextAsync(
-          Path.Combine(
-              root,
-              ".pitcrew-state",
-              "default",
-              policy.ProfileEvidenceDirectory,
-              ".observed-state.test.tmp"),
-          "{}",
-          cancellationToken);
+      for (var index = 0; index < 64; index++)
+      {
+        await File.WriteAllTextAsync(
+            Path.Combine(
+                root,
+                ".pitcrew-state",
+                "default",
+                policy.ProfileEvidenceDirectory,
+                $".observed-state.test-{index:D3}.tmp"),
+            "{}",
+            cancellationToken);
+      }
       var options = SupportBrokerTestHost.CreateOptions(root, "unused");
       var broker = SupportBrokerTestHost.CreateBroker(options);
 
@@ -184,6 +187,50 @@ public sealed class SupportDiagnosticsBrokerTests
 
       await Assert.That(result.Status)
           .IsEqualTo(SupportBrokerStatus.Succeeded);
+    }
+    finally
+    {
+      SupportBrokerTestHost.DeleteDirectory(root);
+    }
+  }
+
+  [Test]
+  public async Task Broker_Rejects_Unbounded_Atomic_Temporary_Evidence_Backlog(
+      CancellationToken cancellationToken)
+  {
+    var root = SupportBrokerTestHost.CreatePitCrewRoot();
+    try
+    {
+      var policy = SupportEvidencePolicy.Load();
+      for (var index = 0;
+          index <= policy.MaximumTransientDirectoryEntries;
+          index++)
+      {
+        await File.WriteAllTextAsync(
+            Path.Combine(
+                root,
+                ".pitcrew-state",
+                "default",
+                policy.ProfileEvidenceDirectory,
+                $".observed-state.test-{index:D3}.tmp"),
+            "{}",
+            cancellationToken);
+      }
+      var options = SupportBrokerTestHost.CreateOptions(
+          root,
+          "unused");
+      var broker = SupportBrokerTestHost.CreateBroker(options);
+
+      var result = await broker.ExecuteAsync(
+          new SupportBrokerRequest(
+              SupportDiagnosticModes.Full,
+              "default",
+              "0123456789abcdef"),
+          cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(
+              SupportBrokerStatus.EvidenceAccessDenied);
     }
     finally
     {
@@ -374,7 +421,7 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
-  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_3()
+  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_8()
   {
     var policy = SupportEvidencePolicy.Load();
     var allPaths = policy.InstallationSentinels
@@ -384,6 +431,7 @@ public sealed class SupportDiagnosticsBrokerTests
         .Append(policy.CollectorRelativePath)
         .ToArray();
 
+    await Assert.That(policy.SchemaVersion).IsEqualTo(3);
     await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.8");
     await Assert.That(policy.PitCrewCommit)
         .IsEqualTo("a9fc5884b7e1aea6ef731c701401c46a51d0d3f5");
@@ -396,6 +444,10 @@ public sealed class SupportDiagnosticsBrokerTests
         .IsEqualTo("enumerate-profile-directories-only");
     await Assert.That(policy.ProfileEvidenceDirectory)
         .IsEqualTo("support-evidence");
+    await Assert.That(policy.MaximumPersistentDirectoryEntries)
+        .IsEqualTo(32);
+    await Assert.That(policy.MaximumTransientDirectoryEntries)
+        .IsEqualTo(256);
     await Assert.That(policy.WindowsEvidenceInheritance)
         .IsEqualTo("object-inherit-read-ace");
     await Assert.That(policy.LinuxEvidenceInheritance)

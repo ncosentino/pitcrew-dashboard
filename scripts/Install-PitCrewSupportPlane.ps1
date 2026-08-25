@@ -207,7 +207,7 @@ function Get-EvidencePolicy {
         -Raw `
         -Encoding UTF8 |
         ConvertFrom-Json -Depth 10
-    if ($policy.schemaVersion -ne 2 -or
+    if ($policy.schemaVersion -ne 3 -or
         $policy.pitCrewVersion -ne '0.10.8' -or
         $policy.pitCrewCommit -ne
             'a9fc5884b7e1aea6ef731c701401c46a51d0d3f5' -or
@@ -219,6 +219,8 @@ function Get-EvidencePolicy {
         $policy.profileStateRootAccess -ne
             'enumerate-profile-directories-only' -or
         $policy.profileEvidenceDirectory -ne 'support-evidence' -or
+        $policy.maximumPersistentDirectoryEntries -ne 32 -or
+        $policy.maximumTransientDirectoryEntries -ne 256 -or
         $policy.windowsEvidenceInheritance -ne
             'object-inherit-read-ace' -or
         $policy.linuxEvidenceInheritance -ne
@@ -5447,6 +5449,48 @@ function Assert-LinuxEvidenceAclsExact {
     }
 }
 
+function Assert-EvidenceDirectoryEntriesBounded {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][object]$Policy
+    )
+
+    $persistentEntries = 0
+    $transientEntries = 0
+    foreach ($item in @(
+        Get-ChildItem `
+            -LiteralPath $Root `
+            -Force `
+            -ErrorAction Stop
+    )) {
+        if ($item.PSIsContainer -or
+            ($item.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'A dedicated support evidence directory contains an unsupported entry.'
+        }
+        $temporary =
+            $item.Name.StartsWith(
+                '.',
+                [StringComparison]::Ordinal) -and
+            $item.Name.EndsWith(
+                '.tmp',
+                [StringComparison]::Ordinal)
+        if ($temporary) {
+            $transientEntries++
+            if ($transientEntries -gt
+                [int]$Policy.maximumTransientDirectoryEntries) {
+                throw 'A dedicated support evidence directory exceeds its transient entry limit.'
+            }
+            continue
+        }
+        $persistentEntries++
+        if ($persistentEntries -gt
+            [int]$Policy.maximumPersistentDirectoryEntries) {
+            throw 'A dedicated support evidence directory exceeds its persistent entry limit.'
+        }
+    }
+}
+
 function Assert-EvidenceFilesReadable {
     param(
         [Parameter(Mandatory)][hashtable]$Paths,
@@ -5489,6 +5533,9 @@ function Assert-EvidenceFilesReadable {
                 [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw 'Linked PitCrew support evidence directories are prohibited.'
         }
+        Assert-EvidenceDirectoryEntriesBounded `
+            -Root $evidenceRoot `
+            -Policy $policy
         foreach ($fileName in $policy.profileProjectionFiles) {
             $path = Join-Path $evidenceRoot $fileName
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -5512,6 +5559,13 @@ function Assert-EvidenceFilesReadable {
             }
             $files.Add($path)
         }
+    }
+    if (Test-Path `
+            -LiteralPath $Paths.ConnectorHealthRoot `
+            -PathType Container) {
+        Assert-EvidenceDirectoryEntriesBounded `
+            -Root $Paths.ConnectorHealthRoot `
+            -Policy $policy
     }
     if ($IsWindows) {
         Set-InstallerFailureContext `

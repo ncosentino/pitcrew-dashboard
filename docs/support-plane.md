@@ -404,7 +404,10 @@ crosses IPC.
 
 Installer verification and broker preflight reject nested, linked, or unexpected
 persistent directory entries. They permit only the fixed final names and
-dot-prefixed `.tmp` files used during same-directory atomic replacement.
+dot-prefixed `.tmp` files used during same-directory atomic replacement. The
+shared policy caps persistent entries at 32 and transient entries at 256.
+Transient files have their own budget so a bounded backlog from interrupted
+atomic replacements cannot crowd out otherwise valid diagnostic evidence.
 
 Projection and journal writers replace files atomically inside their dedicated
 evidence directories. Windows object-inherit read ACEs and Linux default

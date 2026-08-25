@@ -9,6 +9,8 @@ internal sealed record SupportEvidencePolicyDocument(
     string CollectorHashCanonicalization,
     string ProfileStateRootAccess,
     string ProfileEvidenceDirectory,
+    int MaximumPersistentDirectoryEntries,
+    int MaximumTransientDirectoryEntries,
     string WindowsEvidenceInheritance,
     string LinuxEvidenceInheritance,
     IReadOnlyList<string> InstallationSentinels,

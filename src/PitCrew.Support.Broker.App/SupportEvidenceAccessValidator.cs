@@ -5,7 +5,6 @@ namespace PitCrew.Support.Broker.App;
 
 internal sealed class SupportEvidenceAccessValidator
 {
-  private const int MaximumEvidenceDirectoryEntries = 32;
   private readonly SupportBrokerOptions _options;
   private readonly SupportEvidencePolicyDocument _policy;
 
@@ -90,7 +89,9 @@ internal sealed class SupportEvidenceAccessValidator
       }
       VerifyDedicatedEvidenceDirectory(
           evidenceRoot,
-          _policy.ProfileProjectionFiles);
+          _policy.ProfileProjectionFiles,
+          _policy.MaximumPersistentDirectoryEntries,
+          _policy.MaximumTransientDirectoryEntries);
 
       VerifyReadable(collectorPath, required: true);
       VerifyCollectorHash(collectorPath, _policy.CollectorSha256);
@@ -126,7 +127,9 @@ internal sealed class SupportEvidenceAccessValidator
       {
         VerifyDedicatedEvidenceDirectory(
             healthRoot,
-            _policy.ConnectorHealthFiles);
+            _policy.ConnectorHealthFiles,
+            _policy.MaximumPersistentDirectoryEntries,
+            _policy.MaximumTransientDirectoryEntries);
       }
       foreach (var fileName in _policy.ConnectorHealthFiles)
       {
@@ -187,20 +190,17 @@ internal sealed class SupportEvidenceAccessValidator
 
   private static void VerifyDedicatedEvidenceDirectory(
       string root,
-      IReadOnlyList<string> allowedFiles)
+      IReadOnlyList<string> allowedFiles,
+      int maximumPersistentEntries,
+      int maximumTransientEntries)
   {
     var comparison = OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
-    var entryCount = 0;
+    var persistentEntryCount = 0;
+    var transientEntryCount = 0;
     foreach (var path in Directory.EnumerateFileSystemEntries(root))
     {
-      entryCount++;
-      if (entryCount > MaximumEvidenceDirectoryEntries)
-      {
-        throw new IOException(
-            "A dedicated support evidence directory exceeds its entry limit.");
-      }
       var name = Path.GetFileName(path);
       var temporary = name.StartsWith(
               ".",
@@ -227,9 +227,25 @@ internal sealed class SupportEvidenceAccessValidator
         throw new IOException(
             "A dedicated support evidence directory contains an unsupported entry.");
       }
+      if (temporary)
+      {
+        transientEntryCount++;
+        if (transientEntryCount > maximumTransientEntries)
+        {
+          throw new IOException(
+              "A dedicated support evidence directory exceeds its transient entry limit.");
+        }
+        continue;
+      }
+      persistentEntryCount++;
+      if (persistentEntryCount > maximumPersistentEntries)
+      {
+        throw new IOException(
+            "A dedicated support evidence directory exceeds its persistent entry limit.");
+      }
       var allowed = allowedFiles.Any(
           candidate => string.Equals(candidate, name, comparison));
-      if (!allowed && !temporary)
+      if (!allowed)
       {
         throw new IOException(
             "A dedicated support evidence directory contains an unexpected persistent file.");
