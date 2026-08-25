@@ -9,7 +9,7 @@ $script:ReleaseGateMarkerPattern = (
     'topology-profiles=(?<topologyProfiles>[a-z0-9,-]+) ' +
     'run-id=(?<runId>[1-9][0-9]*) -->\r?$'
 )
-$script:RequiredScenario = 'support-fresh-enrollment-diagnostic-v1'
+$script:RequiredScenario = 'support-terminal-lifecycle-v1'
 $script:RequiredTopologyProfiles = @(
     'portable',
     'containerized',
