@@ -135,7 +135,7 @@ export async function createSupportSession(
     {
       method: 'POST',
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
-      body: { nodeId, diagnosticMode, profileId, expiresInSeconds: 300 },
+      body: { nodeId, diagnosticMode, profileId, expiresInSeconds: 900 },
       schema: supportSessionSchema,
     },
   );

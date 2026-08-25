@@ -289,13 +289,14 @@ replace the first actionable outcome.
 
 The support page renders the exact session lifecycle independently from semantic
 severity: `Queued`, `Dispatched`, `Completed`, `Rejected`, `Cancelled`, or
-`Expired`. **Check result** is available only while a session is `Queued` or
-`Dispatched`; terminal sessions do not offer another fetch. A check that returns
-the same status and no result reports that no new result is available through a
-polite live status message rather than appearing inert. Dispatched and later
-states show the first dispatch time when known. Rejected sessions also show the
-closed rejection disposition; they never display relay payloads or free-form
-agent output.
+`Expired`. New browser requests use the default 15-minute maximum session
+window. While the page is mounted, up to 16 `Queued` or `Dispatched` sessions
+refresh automatically every five seconds with one in-flight batch. Polling stops
+for terminal sessions and aborts on navigation. Operators can leave and return;
+the initial session read restores any completed result without a manual refresh
+button. Dispatched and later states show the first dispatch time when known.
+Rejected sessions also show the closed rejection disposition; they never
+display relay payloads or free-form agent output.
 
 ## Production node isolation
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
@@ -29,6 +29,8 @@ const diagnosticModes = [
   'HostPressure',
   'Full',
 ] as const;
+const sessionRefreshIntervalMilliseconds = 5_000;
+const maximumAutomaticallyRefreshedSessions = 16;
 
 const rejectionGuidance: Partial<
   Record<NonNullable<SupportSession['rejectionDisposition']>, string>
@@ -55,14 +57,16 @@ export default function SupportPage() {
   const [enrollment, setEnrollment] = useState<CreatedSupportEnrollment | null>(null);
   const [displayName, setDisplayName] = useState('Support node');
   const [error, setError] = useState<string | null>(null);
+  const [sessionRefreshError, setSessionRefreshError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [refreshingSessionId, setRefreshingSessionId] = useState<string | null>(null);
-  const [sessionFeedback, setSessionFeedback] = useState<{
-    readonly sessionId: string;
-    readonly message: string;
-  } | null>(null);
   const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
+  const sessionRefreshController = useRef<AbortController | null>(null);
   const activeIdentities = identities.filter((identity) => identity.status === 'Active');
+  const activeSessionKey = sessions
+    .filter((candidate) => ['Queued', 'Dispatched'].includes(candidate.status))
+    .slice(0, maximumAutomaticallyRefreshedSessions)
+    .map((candidate) => candidate.sessionId)
+    .join(',');
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -95,6 +99,48 @@ export default function SupportPage() {
       window.clearTimeout(timer);
     };
   }, [load]);
+
+  const refreshActiveSessions = useCallback(async () => {
+    if (activeSessionKey.length === 0) return;
+    sessionRefreshController.current?.abort();
+    const controller = new AbortController();
+    sessionRefreshController.current = controller;
+    try {
+      const sessionIds = activeSessionKey.split(',');
+      const refreshed = await Promise.all(
+        sessionIds.map((sessionId) => getSupportSession(tenantId, sessionId, controller.signal)),
+      );
+      if (controller.signal.aborted) return;
+      const refreshedById = new Map(refreshed.map((candidate) => [candidate.sessionId, candidate]));
+      setSessions((current) =>
+        current.map((candidate) => refreshedById.get(candidate.sessionId) ?? candidate),
+      );
+      setSessionRefreshError(null);
+    } catch (caught) {
+      if (caught instanceof Error && caught.name === 'AbortError') return;
+      setSessionRefreshError(
+        caught instanceof Error
+          ? caught.message
+          : 'Active support sessions could not be refreshed automatically.',
+      );
+    } finally {
+      if (sessionRefreshController.current === controller) {
+        sessionRefreshController.current = null;
+      }
+    }
+  }, [activeSessionKey, tenantId]);
+
+  useEffect(() => {
+    if (activeSessionKey.length === 0) return;
+    const refreshTimer = window.setInterval(() => {
+      void refreshActiveSessions();
+    }, sessionRefreshIntervalMilliseconds);
+    return () => {
+      sessionRefreshController.current?.abort();
+      sessionRefreshController.current = null;
+      window.clearInterval(refreshTimer);
+    };
+  }, [activeSessionKey, refreshActiveSessions]);
 
   const requestSession = async () => {
     if (!session) return;
@@ -135,34 +181,6 @@ export default function SupportPage() {
       );
     } finally {
       setBusy(false);
-    }
-  };
-
-  const checkSession = async (sessionId: string) => {
-    const previous = sessions.find((candidate) => candidate.sessionId === sessionId);
-    setSessionFeedback(null);
-    setRefreshingSessionId(sessionId);
-    try {
-      const updated = await getSupportSession(tenantId, sessionId);
-      setSessions((current) =>
-        current.map((candidate) => (candidate.sessionId === sessionId ? updated : candidate)),
-      );
-      setSessionFeedback({
-        sessionId,
-        message:
-          previous?.status === updated.status && previous.result === null && updated.result === null
-            ? `No new result is available. Session remains ${updated.status}.`
-            : updated.status === 'Completed'
-              ? 'Result received. Session is Completed.'
-              : `Session status is now ${updated.status}.`,
-      });
-      setError(null);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'Support diagnostic result could not be loaded.',
-      );
-    } finally {
-      setRefreshingSessionId(null);
     }
   };
 
@@ -299,20 +317,19 @@ export default function SupportPage() {
       <Card>
         <CardHeader>
           <CardTitle as="h2">Recent sessions</CardTitle>
+          <CardDescription>
+            Queued and dispatched sessions update automatically every five seconds and can run for
+            up to 15 minutes. You can leave this page and return later.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
+          {sessionRefreshError ? (
+            <p role="alert" className="text-sm text-destructive">
+              Automatic session refresh failed: {sessionRefreshError}
+            </p>
+          ) : null}
           {sessions.map((supportSession) => (
-            <SupportSessionCard
-              key={supportSession.sessionId}
-              session={supportSession}
-              refreshing={refreshingSessionId === supportSession.sessionId}
-              feedback={
-                sessionFeedback?.sessionId === supportSession.sessionId
-                  ? sessionFeedback.message
-                  : null
-              }
-              onCheckResult={checkSession}
-            />
+            <SupportSessionCard key={supportSession.sessionId} session={supportSession} />
           ))}
         </CardContent>
       </Card>
@@ -450,21 +467,10 @@ export function SupportIdentityCard({
 
 export interface SupportSessionCardProps {
   readonly session: SupportSession;
-  readonly refreshing?: boolean;
-  readonly feedback?: string | null;
-  readonly onCheckResult?: (sessionId: string) => Promise<void>;
 }
 
-export function SupportSessionCard({
-  session,
-  refreshing = false,
-  feedback = null,
-  onCheckResult,
-}: SupportSessionCardProps) {
-  const canCheckResult =
-    session.result === null &&
-    onCheckResult !== undefined &&
-    ['Queued', 'Dispatched'].includes(session.status);
+export function SupportSessionCard({ session }: SupportSessionCardProps) {
+  const active = ['Queued', 'Dispatched'].includes(session.status);
   const tone =
     session.status === 'Completed'
       ? 'positive'
@@ -481,7 +487,9 @@ export function SupportSessionCard({
     <article className="grid gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-medium">{session.diagnosticMode}</h3>
-        <StatusBadge status={session.status} tone={tone} />
+        <span aria-live="polite">
+          <StatusBadge status={session.status} tone={tone} />
+        </span>
       </div>
       <div className="break-all font-mono text-xs text-muted-foreground">{session.sessionId}</div>
       <div className="text-sm text-muted-foreground">
@@ -512,21 +520,9 @@ export function SupportSessionCard({
           Verified report unavailable until completion.
         </p>
       )}
-      {canCheckResult ? (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={refreshing}
-            onClick={() => void onCheckResult(session.sessionId)}
-          >
-            {refreshing ? 'Checking result…' : 'Check result'}
-          </Button>
-        </div>
-      ) : null}
-      {refreshing || feedback ? (
+      {active ? (
         <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-          {refreshing ? 'Checking for a result…' : feedback}
+          Waiting for a terminal result. This session updates automatically.
         </p>
       ) : null}
       {session.result ? (

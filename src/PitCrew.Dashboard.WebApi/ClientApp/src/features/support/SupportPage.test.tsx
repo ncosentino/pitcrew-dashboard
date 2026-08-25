@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -60,9 +60,10 @@ const completedResult: NonNullable<SupportSession['result']> = {
 function supportSession(
   status: SupportSession['status'],
   result: SupportSession['result'] = null,
+  sessionId = '22222222-2222-4222-8222-222222222222',
 ): SupportSession {
   return {
-    sessionId: '22222222-2222-4222-8222-222222222222',
+    sessionId,
     nodeId: activeIdentity.nodeId,
     diagnosticMode: 'ConnectorOffline',
     profileId: null,
@@ -85,6 +86,12 @@ function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+async function flushInitialSupportLoad() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
   });
 }
 
@@ -175,6 +182,8 @@ describe('SupportIdentityInventory', () => {
 
 describe('SupportPage', () => {
   afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -203,19 +212,21 @@ describe('SupportPage', () => {
     expect(within(nodeSelector).queryByRole('option', { name: 'Revoked node' })).toBeNull();
   });
 
-  it('announces an unchanged result check without hiding the queued state', async () => {
+  it('automatically refreshes an active session without hiding unchanged state', async () => {
+    vi.useFakeTimers();
     const queued = supportSession('Queued');
+    let detailRequests = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
       if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
+        detailRequests++;
         return jsonResponse(queued);
       }
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([queued]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    const user = userEvent.setup();
     render(
       <SessionProvider>
         <MemoryRouter initialEntries={['/tenants/local/support']}>
@@ -225,29 +236,234 @@ describe('SupportPage', () => {
         </MemoryRouter>
       </SessionProvider>,
     );
+    await flushInitialSupportLoad();
 
-    await user.click(await screen.findByRole('button', { name: 'Check result' }));
-
-    expect(
-      await screen.findByText('No new result is available. Session remains Queued.'),
-    ).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Waiting for a terminal result. This session updates automatically.',
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(detailRequests).toBe(1);
     expect(screen.getByText('Queued', { selector: 'span' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Check result' })).not.toBeInTheDocument();
   });
 
-  it('announces a completed lifecycle transition and renders the verified result', async () => {
+  it('automatically renders a completed lifecycle and stops polling it', async () => {
+    vi.useFakeTimers();
     const queued = supportSession('Queued');
     const completed = supportSession('Completed', completedResult);
+    let detailRequests = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
       if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
+        detailRequests++;
         return jsonResponse(completed);
       }
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([queued]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    const user = userEvent.setup();
+    render(
+      <SessionProvider>
+        <MemoryRouter initialEntries={['/tenants/local/support']}>
+          <Routes>
+            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    await flushInitialSupportLoad();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByText('Completed', { selector: 'span' })).toBeVisible();
+    expect(screen.getByText('Verified evidence')).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(detailRequests).toBe(1);
+  });
+
+  it('retries automatic refresh after a transient API failure', async () => {
+    vi.useFakeTimers();
+    const queued = supportSession('Queued');
+    const completed = supportSession('Completed', completedResult);
+    let detailRequests = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
+        detailRequests++;
+        return detailRequests === 1
+          ? jsonResponse({ error: { code: 'temporary', message: 'Temporary outage' } }, 503)
+          : jsonResponse(completed);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([queued]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <MemoryRouter initialEntries={['/tenants/local/support']}>
+          <Routes>
+            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    await flushInitialSupportLoad();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Automatic session refresh failed: Temporary outage',
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByText('Completed', { selector: 'span' })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('refreshes multiple active sessions in one bounded interval', async () => {
+    vi.useFakeTimers();
+    const first = supportSession('Queued', null, '22222222-2222-4222-8222-222222222222');
+    const second = supportSession('Dispatched', null, '44444444-4444-4444-8444-444444444444');
+    const detailRequests: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith(`/support/v1/sessions/${first.sessionId}`)) {
+        detailRequests.push(first.sessionId);
+        return jsonResponse({ ...first, status: 'Expired' });
+      }
+      if (url.endsWith(`/support/v1/sessions/${second.sessionId}`)) {
+        detailRequests.push(second.sessionId);
+        return jsonResponse({
+          ...second,
+          status: 'Rejected',
+          rejectionDisposition: 'broker-timeout',
+        });
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([first, second]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <MemoryRouter initialEntries={['/tenants/local/support']}>
+          <Routes>
+            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    await flushInitialSupportLoad();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(detailRequests).toEqual([first.sessionId, second.sessionId]);
+    expect(screen.getByText('Expired', { selector: 'span' })).toBeVisible();
+    expect(screen.getByText('Rejected', { selector: 'span' })).toBeVisible();
+  });
+
+  it('aborts an active session refresh when the page unmounts', async () => {
+    vi.useFakeTimers();
+    const queued = supportSession('Queued');
+    const detailSignals: AbortSignal[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return Promise.resolve(jsonResponse(ownerSession));
+      if (url.endsWith('/support/v1/identities')) {
+        return Promise.resolve(jsonResponse([activeIdentity]));
+      }
+      if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
+        detailSignals.push(init?.signal as AbortSignal);
+        return new Promise<Response>(() => undefined);
+      }
+      if (url.endsWith('/support/v1/sessions')) return Promise.resolve(jsonResponse([queued]));
+      return Promise.resolve(
+        jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404),
+      );
+    });
+    const { unmount } = render(
+      <SessionProvider>
+        <MemoryRouter initialEntries={['/tenants/local/support']}>
+          <Routes>
+            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    await flushInitialSupportLoad();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    unmount();
+    expect(detailSignals).toHaveLength(1);
+    expect(detailSignals[0].aborted).toBe(true);
+  });
+
+  it('aborts a superseded automatic refresh before starting another', async () => {
+    vi.useFakeTimers();
+    const queued = supportSession('Queued');
+    const detailSignals: AbortSignal[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return Promise.resolve(jsonResponse(ownerSession));
+      if (url.endsWith('/support/v1/identities')) {
+        return Promise.resolve(jsonResponse([activeIdentity]));
+      }
+      if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
+        detailSignals.push(init?.signal as AbortSignal);
+        return new Promise<Response>(() => undefined);
+      }
+      if (url.endsWith('/support/v1/sessions')) return Promise.resolve(jsonResponse([queued]));
+      return Promise.resolve(
+        jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404),
+      );
+    });
+    render(
+      <SessionProvider>
+        <MemoryRouter initialEntries={['/tenants/local/support']}>
+          <Routes>
+            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
+          </Routes>
+        </MemoryRouter>
+      </SessionProvider>,
+    );
+    await flushInitialSupportLoad();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(detailSignals).toHaveLength(2);
+    expect(detailSignals[0].aborted).toBe(true);
+    expect(detailSignals[1].aborted).toBe(false);
+  });
+
+  it('requests the server-supported 15-minute session window', async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions') && init?.method === 'POST') {
+        requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse(supportSession('Queued'), 202);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
     render(
       <SessionProvider>
         <MemoryRouter initialEntries={['/tenants/local/support']}>
@@ -258,11 +474,11 @@ describe('SupportPage', () => {
       </SessionProvider>,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Check result' }));
-
-    expect(await screen.findByText('Result received. Session is Completed.')).toBeVisible();
-    expect(screen.getByText('Completed', { selector: 'span' })).toBeVisible();
-    expect(screen.getByText('Verified evidence')).toBeVisible();
+    await screen.findByRole('combobox', { name: 'Support node' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Request read-only diagnostics' }));
+    await waitFor(() => {
+      expect(requestBody?.expiresInSeconds).toBe(900);
+    });
   });
 });
 
@@ -283,15 +499,6 @@ describe('SupportSessionCard', () => {
     expect(document.querySelector('script')).toBeNull();
   });
 
-  it('lets an operator fetch a pending session through the result-ingesting endpoint', () => {
-    const checkResult = vi.fn().mockResolvedValue(undefined);
-    render(<SupportSessionCard onCheckResult={checkResult} session={supportSession('Queued')} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Check result' }));
-
-    expect(checkResult).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222');
-  });
-
   it.each(['Queued', 'Dispatched', 'Completed', 'Rejected', 'Cancelled', 'Expired'] as const)(
     'renders the explicit %s lifecycle',
     (status) => {
@@ -305,12 +512,11 @@ describe('SupportSessionCard', () => {
     },
   );
 
-  it.each(['Completed', 'Rejected', 'Cancelled', 'Expired'] as const)(
-    'does not offer result refresh for terminal %s sessions',
+  it.each(['Queued', 'Dispatched', 'Completed', 'Rejected', 'Cancelled', 'Expired'] as const)(
+    'does not require a manual result check for %s sessions',
     (status) => {
       render(
         <SupportSessionCard
-          onCheckResult={vi.fn().mockResolvedValue(undefined)}
           session={supportSession(status, status === 'Completed' ? completedResult : null)}
         />,
       );
@@ -327,37 +533,12 @@ describe('SupportSessionCard', () => {
     expect(screen.getByText('The broker cannot read the approved evidence set.')).toBeVisible();
   });
 
-  it('announces loading and disables repeated result checks', () => {
-    render(
-      <SupportSessionCard
-        refreshing
-        onCheckResult={vi.fn().mockResolvedValue(undefined)}
-        session={supportSession('Dispatched')}
-      />,
-    );
+  it('announces automatic updates for active sessions', () => {
+    render(<SupportSessionCard session={supportSession('Dispatched')} />);
 
-    expect(screen.getByRole('button', { name: 'Checking result…' })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent('Checking for a result…');
-  });
-
-  it('supports keyboard result checks and exposes unchanged feedback as polite status', async () => {
-    const checkResult = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
-    render(
-      <SupportSessionCard
-        feedback="No new result is available. Session remains Queued."
-        onCheckResult={checkResult}
-        session={supportSession('Queued')}
-      />,
-    );
-
-    await user.tab();
-    await user.keyboard('{Enter}');
-
-    expect(checkResult).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222');
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByRole('status')).toHaveTextContent(
-      'No new result is available. Session remains Queued.',
+      'Waiting for a terminal result. This session updates automatically.',
     );
   });
 });
