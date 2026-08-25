@@ -186,7 +186,8 @@ public sealed class SqliteSupportStoreTests
               rejectedSession.SessionId,
               SupportDiagnosticSessionStatus.Rejected,
               dispatchedAt,
-              "unsupported-capability",
+              SupportRequestRejectionDispositions
+                  .BrokerEvidenceAccessDenied,
               dispatchedAt.AddSeconds(1),
               cancellationToken);
       var rejectedRegression =
@@ -244,7 +245,154 @@ public sealed class SqliteSupportStoreTests
       await Assert.That(storedRejected.DispatchedAt)
           .IsEqualTo(dispatchedAt);
       await Assert.That(storedRejected.RejectionDisposition)
-          .IsEqualTo("unsupported-capability");
+          .IsEqualTo(
+              SupportRequestRejectionDispositions
+                  .BrokerEvidenceAccessDenied);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Migration_27_Preserves_Rejections_And_Accepts_The_Closed_Vocabulary(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-support-migration-{Guid.NewGuid():N}.db");
+    try
+    {
+      var factory = new SqliteConnectionFactory(
+          Options.Create(new SqliteFleetStoreOptions
+          {
+            DatabasePath = databasePath,
+          }));
+      await SqliteMigrationTestDatabase.ApplyThroughAsync(
+          factory,
+          26,
+          cancellationToken);
+      var accessStore = new SqliteAccessStore(factory);
+      var supportStore = new SqliteSupportStore(factory);
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var owner = new DashboardUser(
+          "1",
+          "owner",
+          "Owner",
+          null);
+      await accessStore.EnsureTenantOwnerAsync(
+          "tenant-a",
+          "Tenant A",
+          owner,
+          now,
+          cancellationToken);
+      var nodeId = Guid.Parse(
+          "11111111-1111-1111-1111-111111111111",
+          CultureInfo.InvariantCulture);
+      var keys = SupportKeyFactory.CreateNodeKeys();
+      await supportStore.CreateIdentityAsync(
+          new SupportIdentityWrite(
+              new SupportIdentity(
+                  "tenant-a",
+                  nodeId,
+                  "Support node",
+                  keys.Signing
+                      .PublicKeySubjectPublicKeyInfoBase64Url,
+                  keys.Encryption
+                      .PublicKeySubjectPublicKeyInfoBase64Url,
+                  owner.GitHubUserId,
+                  now,
+                  null,
+                  null,
+                  null,
+                  null,
+                  1),
+              "transport-hash",
+              "enrollment-hash",
+              now.AddHours(1)),
+          cancellationToken);
+      var previous = CreateSession(
+          "tenant-a",
+          nodeId,
+          now.AddMinutes(1));
+      await supportStore.CreateSessionAsync(
+          previous,
+          keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+          keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
+          cancellationToken);
+      var previousTransition =
+          await supportStore.UpdateSessionLifecycleAsync(
+              "tenant-a",
+              previous.SessionId,
+              SupportDiagnosticSessionStatus.Rejected,
+              now.AddMinutes(2),
+              SupportRequestRejectionDispositions
+                  .UnsupportedCapability,
+              now.AddMinutes(2),
+              cancellationToken);
+
+      await new SqliteMigrationRunner(factory).ApplyAsync(
+          cancellationToken);
+      var storedPrevious =
+          await supportStore.GetSessionOrNullAsync(
+              "tenant-a",
+              previous.SessionId,
+              cancellationToken);
+
+      await Assert.That(previousTransition)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(storedPrevious).IsNotNull();
+      await Assert.That(storedPrevious!.Status)
+          .IsEqualTo(
+              SupportDiagnosticSessionStatus.Rejected);
+      await Assert.That(storedPrevious.DispatchedAt)
+          .IsEqualTo(now.AddMinutes(2));
+      await Assert.That(storedPrevious.RejectionDisposition)
+          .IsEqualTo(
+              SupportRequestRejectionDispositions
+                  .UnsupportedCapability);
+
+      foreach (var disposition in
+          SupportRequestRejectionDispositions.All)
+      {
+        var session = CreateSession(
+            "tenant-a",
+            nodeId,
+            now.AddMinutes(3));
+        var created = await supportStore.CreateSessionAsync(
+            session,
+            keys.Signing
+                .PublicKeySubjectPublicKeyInfoBase64Url,
+            keys.Encryption
+                .PublicKeySubjectPublicKeyInfoBase64Url,
+            cancellationToken);
+        var transitioned =
+            await supportStore.UpdateSessionLifecycleAsync(
+                "tenant-a",
+                session.SessionId,
+                SupportDiagnosticSessionStatus.Rejected,
+                now.AddMinutes(4),
+                disposition,
+                now.AddMinutes(4),
+                cancellationToken);
+        var stored = await supportStore
+            .GetSessionOrNullAsync(
+                "tenant-a",
+                session.SessionId,
+                cancellationToken);
+
+        await Assert.That(created)
+            .IsEqualTo(SupportMutationStatus.Succeeded);
+        await Assert.That(transitioned)
+            .IsEqualTo(SupportMutationStatus.Succeeded);
+        await Assert.That(stored).IsNotNull();
+        await Assert.That(stored!.RejectionDisposition)
+            .IsEqualTo(disposition);
+      }
     }
     finally
     {

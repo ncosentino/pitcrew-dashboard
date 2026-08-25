@@ -75,7 +75,7 @@ public sealed class SqliteImageCandidateStoreTests
           10,
           cancellationToken);
 
-      await Assert.That(migrationVersion).IsEqualTo(26);
+      await Assert.That(migrationVersion).IsEqualTo(27);
       await Assert.That(created)
           .IsEqualTo(ImageCandidateMutationResult.Succeeded);
       await Assert.That(exactReplay)
@@ -100,7 +100,7 @@ public sealed class SqliteImageCandidateStoreTests
   }
 
   [Test]
-  public async Task Migrations_25_And_26_Upgrade_Exact_Migration_24_And_Preserve_Checksums(
+  public async Task Migrations_25_Through_27_Upgrade_Exact_Migration_24_And_Preserve_Checksums(
       CancellationToken cancellationToken)
   {
     var databasePath = CreateDatabasePath("migration-25-upgrade");
@@ -241,13 +241,16 @@ public sealed class SqliteImageCandidateStoreTests
       await Assert.That(priorChecksums.Keys.Max()).IsEqualTo(24);
       await Assert.That(priorChecksums[23])
           .IsEqualTo(OriginMainMigration23Checksum);
-      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(26);
+      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(27);
       await Assert.That(afterChecksums[25])
           .IsEqualTo(SqliteMigrationCatalog.All
               .Single(static migration => migration.Version == 25).Checksum);
       await Assert.That(afterChecksums[26])
           .IsEqualTo(SqliteMigrationCatalog.All
               .Single(static migration => migration.Version == 26).Checksum);
+      await Assert.That(afterChecksums[27])
+          .IsEqualTo(SqliteMigrationCatalog.All
+              .Single(static migration => migration.Version == 27).Checksum);
       await Assert.That(
               priorChecksums.All(pair =>
                   afterChecksums.TryGetValue(

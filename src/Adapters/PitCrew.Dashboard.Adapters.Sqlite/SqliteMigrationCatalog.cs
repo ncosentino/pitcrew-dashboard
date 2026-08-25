@@ -3086,5 +3086,80 @@ internal static class SqliteMigrationCatalog
                       'support rejection disposition must match rejected status');
               END;
               """),
+        new(
+              27,
+              "support-session-broker-rejection-dispositions",
+              """
+              ALTER TABLE support_sessions
+                  ADD COLUMN rejection_disposition_v2 TEXT NULL
+                      CHECK (rejection_disposition_v2 IS NULL
+                          OR rejection_disposition_v2 IN (
+                              'envelope-unsupported',
+                              'envelope-signature-rejected',
+                              'envelope-payload-rejected',
+                              'request-malformed',
+                              'session-mismatch',
+                              'wrong-tenant-or-node',
+                              'unsupported-capability',
+                              'unsupported-diagnostic-mode',
+                              'request-expired',
+                              'invalid-nonce',
+                              'request-replay',
+                              'replay-pending',
+                              'broker-markdown-rejected',
+                              'broker-report-rejected',
+                              'broker-invalid-mode',
+                              'broker-invalid-profile',
+                              'broker-script-missing',
+                              'broker-evidence-access-denied',
+                              'broker-execution-failed',
+                              'broker-response-invalid',
+                              'broker-io-unavailable',
+                              'broker-timeout',
+                              'validation-rejected',
+                              'result-unavailable'));
+
+              UPDATE support_sessions
+              SET rejection_disposition_v2 =
+                  rejection_disposition;
+
+              DROP TRIGGER
+                  trg_support_sessions_rejection_disposition_insert;
+
+              DROP TRIGGER
+                  trg_support_sessions_rejection_disposition_update;
+
+              ALTER TABLE support_sessions
+                  DROP COLUMN rejection_disposition;
+
+              ALTER TABLE support_sessions
+                  RENAME COLUMN rejection_disposition_v2
+                      TO rejection_disposition;
+
+              CREATE TRIGGER
+                  trg_support_sessions_rejection_disposition_insert
+              BEFORE INSERT ON support_sessions
+              FOR EACH ROW
+              WHEN (NEW.status = 'rejected')
+                  <> (NEW.rejection_disposition IS NOT NULL)
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'support rejection disposition must match rejected status');
+              END;
+
+              CREATE TRIGGER
+                  trg_support_sessions_rejection_disposition_update
+              BEFORE UPDATE OF status, rejection_disposition
+                  ON support_sessions
+              FOR EACH ROW
+              WHEN (NEW.status = 'rejected')
+                  <> (NEW.rejection_disposition IS NOT NULL)
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'support rejection disposition must match rejected status');
+              END;
+              """),
     ];
 }
