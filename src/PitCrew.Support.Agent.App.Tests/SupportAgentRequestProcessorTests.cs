@@ -199,6 +199,204 @@ public sealed class SupportAgentRequestProcessorTests
   }
 
   [Test]
+  public async Task Broker_Deadline_Preserves_Timeout_Across_Restart(
+      CancellationToken cancellationToken)
+  {
+    var replayRoot = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-deadline-{Guid.NewGuid():N}");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var fakeTime = new FakeTimeProvider(now);
+      var dashboardKeys =
+          SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var request = CreateRequest(
+          nodeId,
+          Guid.NewGuid(),
+          now,
+          $"nonce-{Guid.NewGuid():N}");
+      var broker = new PendingDiagnosticsBroker();
+      var envelope = CreateEnvelope(
+          SupportCanonicalJson.SerializeRequest(request),
+          dashboardKeys,
+          nodeKeys);
+      var processing = new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              replayRoot,
+              nodeId),
+          broker,
+          new AgentReplayCache(replayRoot),
+          fakeTime).ProcessAsync(
+              request.SessionId,
+              envelope,
+              cancellationToken);
+
+      fakeTime.Advance(TimeSpan.FromMinutes(2));
+      var timedOut = await processing;
+      var redelivered =
+          await new SupportAgentRequestProcessor(
+              CreateOptions(
+                  dashboardKeys,
+                  nodeKeys,
+                  replayRoot,
+                  nodeId),
+              broker,
+              new AgentReplayCache(replayRoot),
+              fakeTime).ProcessAsync(
+                  request.SessionId,
+                  envelope,
+                  cancellationToken);
+
+      await Assert.That(timedOut.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.BrokerTimeout);
+      await Assert.That(timedOut.RejectionDisposition)
+          .IsEqualTo(
+              SupportRequestRejectionDispositions.BrokerTimeout);
+      await Assert.That(redelivered.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.CachedRejection);
+      await Assert.That(redelivered.RejectionDisposition)
+          .IsEqualTo(
+              SupportRequestRejectionDispositions.BrokerTimeout);
+      await Assert.That(broker.CallCount).IsEqualTo(1);
+    }
+    finally
+    {
+      if (Directory.Exists(replayRoot))
+      {
+        Directory.Delete(replayRoot, recursive: true);
+      }
+    }
+  }
+
+  [Test]
+  public async Task Service_Stop_Cancellation_Does_Not_Create_Request_Outcome()
+  {
+    var replayRoot = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-stop-{Guid.NewGuid():N}");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var dashboardKeys =
+          SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var request = CreateRequest(
+          nodeId,
+          Guid.NewGuid(),
+          now,
+          $"nonce-{Guid.NewGuid():N}");
+      var broker = new PendingDiagnosticsBroker();
+      var replayCache = new AgentReplayCache(replayRoot);
+      using var stopping = new CancellationTokenSource();
+      var processing = new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              replayRoot,
+              nodeId),
+          broker,
+          replayCache,
+          new FakeTimeProvider(now)).ProcessAsync(
+              request.SessionId,
+              CreateEnvelope(
+                  SupportCanonicalJson.SerializeRequest(request),
+                  dashboardKeys,
+                  nodeKeys),
+              stopping.Token);
+
+      stopping.Cancel();
+
+      await Assert.That(
+              async () => await processing)
+          .Throws<OperationCanceledException>();
+      await Assert.That(
+              replayCache.GetRejectionOrNull(
+                  request.SessionId))
+          .IsNull();
+      await Assert.That(broker.CallCount).IsEqualTo(1);
+    }
+    finally
+    {
+      if (Directory.Exists(replayRoot))
+      {
+        Directory.Delete(replayRoot, recursive: true);
+      }
+    }
+  }
+
+  [Test]
+  public async Task Insufficient_Reporting_Window_Is_Rejected_Before_Nonce_Claim(
+      CancellationToken cancellationToken)
+  {
+    var replayRoot = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-window-{Guid.NewGuid():N}");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var dashboardKeys =
+          SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var request = CreateRequest(
+          nodeId,
+          Guid.NewGuid(),
+          now,
+          $"nonce-{Guid.NewGuid():N}") with
+      {
+        ExpiresAt = now.AddMinutes(1),
+      };
+      var replayCache = new AgentReplayCache(replayRoot);
+      var broker = new CountingDiagnosticsBroker();
+      var result = await new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              replayRoot,
+              nodeId),
+          broker,
+          replayCache,
+          new FakeTimeProvider(now)).ProcessAsync(
+              request.SessionId,
+              CreateEnvelope(
+                  SupportCanonicalJson.SerializeRequest(request),
+                  dashboardKeys,
+                  nodeKeys),
+              cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.ValidationRejected);
+      await Assert.That(result.ValidationStatus)
+          .IsEqualTo(SupportRequestValidationStatus.Expired);
+      await Assert.That(replayCache.HasNonce(request.Nonce))
+          .IsFalse();
+      await Assert.That(broker.CallCount).IsEqualTo(0);
+    }
+    finally
+    {
+      if (Directory.Exists(replayRoot))
+      {
+        Directory.Delete(replayRoot, recursive: true);
+      }
+    }
+  }
+
+  [Test]
   public async Task Request_Envelope_Cannot_Be_Rebound_To_Another_Relay_Session(
       CancellationToken cancellationToken)
   {
@@ -547,6 +745,24 @@ public sealed class SupportAgentRequestProcessorTests
       CallCount++;
       return Task.FromException<LocalDiagnosticsResult>(
           _failure);
+    }
+  }
+
+  private sealed class PendingDiagnosticsBroker :
+      ILocalDiagnosticsBroker
+  {
+    public int CallCount { get; private set; }
+
+    public async Task<LocalDiagnosticsResult> ExecuteAsync(
+        LocalDiagnosticsRequest request,
+        CancellationToken cancellationToken)
+    {
+      CallCount++;
+      await Task.Delay(
+          Timeout.InfiniteTimeSpan,
+          cancellationToken);
+      throw new InvalidOperationException(
+          "The pending broker completed unexpectedly.");
     }
   }
 }
