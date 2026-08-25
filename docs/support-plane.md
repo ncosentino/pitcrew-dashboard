@@ -287,6 +287,10 @@ missing collector, evidence denial, execution failure, invalid response, local
 I/O failure, and timeout remain distinct. A later replay observation cannot
 replace the first actionable outcome.
 
+Empty, oversized, or malformed serialized relay envelopes enter the same typed
+processing path and produce `envelope-payload-rejected`. They are never treated
+as successful empty polls after the relay has dispatched a session.
+
 Broker execution is capped at two minutes. Terminal outcome reporting reserves
 20 percent of the remaining authorization window, bounded from five seconds
 through one minute; production sessions retain a full minute while short

@@ -14,3 +14,5 @@ paths:
 - Bound broker execution below request expiry and reserve time to report the
   terminal outcome. Request-scoped cancellation is a durable timeout; service
   shutdown cancellation is not.
+- Route serialized relay-envelope failures through the typed outcome path;
+  never treat a malformed dispatched request as an empty successful poll.

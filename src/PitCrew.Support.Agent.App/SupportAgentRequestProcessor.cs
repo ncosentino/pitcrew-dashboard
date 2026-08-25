@@ -19,6 +19,48 @@ internal sealed class SupportAgentRequestProcessor(
   private static readonly TimeSpan _maximumOutcomeReportingReserve =
       TimeSpan.FromMinutes(1);
 
+  public Task<SupportAgentRequestProcessingResult> ProcessAsync(
+      Guid expectedSessionId,
+      string serializedEnvelope,
+      CancellationToken cancellationToken)
+  {
+    var cachedRejection = _replayCache.GetRejectionOrNull(
+        expectedSessionId);
+    if (cachedRejection is not null)
+    {
+      return Task.FromResult(
+          new SupportAgentRequestProcessingResult(
+              SupportAgentRequestProcessingStatus.CachedRejection,
+              null,
+              null,
+              cachedRejection));
+    }
+    if (string.IsNullOrWhiteSpace(serializedEnvelope) ||
+        serializedEnvelope.Length > 1_048_576)
+    {
+      return Task.FromResult(
+          RejectSerializedEnvelope(expectedSessionId));
+    }
+    SupportEnvelope? envelope;
+    try
+    {
+      envelope = JsonSerializer.Deserialize<SupportEnvelope>(
+          serializedEnvelope,
+          _jsonOptions);
+    }
+    catch (JsonException)
+    {
+      envelope = null;
+    }
+    return envelope is null
+        ? Task.FromResult(
+            RejectSerializedEnvelope(expectedSessionId))
+        : ProcessAsync(
+            expectedSessionId,
+            envelope,
+            cancellationToken);
+  }
+
   public async Task<SupportAgentRequestProcessingResult> ProcessAsync(
       Guid expectedSessionId,
       SupportEnvelope envelope,
@@ -252,6 +294,20 @@ internal sealed class SupportAgentRequestProcessor(
     _replayCache.StoreRejection(sessionId, disposition);
     return new SupportAgentRequestProcessingResult(
         status,
+        null,
+        null,
+        disposition);
+  }
+
+  private SupportAgentRequestProcessingResult
+      RejectSerializedEnvelope(Guid sessionId)
+  {
+    var disposition = SupportRequestRejectionDispositions
+        .EnvelopePayloadRejected;
+    _replayCache.StoreRejection(sessionId, disposition);
+    return new(
+        SupportAgentRequestProcessingStatus
+            .EnvelopePayloadRejected,
         null,
         null,
         disposition);

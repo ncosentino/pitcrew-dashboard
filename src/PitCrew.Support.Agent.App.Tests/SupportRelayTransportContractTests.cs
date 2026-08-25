@@ -7,7 +7,7 @@ namespace PitCrew.Support.Agent.App.Tests;
 public sealed class SupportRelayTransportContractTests
 {
   [Test]
-  public async Task Poll_Response_Opens_Web_Default_Envelope_Json()
+  public async Task Poll_Response_Preserves_Web_Default_Envelope_Json()
   {
     var expected = new SupportEnvelope(
         SupportEnvelopeCryptography.EnvelopeVersion,
@@ -21,17 +21,26 @@ public sealed class SupportRelayTransportContractTests
         "ciphertext",
         "tag",
         "signature");
+    var serializedEnvelope = JsonSerializer.Serialize(
+        expected,
+        new JsonSerializerOptions(
+            JsonSerializerDefaults.Web));
     var response = new AgentRelayPollResponse(
         Guid.NewGuid(),
-        JsonSerializer.Serialize(
-            expected,
-            new JsonSerializerOptions(
-                JsonSerializerDefaults.Web)),
+        serializedEnvelope,
         DateTimeOffset.UnixEpoch.AddMinutes(5));
+    var json = JsonSerializer.Serialize(
+        response,
+        new JsonSerializerOptions(
+            JsonSerializerDefaults.Web));
 
-    var actual = response.GetRequestEnvelopeOrNull();
+    var actual = JsonSerializer.Deserialize<AgentRelayPollResponse>(
+        json,
+        new JsonSerializerOptions(
+            JsonSerializerDefaults.Web));
 
-    await Assert.That(actual)
-        .IsEqualTo(expected);
+    await Assert.That(actual).IsNotNull();
+    await Assert.That(actual!.RequestEnvelope)
+        .IsEqualTo(serializedEnvelope);
   }
 }
