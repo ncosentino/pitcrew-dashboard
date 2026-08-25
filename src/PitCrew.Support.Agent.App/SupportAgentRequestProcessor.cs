@@ -12,6 +12,12 @@ internal sealed class SupportAgentRequestProcessor(
     TimeProvider _timeProvider)
 {
   private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
+  private static readonly TimeSpan _brokerExecutionLimit =
+      TimeSpan.FromMinutes(2);
+  private static readonly TimeSpan _minimumOutcomeReportingReserve =
+      TimeSpan.FromSeconds(5);
+  private static readonly TimeSpan _maximumOutcomeReportingReserve =
+      TimeSpan.FromMinutes(1);
 
   public async Task<SupportAgentRequestProcessingResult> ProcessAsync(
       Guid expectedSessionId,
@@ -89,11 +95,12 @@ internal sealed class SupportAgentRequestProcessor(
           null,
           cachedRejection);
     }
+    var now = _timeProvider.GetUtcNow();
     var validation = SupportRequestValidator.Validate(
         request,
         _options.TenantId,
         _options.NodeId,
-        _timeProvider.GetUtcNow(),
+        now,
         _replayCache.HasNonce);
     if (validation != SupportRequestValidationStatus.Valid)
     {
@@ -101,6 +108,22 @@ internal sealed class SupportAgentRequestProcessor(
           SupportAgentRequestProcessingStatus.ValidationRejected,
           null,
           validation);
+    }
+    var remaining = request.ExpiresAt - now;
+    var proportionalReserve = remaining / 5;
+    var outcomeReportingReserve =
+        proportionalReserve < _minimumOutcomeReportingReserve
+            ? _minimumOutcomeReportingReserve
+            : proportionalReserve > _maximumOutcomeReportingReserve
+                ? _maximumOutcomeReportingReserve
+                : proportionalReserve;
+    var executionWindow = remaining - outcomeReportingReserve;
+    if (executionWindow <= TimeSpan.Zero)
+    {
+      return new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.ValidationRejected,
+          null,
+          SupportRequestValidationStatus.Expired);
     }
     if (!_replayCache.ClaimNonce(request.Nonce))
     {
@@ -115,13 +138,17 @@ internal sealed class SupportAgentRequestProcessor(
               ? SupportRequestValidationStatus.Replay
               : null);
     }
-    using var expiryCancellation = new CancellationTokenSource(
-        request.ExpiresAt - _timeProvider.GetUtcNow(),
+    var brokerExecutionTimeout =
+        executionWindow < _brokerExecutionLimit
+            ? executionWindow
+            : _brokerExecutionLimit;
+    using var brokerCancellation = new CancellationTokenSource(
+        brokerExecutionTimeout,
         _timeProvider);
     using var executionCancellation =
         CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
-            expiryCancellation.Token);
+            brokerCancellation.Token);
     LocalDiagnosticsResult diagnostics;
     try
     {
@@ -148,6 +175,15 @@ internal sealed class SupportAgentRequestProcessor(
               .BrokerIoUnavailable);
     }
     catch (TimeoutException)
+    {
+      return RejectBrokerRequest(
+          request.SessionId,
+          SupportAgentRequestProcessingStatus.BrokerTimeout,
+          SupportRequestRejectionDispositions.BrokerTimeout);
+    }
+    catch (OperationCanceledException)
+        when (!cancellationToken.IsCancellationRequested &&
+              brokerCancellation.IsCancellationRequested)
     {
       return RejectBrokerRequest(
           request.SessionId,

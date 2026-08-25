@@ -7,3 +7,6 @@ applyTo: "src/PitCrew.Support.Agent.App/{AgentReplayCache,SupportAgentRequestPro
 - Persist the first closed request outcome before relay reporting. Redelivery
   and restart must reuse it without rerunning diagnostics or replacing it with
   a later replay disposition.
+- Bound broker execution below request expiry and reserve time to report the
+  terminal outcome. Request-scoped cancellation is a durable timeout; service
+  shutdown cancellation is not.

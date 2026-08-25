@@ -287,6 +287,13 @@ missing collector, evidence denial, execution failure, invalid response, local
 I/O failure, and timeout remain distinct. A later replay observation cannot
 replace the first actionable outcome.
 
+Broker execution is capped at two minutes. Terminal outcome reporting reserves
+20 percent of the remaining authorization window, bounded from five seconds
+through one minute; production sessions retain a full minute while short
+hermetic sessions remain executable. Deadline cancellation persists
+`broker-timeout`; service-stop cancellation still terminates the worker without
+creating a false request outcome.
+
 The support page renders the exact session lifecycle independently from semantic
 severity: `Queued`, `Dispatched`, `Completed`, `Rejected`, `Cancelled`, or
 `Expired`. New browser requests use the default 15-minute maximum session
