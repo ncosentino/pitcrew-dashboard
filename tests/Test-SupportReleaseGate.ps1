@@ -195,6 +195,10 @@ Add-Check ($parsedMarker.ReleaseTag -ceq 'v1.2.3') (
 Add-Check ($parsedMarker.PitCrewSha -ceq $pitCrewSha) (
     'Release marker did not preserve the PitCrew SHA.')
 Add-Check (
+    $parsedMarker.Scenario -ceq
+        'support-terminal-lifecycle-v1'
+) 'Release marker did not preserve the required terminal-lifecycle scenario.'
+Add-Check (
     ($parsedMarker.TopologyProfiles -join ',') -ceq
         'portable,containerized,windows-installed,linux-installed'
 ) 'Release marker did not preserve all required topology profiles.'
@@ -224,6 +228,12 @@ Add-RejectionCheck 'Reordered topology profile marker' {
         $releaseBody.Replace(
             'portable,containerized,windows-installed,linux-installed',
             'containerized,portable,windows-installed,linux-installed'))
+}
+Add-RejectionCheck 'Stale release scenario marker' {
+    Read-SupportReleaseGateMarker -ReleaseBody (
+        $releaseBody.Replace(
+            'support-terminal-lifecycle-v1',
+            'support-fresh-enrollment-diagnostic-v1'))
 }
 
 $verified = Assert-SupportReleaseGateEvidence `
