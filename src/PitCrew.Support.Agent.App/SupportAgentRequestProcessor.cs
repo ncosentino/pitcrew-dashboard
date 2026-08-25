@@ -14,7 +14,9 @@ internal sealed class SupportAgentRequestProcessor(
   private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
   private static readonly TimeSpan _brokerExecutionLimit =
       TimeSpan.FromMinutes(2);
-  private static readonly TimeSpan _outcomeReportingReserve =
+  private static readonly TimeSpan _minimumOutcomeReportingReserve =
+      TimeSpan.FromSeconds(5);
+  private static readonly TimeSpan _maximumOutcomeReportingReserve =
       TimeSpan.FromMinutes(1);
 
   public async Task<SupportAgentRequestProcessingResult> ProcessAsync(
@@ -107,8 +109,15 @@ internal sealed class SupportAgentRequestProcessor(
           null,
           validation);
     }
-    var executionWindow =
-        request.ExpiresAt - now - _outcomeReportingReserve;
+    var remaining = request.ExpiresAt - now;
+    var proportionalReserve = remaining / 5;
+    var outcomeReportingReserve =
+        proportionalReserve < _minimumOutcomeReportingReserve
+            ? _minimumOutcomeReportingReserve
+            : proportionalReserve > _maximumOutcomeReportingReserve
+                ? _maximumOutcomeReportingReserve
+                : proportionalReserve;
+    var executionWindow = remaining - outcomeReportingReserve;
     if (executionWindow <= TimeSpan.Zero)
     {
       return new SupportAgentRequestProcessingResult(

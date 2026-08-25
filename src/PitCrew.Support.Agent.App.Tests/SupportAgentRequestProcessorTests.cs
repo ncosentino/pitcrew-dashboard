@@ -278,6 +278,62 @@ public sealed class SupportAgentRequestProcessorTests
   }
 
   [Test]
+  public async Task Short_Request_Window_Remains_Executable(
+      CancellationToken cancellationToken)
+  {
+    var replayRoot = Path.Combine(
+        AppContext.BaseDirectory,
+        $"agent-short-window-{Guid.NewGuid():N}");
+    try
+    {
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var dashboardKeys =
+          SupportKeyFactory.CreateDashboardKeys();
+      var nodeKeys = SupportKeyFactory.CreateNodeKeys();
+      var nodeId = Guid.NewGuid();
+      var request = CreateRequest(
+          nodeId,
+          Guid.NewGuid(),
+          now,
+          $"nonce-{Guid.NewGuid():N}") with
+      {
+        ExpiresAt = now.AddSeconds(30),
+      };
+      var broker = new CountingDiagnosticsBroker();
+      var result = await new SupportAgentRequestProcessor(
+          CreateOptions(
+              dashboardKeys,
+              nodeKeys,
+              replayRoot,
+              nodeId),
+          broker,
+          new AgentReplayCache(replayRoot),
+          new FakeTimeProvider(now)).ProcessAsync(
+              request.SessionId,
+              CreateEnvelope(
+                  SupportCanonicalJson.SerializeRequest(request),
+                  dashboardKeys,
+                  nodeKeys),
+              cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(
+              SupportAgentRequestProcessingStatus.Succeeded);
+      await Assert.That(result.ResultEnvelope).IsNotNull();
+      await Assert.That(broker.CallCount).IsEqualTo(1);
+    }
+    finally
+    {
+      if (Directory.Exists(replayRoot))
+      {
+        Directory.Delete(replayRoot, recursive: true);
+      }
+    }
+  }
+
+  [Test]
   public async Task Service_Stop_Cancellation_Does_Not_Create_Request_Outcome()
   {
     var replayRoot = Path.Combine(
@@ -356,7 +412,7 @@ public sealed class SupportAgentRequestProcessorTests
           now,
           $"nonce-{Guid.NewGuid():N}") with
       {
-        ExpiresAt = now.AddMinutes(1),
+        ExpiresAt = now.AddSeconds(5),
       };
       var replayCache = new AgentReplayCache(replayRoot);
       var broker = new CountingDiagnosticsBroker();
