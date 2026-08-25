@@ -297,29 +297,27 @@ public sealed class SupportAgentRequestProcessorTests
           Guid.NewGuid(),
           now,
           $"nonce-{Guid.NewGuid():N}");
-      var broker = new PendingDiagnosticsBroker();
       var replayCache = new AgentReplayCache(replayRoot);
       using var stopping = new CancellationTokenSource();
-      var processing = new SupportAgentRequestProcessor(
-          CreateOptions(
-              dashboardKeys,
-              nodeKeys,
-              replayRoot,
-              nodeId),
-          broker,
-          replayCache,
-          new FakeTimeProvider(now)).ProcessAsync(
-              request.SessionId,
-              CreateEnvelope(
-                  SupportCanonicalJson.SerializeRequest(request),
-                  dashboardKeys,
-                  nodeKeys),
-              stopping.Token);
-
-      stopping.Cancel();
+      var broker = new StoppingDiagnosticsBroker(stopping);
 
       await Assert.That(
-              async () => await processing)
+              async () => await new SupportAgentRequestProcessor(
+                  CreateOptions(
+                      dashboardKeys,
+                      nodeKeys,
+                      replayRoot,
+                      nodeId),
+                  broker,
+                  replayCache,
+                  new FakeTimeProvider(now)).ProcessAsync(
+                      request.SessionId,
+                      CreateEnvelope(
+                          SupportCanonicalJson.SerializeRequest(
+                              request),
+                          dashboardKeys,
+                          nodeKeys),
+                      stopping.Token))
           .Throws<OperationCanceledException>();
       await Assert.That(
               replayCache.GetRejectionOrNull(
@@ -763,6 +761,24 @@ public sealed class SupportAgentRequestProcessorTests
           cancellationToken);
       throw new InvalidOperationException(
           "The pending broker completed unexpectedly.");
+    }
+  }
+
+  private sealed class StoppingDiagnosticsBroker(
+      CancellationTokenSource _stopping) :
+      ILocalDiagnosticsBroker
+  {
+    public int CallCount { get; private set; }
+
+    public async Task<LocalDiagnosticsResult> ExecuteAsync(
+        LocalDiagnosticsRequest request,
+        CancellationToken cancellationToken)
+    {
+      CallCount++;
+      await _stopping.CancelAsync();
+      cancellationToken.ThrowIfCancellationRequested();
+      throw new InvalidOperationException(
+          "The stopping broker completed unexpectedly.");
     }
   }
 }
