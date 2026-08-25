@@ -375,7 +375,7 @@ describe('SupportPage', () => {
   it('aborts an active session refresh when the page unmounts', async () => {
     vi.useFakeTimers();
     const queued = supportSession('Queued');
-    let detailSignal: AbortSignal | null = null;
+    const detailSignals: AbortSignal[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return Promise.resolve(jsonResponse(ownerSession));
@@ -383,7 +383,7 @@ describe('SupportPage', () => {
         return Promise.resolve(jsonResponse([activeIdentity]));
       }
       if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
-        detailSignal = init?.signal as AbortSignal;
+        detailSignals.push(init?.signal as AbortSignal);
         return new Promise<Response>(() => undefined);
       }
       if (url.endsWith('/support/v1/sessions')) return Promise.resolve(jsonResponse([queued]));
@@ -406,7 +406,8 @@ describe('SupportPage', () => {
     });
 
     unmount();
-    expect(detailSignal?.aborted).toBe(true);
+    expect(detailSignals).toHaveLength(1);
+    expect(detailSignals[0].aborted).toBe(true);
   });
 
   it('aborts a superseded automatic refresh before starting another', async () => {
