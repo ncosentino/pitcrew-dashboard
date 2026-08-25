@@ -1299,9 +1299,16 @@ $policy = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json -Depth 10
 Add-Check (
-    $policy.schemaVersion -eq 2 -and
+    $policy.schemaVersion -eq 3 -and
     $policy.pitCrewVersion -eq '0.10.8'
-) 'The evidence ACL policy is not pinned to PitCrew v0.10.8 contract v2.'
+) 'The evidence ACL policy is not pinned to PitCrew v0.10.8 contract v3.'
+Add-Check (
+    $policy.maximumPersistentDirectoryEntries -eq 32 -and
+    $policy.maximumTransientDirectoryEntries -eq 256 -and
+    $installer.Contains(
+        'Assert-EvidenceDirectoryEntriesBounded',
+        [StringComparison]::Ordinal)
+) 'The evidence directory entry budgets are not bounded and exact.'
 Add-Check (
     $policy.pitCrewCommit -eq
         'a9fc5884b7e1aea6ef731c701401c46a51d0d3f5'

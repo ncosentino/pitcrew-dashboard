@@ -33,10 +33,12 @@ rather than replacing the collector with a lookalike.
 
 The Windows-installed profile runs only on a disposable standard
 GitHub-hosted Windows runner. It packages the exact candidate source, installs
-the agent and broker under separate Windows service identities, exercises the
-same registered scenario, verifies the named-pipe/firewall/service boundary,
-uses the typed enrollment-finalization action, and removes the complete
-installation. It does not run on self-hosted capacity or a live PitCrew node.
+the agent and broker under separate Windows service identities, finalizes
+enrollment, performs a managed baseline-to-candidate update, and exercises the
+same registered scenario with a bounded backlog of valid atomic evidence
+temporaries. It verifies the named-pipe/firewall/service boundary and removes
+the complete installation. It does not run on self-hosted capacity or a live
+PitCrew node.
 
 The containerized profile runs only on disposable public Linux-hosted
 infrastructure. It builds exact run-scoped Dashboard and relay images from the

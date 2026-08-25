@@ -7,7 +7,10 @@ namespace PitCrew.Support.Canary.Scenarios;
 
 internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
 {
+  private const string BaselineVersion =
+      "0.0.0-canary-baseline";
   private const string CandidateVersion = "0.0.0-canary";
+  private const int TransientEvidenceFileCount = 64;
   private const string AgentServiceName = "PitCrewSupportAgent";
   private const string BrokerServiceName = "PitCrewSupportBroker";
   private readonly CanaryScenarioContext _context;
@@ -81,6 +84,7 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         "publish",
         "installer-win-x64",
         "Install-PitCrewSupportPlane.ps1");
+    CreateTransientEvidenceFixture();
   }
 
   public string AgentStateRoot { get; }
@@ -123,7 +127,7 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
               "-Action",
               "Install",
               "-Version",
-              CandidateVersion,
+              BaselineVersion,
               "-PitCrewRoot",
               _fixtureRoot,
               "-Profiles",
@@ -176,6 +180,7 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
     }
     VerifyBootstrapRemoved();
     await VerifyAsync(cancellationToken);
+    await UpdateAsync(cancellationToken);
   }
 
   public async Task DeleteKeysAndUninstallAsync(
@@ -407,6 +412,44 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
     }
   }
 
+  private async Task UpdateAsync(
+      CancellationToken cancellationToken)
+  {
+    DeleteIfPresent(
+        Path.Combine(
+            AgentStateRoot,
+            "agent-startup-status.json"));
+    var exitCode = await RunInstallerAsync(
+        [
+            "-Action",
+            "Update",
+            "-Version",
+            CandidateVersion,
+            "-PitCrewRoot",
+            _fixtureRoot,
+            "-Profiles",
+            "default",
+            "-AgentArchivePath",
+            GetArchivePath("agent"),
+            "-AgentChecksumPath",
+            GetChecksumPath("agent"),
+            "-BrokerArchivePath",
+            GetArchivePath("broker"),
+            "-BrokerChecksumPath",
+            GetChecksumPath("broker"),
+            "-AllowMachineChanges",
+        ],
+        TimeSpan.FromMinutes(3),
+        cancellationToken);
+    if (exitCode != 0)
+    {
+      throw new CanaryScenarioFailureException(
+          "windows-update-rejected");
+    }
+    await WaitForAcceptedPollAsync(cancellationToken);
+    await VerifyAsync(cancellationToken);
+  }
+
   private async Task<int> RunInstallerAsync(
       IReadOnlyList<string> installerArguments,
       TimeSpan timeout,
@@ -462,6 +505,26 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         new UTF8Encoding(false));
     _connectorFixtureCreated = true;
     _connectorSnapshot = SnapshotFiles(_connectorHealthRoot);
+  }
+
+  private void CreateTransientEvidenceFixture()
+  {
+    var evidenceRoot = Path.Combine(
+        _fixtureRoot,
+        ".pitcrew-state",
+        "default",
+        "support-evidence");
+    for (var index = 0;
+        index < TransientEvidenceFileCount;
+        index++)
+    {
+      File.WriteAllText(
+          Path.Combine(
+              evidenceRoot,
+              $".observed-state.canary-{index:D3}.tmp"),
+          "{}",
+          new UTF8Encoding(false));
+    }
   }
 
   private void WriteAgentSettings(
