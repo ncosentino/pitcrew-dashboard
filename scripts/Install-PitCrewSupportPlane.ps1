@@ -1394,6 +1394,9 @@ function Set-WindowsServiceDefinition {
         [Parameter(Mandatory)][string]$Arguments,
         [Parameter(Mandatory)][string]$BundleExtractRoot,
         [Parameter(Mandatory)]
+        [ValidateSet('unrestricted', 'restricted')]
+        [string]$SidType,
+        [Parameter(Mandatory)]
         [string[]]$RequiredPrivileges
     )
 
@@ -1467,7 +1470,7 @@ function Set-WindowsServiceDefinition {
     Set-InstallerFailureContext `
         -Phase 'windows-service-definition' `
         -Operation "${serviceRole}-service-sidtype"
-    Invoke-Checked sc.exe @('sidtype', $Name, 'unrestricted')
+    Invoke-Checked sc.exe @('sidtype', $Name, $SidType)
     Set-InstallerFailureContext `
         -Phase 'windows-service-definition' `
         -Operation "${serviceRole}-service-privileges"
@@ -3264,6 +3267,7 @@ function Configure-WindowsVersion {
         -Executable $agentExecutable `
         -Arguments "--contentRoot `"$($Paths.AgentStateRoot)`" --PitCrewSupport:Agent:PipeName=$pipeName --PitCrewSupport:Agent:ReplayRoot=`"$(Join-Path $Paths.AgentStateRoot 'replay')`"" `
         -BundleExtractRoot (Join-Path $Paths.AgentStateRoot 'bundle') `
+        -SidType 'unrestricted' `
         -RequiredPrivileges @('SeChangeNotifyPrivilege')
     Set-InstallerFailureContext `
         -Phase 'windows-service-definition' `
@@ -3274,6 +3278,7 @@ function Configure-WindowsVersion {
         -Executable $brokerExecutable `
         -Arguments "--contentRoot `"$($Paths.BrokerStateRoot)`"" `
         -BundleExtractRoot (Join-Path $Paths.BrokerStateRoot 'bundle') `
+        -SidType 'restricted' `
         -RequiredPrivileges @(
             'SeChangeNotifyPrivilege',
             'SeImpersonatePrivilege'
@@ -5729,6 +5734,32 @@ function Assert-EvidenceFilesReadable {
     }
 }
 
+function Assert-BrokerStartupReady {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    $statusPath = Join-Path `
+        $Paths.BrokerStateRoot `
+        'broker-startup-status.json'
+    if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) {
+        throw 'The support broker did not publish current startup evidence.'
+    }
+    $status = Get-Content `
+        -LiteralPath $statusPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json -Depth 10
+    $occurredAt = [DateTimeOffset]::MinValue
+    if ($status.schemaVersion -ne 1 -or
+        $status.disposition -cne 'ready' -or
+        -not [DateTimeOffset]::TryParse(
+            [string]$status.occurredAt,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind,
+            [ref]$occurredAt)) {
+        throw 'The support broker startup preflight is not ready.'
+    }
+}
+
 function Invoke-Verify {
     param(
         [Parameter(Mandatory)][hashtable]$Paths,
@@ -5796,9 +5827,11 @@ function Invoke-Verify {
         }
         $agentSidType = (& sc.exe qsidtype $windowsAgentService | Out-String)
         $brokerSidType = (& sc.exe qsidtype $windowsBrokerService | Out-String)
-        if ($agentSidType -notmatch 'UNRESTRICTED' -or
-            $brokerSidType -notmatch 'UNRESTRICTED') {
-            throw 'The Windows support service SIDs are not enabled.'
+        if ($agentSidType -notmatch
+                '(?m)SERVICE_SID_TYPE\s*:\s*UNRESTRICTED\s*$' -or
+            $brokerSidType -notmatch
+                '(?m)SERVICE_SID_TYPE\s*:\s*RESTRICTED\s*$') {
+            throw 'The Windows support service SID types are not exact.'
         }
         foreach ($serviceContract in @(
             [PSCustomObject]@{
@@ -5963,6 +5996,12 @@ function Invoke-Verify {
                 (@($expectedBrokerGroups) -join ',')) {
             throw 'A Linux support identity has an unexpected supplementary group.'
         }
+    }
+    if ([bool]$Manifest.enabled) {
+        Set-InstallerFailureContext `
+            -Phase 'broker-startup-verification' `
+            -Operation 'verify-broker-startup-preflight'
+        Assert-BrokerStartupReady -Paths $Paths
     }
     Assert-EvidenceFilesReadable `
         -Paths $Paths `
