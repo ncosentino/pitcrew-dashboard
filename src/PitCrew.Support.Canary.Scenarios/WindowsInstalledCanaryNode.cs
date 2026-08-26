@@ -485,7 +485,6 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
             [
                 _fixtureRoot,
                 "/inheritance:d",
-                "/T",
                 "/C",
             ],
             TimeSpan.FromMinutes(1),
@@ -499,7 +498,6 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
                 _fixtureRoot,
                 "/remove:g",
                 "*S-1-5-18",
-                "/T",
                 "/C",
             ],
             TimeSpan.FromMinutes(1),
