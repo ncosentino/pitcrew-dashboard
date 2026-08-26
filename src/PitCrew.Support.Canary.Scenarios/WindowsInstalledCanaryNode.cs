@@ -110,7 +110,8 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
           "windows-installed-host-not-clean");
     }
 
-    RemoveInheritedLocalSystemEvidenceAccess();
+    await RemoveInheritedLocalSystemEvidenceAccessAsync(
+        cancellationToken);
     CreateConnectorFixture();
     var scenarioRoot = Path.Combine(
         _context.RunRoot,
@@ -475,49 +476,61 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         cancellationToken);
   }
 
-  private void RemoveInheritedLocalSystemEvidenceAccess()
+  private async Task
+      RemoveInheritedLocalSystemEvidenceAccessAsync(
+          CancellationToken cancellationToken)
   {
     var localSystem = new SecurityIdentifier(
         WellKnownSidType.LocalSystemSid,
         domainSid: null);
+    var inheritanceExitCode =
+        await CandidateProcess.RunToolAsync(
+            "icacls.exe",
+            _fixtureRoot,
+            _emptyEnvironment,
+            [
+                _fixtureRoot,
+                "/inheritance:d",
+                "/C",
+            ],
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    var removalExitCode =
+        await CandidateProcess.RunToolAsync(
+            "icacls.exe",
+            _fixtureRoot,
+            _emptyEnvironment,
+            [
+                _fixtureRoot,
+                "/remove:g",
+                "*S-1-5-18",
+                "/C",
+            ],
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    var resetExitCode =
+        await CandidateProcess.RunToolAsync(
+            "icacls.exe",
+            _fixtureRoot,
+            _emptyEnvironment,
+            [
+                Path.Combine(
+                    _fixtureRoot,
+                    "*"),
+                "/reset",
+                "/T",
+                "/C",
+            ],
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    if (inheritanceExitCode != 0 ||
+        removalExitCode != 0 ||
+        resetExitCode != 0)
+    {
+      throw new CanaryScenarioFailureException(
+          "windows-evidence-fixture-acl-failed");
+    }
     var root = new DirectoryInfo(_fixtureRoot);
-    var rootSecurity = root.GetAccessControl();
-    rootSecurity.SetAccessRuleProtection(
-        isProtected: true,
-        preserveInheritance: true);
-    rootSecurity.PurgeAccessRules(localSystem);
-    root.SetAccessControl(rootSecurity);
-    foreach (var directory in root
-        .EnumerateDirectories(
-            "*",
-            SearchOption.AllDirectories)
-        .OrderBy(candidate =>
-            candidate.FullName.Length))
-    {
-      var security = directory.GetAccessControl();
-      security.SetAccessRuleProtection(
-          isProtected: true,
-          preserveInheritance: true);
-      security.PurgeAccessRules(localSystem);
-      security.SetAccessRuleProtection(
-          isProtected: false,
-          preserveInheritance: false);
-      directory.SetAccessControl(security);
-    }
-    foreach (var file in root.EnumerateFiles(
-        "*",
-        SearchOption.AllDirectories))
-    {
-      var security = file.GetAccessControl();
-      security.SetAccessRuleProtection(
-          isProtected: true,
-          preserveInheritance: true);
-      security.PurgeAccessRules(localSystem);
-      security.SetAccessRuleProtection(
-          isProtected: false,
-          preserveInheritance: false);
-      file.SetAccessControl(security);
-    }
     foreach (var item in root
         .EnumerateFileSystemInfos(
             "*",
