@@ -8,23 +8,18 @@ var options = SupportBrokerOptions.FromConfiguration(builder.Configuration) ??
     throw new InvalidOperationException(
         "PitCrew support broker configuration is incomplete.");
 var broker = new SupportDiagnosticsBroker(options);
+var timeProvider = TimeProvider.System;
 var startupStatus = new SupportBrokerStartupStatusWriter(
     builder.Environment.ContentRootPath,
-    TimeProvider.System);
-startupStatus.Clear();
-var startupDisposition =
-    new SupportBrokerRuntimeValidator(
-        options,
-        broker).Validate();
-startupStatus.Write(startupDisposition);
-if (!string.Equals(
-        startupDisposition,
-        SupportBrokerStartupDispositions.Ready,
-        StringComparison.Ordinal))
-{
-  throw new InvalidOperationException(
-      $"PitCrew support broker startup rejected: {startupDisposition}.");
-}
+    timeProvider);
+var runtimeValidator = new SupportBrokerRuntimeValidator(
+    options,
+    broker);
+var startupCoordinator =
+    new SupportBrokerStartupCoordinator(
+        runtimeValidator,
+        startupStatus,
+        timeProvider);
 var server = SupportBrokerServerFactory.Create(options, broker);
 if (args.Contains("--run-once", StringComparer.Ordinal))
 {
@@ -36,6 +31,10 @@ if (args.Contains("--run-once", StringComparer.Ordinal))
 }
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(broker);
+builder.Services.AddSingleton(timeProvider);
+builder.Services.AddSingleton(startupStatus);
+builder.Services.AddSingleton(runtimeValidator);
+builder.Services.AddSingleton(startupCoordinator);
 builder.Services.AddSingleton<ISupportBrokerServer>(server);
 builder.Services.AddHostedService<SupportBrokerWorker>();
 builder.Services.AddWindowsService(service =>

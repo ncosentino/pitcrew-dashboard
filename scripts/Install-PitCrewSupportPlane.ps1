@@ -5740,24 +5740,34 @@ function Assert-BrokerStartupReady {
     $statusPath = Join-Path `
         $Paths.BrokerStateRoot `
         'broker-startup-status.json'
-    if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) {
-        throw 'The support broker did not publish current startup evidence.'
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(65)
+    $lastDisposition = 'unavailable'
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            $status = Get-Content `
+                -LiteralPath $statusPath `
+                -Raw `
+                -Encoding UTF8 |
+                ConvertFrom-Json -Depth 10
+            $occurredAt = [DateTimeOffset]::MinValue
+            if ($status.schemaVersion -ne 1 -or
+                [string]$status.disposition -notmatch
+                    '^[a-z][a-z0-9-]{0,63}$' -or
+                -not [DateTimeOffset]::TryParse(
+                    [string]$status.occurredAt,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind,
+                    [ref]$occurredAt)) {
+                throw 'The support broker published invalid startup evidence.'
+            }
+            $lastDisposition = [string]$status.disposition
+            if ($lastDisposition -ceq 'ready') {
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 250
     }
-    $status = Get-Content `
-        -LiteralPath $statusPath `
-        -Raw `
-        -Encoding UTF8 |
-        ConvertFrom-Json -Depth 10
-    $occurredAt = [DateTimeOffset]::MinValue
-    if ($status.schemaVersion -ne 1 -or
-        $status.disposition -cne 'ready' -or
-        -not [DateTimeOffset]::TryParse(
-            [string]$status.occurredAt,
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::RoundtripKind,
-            [ref]$occurredAt)) {
-        throw 'The support broker startup preflight is not ready.'
-    }
+    throw "The support broker startup preflight did not become ready. Bounded disposition: $lastDisposition"
 }
 
 function Invoke-Verify {
