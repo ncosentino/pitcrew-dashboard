@@ -92,7 +92,9 @@ public sealed class SupportBrokerRuntimeValidatorTests
       await Assert.That(disposition)
           .IsEqualTo(
               SupportBrokerStartupDispositions
-                  .EvidenceAccessDenied);
+                  .EvidenceAccessDeniedAt(
+                      SupportEvidenceFailureStages
+                          .EvidenceDirectory));
     }
     finally
     {

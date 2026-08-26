@@ -148,6 +148,15 @@ public sealed class SupportDiagnosticsBrokerTests
 
       await Assert.That(result.Status)
           .IsEqualTo(SupportBrokerStatus.EvidenceAccessDenied);
+      await Assert.That(
+              new SupportEvidenceAccessValidator(
+                  options,
+                  SupportEvidencePolicy.Load())
+                  .Validate("default")
+                  .FailureStage)
+          .IsEqualTo(
+              SupportEvidenceFailureStages
+                  .EvidenceDirectory);
     }
     finally
     {
@@ -267,6 +276,15 @@ public sealed class SupportDiagnosticsBrokerTests
 
       await Assert.That(result.Status)
           .IsEqualTo(SupportBrokerStatus.EvidenceAccessDenied);
+      await Assert.That(
+              new SupportEvidenceAccessValidator(
+                  options,
+                  SupportEvidencePolicy.Load())
+                  .Validate("default")
+                  .FailureStage)
+          .IsEqualTo(
+              SupportEvidenceFailureStages
+                  .EvidenceEntries);
     }
     finally
     {

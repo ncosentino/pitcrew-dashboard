@@ -28,6 +28,8 @@ internal sealed class SupportEvidenceAccessValidator
           "Profile ID is not locally allowlisted.");
     }
 
+    var failureStage =
+        SupportEvidenceFailureStages.InstallationRoot;
     try
     {
       var pitCrewRoot = Path.GetFullPath(_options.PitCrewRoot);
@@ -35,6 +37,9 @@ internal sealed class SupportEvidenceAccessValidator
       {
         return InvalidInstallation();
       }
+      failureStage =
+          SupportEvidenceFailureStages
+              .InstallationSentinel;
       foreach (var sentinel in _policy.InstallationSentinels)
       {
         var sentinelPath = ResolveChild(pitCrewRoot, sentinel);
@@ -44,6 +49,8 @@ internal sealed class SupportEvidenceAccessValidator
         }
       }
 
+      failureStage =
+          SupportEvidenceFailureStages.CollectorChain;
       var collectorPath = ResolveChild(
           pitCrewRoot,
           _policy.CollectorRelativePath);
@@ -57,6 +64,8 @@ internal sealed class SupportEvidenceAccessValidator
             "The fixed diagnostics collector is not installed.");
       }
 
+      failureStage =
+          SupportEvidenceFailureStages.StateRoot;
       var stateRoot = ResolveChild(pitCrewRoot, ".pitcrew-state");
       if (!Directory.Exists(stateRoot) ||
           HasLinkedComponent(pitCrewRoot, stateRoot))
@@ -68,6 +77,8 @@ internal sealed class SupportEvidenceAccessValidator
             "Profile ID is not locally configured.");
       }
       VerifyDirectoryEnumeration(stateRoot);
+      failureStage =
+          SupportEvidenceFailureStages.ProfileRoot;
       var profileRoot = ResolveChild(stateRoot, profileId);
       if (!Directory.Exists(profileRoot) ||
           HasLinkedComponent(pitCrewRoot, profileRoot))
@@ -78,6 +89,9 @@ internal sealed class SupportEvidenceAccessValidator
             null,
             "Profile ID is not locally configured.");
       }
+      failureStage =
+          SupportEvidenceFailureStages
+              .EvidenceDirectory;
       var evidenceRoot = ResolveChild(
           profileRoot,
           _policy.ProfileEvidenceDirectory);
@@ -87,14 +101,22 @@ internal sealed class SupportEvidenceAccessValidator
         throw new IOException(
             "The dedicated support evidence projection is unavailable.");
       }
+      failureStage =
+          SupportEvidenceFailureStages.EvidenceEntries;
       VerifyDedicatedEvidenceDirectory(
           evidenceRoot,
           _policy.ProfileProjectionFiles,
           _policy.MaximumPersistentDirectoryEntries,
           _policy.MaximumTransientDirectoryEntries);
 
+      failureStage =
+          SupportEvidenceFailureStages.CollectorRead;
       VerifyReadable(collectorPath, required: true);
+      failureStage =
+          SupportEvidenceFailureStages.CollectorHash;
       VerifyCollectorHash(collectorPath, _policy.CollectorSha256);
+      failureStage =
+          SupportEvidenceFailureStages.ProjectionFile;
       foreach (var fileName in _policy.ProfileProjectionFiles)
       {
         var evidencePath = ResolveChild(evidenceRoot, fileName);
@@ -107,6 +129,8 @@ internal sealed class SupportEvidenceAccessValidator
             evidencePath,
             required: false);
       }
+      failureStage =
+          SupportEvidenceFailureStages.ConnectorRoot;
       var healthRoot = OperatingSystem.IsWindows()
           ? Path.Combine(
               Environment.GetFolderPath(
@@ -125,12 +149,17 @@ internal sealed class SupportEvidenceAccessValidator
       }
       if (Directory.Exists(healthRoot))
       {
+        failureStage =
+            SupportEvidenceFailureStages
+                .ConnectorEntries;
         VerifyDedicatedEvidenceDirectory(
             healthRoot,
             _policy.ConnectorHealthFiles,
             _policy.MaximumPersistentDirectoryEntries,
             _policy.MaximumTransientDirectoryEntries);
       }
+      failureStage =
+          SupportEvidenceFailureStages.ConnectorFile;
       foreach (var fileName in _policy.ConnectorHealthFiles)
       {
         var healthPath = ResolveChild(healthRoot, fileName);
@@ -151,11 +180,11 @@ internal sealed class SupportEvidenceAccessValidator
     }
     catch (UnauthorizedAccessException)
     {
-      return AccessDenied(profileId);
+      return AccessDenied(profileId, failureStage);
     }
     catch (IOException)
     {
-      return AccessDenied(profileId);
+      return AccessDenied(profileId, failureStage);
     }
   }
 
@@ -174,12 +203,15 @@ internal sealed class SupportEvidenceAccessValidator
         : null;
   }
 
-  private static SupportEvidenceValidation AccessDenied(string profileId) =>
+  private static SupportEvidenceValidation AccessDenied(
+      string profileId,
+      string failureStage) =>
       new(
           SupportBrokerStatus.EvidenceAccessDenied,
           profileId,
           null,
-          "Support evidence ACL drift prevents the broker from reading the exact allowlist.");
+          "Support evidence ACL drift prevents the broker from reading the exact allowlist.",
+          failureStage);
 
   private static SupportEvidenceValidation InvalidInstallation() =>
       new(
