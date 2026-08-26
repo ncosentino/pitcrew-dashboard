@@ -107,7 +107,7 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
           "windows-installed-host-not-clean");
     }
 
-    await RemoveInheritedLocalSystemEvidenceAccessAsync(
+    await RestrictEvidenceFixtureAclAsync(
         cancellationToken);
     CreateConnectorFixture();
     var scenarioRoot = Path.Combine(
@@ -473,9 +473,8 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         cancellationToken);
   }
 
-  private async Task
-      RemoveInheritedLocalSystemEvidenceAccessAsync(
-          CancellationToken cancellationToken)
+  private async Task RestrictEvidenceFixtureAclAsync(
+      CancellationToken cancellationToken)
   {
     var inheritanceExitCode =
         await CandidateProcess.RunToolAsync(
@@ -484,26 +483,26 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
             _emptyEnvironment,
             [
                 _fixtureRoot,
-                "/inheritance:d",
+                "/inheritance:r",
                 "/C",
             ],
             TimeSpan.FromMinutes(1),
             cancellationToken);
-    var removalExitCode =
+    var grantExitCode =
         await CandidateProcess.RunToolAsync(
             "icacls.exe",
             _fixtureRoot,
             _emptyEnvironment,
             [
                 _fixtureRoot,
-                "/remove:g",
-                "*S-1-5-18",
+                "/grant:r",
+                "*S-1-5-32-544:(OI)(CI)(F)",
                 "/C",
             ],
             TimeSpan.FromMinutes(1),
             cancellationToken);
     if (inheritanceExitCode != 0 ||
-        removalExitCode != 0)
+        grantExitCode != 0)
     {
       throw new CanaryScenarioFailureException(
           "windows-evidence-fixture-acl-failed");

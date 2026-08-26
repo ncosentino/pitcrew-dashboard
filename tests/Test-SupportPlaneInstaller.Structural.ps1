@@ -27,6 +27,9 @@ $agentWorkerPath = Join-Path (
 $agentStartupStatusWriterPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Support.Agent.App' 'SupportAgentStartupStatusWriter.cs'
+$windowsInstalledCanaryPath = Join-Path (
+    $repositoryRoot
+) 'src' 'PitCrew.Support.Canary.Scenarios' 'WindowsInstalledCanaryNode.cs'
 $enrollmentFinalizationWorkerPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Support.Agent.App' 'SupportEnrollmentFinalizationRequestWorker.cs'
@@ -43,6 +46,9 @@ $connectorHealthJournal = Get-Content `
 $agentWorker = Get-Content -LiteralPath $agentWorkerPath -Raw
 $agentStartupStatusWriter = Get-Content `
     -LiteralPath $agentStartupStatusWriterPath `
+    -Raw
+$windowsInstalledCanary = Get-Content `
+    -LiteralPath $windowsInstalledCanaryPath `
     -Raw
 $enrollmentFinalizationWorker = Get-Content `
     -LiteralPath $enrollmentFinalizationWorkerPath `
@@ -1049,7 +1055,11 @@ foreach ($operation in @(
     ) "The installer failure journal does not distinguish '$operation'."
 }
 Add-Check (
-    $installer.Contains(
+    [regex]::Matches(
+        $installer,
+        [regex]::Escape('"*$BrokerSid`:(RX)"')
+    ).Count -eq 3 -and
+    -not $installer.Contains(
         '"*$BrokerSid`:(RD,X,RA)"',
         [StringComparison]::Ordinal) -and
     $installer.Contains(
@@ -1064,7 +1074,21 @@ Add-Check (
     $installer.Contains(
         '"*$BrokerSid`:(RA)"',
         [StringComparison]::Ordinal)
-) 'The installer does not separate profile enumeration from dedicated inherited evidence read.'
+) 'The installer does not grant complete non-inherited directory enumeration separately from inherited evidence-file read.'
+Add-Check (
+    $windowsInstalledCanary.Contains(
+        'RestrictEvidenceFixtureAclAsync(',
+        [StringComparison]::Ordinal) -and
+    $windowsInstalledCanary.Contains(
+        '"/inheritance:r"',
+        [StringComparison]::Ordinal) -and
+    $windowsInstalledCanary.Contains(
+        '"*S-1-5-32-544:(OI)(CI)(F)"',
+        [StringComparison]::Ordinal) -and
+    -not $windowsInstalledCanary.Contains(
+        '"/inheritance:d"',
+        [StringComparison]::Ordinal)
+) 'The Windows-installed canary does not isolate restricted broker evidence access from inherited normal-token grants.'
 Add-Check (
     $connectorHealthJournal.Contains(
         'var directoryCreated = !Directory.Exists(directory);',

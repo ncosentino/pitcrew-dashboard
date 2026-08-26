@@ -1295,7 +1295,7 @@ function Grant-WindowsBrokerEvidence {
     Invoke-Checked icacls.exe @(
         $stateRoot,
         '/grant',
-        "*$BrokerSid`:(RD,X,RA)"
+        "*$BrokerSid`:(RX)"
     )
     foreach ($profile in $AllowedProfiles) {
         $profileRoot = Join-Path $stateRoot $profile
@@ -1320,7 +1320,7 @@ function Grant-WindowsBrokerEvidence {
         Invoke-Checked icacls.exe @(
             $evidenceRoot,
             '/grant',
-            "*$BrokerSid`:(RD,X,RA)",
+            "*$BrokerSid`:(RX)",
             "*$BrokerSid`:(OI)(IO)(R)"
         )
     }
@@ -1380,7 +1380,7 @@ function Grant-WindowsBrokerEvidence {
         Invoke-Checked icacls.exe @(
             $Paths.ConnectorHealthRoot,
             '/grant',
-            "*$BrokerSid`:(RD,X,RA)",
+            "*$BrokerSid`:(RX)",
             "*$BrokerSid`:(OI)(IO)(R)"
         )
     }
@@ -4584,8 +4584,7 @@ function Get-WindowsExpectedEvidenceAces {
         [Security.AccessControl.FileSystemRights]::ExecuteFile -bor
         [Security.AccessControl.FileSystemRights]::ReadAttributes
     $enumerateRights =
-        $traverseRights -bor
-        [Security.AccessControl.FileSystemRights]::ReadData
+        [Security.AccessControl.FileSystemRights]::ReadAndExecute
     Add-WindowsExpectedEvidenceAce `
         -Expected $expected `
         -Path $PitCrewRoot `
@@ -4776,9 +4775,7 @@ function Assert-WindowsEvidenceAclsExact {
     $expected = $contract.Explicit
     $inheritedRoots = $contract.InheritedRoots
     $enumerateRights = Get-WindowsNormalizedRights -Rights (
-        [Security.AccessControl.FileSystemRights]::ReadData -bor
-        [Security.AccessControl.FileSystemRights]::ExecuteFile -bor
-        [Security.AccessControl.FileSystemRights]::ReadAttributes
+        [Security.AccessControl.FileSystemRights]::ReadAndExecute
     )
     $readRights = Get-WindowsNormalizedRights -Rights (
         [Security.AccessControl.FileSystemRights]::Read

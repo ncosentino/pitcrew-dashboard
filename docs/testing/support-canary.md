@@ -37,7 +37,10 @@ the agent and broker under separate Windows service identities, finalizes
 enrollment, performs a managed baseline-to-candidate update, and exercises the
 same registered scenario with a bounded backlog of valid atomic evidence
 temporaries. It verifies the named-pipe/firewall/service boundary and removes
-the complete installation. The candidate broker must publish a broker-owned
+the complete installation. The PitCrew fixture removes inherited broad evidence
+read access, so the candidate broker must enumerate through its exact restricted
+service-SID grant rather than a normal-token fallback. The candidate broker must
+publish a broker-owned
 `ready` startup preflight under its restricted service SID before the scenario
 can run, and installer verification waits for bounded preflight convergence.
 It does not run on self-hosted capacity or a live PitCrew node.

@@ -391,7 +391,7 @@ is rejected. The broker receives only:
   collector;
 - attribute/traverse access needed to validate `Setup-Runner.ps1`,
   `RunnerProfiles.Functions.ps1`, and `docker-compose.yml`;
-- non-inherited list/traverse/attribute access on `.pitcrew-state` solely to
+- non-inherited directory read/execute access on `.pitcrew-state` solely to
   enumerate profile directory names as required by the fixed collector;
 - traverse-only access on each selected profile directory;
 - object-inherited/default file read inside each selected profile's dedicated
@@ -406,7 +406,10 @@ The profile-state root grant does not inherit to profiles or files. Managers
 atomically mirror only the four approved projections into `support-evidence`;
 unrelated manager state remains outside the broker-readable directory. The
 connector health directory likewise contains only its three approved files. The
-acknowledgement file contains a timestamp and at most 256 replay event identifiers;
+Windows profile-state and dedicated evidence-directory grants use the complete
+read/execute mask required to open a directory enumeration handle. Only the
+separate object-inherit read grant reaches allowlisted files. The acknowledgement
+file contains a timestamp and at most 256 replay event identifiers;
 it is bounded, contains no credential or payload data, and is allowlisted because
 the connector atomically persists it beside the two collector projections.
 The policy does not grant `.env`, connector identity, checkout-wide read, Docker
