@@ -341,8 +341,10 @@ installations that overlap its fixed service names or product roots.
 - Before accepting IPC, the running broker verifies its effective service
   identity and every locally allowlisted evidence boundary, then writes one
   bounded broker-owned startup disposition. Enabled-installation `Verify`
-  requires a current `ready` disposition instead of inferring runtime access
-  from service configuration and ACL text alone.
+  waits for a current `ready` disposition instead of inferring runtime access
+  from service configuration and ACL text alone. Broker startup retries
+  preflight for up to 60 seconds so atomic projection replacement can converge
+  without turning one transient access race into a failed installation.
 
 ### Linux
 

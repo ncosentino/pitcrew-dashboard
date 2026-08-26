@@ -107,6 +107,8 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
           "windows-installed-host-not-clean");
     }
 
+    await RemoveInheritedLocalSystemEvidenceAccessAsync(
+        cancellationToken);
     CreateConnectorFixture();
     var scenarioRoot = Path.Combine(
         _context.RunRoot,
@@ -469,6 +471,43 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         arguments,
         timeout,
         cancellationToken);
+  }
+
+  private async Task
+      RemoveInheritedLocalSystemEvidenceAccessAsync(
+          CancellationToken cancellationToken)
+  {
+    var inheritanceExitCode =
+        await CandidateProcess.RunToolAsync(
+            "icacls.exe",
+            _fixtureRoot,
+            _emptyEnvironment,
+            [
+                _fixtureRoot,
+                "/inheritance:d",
+                "/C",
+            ],
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    var removalExitCode =
+        await CandidateProcess.RunToolAsync(
+            "icacls.exe",
+            _fixtureRoot,
+            _emptyEnvironment,
+            [
+                _fixtureRoot,
+                "/remove:g",
+                "*S-1-5-18",
+                "/C",
+            ],
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+    if (inheritanceExitCode != 0 ||
+        removalExitCode != 0)
+    {
+      throw new CanaryScenarioFailureException(
+          "windows-evidence-fixture-acl-failed");
+    }
   }
 
   private string GetArchivePath(string component) =>

@@ -39,7 +39,8 @@ same registered scenario with a bounded backlog of valid atomic evidence
 temporaries. It verifies the named-pipe/firewall/service boundary and removes
 the complete installation. The candidate broker must publish a broker-owned
 `ready` startup preflight under its restricted service SID before the scenario
-can run. It does not run on self-hosted capacity or a live PitCrew node.
+can run, and installer verification waits for bounded preflight convergence.
+It does not run on self-hosted capacity or a live PitCrew node.
 
 The containerized profile runs only on disposable public Linux-hosted
 infrastructure. It builds exact run-scoped Dashboard and relay images from the
