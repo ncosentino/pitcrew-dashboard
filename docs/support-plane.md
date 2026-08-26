@@ -408,9 +408,8 @@ unrelated manager state remains outside the broker-readable directory. The
 connector health directory likewise contains only its three approved files. The
 Windows profile-state and dedicated evidence-directory grants use the complete
 read/execute mask required to open a directory enumeration handle. Only the
-separate object-inherit read grant reaches allowlisted files.
-The
-acknowledgement file contains a timestamp and at most 256 replay event identifiers;
+separate object-inherit read grant reaches allowlisted files. The acknowledgement
+file contains a timestamp and at most 256 replay event identifiers;
 it is bounded, contains no credential or payload data, and is allowlisted because
 the connector atomically persists it beside the two collector projections.
 The policy does not grant `.env`, connector identity, checkout-wide read, Docker

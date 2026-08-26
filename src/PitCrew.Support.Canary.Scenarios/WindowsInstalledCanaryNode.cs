@@ -474,7 +474,7 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
   }
 
   private async Task RestrictEvidenceFixtureAclAsync(
-          CancellationToken cancellationToken)
+      CancellationToken cancellationToken)
   {
     var inheritanceExitCode =
         await CandidateProcess.RunToolAsync(
