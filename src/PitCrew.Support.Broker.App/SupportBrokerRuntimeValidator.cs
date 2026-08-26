@@ -30,7 +30,10 @@ internal sealed class SupportBrokerRuntimeValidator(
                 .EvidenceScriptMissing,
         SupportBrokerStatus.EvidenceAccessDenied =>
             SupportBrokerStartupDispositions
-                .EvidenceAccessDenied,
+                .EvidenceAccessDeniedAt(
+                    evidence.FailureStage ??
+                    SupportEvidenceFailureStages
+                        .EvidenceDirectory),
         _ => SupportBrokerStartupDispositions
             .EvidenceInstallationInvalid,
       };

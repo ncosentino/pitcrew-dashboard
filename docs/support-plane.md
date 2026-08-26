@@ -345,6 +345,9 @@ installations that overlap its fixed service names or product roots.
   from service configuration and ACL text alone. Broker startup retries
   preflight for up to 60 seconds so atomic projection replacement can converge
   without turning one transient access race into a failed installation.
+  A persistent denial names only its closed validation stage—installation
+  metadata, state/profile traversal, evidence directory/entries, collector,
+  projection, or connector health—without recording paths or file contents.
 
 ### Linux
 

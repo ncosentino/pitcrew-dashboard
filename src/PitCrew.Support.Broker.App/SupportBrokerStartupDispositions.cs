@@ -13,4 +13,8 @@ internal static class SupportBrokerStartupDispositions
       "evidence-access-denied";
   public const string EvidenceInstallationInvalid =
       "evidence-installation-invalid";
+
+  public static string EvidenceAccessDeniedAt(
+      string failureStage) =>
+      $"{EvidenceAccessDenied}-{failureStage}";
 }
