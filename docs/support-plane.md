@@ -323,8 +323,10 @@ installations that overlap its fixed service names or product roots.
 
 ### Windows
 
-- `PitCrewSupportAgent` and `PitCrewSupportBroker` run as distinct restricted
-  virtual service identities with unrestricted service SIDs.
+- `PitCrewSupportAgent` and `PitCrewSupportBroker` run as distinct virtual
+  service identities. The network-facing agent uses an unrestricted service
+  SID; the file-only broker uses a restricted service SID so every resource
+  access must also satisfy the broker-specific ACL.
 - The broker creates `pitcrew-support-broker-v1` with a protected ACL containing
   only the support-agent service SID, broker service SID, LocalSystem, and local
   Administrators. It impersonates each client and requires the configured agent
@@ -336,6 +338,11 @@ installations that overlap its fixed service names or product roots.
 - Agent, broker, and installer state use separate roots below
   `%ProgramData%\PitCrew\Support`; versioned binaries use separate agent and
   broker roots below `%ProgramFiles%\PitCrew\Support`.
+- Before accepting IPC, the running broker verifies its effective service
+  identity and every locally allowlisted evidence boundary, then writes one
+  bounded broker-owned startup disposition. Enabled-installation `Verify`
+  requires a current `ready` disposition instead of inferring runtime access
+  from service configuration and ACL text alone.
 
 ### Linux
 

@@ -28,6 +28,10 @@ internal sealed class SupportDiagnosticsBroker
         policy);
   }
 
+  internal SupportEvidenceValidation ValidateEvidence(
+      string profileId) =>
+      _evidenceValidator.Validate(profileId);
+
   public async Task<SupportBrokerExecution> ExecuteAsync(
       SupportBrokerRequest request,
       CancellationToken cancellationToken)

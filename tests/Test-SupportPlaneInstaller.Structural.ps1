@@ -794,7 +794,13 @@ Add-Check (
 ) 'Windows state-root ACL application can recurse into protected identity storage.'
 Add-Check (
     $installer.Contains(
-        "@('sidtype', `$Name, 'unrestricted')",
+        "@('sidtype', `$Name, `$SidType)",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "-SidType 'unrestricted'",
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        "-SidType 'restricted'",
         [StringComparison]::Ordinal) -and
     $installer.Contains(
         "'SeImpersonatePrivilege'",
@@ -818,9 +824,17 @@ $installer.Contains(
     '"NT SERVICE\$Name"',
     [StringComparison]::Ordinal) -and
 $installer.Contains(
-    "@('sidtype', `$Name, 'unrestricted')",
+    "-SidType 'restricted'",
     [StringComparison]::Ordinal)
-) 'Windows services do not use distinct unrestricted virtual service identities.'
+) 'The Windows broker does not use a restricted virtual service identity.'
+Add-Check (
+    $installer.Contains(
+        'Assert-BrokerStartupReady',
+        [StringComparison]::Ordinal) -and
+    $installer.Contains(
+        'verify-broker-startup-preflight',
+        [StringComparison]::Ordinal)
+) 'Installer verification does not require broker-owned startup preflight evidence.'
 Add-Check (
     $installer.Contains(
         '"u:$AgentUid`:---,u:$BrokerUid`:---"',
