@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 
 namespace PitCrew.Support.Canary.Scenarios;
 
+[SupportedOSPlatform("windows")]
 internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
 {
   private const string BaselineVersion =
@@ -107,8 +110,7 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
           "windows-installed-host-not-clean");
     }
 
-    await RemoveInheritedLocalSystemEvidenceAccessAsync(
-        cancellationToken);
+    RemoveInheritedLocalSystemEvidenceAccess();
     CreateConnectorFixture();
     var scenarioRoot = Path.Combine(
         _context.RunRoot,
@@ -473,40 +475,79 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
         cancellationToken);
   }
 
-  private async Task
-      RemoveInheritedLocalSystemEvidenceAccessAsync(
-          CancellationToken cancellationToken)
+  private void RemoveInheritedLocalSystemEvidenceAccess()
   {
-    var inheritanceExitCode =
-        await CandidateProcess.RunToolAsync(
-            "icacls.exe",
-            _fixtureRoot,
-            _emptyEnvironment,
-            [
-                _fixtureRoot,
-                "/inheritance:d",
-                "/C",
-            ],
-            TimeSpan.FromMinutes(1),
-            cancellationToken);
-    var removalExitCode =
-        await CandidateProcess.RunToolAsync(
-            "icacls.exe",
-            _fixtureRoot,
-            _emptyEnvironment,
-            [
-                _fixtureRoot,
-                "/remove:g",
-                "*S-1-5-18",
-                "/C",
-            ],
-            TimeSpan.FromMinutes(1),
-            cancellationToken);
-    if (inheritanceExitCode != 0 ||
-        removalExitCode != 0)
+    var localSystem = new SecurityIdentifier(
+        WellKnownSidType.LocalSystemSid,
+        domainSid: null);
+    var root = new DirectoryInfo(_fixtureRoot);
+    var rootSecurity = root.GetAccessControl();
+    rootSecurity.SetAccessRuleProtection(
+        isProtected: true,
+        preserveInheritance: true);
+    rootSecurity.PurgeAccessRules(localSystem);
+    root.SetAccessControl(rootSecurity);
+    foreach (var directory in root
+        .EnumerateDirectories(
+            "*",
+            SearchOption.AllDirectories)
+        .OrderBy(candidate =>
+            candidate.FullName.Length))
     {
-      throw new CanaryScenarioFailureException(
-          "windows-evidence-fixture-acl-failed");
+      var security = directory.GetAccessControl();
+      security.SetAccessRuleProtection(
+          isProtected: true,
+          preserveInheritance: true);
+      security.PurgeAccessRules(localSystem);
+      security.SetAccessRuleProtection(
+          isProtected: false,
+          preserveInheritance: false);
+      directory.SetAccessControl(security);
+    }
+    foreach (var file in root.EnumerateFiles(
+        "*",
+        SearchOption.AllDirectories))
+    {
+      var security = file.GetAccessControl();
+      security.SetAccessRuleProtection(
+          isProtected: true,
+          preserveInheritance: true);
+      security.PurgeAccessRules(localSystem);
+      security.SetAccessRuleProtection(
+          isProtected: false,
+          preserveInheritance: false);
+      file.SetAccessControl(security);
+    }
+    foreach (var item in root
+        .EnumerateFileSystemInfos(
+            "*",
+            SearchOption.AllDirectories)
+        .Prepend(root))
+    {
+      FileSystemSecurity security = item switch
+      {
+        DirectoryInfo directory =>
+            directory.GetAccessControl(),
+        FileInfo file => file.GetAccessControl(),
+        _ => throw new InvalidOperationException(
+            "The Windows evidence fixture contains an unsupported item."),
+      };
+      var localSystemAllows = security.GetAccessRules(
+              includeExplicit: true,
+              includeInherited: true,
+              targetType:
+                  typeof(SecurityIdentifier))
+          .Cast<FileSystemAccessRule>()
+          .Any(rule =>
+              localSystem.Equals(
+                  rule.IdentityReference) &&
+              rule.AccessControlType ==
+                  AccessControlType.Allow);
+      if (localSystemAllows)
+      {
+        throw new CanaryScenarioFailureException(
+            "windows-evidence-fixture-acl-failed");
+      }
     }
   }
 
