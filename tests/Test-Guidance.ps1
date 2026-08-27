@@ -339,8 +339,8 @@ try {
     $surfaceBriefs = @(
         Get-ChildItem -LiteralPath $surfaceBriefRoot -Filter '*.md' -File
     )
-    Add-Check ($surfaceBriefs.Count -eq 5) (
-        'The expected five Impeccable surface briefs are not present.')
+    Add-Check ($surfaceBriefs.Count -eq 6) (
+        'The expected six Impeccable surface briefs are not present.')
     Add-Check (
         @(
             $surfaceBriefs |

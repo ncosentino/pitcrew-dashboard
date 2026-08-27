@@ -17,6 +17,7 @@ import type {
   TenantMember,
 } from '../../src/features/settings/settingsApi';
 import type { DashboardUser } from '../../src/core/auth/sessionApi';
+import type { SupportIdentity, SupportSession } from '../../src/features/support/supportApi';
 
 export type FleetOutcome = 'success' | 'network-error' | 'server-error';
 export type MutationOutcome = 'success' | 'failure';
@@ -43,6 +44,8 @@ export interface MockApiOptions {
   readonly diagnosticCredentials?: ReadonlyArray<DiagnosticCredential>;
   readonly enrollmentCode?: EnrollmentCodeResponse;
   readonly diagnosticCredentialCreated?: DiagnosticCredentialCreated;
+  readonly supportIdentities?: ReadonlyArray<SupportIdentity>;
+  readonly supportSessions?: ReadonlyArray<SupportSession>;
   /** Controls every write endpoint (revoke/rotate/rename/acknowledge/etc). Defaults to `'success'`. */
   readonly mutationOutcome?: MutationOutcome;
 }
@@ -165,6 +168,30 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
     /\/api\/tenants\/[^/]+\/diagnostic-credentials\/[^/]+\/(revoke|rotate)$/,
     (route) => mutationResponse(route, mutationOutcome, options.diagnosticCredentialCreated),
   );
+
+  await page.route(/\/api\/tenants\/[^/]+\/support\/v1\/identities$/, (route) =>
+    fulfillJson(route, options.supportIdentities ?? []),
+  );
+  await page.route(/\/api\/tenants\/[^/]+\/support\/v1\/sessions\/[^/]+$/, (route) => {
+    const sessionId = route.request().url().split('/').at(-1);
+    const supportSession = options.supportSessions?.find(
+      (candidate) => candidate.sessionId === sessionId,
+    );
+    if (!supportSession) {
+      return route.fulfill({
+        status: 404,
+        headers: jsonHeaders,
+        body: errorBody('not_found', 'Support session not found.'),
+      });
+    }
+    return fulfillJson(route, supportSession);
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/support\/v1\/sessions$/, (route) => {
+    if (route.request().method() === 'GET') {
+      return fulfillJson(route, options.supportSessions ?? []);
+    }
+    return mutationResponse(route, mutationOutcome, options.supportSessions?.[0]);
+  });
 
   await page.route('**/api/tenants', (route) => mutationResponse(route, mutationOutcome));
 }

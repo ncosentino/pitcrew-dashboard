@@ -48,7 +48,9 @@ export function OperationalRow({
             {status}
           </div>
           {description ? (
-            <div className="mt-1 text-sm text-muted-foreground">{description}</div>
+            <div className="mt-1 [overflow-wrap:anywhere] text-sm text-muted-foreground">
+              {description}
+            </div>
           ) : null}
           {metadata ? <div className="mt-2 min-w-0">{metadata}</div> : null}
           {children ? <div className="mt-2 min-w-0">{children}</div> : null}
