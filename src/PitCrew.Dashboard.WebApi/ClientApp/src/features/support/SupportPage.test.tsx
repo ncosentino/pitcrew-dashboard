@@ -259,6 +259,87 @@ describe('SupportPage', () => {
     expect(screen.getByRole('group', { name: 'Create node enrollment' })).toBeVisible();
   });
 
+  it('distinguishes unavailable support state from an empty enrollment state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) {
+        return jsonResponse(
+          { error: { code: 'unavailable', message: 'Support unavailable' } },
+          503,
+        );
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Support unavailable');
+    const readiness = screen.getByRole('region', { name: 'Support readiness' });
+    expect(within(readiness).getByText('Status unavailable')).toBeVisible();
+    expect(within(readiness).getAllByText('Unavailable')).toHaveLength(4);
+    expect(within(readiness).queryByText('Enrollment required')).not.toBeInTheDocument();
+  });
+
+  it('reports a created session separately when the following refresh fails', async () => {
+    let identityLoads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) {
+        identityLoads++;
+        return identityLoads === 1
+          ? jsonResponse([activeIdentity])
+          : jsonResponse({ error: { code: 'unavailable', message: 'Refresh unavailable' } }, 503);
+      }
+      if (url.endsWith('/support/v1/sessions') && init?.method === 'POST') {
+        return jsonResponse(supportSession('Queued'), 202);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    expect(
+      await screen.findByText(
+        'The diagnostic session was created, but support status could not refresh: Refresh unavailable',
+      ),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Connector offline' })).toBeVisible();
+    });
+  });
+
+  it('focuses and exposes a copy action for a newly created enrollment code', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      if (url.endsWith('/support/v1/enrollment-authorizations') && init?.method === 'POST') {
+        return jsonResponse({
+          displayName: 'Support node',
+          enrollmentCode: 'enrollment-code-placeholder',
+          enrollmentExpiresAt: '2026-08-01T00:15:00+00:00',
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const user = userEvent.setup();
+
+    renderSupportPage('/tenants/local/support/nodes');
+
+    await user.click(await screen.findByRole('button', { name: 'Enroll support node' }));
+    await user.click(screen.getByRole('button', { name: 'Create one-time code' }));
+    const announcement = await screen.findByText('Copy this one-time code now');
+    expect(announcement.closest('[tabindex="-1"]')).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Copy one-time enrollment code' })).toBeVisible();
+  });
+
   it('offers diagnostic sessions only to active identities', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
@@ -303,7 +384,7 @@ describe('SupportPage', () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(detailRequests).toBe(1);
-    expect(screen.getAllByText('Queued', { selector: 'span' })).toHaveLength(2);
+    expect(screen.getAllByText('Queued', { selector: 'span' })).toHaveLength(3);
     expect(screen.queryByRole('button', { name: 'Check result' })).not.toBeInTheDocument();
   });
 
@@ -329,7 +410,7 @@ describe('SupportPage', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(2);
+    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(3);
     expect(screen.getByText('Verified evidence')).toBeVisible();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
@@ -367,7 +448,7 @@ describe('SupportPage', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(2);
+    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(3);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -402,8 +483,8 @@ describe('SupportPage', () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(detailRequests).toEqual([first.sessionId, second.sessionId]);
-    expect(screen.getAllByText('Expired', { selector: 'span' })).toHaveLength(2);
-    expect(screen.getByText('Rejected', { selector: 'span' })).toBeVisible();
+    expect(screen.getAllByText('Expired', { selector: 'span' })).toHaveLength(3);
+    expect(screen.getAllByText('Rejected', { selector: 'span' })).toHaveLength(2);
   });
 
   it('aborts an active session refresh when the page unmounts', async () => {
@@ -508,7 +589,7 @@ describe('SupportPage', () => {
 
     renderSupportPage(`/tenants/local/support/sessions/${completed.sessionId}`);
 
-    const sessionList = await screen.findByRole('list', { name: 'Support sessions' });
+    const sessionList = (await screen.findAllByRole('list', { name: 'Support sessions' }))[0];
     const rows = within(sessionList).getAllByRole('listitem');
     expect(within(rows[0]).getByText('Queued', { selector: 'span' })).toBeVisible();
     expect(within(rows[1]).getByText('Completed', { selector: 'span' })).toBeVisible();
@@ -539,7 +620,7 @@ describe('SupportPage', () => {
     renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
 
-    const sessionList = screen.getByRole('list', { name: 'Support sessions' });
+    const sessionList = screen.getAllByRole('list', { name: 'Support sessions' })[0];
     expect(
       within(within(sessionList).getAllByRole('listitem')[0]).getByText('Queued'),
     ).toBeVisible();
@@ -548,6 +629,45 @@ describe('SupportPage', () => {
     });
     expect(
       within(within(sessionList).getAllByRole('listitem')[0]).getByText('Completed'),
+    ).toBeVisible();
+  });
+
+  it('shows an explicit unknown-session state instead of selecting another session', async () => {
+    const completed = supportSession('Completed', completedResult);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([completed]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/sessions/99999999-9999-4999-8999-999999999999');
+
+    expect(await screen.findByRole('heading', { name: 'Session not found' })).toBeVisible();
+    expect(screen.queryByText('Verified evidence')).not.toBeInTheDocument();
+  });
+
+  it('discloses the automatic refresh ceiling when more than 16 sessions are active', async () => {
+    const activeSessions = Array.from({ length: 17 }, (_, index) =>
+      supportSession(
+        'Queued',
+        null,
+        `30000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      ),
+    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse(activeSessions);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/sessions');
+
+    expect(
+      await screen.findByText(/Only the 16 highest-priority active sessions update automatically/),
     ).toBeVisible();
   });
 });

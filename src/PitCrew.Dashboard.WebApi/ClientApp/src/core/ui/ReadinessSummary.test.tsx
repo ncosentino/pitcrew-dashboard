@@ -21,4 +21,17 @@ describe('ReadinessSummary', () => {
     expect(screen.getByText('Ready')).toBeVisible();
     expect(screen.getByText('One reported recently')).toBeVisible();
   });
+
+  it('generates collision-safe labels for separate readiness regions', () => {
+    render(
+      <>
+        <ReadinessSummary title="First readiness" description="First" items={[]} />
+        <ReadinessSummary title="Second readiness" description="Second" items={[]} />
+      </>,
+    );
+
+    const first = screen.getByRole('region', { name: 'First readiness' });
+    const second = screen.getByRole('region', { name: 'Second readiness' });
+    expect(first.getAttribute('aria-labelledby')).not.toBe(second.getAttribute('aria-labelledby'));
+  });
 });

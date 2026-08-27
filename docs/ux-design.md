@@ -58,6 +58,29 @@ Reuse existing tokens and components before adding one-off values. Preserve the
 project's incumbent identity; this guidance does not impose one Genesis palette,
 typeface, or component aesthetic.
 
+## Operate workspace pattern
+
+Use a task-oriented workspace when one feature combines routine operation,
+investigation, and lower-frequency administration.
+
+- Lead with a compact readiness or exception summary containing only evidence needed
+  to decide whether the primary task can proceed.
+- Keep feature-local task navigation stable and deep-linkable. On constrained
+  layouts, preserve the same reading order in a contained horizontal strip.
+- Present repeated operational records as full-width rows ordered by current work and
+  attention before ordinary history.
+- Open one selected record in a focused detail region. When the regions stack, keep
+  the list before the detail in DOM and reading order.
+- Put identifiers, cryptographic evidence, raw reports, historical records, and rare
+  administration behind explicit secondary disclosure.
+- Do not convert unavailable evidence into a healthy, empty, or zero state while the
+  authoritative request is still loading.
+
+The support diagnostics workspace is the reference implementation. Apply the pattern
+incrementally where it matches the task: settings administration, incident
+investigation, profile detail, and future image-candidate workflows. Do not force the
+workspace topology onto simple pages with one task or small static content.
+
 ## Primary references
 
 - [WCAG 2.2 target size minimum](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)

@@ -98,12 +98,14 @@ export default function SupportPage() {
   const [displayName, setDisplayName] = useState('Support node');
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [sessionRefreshError, setSessionRefreshError] = useState<string | null>(null);
   const [requestBusy, setRequestBusy] = useState(false);
   const [enrollmentBusy, setEnrollmentBusy] = useState(false);
   const [showEnrollment, setShowEnrollment] = useState(false);
   const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
   const sessionRefreshController = useRef<AbortController | null>(null);
+  const enrollmentResult = useRef<HTMLDivElement>(null);
   const activeIdentities = identities.filter((identity) => identity.status === 'Active');
   const activeSessions = sessions.filter((candidate) =>
     ['Queued', 'Dispatched'].includes(candidate.status),
@@ -117,7 +119,9 @@ export default function SupportPage() {
   const section = supportSection(pathname, supportBasePath);
   const selectedSessionId = supportSessionId(pathname, supportBasePath);
   const selectedSession =
-    sessions.find((candidate) => candidate.sessionId === selectedSessionId) ?? sessions[0] ?? null;
+    selectedSessionId === null
+      ? (sessions[0] ?? null)
+      : (sessions.find((candidate) => candidate.sessionId === selectedSessionId) ?? null);
   const selectedMode =
     diagnosticModeOptions.find((candidate) => candidate.value === mode) ?? diagnosticModeOptions[0];
   const taskNavigationItems = [
@@ -159,6 +163,7 @@ export default function SupportPage() {
       setIdentities(nextIdentities);
       setSessions(prioritizeSessions(nextSessions));
       setLoaded(true);
+      setLoadFailed(false);
       const activeIdentities = nextIdentities.filter((identity) => identity.status === 'Active');
       setNodeId((current) =>
         activeIdentities.some((identity) => identity.nodeId === current)
@@ -175,6 +180,7 @@ export default function SupportPage() {
       void load(controller.signal).catch((caught: unknown) => {
         if (caught instanceof Error && caught.name === 'AbortError') return;
         setLoaded(true);
+        setLoadFailed(true);
         setError(caught instanceof Error ? caught.message : 'Support status could not be loaded.');
       });
     }, 0);
@@ -226,6 +232,12 @@ export default function SupportPage() {
     };
   }, [activeSessionKey, refreshActiveSessions]);
 
+  useEffect(() => {
+    if (enrollment) {
+      enrollmentResult.current?.focus({ preventScroll: true });
+    }
+  }, [enrollment]);
+
   const requestSession = async () => {
     if (!session) return;
     setRequestBusy(true);
@@ -237,8 +249,23 @@ export default function SupportPage() {
         profileId.trim().length === 0 ? null : profileId.trim(),
         session.antiforgeryToken,
       );
-      await load();
+      setSessions((current) =>
+        prioritizeSessions([
+          created,
+          ...current.filter((item) => item.sessionId !== created.sessionId),
+        ]),
+      );
       setError(null);
+      try {
+        await load();
+      } catch (caught) {
+        setLoadFailed(true);
+        setError(
+          caught instanceof Error
+            ? `The diagnostic session was created, but support status could not refresh: ${caught.message}`
+            : 'The diagnostic session was created, but support status could not refresh.',
+        );
+      }
       navigate(`${supportBasePath}/sessions/${created.sessionId}`);
     } catch (caught) {
       setError(
@@ -258,8 +285,17 @@ export default function SupportPage() {
       setEnrollment(
         await createSupportEnrollment(tenantId, displayName.trim(), session.antiforgeryToken),
       );
-      await load();
       setError(null);
+      try {
+        await load();
+      } catch (caught) {
+        setLoadFailed(true);
+        setError(
+          caught instanceof Error
+            ? `The enrollment code was created, but support status could not refresh: ${caught.message}`
+            : 'The enrollment code was created, but support status could not refresh.',
+        );
+      }
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : 'Support identity could not be enrolled.',
@@ -274,8 +310,24 @@ export default function SupportPage() {
     setRevokingNodeId(identityNodeId);
     try {
       await revokeSupportIdentity(tenantId, identityNodeId, session.antiforgeryToken);
-      await load();
+      setIdentities((current) =>
+        current.map((identity) =>
+          identity.nodeId === identityNodeId
+            ? { ...identity, status: 'Revoked', revokedAt: null }
+            : identity,
+        ),
+      );
       setError(null);
+      try {
+        await load();
+      } catch (caught) {
+        setLoadFailed(true);
+        setError(
+          caught instanceof Error
+            ? `The support identity was revoked, but support status could not refresh: ${caught.message}`
+            : 'The support identity was revoked, but support status could not refresh.',
+        );
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Support identity could not be revoked.');
     } finally {
@@ -291,33 +343,60 @@ export default function SupportPage() {
         description="Support diagnostics use an independent outbound identity and remain separate from connector and runner health."
         status={
           <StatusBadge
-            status={activeIdentities.length > 0 ? 'Available' : 'Enrollment required'}
-            tone={activeIdentities.length > 0 ? 'positive' : 'caution'}
+            status={
+              !loaded
+                ? 'Loading'
+                : loadFailed
+                  ? 'Status unavailable'
+                  : latestPollAt
+                    ? 'Relay activity observed'
+                    : activeIdentities.length > 0
+                      ? 'Identity enrolled'
+                      : 'Enrollment required'
+            }
+            tone={
+              loadFailed
+                ? 'critical'
+                : latestPollAt
+                  ? 'positive'
+                  : activeIdentities.length > 0
+                    ? 'neutral'
+                    : 'caution'
+            }
           />
         }
         items={[
           {
             label: 'Active support nodes',
-            value: loaded ? activeIdentities.length : 'Loading…',
+            value: !loaded ? 'Loading…' : loadFailed ? 'Unavailable' : activeIdentities.length,
             detail: !loaded
               ? 'Checking support identity state'
-              : activeIdentities.length > 0
-                ? 'Eligible for new diagnostic sessions'
-                : 'No node can receive a request',
+              : loadFailed
+                ? 'Support identity state could not be loaded'
+                : activeIdentities.length > 0
+                  ? 'Eligible for new diagnostic sessions'
+                  : 'No node can receive a request',
           },
           {
             label: 'Latest relay poll',
-            value: !loaded ? 'Loading…' : latestPollAt ? formatTime(latestPollAt) : 'Unavailable',
+            value:
+              !loaded || loadFailed
+                ? loaded
+                  ? 'Unavailable'
+                  : 'Loading…'
+                : latestPollAt
+                  ? formatTime(latestPollAt)
+                  : 'Unavailable',
             detail: 'Reported by active support identities',
           },
           {
             label: 'Active sessions',
-            value: loaded ? activeSessions.length : 'Loading…',
+            value: !loaded ? 'Loading…' : loadFailed ? 'Unavailable' : activeSessions.length,
             detail: 'Queued or dispatched',
           },
           {
             label: 'Needs attention',
-            value: loaded ? attentionSessions.length : 'Loading…',
+            value: !loaded ? 'Loading…' : loadFailed ? 'Unavailable' : attentionSessions.length,
             detail: 'Rejected or expired sessions',
           },
         ]}
@@ -331,7 +410,9 @@ export default function SupportPage() {
               activeIdentities={activeIdentities}
               activeSessions={activeSessions}
               attentionSessions={attentionSessions}
+              loadFailed={loadFailed}
               latestResultAt={latestResultAt}
+              relayActivityObserved={latestPollAt !== null}
               supportBasePath={supportBasePath}
             />
           ) : null}
@@ -341,7 +422,12 @@ export default function SupportPage() {
               description="Choose the problem to investigate, then select the support node that should collect the approved read-only evidence."
             >
               <div className="grid gap-5">
-                {activeIdentities.length === 0 ? (
+                {loadFailed ? (
+                  <StateBanner tone="critical">
+                    Support identity state is unavailable. Reload this page before requesting a
+                    diagnostic session.
+                  </StateBanner>
+                ) : activeIdentities.length === 0 ? (
                   <StateBanner tone="caution">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <span>Enroll an active support node before requesting diagnostics.</span>
@@ -368,7 +454,7 @@ export default function SupportPage() {
                   <FormField label="Support node">
                     <select
                       className="h-11 rounded-md border bg-background px-3 text-sm"
-                      disabled={!loaded || activeIdentities.length === 0}
+                      disabled={!loaded || loadFailed || activeIdentities.length === 0}
                       value={nodeId}
                       onChange={(event) => setNodeId(event.target.value)}
                     >
@@ -414,8 +500,11 @@ export default function SupportPage() {
             <SupportSessionsWorkspace
               sessions={sessions}
               selectedSession={selectedSession}
+              selectedSessionId={selectedSessionId}
+              identities={identities}
               supportBasePath={supportBasePath}
               refreshError={sessionRefreshError}
+              refreshLimited={activeSessions.length > maximumAutomaticallyRefreshedSessions}
             />
           ) : null}
           {section === 'nodes' ? (
@@ -469,19 +558,21 @@ export default function SupportPage() {
                   </fieldset>
                 ) : null}
                 {enrollment ? (
-                  <StateBanner tone="caution">
-                    <div className="grid gap-2">
-                      <strong>Copy this one-time code now</strong>
-                      <p>
-                        It expires {formatTime(enrollment.enrollmentExpiresAt)} and can enroll only
-                        one node in this tenant.
-                      </p>
-                      <span className="text-xs font-medium">One-time enrollment code</span>
-                      <code className="block overflow-x-auto break-all rounded bg-background p-3 text-xs text-foreground">
-                        {enrollment.enrollmentCode}
-                      </code>
-                    </div>
-                  </StateBanner>
+                  <div ref={enrollmentResult} tabIndex={-1}>
+                    <StateBanner tone="caution">
+                      <div className="grid gap-2">
+                        <strong>Copy this one-time code now</strong>
+                        <p>
+                          It expires {formatTime(enrollment.enrollmentExpiresAt)} and can enroll
+                          only one node in this tenant.
+                        </p>
+                        <CopyableId
+                          value={enrollment.enrollmentCode}
+                          label="one-time enrollment code"
+                        />
+                      </div>
+                    </StateBanner>
+                  </div>
                 ) : null}
               </div>
             </DetailPanel>
@@ -495,16 +586,36 @@ export default function SupportPage() {
 interface SupportSessionsWorkspaceProps {
   readonly sessions: ReadonlyArray<SupportSession>;
   readonly selectedSession: SupportSession | null;
+  readonly selectedSessionId: string | null;
+  readonly identities: ReadonlyArray<SupportIdentity>;
   readonly supportBasePath: string;
   readonly refreshError: string | null;
+  readonly refreshLimited: boolean;
 }
 
 function SupportSessionsWorkspace({
   sessions,
   selectedSession,
+  selectedSessionId,
+  identities,
   supportBasePath,
   refreshError,
+  refreshLimited,
 }: SupportSessionsWorkspaceProps) {
+  const renderSessionList = () => (
+    <OperationalList label="Support sessions">
+      {sessions.map((candidate) => (
+        <SupportSessionRow
+          key={candidate.sessionId}
+          session={candidate}
+          nodeName={supportNodeLabel(candidate.nodeId, identities)}
+          selected={candidate.sessionId === selectedSession?.sessionId}
+          supportBasePath={supportBasePath}
+        />
+      ))}
+    </OperationalList>
+  );
+
   return (
     <section aria-labelledby="support-sessions-heading" className="grid min-w-0 gap-4">
       <div>
@@ -519,23 +630,50 @@ function SupportSessionsWorkspace({
       {refreshError ? (
         <StateBanner tone="critical">Automatic session refresh failed: {refreshError}</StateBanner>
       ) : null}
-      {sessions.length === 0 ? (
+      {refreshLimited ? (
+        <StateBanner tone="caution">
+          Only the 16 highest-priority active sessions update automatically. Older active sessions
+          retain their last loaded state until this page is reloaded.
+        </StateBanner>
+      ) : null}
+      {sessions.length === 0 && selectedSessionId === null ? (
         <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
           No support sessions have been requested for this tenant.
         </div>
       ) : (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] xl:items-start">
-          <OperationalList label="Support sessions">
-            {sessions.map((candidate) => (
-              <SupportSessionRow
-                key={candidate.sessionId}
-                session={candidate}
-                selected={candidate.sessionId === selectedSession?.sessionId}
-                supportBasePath={supportBasePath}
-              />
-            ))}
-          </OperationalList>
-          {selectedSession ? <SupportSessionCard session={selectedSession} /> : null}
+        <div
+          className={
+            sessions.length > 0
+              ? 'grid min-w-0 gap-4 xl:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] xl:items-start'
+              : 'grid min-w-0 gap-4'
+          }
+        >
+          {sessions.length > 0 ? (
+            <>
+              <div className="hidden xl:block">{renderSessionList()}</div>
+              <details className="rounded-xl border bg-card p-3 xl:hidden">
+                <summary className="min-h-8 cursor-pointer text-sm font-medium">
+                  Choose another session ({sessions.length})
+                </summary>
+                <div className="mt-3">{renderSessionList()}</div>
+              </details>
+            </>
+          ) : null}
+          {selectedSession ? (
+            <SupportSessionCard
+              session={selectedSession}
+              nodeName={supportNodeLabel(selectedSession.nodeId, identities)}
+            />
+          ) : selectedSessionId ? (
+            <DetailPanel
+              title="Session not found"
+              description="The requested support session is not present in this tenant's recent session history."
+            >
+              <StateBanner tone="critical">
+                Check the session link or return to the session list and select an available record.
+              </StateBanner>
+            </DetailPanel>
+          ) : null}
         </div>
       )}
     </section>
@@ -544,18 +682,24 @@ function SupportSessionsWorkspace({
 
 interface SupportSessionRowProps {
   readonly session: SupportSession;
+  readonly nodeName: string;
   readonly selected: boolean;
   readonly supportBasePath: string;
 }
 
-function SupportSessionRow({ session, selected, supportBasePath }: SupportSessionRowProps) {
+function SupportSessionRow({
+  session,
+  nodeName,
+  selected,
+  supportBasePath,
+}: SupportSessionRowProps) {
   const active = isActiveSession(session);
   return (
     <OperationalRow
       title={diagnosticModeLabel(session.diagnosticMode)}
       description={
         <>
-          Requested {formatTime(session.requestedAt)}
+          {nodeName} · Requested {formatTime(session.requestedAt)}
           {session.profileId ? ` · Profile ${session.profileId}` : ''}
         </>
       }
@@ -591,7 +735,9 @@ interface SupportOverviewProps {
   readonly activeIdentities: ReadonlyArray<SupportIdentity>;
   readonly activeSessions: ReadonlyArray<SupportSession>;
   readonly attentionSessions: ReadonlyArray<SupportSession>;
+  readonly loadFailed: boolean;
   readonly latestResultAt: string | null;
+  readonly relayActivityObserved: boolean;
   readonly supportBasePath: string;
 }
 
@@ -599,7 +745,9 @@ function SupportOverview({
   activeIdentities,
   activeSessions,
   attentionSessions,
+  loadFailed,
   latestResultAt,
+  relayActivityObserved,
   supportBasePath,
 }: SupportOverviewProps) {
   return (
@@ -611,20 +759,44 @@ function SupportOverview({
         <OperationalRow
           title="Run a diagnostic"
           description={
-            activeIdentities.length > 0
-              ? `${activeIdentities.length} active support ${activeIdentities.length === 1 ? 'node is' : 'nodes are'} available.`
-              : 'Enrollment is required before a node can receive diagnostics.'
+            loadFailed
+              ? 'Support readiness is unavailable. Reload before requesting diagnostics.'
+              : activeIdentities.length > 0
+                ? relayActivityObserved
+                  ? `${activeIdentities.length} active support ${activeIdentities.length === 1 ? 'node has' : 'nodes have'} reported relay activity.`
+                  : `${activeIdentities.length} support ${activeIdentities.length === 1 ? 'identity is' : 'identities are'} enrolled; relay activity is not yet available.`
+                : 'Enrollment is required before a node can receive diagnostics.'
           }
           status={
             <StatusBadge
-              status={activeIdentities.length > 0 ? 'Ready' : 'Blocked'}
-              tone={activeIdentities.length > 0 ? 'positive' : 'caution'}
+              status={
+                loadFailed
+                  ? 'Unavailable'
+                  : relayActivityObserved
+                    ? 'Relay activity observed'
+                    : activeIdentities.length > 0
+                      ? 'Identity enrolled'
+                      : 'Blocked'
+              }
+              tone={
+                loadFailed
+                  ? 'critical'
+                  : relayActivityObserved
+                    ? 'positive'
+                    : activeIdentities.length > 0
+                      ? 'neutral'
+                      : 'caution'
+              }
             />
           }
           actions={
             <Button asChild type="button">
               <Link to={`${supportBasePath}/run`}>
-                {activeIdentities.length > 0 ? 'Start diagnostic' : 'View requirements'}
+                {loadFailed
+                  ? 'Review unavailable state'
+                  : activeIdentities.length > 0
+                    ? 'Start diagnostic'
+                    : 'View requirements'}
               </Link>
             </Button>
           }
@@ -809,9 +981,13 @@ export function SupportIdentityCard({
 
 export interface SupportSessionCardProps {
   readonly session: SupportSession;
+  readonly nodeName?: string;
 }
 
-export function SupportSessionCard({ session }: SupportSessionCardProps) {
+export function SupportSessionCard({
+  session,
+  nodeName = 'Support node unavailable',
+}: SupportSessionCardProps) {
   const active = isActiveSession(session);
   const rejectionExplanation = session.rejectionDisposition
     ? (rejectionGuidance[session.rejectionDisposition] ??
@@ -829,6 +1005,7 @@ export function SupportSessionCard({ session }: SupportSessionCardProps) {
     >
       <div className="grid min-w-0 gap-4">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <SessionFact label="Support node" value={nodeName} />
           <SessionFact label="Expires" value={formatTime(session.expiresAt)} />
           <SessionFact
             label="First dispatched"
@@ -838,6 +1015,7 @@ export function SupportSessionCard({ session }: SupportSessionCardProps) {
           <SessionFact label="Capability" value={session.capability} />
         </dl>
         <CopyableId value={session.sessionId} label="session ID" prefix="Session" />
+        <CopyableId value={session.nodeId} label="support node ID" prefix="Node" />
         {session.rejectionDisposition ? (
           <StateBanner tone="critical">
             <div className="grid gap-2">
@@ -899,7 +1077,7 @@ function SessionFact({ label, value }: { readonly label: string; readonly value:
   return (
     <div className="min-w-0">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 break-words text-foreground">{value}</dd>
+      <dd className="mt-0.5 [overflow-wrap:anywhere] text-foreground">{value}</dd>
     </div>
   );
 }
@@ -917,6 +1095,12 @@ function sessionTone(session: SupportSession): 'positive' | 'caution' | 'neutral
 
 function diagnosticModeLabel(mode: string): string {
   return diagnosticModeOptions.find((candidate) => candidate.value === mode)?.label ?? mode;
+}
+
+function supportNodeLabel(nodeId: string, identities: ReadonlyArray<SupportIdentity>): string {
+  return (
+    identities.find((identity) => identity.nodeId === nodeId)?.displayName ?? 'Unknown support node'
+  );
 }
 
 function prioritizeSessions(

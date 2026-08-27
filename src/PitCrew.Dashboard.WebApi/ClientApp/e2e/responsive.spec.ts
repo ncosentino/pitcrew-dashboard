@@ -151,6 +151,7 @@ test.describe('zero overflow at all required widths', () => {
       name: 'workers',
       path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/workers`,
     },
+    { name: 'support', path: `/tenants/${tenantId}/support/sessions` },
   ];
 
   for (const route of routes) {
