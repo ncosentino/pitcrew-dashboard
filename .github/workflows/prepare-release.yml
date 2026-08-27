@@ -137,7 +137,7 @@ jobs:
           PITCREW_SHA: ${{ steps.candidate.outputs.pitcrew-sha }}
         run: |
           $policy = Get-Content `
-              -LiteralPath assets/support-plane/support-evidence-policy-v0.10.8.json `
+              -LiteralPath assets/support-plane/support-evidence-policy-v0.10.10.json `
               -Raw `
               -Encoding utf8 |
               ConvertFrom-Json

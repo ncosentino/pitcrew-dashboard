@@ -685,7 +685,7 @@ try {
     Invoke-WebRequest `
         -Uri (
             'https://raw.githubusercontent.com/ncosentino/pitcrew/' +
-            'a9fc5884b7e1aea6ef731c701401c46a51d0d3f5/' +
+            '85dc9abfa75d6c7f596279637c3b5736931b3575/' +
             'plugins/pitcrew-operations/skills/' +
             'pitcrew-remote-diagnostics/scripts/' +
             'Collect-PitCrewDiagnostics.ps1'
@@ -695,7 +695,7 @@ try {
         Get-FileHash -LiteralPath $collectorPath -Algorithm SHA256
     ).Hash.ToLowerInvariant()
     if ($collectorHash -cne
-        '18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580') {
+        '898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf') {
         throw 'The hosted collector fixture did not match the pinned policy.'
     }
 

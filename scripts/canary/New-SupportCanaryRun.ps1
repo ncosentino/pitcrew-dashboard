@@ -96,6 +96,10 @@ $projections = [ordered]@{
             [ordered]@{
                 url = 'https://github.com/example/project'
                 workers = 1
+            }
+            [ordered]@{
+                url = 'https://github.com/example/unassigned'
+                workers = 1
             })
         replicas = $null
     }
@@ -106,7 +110,7 @@ $projections = [ordered]@{
         managerContractVersion = 18
         desiredStateHash = [string]::new('a', 64)
         observedAt = $observedAt
-        desiredSlots = 1
+        desiredSlots = 2
         addedSlots = 0
         drainingSlots = 0
         unchangedSlots = 1

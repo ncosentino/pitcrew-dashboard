@@ -11,7 +11,7 @@ $modulePath = Join-Path (
 ) 'scripts' 'release' 'SupportReleaseGate.psm1'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.8.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.10.json'
 $prepareWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'prepare-release.yml'
@@ -33,10 +33,13 @@ $ciWorkflowPath = Join-Path (
 $supportRelayScenarioPath = Join-Path (
     $repositoryRoot
 ) 'scripts' 'canary' 'Invoke-SupportRelayScenario.ps1'
+$newSupportCanaryRunPath = Join-Path (
+    $repositoryRoot
+) 'scripts' 'canary' 'New-SupportCanaryRun.ps1'
 $canaryScenarioEntryPaths = @(
     Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanary.ps1'
     Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanaryScenario.ps1'
-    Join-Path $repositoryRoot 'scripts' 'canary' 'New-SupportCanaryRun.ps1'
+    $newSupportCanaryRunPath
 )
 $canaryTopologyEntryPaths = @(
     Join-Path $repositoryRoot 'scripts' 'canary' 'Invoke-SupportCanary.ps1'
@@ -89,6 +92,10 @@ Import-Module $modulePath -Force
 
 $policy = Get-Content -LiteralPath $policyPath -Raw -Encoding utf8 |
     ConvertFrom-Json -Depth 20
+$newSupportCanaryRun = Get-Content `
+    -LiteralPath $newSupportCanaryRunPath `
+    -Raw `
+    -Encoding utf8
 $dashboardSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 $pitCrewSha = [string]$policy.pitCrewCommit
 $runId = 123456789
@@ -620,6 +627,12 @@ Add-Check (
     $supportCanaryWorkflow -match
         "(?ms)scenario:.*?options:.*?- support-terminal-lifecycle-v1"
 ) 'The terminal-lifecycle scenario is not independently selectable.'
+Add-Check (
+    ([regex]::Matches(
+        $newSupportCanaryRun,
+        [regex]::Escape('https://github.com/example/unassigned')
+    )).Count -eq 1
+) 'The support canary does not exercise a desired target with no observed slot.'
 Add-Check (
     @(
         $canaryScenarioEntryPaths |

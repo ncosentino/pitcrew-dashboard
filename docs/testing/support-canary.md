@@ -43,6 +43,8 @@ service-SID grant rather than a normal-token fallback. The candidate broker must
 publish a broker-owned
 `ready` startup preflight under its restricted service SID before the scenario
 can run, and installer verification waits for bounded preflight convergence.
+The shared scaffold includes one desired target with no observed slot, so every
+topology must complete collection without strict-mode property projection.
 It does not run on self-hosted capacity or a live PitCrew node.
 
 The containerized profile runs only on disposable public Linux-hosted

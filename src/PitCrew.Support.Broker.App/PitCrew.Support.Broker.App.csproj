@@ -13,8 +13,8 @@
     <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
     <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
     <EmbeddedResource
-      Include="..\..\assets\support-plane\support-evidence-policy-v0.10.8.json"
-      LogicalName="PitCrew.Support.Broker.App.support-evidence-policy-v0.10.8.json" />
+      Include="..\..\assets\support-plane\support-evidence-policy-v0.10.10.json"
+      LogicalName="PitCrew.Support.Broker.App.support-evidence-policy-v0.10.10.json" />
   </ItemGroup>
 
 </Project>

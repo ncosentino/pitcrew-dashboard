@@ -218,7 +218,7 @@ internal sealed class SupportEvidenceAccessValidator
           SupportBrokerStatus.ExecutionFailed,
           null,
           null,
-          "PitCrewRoot does not match the supported v0.10.8 installation contract.");
+          "PitCrewRoot does not match the supported v0.10.10 installation contract.");
 
   private static void VerifyDedicatedEvidenceDirectory(
       string root,
