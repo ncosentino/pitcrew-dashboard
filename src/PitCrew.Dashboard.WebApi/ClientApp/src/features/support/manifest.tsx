@@ -12,19 +12,19 @@ export const supportManifest: FeatureManifest = {
       label: 'Support',
       path: '/tenants/:tenantId/support',
       minimumTenantRole: 'administrator',
-      activePathPatterns: ['/tenants/:tenantId/support'],
+      activePathPatterns: ['/tenants/:tenantId/support/*'],
     },
   ],
   routePresentations: [
     {
-      path: '/tenants/:tenantId/support',
+      path: '/tenants/:tenantId/support/*',
       title: 'Support diagnostics',
       breadcrumbs: [{ label: 'Support' }],
     },
   ],
   routes: [
     {
-      path: 'tenants/:tenantId/support',
+      path: 'tenants/:tenantId/support/*',
       element: (
         <TenantRouteGuard minimumRole="administrator">
           <SupportPage />

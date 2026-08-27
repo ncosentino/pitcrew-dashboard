@@ -95,6 +95,18 @@ async function flushInitialSupportLoad() {
   });
 }
 
+function renderSupportPage(initialPath = '/tenants/local/support') {
+  return render(
+    <SessionProvider>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/tenants/:tenantId/support/*" element={<SupportPage />} />
+        </Routes>
+      </MemoryRouter>
+    </SessionProvider>,
+  );
+}
+
 describe('SupportIdentityCard', () => {
   it('renders projected poll and result evidence for an active identity', () => {
     render(
@@ -187,6 +199,66 @@ describe('SupportPage', () => {
     vi.restoreAllMocks();
   });
 
+  it('leads with readiness and task-oriented workspace navigation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage();
+
+    expect(await screen.findByRole('region', { name: 'Support readiness' })).toBeVisible();
+    expect(screen.getByRole('navigation', { name: 'Support tasks' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Run diagnostic/ })).toHaveAttribute(
+      'href',
+      '/tenants/local/support/run',
+    );
+    expect(screen.getByRole('link', { name: /Sessions/ })).toHaveAttribute(
+      'href',
+      '/tenants/local/support/sessions',
+    );
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+  });
+
+  it('uses human diagnostic labels while preserving the wire value', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/run');
+
+    const mode = await screen.findByRole('combobox', { name: 'Problem to investigate' });
+    expect(within(mode).getByRole('option', { name: 'Connector offline' })).toHaveValue(
+      'ConnectorOffline',
+    );
+    expect(screen.getByText(/normal connector status is unavailable/i)).toBeVisible();
+  });
+
+  it('keeps enrollment collapsed until the operator requests it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const user = userEvent.setup();
+
+    renderSupportPage('/tenants/local/support/nodes');
+
+    await screen.findByRole('heading', { name: 'Support nodes' });
+    expect(screen.queryByRole('group', { name: 'Create node enrollment' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Enroll support node' }));
+    expect(screen.getByRole('group', { name: 'Create node enrollment' })).toBeVisible();
+  });
+
   it('offers diagnostic sessions only to active identities', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
@@ -197,18 +269,12 @@ describe('SupportPage', () => {
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/run');
 
     const nodeSelector = await screen.findByRole('combobox', { name: 'Support node' });
-    expect(within(nodeSelector).getByRole('option', { name: 'Active node' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(nodeSelector).getByRole('option', { name: 'Active node' })).toBeInTheDocument();
+    });
     expect(within(nodeSelector).queryByRole('option', { name: 'Revoked node' })).toBeNull();
   });
 
@@ -227,15 +293,7 @@ describe('SupportPage', () => {
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([queued]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
 
     expect(screen.getByRole('status')).toHaveTextContent(
@@ -265,15 +323,7 @@ describe('SupportPage', () => {
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([queued]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
 
     await act(async () => {
@@ -305,15 +355,7 @@ describe('SupportPage', () => {
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([queued]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
 
     await act(async () => {
@@ -353,15 +395,7 @@ describe('SupportPage', () => {
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([first, second]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
 
     await act(async () => {
@@ -391,15 +425,7 @@ describe('SupportPage', () => {
         jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404),
       );
     });
-    const { unmount } = render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    const { unmount } = renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
@@ -429,15 +455,7 @@ describe('SupportPage', () => {
         jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404),
       );
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/sessions');
     await flushInitialSupportLoad();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
@@ -464,15 +482,7 @@ describe('SupportPage', () => {
       if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
-    render(
-      <SessionProvider>
-        <MemoryRouter initialEntries={['/tenants/local/support']}>
-          <Routes>
-            <Route path="/tenants/:tenantId/support" element={<SupportPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionProvider>,
-    );
+    renderSupportPage('/tenants/local/support/run');
 
     await screen.findByRole('combobox', { name: 'Support node' });
     fireEvent.click(await screen.findByRole('button', { name: 'Request read-only diagnostics' }));
