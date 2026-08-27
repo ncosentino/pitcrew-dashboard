@@ -119,8 +119,8 @@ describe('SupportIdentityCard', () => {
       />,
     );
 
-    expect(screen.getByText(/Last poll:/)).toBeVisible();
-    expect(screen.getByText(/Last result:/)).toBeVisible();
+    expect(screen.getByText(/Last poll/)).toBeVisible();
+    expect(screen.getByText(/Last result/)).toBeVisible();
     expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
   });
 
@@ -159,7 +159,7 @@ describe('SupportIdentityCard', () => {
 
     expect(screen.getByText(/revoked/i, { selector: 'span' })).toBeVisible();
     expect(screen.getByText(/^Revoked .*2026/)).toBeVisible();
-    expect(screen.queryByText(/Last poll:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last poll/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
   });
 });
@@ -303,7 +303,7 @@ describe('SupportPage', () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(detailRequests).toBe(1);
-    expect(screen.getByText('Queued', { selector: 'span' })).toBeVisible();
+    expect(screen.getAllByText('Queued', { selector: 'span' })).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Check result' })).not.toBeInTheDocument();
   });
 
@@ -329,7 +329,7 @@ describe('SupportPage', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(screen.getByText('Completed', { selector: 'span' })).toBeVisible();
+    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(2);
     expect(screen.getByText('Verified evidence')).toBeVisible();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
@@ -367,7 +367,7 @@ describe('SupportPage', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(screen.getByText('Completed', { selector: 'span' })).toBeVisible();
+    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -402,7 +402,7 @@ describe('SupportPage', () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(detailRequests).toEqual([first.sessionId, second.sessionId]);
-    expect(screen.getByText('Expired', { selector: 'span' })).toBeVisible();
+    expect(screen.getAllByText('Expired', { selector: 'span' })).toHaveLength(2);
     expect(screen.getByText('Rejected', { selector: 'span' })).toBeVisible();
   });
 
@@ -490,6 +490,66 @@ describe('SupportPage', () => {
       expect(requestBody?.expiresInSeconds).toBe(900);
     });
   });
+
+  it('orders active sessions before history and restores a deep-linked detail', async () => {
+    const completed = supportSession(
+      'Completed',
+      completedResult,
+      '55555555-5555-4555-8555-555555555555',
+    );
+    const queued = supportSession('Queued');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([completed, queued]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage(`/tenants/local/support/sessions/${completed.sessionId}`);
+
+    const sessionList = await screen.findByRole('list', { name: 'Support sessions' });
+    const rows = within(sessionList).getAllByRole('listitem');
+    expect(within(rows[0]).getByText('Queued', { selector: 'span' })).toBeVisible();
+    expect(within(rows[1]).getByText('Completed', { selector: 'span' })).toBeVisible();
+    expect(within(sessionList).getByRole('link', { name: 'Selected' })).toHaveAttribute(
+      'href',
+      `/tenants/local/support/sessions/${completed.sessionId}`,
+    );
+    expect(screen.getByRole('region', { name: 'Connector offline' })).toHaveTextContent(
+      'Verified evidence',
+    );
+  });
+
+  it('does not reorder a session row when automatic refresh makes it terminal', async () => {
+    vi.useFakeTimers();
+    const queued = supportSession('Queued');
+    const rejected = supportSession('Rejected', null, '66666666-6666-4666-8666-666666666666');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith(`/support/v1/sessions/${queued.sessionId}`)) {
+        return jsonResponse({ ...queued, status: 'Completed', result: completedResult });
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([rejected, queued]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/sessions');
+    await flushInitialSupportLoad();
+
+    const sessionList = screen.getByRole('list', { name: 'Support sessions' });
+    expect(
+      within(within(sessionList).getAllByRole('listitem')[0]).getByText('Queued'),
+    ).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(
+      within(within(sessionList).getAllByRole('listitem')[0]).getByText('Completed'),
+    ).toBeVisible();
+  });
 });
 
 describe('SupportSessionCard', () => {
@@ -503,9 +563,9 @@ describe('SupportSessionCard', () => {
       />,
     );
 
-    expect(screen.getByText('ConnectorOffline')).toBeInTheDocument();
+    expect(screen.getByText('Connector offline')).toBeInTheDocument();
     expect(screen.getByText('<script>alert(1)</script> verified evidence')).toBeInTheDocument();
-    expect(screen.getByText(/Attestation ES256-P1363/i)).toBeInTheDocument();
+    expect(screen.getByText('ES256-P1363')).toBeInTheDocument();
     expect(document.querySelector('script')).toBeNull();
   });
 

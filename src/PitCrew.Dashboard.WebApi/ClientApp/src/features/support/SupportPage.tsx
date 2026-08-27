@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { CopyableId } from '@/core/ui/CopyableId';
 import { DetailPanel } from '@/core/ui/DetailPanel';
 import { FormField } from '@/core/ui/FormField';
 import { OperationalList, OperationalRow } from '@/core/ui/OperationalList';
@@ -73,6 +74,15 @@ const rejectionGuidance: Partial<
   'broker-timeout': 'The local broker exceeded its bounded execution time.',
 };
 
+const sessionStatusRank: Record<SupportSession['status'], number> = {
+  Queued: 0,
+  Dispatched: 0,
+  Rejected: 1,
+  Expired: 1,
+  Completed: 2,
+  Cancelled: 2,
+};
+
 /** Tenant support-plane diagnostics workflow. */
 export default function SupportPage() {
   const { tenantId = '' } = useParams();
@@ -105,6 +115,9 @@ export default function SupportPage() {
   const latestResultAt = latestTimestamp(activeIdentities.map((identity) => identity.lastResultAt));
   const supportBasePath = `/tenants/${tenantId}/support`;
   const section = supportSection(pathname, supportBasePath);
+  const selectedSessionId = supportSessionId(pathname, supportBasePath);
+  const selectedSession =
+    sessions.find((candidate) => candidate.sessionId === selectedSessionId) ?? sessions[0] ?? null;
   const selectedMode =
     diagnosticModeOptions.find((candidate) => candidate.value === mode) ?? diagnosticModeOptions[0];
   const taskNavigationItems = [
@@ -144,7 +157,7 @@ export default function SupportPage() {
         getSupportSessions(tenantId, signal),
       ]);
       setIdentities(nextIdentities);
-      setSessions(nextSessions);
+      setSessions(prioritizeSessions(nextSessions));
       setLoaded(true);
       const activeIdentities = nextIdentities.filter((identity) => identity.status === 'Active');
       setNodeId((current) =>
@@ -398,27 +411,12 @@ export default function SupportPage() {
             </DetailPanel>
           ) : null}
           {section === 'sessions' ? (
-            <DetailPanel
-              title="Support sessions"
-              description="Queued and dispatched sessions update every five seconds. You can leave this page and return later."
-            >
-              <div className="grid gap-3">
-                {sessionRefreshError ? (
-                  <StateBanner tone="critical">
-                    Automatic session refresh failed: {sessionRefreshError}
-                  </StateBanner>
-                ) : null}
-                {sessions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No support sessions have been requested for this tenant.
-                  </p>
-                ) : (
-                  sessions.map((supportSession) => (
-                    <SupportSessionCard key={supportSession.sessionId} session={supportSession} />
-                  ))
-                )}
-              </div>
-            </DetailPanel>
+            <SupportSessionsWorkspace
+              sessions={sessions}
+              selectedSession={selectedSession}
+              supportBasePath={supportBasePath}
+              refreshError={sessionRefreshError}
+            />
           ) : null}
           {section === 'nodes' ? (
             <DetailPanel
@@ -491,6 +489,101 @@ export default function SupportPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+interface SupportSessionsWorkspaceProps {
+  readonly sessions: ReadonlyArray<SupportSession>;
+  readonly selectedSession: SupportSession | null;
+  readonly supportBasePath: string;
+  readonly refreshError: string | null;
+}
+
+function SupportSessionsWorkspace({
+  sessions,
+  selectedSession,
+  supportBasePath,
+  refreshError,
+}: SupportSessionsWorkspaceProps) {
+  return (
+    <section aria-labelledby="support-sessions-heading" className="grid min-w-0 gap-4">
+      <div>
+        <h2 id="support-sessions-heading" className="text-xl font-semibold">
+          Support sessions
+        </h2>
+        <p className="mt-1 max-w-[72ch] text-sm text-muted-foreground">
+          Active requests update every five seconds. Select one session to investigate its lifecycle
+          and bounded evidence.
+        </p>
+      </div>
+      {refreshError ? (
+        <StateBanner tone="critical">Automatic session refresh failed: {refreshError}</StateBanner>
+      ) : null}
+      {sessions.length === 0 ? (
+        <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
+          No support sessions have been requested for this tenant.
+        </div>
+      ) : (
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] xl:items-start">
+          <OperationalList label="Support sessions">
+            {sessions.map((candidate) => (
+              <SupportSessionRow
+                key={candidate.sessionId}
+                session={candidate}
+                selected={candidate.sessionId === selectedSession?.sessionId}
+                supportBasePath={supportBasePath}
+              />
+            ))}
+          </OperationalList>
+          {selectedSession ? <SupportSessionCard session={selectedSession} /> : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface SupportSessionRowProps {
+  readonly session: SupportSession;
+  readonly selected: boolean;
+  readonly supportBasePath: string;
+}
+
+function SupportSessionRow({ session, selected, supportBasePath }: SupportSessionRowProps) {
+  const active = isActiveSession(session);
+  return (
+    <OperationalRow
+      title={diagnosticModeLabel(session.diagnosticMode)}
+      description={
+        <>
+          Requested {formatTime(session.requestedAt)}
+          {session.profileId ? ` · Profile ${session.profileId}` : ''}
+        </>
+      }
+      selected={selected}
+      status={<StatusBadge status={session.status} tone={sessionTone(session)} />}
+      metadata={
+        active ? (
+          <span className="text-xs text-muted-foreground">
+            Waiting for a terminal result · updates automatically
+          </span>
+        ) : session.rejectionDisposition ? (
+          <span className="text-xs text-muted-foreground">
+            {rejectionGuidance[session.rejectionDisposition] ??
+              'The request ended without a verified report.'}
+          </span>
+        ) : null
+      }
+      actions={
+        <Button asChild type="button" variant={selected ? 'secondary' : 'outline'} size="sm">
+          <Link
+            aria-current={selected ? 'page' : undefined}
+            to={`${supportBasePath}/sessions/${session.sessionId}`}
+          >
+            {selected ? 'Selected' : 'View details'}
+          </Link>
+        </Button>
+      }
+    />
   );
 }
 
@@ -608,7 +701,7 @@ export function SupportIdentityInventory({
   return (
     <>
       {activeIdentities.length > 0 ? (
-        <div className="grid gap-2 md:grid-cols-2">
+        <OperationalList label="Active support nodes">
           {activeIdentities.map((identity) => (
             <SupportIdentityCard
               key={identity.nodeId}
@@ -617,11 +710,11 @@ export function SupportIdentityInventory({
               onRevoke={onRevoke}
             />
           ))}
-        </div>
+        </OperationalList>
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
           No active support nodes. Create a new node enrollment when a host is ready.
-        </p>
+        </div>
       )}
       {revokedIdentities.length > 0 ? (
         <details className="rounded-lg border bg-muted/20 p-3">
@@ -632,11 +725,11 @@ export function SupportIdentityInventory({
             Revoked identities are retained for audit history and cannot poll or receive new
             diagnostic sessions.
           </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <OperationalList className="mt-3" label="Revoked support nodes">
             {revokedIdentities.map((identity) => (
               <SupportIdentityCard key={identity.nodeId} identity={identity} />
             ))}
-          </div>
+          </OperationalList>
         </details>
       ) : null}
     </>
@@ -656,36 +749,20 @@ export function SupportIdentityCard({
 }: SupportIdentityCardProps) {
   const canRevoke = identity.status === 'Active' && onRevoke !== undefined;
   return (
-    <article className="min-w-0 rounded-lg border p-3">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="min-w-0 break-words font-medium">{identity.displayName}</h3>
-        <StatusBadge status={identity.status.toLowerCase()} />
-      </div>
-      <div className="mt-2 break-all font-mono text-xs text-muted-foreground">
-        {identity.nodeId}
-      </div>
-      <dl className="mt-2 grid gap-1 text-sm">
-        {identity.status === 'Active' ? (
-          <>
-            <div>
-              Last poll: {identity.lastPollAt ? formatTime(identity.lastPollAt) : 'Unavailable'}
-            </div>
-            <div>
-              Last result:{' '}
-              {identity.lastResultAt ? formatTime(identity.lastResultAt) : 'Unavailable'}
-            </div>
-          </>
-        ) : (
-          <div>
-            {identity.revokedAt
-              ? `Revoked ${formatTime(identity.revokedAt)}`
-              : 'Revocation time unavailable'}
-          </div>
-        )}
-        <div>Capability: v{identity.capabilityVersion}</div>
-      </dl>
-      {canRevoke ? (
-        <div className="mt-3">
+    <OperationalRow
+      title={identity.displayName}
+      description={
+        identity.status === 'Active'
+          ? `Last poll ${identity.lastPollAt ? formatTime(identity.lastPollAt) : 'unavailable'} · Last result ${
+              identity.lastResultAt ? formatTime(identity.lastResultAt) : 'unavailable'
+            }`
+          : identity.revokedAt
+            ? `Revoked ${formatTime(identity.revokedAt)}`
+            : 'Revocation time unavailable'
+      }
+      status={<StatusBadge status={identity.status.toLowerCase()} />}
+      actions={
+        canRevoke ? (
           <ConfirmActionDialog
             trigger={
               <Button type="button" variant="outline" size="sm" disabled={revoking}>
@@ -714,9 +791,19 @@ export function SupportIdentityCard({
             }
             onConfirm={() => onRevoke(identity.nodeId)}
           />
+        ) : null
+      }
+    >
+      <details className="text-xs text-muted-foreground">
+        <summary className="min-h-6 w-fit cursor-pointer font-medium text-foreground">
+          Identity details
+        </summary>
+        <div className="mt-2 grid gap-2">
+          <CopyableId value={identity.nodeId} label={`${identity.displayName} node ID`} />
+          <span>Capability version {identity.capabilityVersion}</span>
         </div>
-      ) : null}
-    </article>
+      </details>
+    </OperationalRow>
   );
 }
 
@@ -725,72 +812,124 @@ export interface SupportSessionCardProps {
 }
 
 export function SupportSessionCard({ session }: SupportSessionCardProps) {
-  const active = ['Queued', 'Dispatched'].includes(session.status);
-  const tone =
-    session.status === 'Completed'
-      ? 'positive'
-      : session.status === 'Queued' || session.status === 'Dispatched'
-        ? 'caution'
-        : session.status === 'Cancelled'
-          ? 'neutral'
-          : 'critical';
+  const active = isActiveSession(session);
   const rejectionExplanation = session.rejectionDisposition
     ? (rejectionGuidance[session.rejectionDisposition] ??
       'The support agent rejected this request before producing a verified report.')
     : null;
   return (
-    <article className="grid gap-2 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-medium">{session.diagnosticMode}</h3>
+    <DetailPanel
+      title={diagnosticModeLabel(session.diagnosticMode)}
+      description={`Requested ${formatTime(session.requestedAt)}`}
+      status={
         <span aria-live="polite">
-          <StatusBadge status={session.status} tone={tone} />
+          <StatusBadge status={session.status} tone={sessionTone(session)} />
         </span>
+      }
+    >
+      <div className="grid min-w-0 gap-4">
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <SessionFact label="Expires" value={formatTime(session.expiresAt)} />
+          <SessionFact
+            label="First dispatched"
+            value={session.dispatchedAt ? formatTime(session.dispatchedAt) : 'Not dispatched'}
+          />
+          <SessionFact label="Profile" value={session.profileId ?? 'All configured profiles'} />
+          <SessionFact label="Capability" value={session.capability} />
+        </dl>
+        <CopyableId value={session.sessionId} label="session ID" prefix="Session" />
+        {session.rejectionDisposition ? (
+          <StateBanner tone="critical">
+            <div className="grid gap-2">
+              <strong>{rejectionExplanation}</strong>
+              <span>
+                Technical disposition:{' '}
+                <code className="rounded bg-background/70 px-1 py-0.5 text-xs">
+                  {session.rejectionDisposition}
+                </code>
+              </span>
+            </div>
+          </StateBanner>
+        ) : null}
+        {active ? (
+          <StateBanner tone="caution" role="status" aria-live="polite">
+            Waiting for a terminal result. This session updates automatically.
+          </StateBanner>
+        ) : null}
+        {session.result ? (
+          <>
+            <section aria-labelledby="verified-report-heading" className="grid min-w-0 gap-2">
+              <h3 id="verified-report-heading" className="text-base font-semibold">
+                Verified report
+              </h3>
+              <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-sm">
+                {session.result.markdown}
+              </pre>
+            </section>
+            <details className="min-w-0 rounded-lg border bg-muted/20 p-3">
+              <summary className="min-h-6 cursor-pointer text-sm font-medium">
+                Structured report and attestation
+              </summary>
+              <div className="mt-3 grid min-w-0 gap-3">
+                <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">
+                  {JSON.stringify(session.result.report, null, 2)}
+                </pre>
+                <dl className="grid gap-2 text-xs text-muted-foreground">
+                  <SessionFact
+                    label="Signature algorithm"
+                    value={session.result.attestation.signatureAlgorithm}
+                  />
+                  <SessionFact label="Node signing key" value={session.nodeSigningKeyFingerprint} />
+                  <SessionFact label="Request digest" value={session.requestDigest} />
+                </dl>
+              </div>
+            </details>
+          </>
+        ) : !active && !session.rejectionDisposition ? (
+          <p className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+            Verified report unavailable for this terminal session.
+          </p>
+        ) : null}
       </div>
-      <div className="break-all font-mono text-xs text-muted-foreground">{session.sessionId}</div>
-      <div className="text-sm text-muted-foreground">
-        Requested {formatTime(session.requestedAt)} · expires {formatTime(session.expiresAt)}
-      </div>
-      {session.dispatchedAt ? (
-        <div className="text-sm text-muted-foreground">
-          First dispatched {formatTime(session.dispatchedAt)}
-        </div>
-      ) : null}
-      {session.rejectionDisposition ? (
-        <>
-          <p className="text-sm text-muted-foreground">{rejectionExplanation}</p>
-          <div className="text-sm text-muted-foreground">
-            Technical disposition:{' '}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              {session.rejectionDisposition}
-            </code>
-          </div>
-        </>
-      ) : null}
-      {session.result ? (
-        <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
-          {JSON.stringify(session.result.report, null, 2)}
-        </pre>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Verified report unavailable until completion.
-        </p>
-      )}
-      {active ? (
-        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-          Waiting for a terminal result. This session updates automatically.
-        </p>
-      ) : null}
-      {session.result ? (
-        <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
-          {session.result.markdown}
-        </pre>
-      ) : null}
-      {session.result ? (
-        <p className="break-all text-xs text-muted-foreground">
-          Attestation {session.result.attestation.signatureAlgorithm}:{' '}
-          {session.result.attestation.signatureBase64Url}
-        </p>
-      ) : null}
-    </article>
+    </DetailPanel>
   );
+}
+
+function SessionFact({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 break-words text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+function isActiveSession(session: SupportSession): boolean {
+  return session.status === 'Queued' || session.status === 'Dispatched';
+}
+
+function sessionTone(session: SupportSession): 'positive' | 'caution' | 'neutral' | 'critical' {
+  if (session.status === 'Completed') return 'positive';
+  if (isActiveSession(session)) return 'caution';
+  if (session.status === 'Cancelled') return 'neutral';
+  return 'critical';
+}
+
+function diagnosticModeLabel(mode: string): string {
+  return diagnosticModeOptions.find((candidate) => candidate.value === mode)?.label ?? mode;
+}
+
+function prioritizeSessions(
+  sessions: ReadonlyArray<SupportSession>,
+): ReadonlyArray<SupportSession> {
+  return [...sessions].sort((left, right) => {
+    const rankDifference = sessionStatusRank[left.status] - sessionStatusRank[right.status];
+    if (rankDifference !== 0) return rankDifference;
+    return Date.parse(right.requestedAt) - Date.parse(left.requestedAt);
+  });
+}
+
+function supportSessionId(pathname: string, supportBasePath: string): string | null {
+  const prefix = `${supportBasePath}/sessions/`;
+  return pathname.startsWith(prefix) ? pathname.slice(prefix.length).split('/')[0] || null : null;
 }
