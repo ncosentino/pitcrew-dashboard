@@ -377,7 +377,7 @@ try {
             'src/PitCrew.Support.Agent.App/SupportAgentRequestProcessor.cs', `
             'src/PitCrew.Support.Broker.App/SupportDiagnosticsBroker.cs', `
             'src/PitCrew.Dashboard.WebApi/ClientApp/src/features/support/SupportPage.tsx', `
-            'assets/support-plane/support-evidence-policy-v0.10.8.json', `
+            'assets/support-plane/support-evidence-policy-v0.10.10.json', `
             'scripts/Install-PitCrewSupportPlane.ps1', `
             'tests/Test-SupportPlaneInstaller.Structural.ps1', `
             '.github/workflows/ci.yml' `

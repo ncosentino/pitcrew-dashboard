@@ -154,7 +154,7 @@ foreach ($runtimeIdentifier in $RuntimeIdentifiers) {
                 $repositoryRoot `
                 'assets' `
                 'support-plane' `
-                'support-evidence-policy-v0.10.8.json'
+                'support-evidence-policy-v0.10.10.json'
         ) `
         -Destination $installerDirectory
     $manifest.Add((New-Archive `

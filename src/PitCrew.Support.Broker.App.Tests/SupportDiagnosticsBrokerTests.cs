@@ -450,12 +450,12 @@ public sealed class SupportDiagnosticsBrokerTests
         .ToArray();
 
     await Assert.That(policy.SchemaVersion).IsEqualTo(3);
-    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.8");
+    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.10");
     await Assert.That(policy.PitCrewCommit)
-        .IsEqualTo("a9fc5884b7e1aea6ef731c701401c46a51d0d3f5");
+        .IsEqualTo("85dc9abfa75d6c7f596279637c3b5736931b3575");
     await Assert.That(policy.CollectorSha256)
         .IsEqualTo(
-            "18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580");
+            "898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf");
     await Assert.That(policy.CollectorHashCanonicalization)
         .IsEqualTo("utf8-lf");
     await Assert.That(policy.ProfileStateRootAccess)

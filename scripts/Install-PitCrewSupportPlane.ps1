@@ -188,15 +188,15 @@ function Get-RuntimeIdentifier {
 }
 
 function Get-EvidencePolicyPath {
-    $packaged = Join-Path $PSScriptRoot 'support-evidence-policy-v0.10.8.json'
+    $packaged = Join-Path $PSScriptRoot 'support-evidence-policy-v0.10.10.json'
     if (Test-Path -LiteralPath $packaged -PathType Leaf) {
         return $packaged
     }
     $repositoryPolicy = Join-Path (
         Resolve-Path (Join-Path $PSScriptRoot '..')
-    ).Path 'assets' 'support-plane' 'support-evidence-policy-v0.10.8.json'
+    ).Path 'assets' 'support-plane' 'support-evidence-policy-v0.10.10.json'
     if (-not (Test-Path -LiteralPath $repositoryPolicy -PathType Leaf)) {
-        throw 'The product-owned PitCrew v0.10.8 evidence policy is missing.'
+        throw 'The product-owned PitCrew v0.10.10 evidence policy is missing.'
     }
     return $repositoryPolicy
 }
@@ -208,13 +208,13 @@ function Get-EvidencePolicy {
         -Encoding UTF8 |
         ConvertFrom-Json -Depth 10
     if ($policy.schemaVersion -ne 3 -or
-        $policy.pitCrewVersion -ne '0.10.8' -or
+        $policy.pitCrewVersion -ne '0.10.10' -or
         $policy.pitCrewCommit -ne
-            'a9fc5884b7e1aea6ef731c701401c46a51d0d3f5' -or
+            '85dc9abfa75d6c7f596279637c3b5736931b3575' -or
         $policy.collectorRelativePath -ne
             'plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1' -or
         $policy.collectorSha256 -ne
-            '18ed0cdb53e288f981bf5cc49cb404a5129b98ac14faaa5a6cbcab07b3591580' -or
+            '898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf' -or
         $policy.collectorHashCanonicalization -ne 'utf8-lf' -or
         $policy.profileStateRootAccess -ne
             'enumerate-profile-directories-only' -or
@@ -231,7 +231,7 @@ function Get-EvidencePolicy {
             'desired-capacity.json,acknowledged-capacity.json,static-profile.json,observed-state.json' -or
         (@($policy.connectorHealthFiles) -join ',') -ne
             'connector-health.json,connector-events.jsonl,connector-health-acknowledgement.json') {
-        throw 'The product-owned PitCrew v0.10.8 evidence policy is invalid.'
+        throw 'The product-owned PitCrew v0.10.10 evidence policy is invalid.'
     }
     return $policy
 }
@@ -712,7 +712,7 @@ function Assert-InstallInputs {
         if (-not (Test-Path `
                 -LiteralPath $sentinelPath `
                 -PathType Leaf)) {
-            throw 'PitCrewRoot does not match the supported v0.10.8 installation contract.'
+            throw 'PitCrewRoot does not match the supported v0.10.10 installation contract.'
         }
         if (Test-LinkedPathComponent -Root $PitCrewRoot -Path $sentinelPath) {
             throw 'Linked PitCrew installation evidence is not supported.'
@@ -729,11 +729,11 @@ function Assert-InstallInputs {
         '/',
         [IO.Path]::DirectorySeparatorChar)
     if (-not (Test-Path -LiteralPath $collector -PathType Leaf)) {
-        throw 'The fixed PitCrew v0.10.8 diagnostics collector is missing.'
+        throw 'The fixed PitCrew v0.10.10 diagnostics collector is missing.'
     }
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
-        throw 'The fixed PitCrew v0.10.8 diagnostics collector hash is invalid.'
+        throw 'The fixed PitCrew v0.10.10 diagnostics collector hash is invalid.'
     }
     if (Test-LinkedPathComponent -Root $PitCrewRoot -Path $collector) {
         throw 'Linked PitCrew installation evidence is not supported.'
@@ -5518,7 +5518,7 @@ function Assert-EvidenceFilesReadable {
         -Operation 'verify-collector-hash'
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
-        throw 'The fixed PitCrew v0.10.8 diagnostics collector hash is invalid.'
+        throw 'The fixed PitCrew v0.10.10 diagnostics collector hash is invalid.'
     }
     foreach ($profile in $profiles) {
         $profileRoot = Join-Path $stateRoot $profile
