@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { DetailPanel } from '@/core/ui/DetailPanel';
 import { FormField } from '@/core/ui/FormField';
+import { OperationalList, OperationalRow } from '@/core/ui/OperationalList';
+import { ReadinessSummary } from '@/core/ui/ReadinessSummary';
+import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { TaskNavigation } from '@/core/ui/TaskNavigation';
 
 import {
   createSupportEnrollment,
@@ -22,13 +26,37 @@ import {
   type SupportSession,
 } from './supportApi';
 
-const diagnosticModes = [
-  'ConnectorOffline',
-  'CapacityMismatch',
-  'JobNotAssigned',
-  'HostPressure',
-  'Full',
+const diagnosticModeOptions = [
+  {
+    value: 'ConnectorOffline',
+    label: 'Connector offline',
+    description: 'Collect support evidence when normal connector status is unavailable.',
+  },
+  {
+    value: 'CapacityMismatch',
+    label: 'Capacity mismatch',
+    description: 'Compare desired, acknowledged, and observed runner capacity.',
+  },
+  {
+    value: 'JobNotAssigned',
+    label: 'Job not assigned',
+    description: 'Collect bounded evidence for a job that is waiting for a runner.',
+  },
+  {
+    value: 'HostPressure',
+    label: 'Host pressure',
+    description: 'Inspect bounded host and worker resource evidence.',
+  },
+  {
+    value: 'Full',
+    label: 'Full diagnostic snapshot',
+    description: 'Collect every approved read-only support evidence category.',
+  },
 ] as const;
+type DiagnosticMode = (typeof diagnosticModeOptions)[number]['value'];
+
+type SupportSection = 'overview' | 'run' | 'sessions' | 'nodes';
+
 const sessionRefreshIntervalMilliseconds = 5_000;
 const maximumAutomaticallyRefreshedSessions = 16;
 
@@ -48,20 +76,61 @@ const rejectionGuidance: Partial<
 /** Tenant support-plane diagnostics workflow. */
 export default function SupportPage() {
   const { tenantId = '' } = useParams();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { session } = useSession();
   const [identities, setIdentities] = useState<readonly SupportIdentity[]>([]);
   const [sessions, setSessions] = useState<readonly SupportSession[]>([]);
   const [nodeId, setNodeId] = useState('');
-  const [mode, setMode] = useState<(typeof diagnosticModes)[number]>('ConnectorOffline');
+  const [mode, setMode] = useState<DiagnosticMode>('ConnectorOffline');
   const [profileId, setProfileId] = useState('');
   const [enrollment, setEnrollment] = useState<CreatedSupportEnrollment | null>(null);
   const [displayName, setDisplayName] = useState('Support node');
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [sessionRefreshError, setSessionRefreshError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [enrollmentBusy, setEnrollmentBusy] = useState(false);
+  const [showEnrollment, setShowEnrollment] = useState(false);
   const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
   const sessionRefreshController = useRef<AbortController | null>(null);
   const activeIdentities = identities.filter((identity) => identity.status === 'Active');
+  const activeSessions = sessions.filter((candidate) =>
+    ['Queued', 'Dispatched'].includes(candidate.status),
+  );
+  const attentionSessions = sessions.filter((candidate) =>
+    ['Rejected', 'Expired'].includes(candidate.status),
+  );
+  const latestPollAt = latestTimestamp(activeIdentities.map((identity) => identity.lastPollAt));
+  const latestResultAt = latestTimestamp(activeIdentities.map((identity) => identity.lastResultAt));
+  const supportBasePath = `/tenants/${tenantId}/support`;
+  const section = supportSection(pathname, supportBasePath);
+  const selectedMode =
+    diagnosticModeOptions.find((candidate) => candidate.value === mode) ?? diagnosticModeOptions[0];
+  const taskNavigationItems = [
+    {
+      label: 'Overview',
+      description: 'Readiness and current attention',
+      path: supportBasePath,
+    },
+    {
+      label: 'Run diagnostic',
+      description: 'Request bounded read-only evidence',
+      path: `${supportBasePath}/run`,
+    },
+    {
+      label: 'Sessions',
+      description: 'Follow active and recent requests',
+      path: `${supportBasePath}/sessions`,
+      badge: activeSessions.length > 0 ? String(activeSessions.length) : undefined,
+    },
+    {
+      label: 'Support nodes',
+      description: 'Enrollment and identity lifecycle',
+      path: `${supportBasePath}/nodes`,
+      badge: activeIdentities.length > 0 ? String(activeIdentities.length) : undefined,
+    },
+  ] as const;
   const activeSessionKey = sessions
     .filter((candidate) => ['Queued', 'Dispatched'].includes(candidate.status))
     .slice(0, maximumAutomaticallyRefreshedSessions)
@@ -76,6 +145,7 @@ export default function SupportPage() {
       ]);
       setIdentities(nextIdentities);
       setSessions(nextSessions);
+      setLoaded(true);
       const activeIdentities = nextIdentities.filter((identity) => identity.status === 'Active');
       setNodeId((current) =>
         activeIdentities.some((identity) => identity.nodeId === current)
@@ -91,6 +161,7 @@ export default function SupportPage() {
     const timer = window.setTimeout(() => {
       void load(controller.signal).catch((caught: unknown) => {
         if (caught instanceof Error && caught.name === 'AbortError') return;
+        setLoaded(true);
         setError(caught instanceof Error ? caught.message : 'Support status could not be loaded.');
       });
     }, 0);
@@ -144,9 +215,9 @@ export default function SupportPage() {
 
   const requestSession = async () => {
     if (!session) return;
-    setBusy(true);
+    setRequestBusy(true);
     try {
-      await createSupportSession(
+      const created = await createSupportSession(
         tenantId,
         nodeId,
         mode,
@@ -155,6 +226,7 @@ export default function SupportPage() {
       );
       await load();
       setError(null);
+      navigate(`${supportBasePath}/sessions/${created.sessionId}`);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -162,13 +234,13 @@ export default function SupportPage() {
           : 'Support diagnostic session could not be created.',
       );
     } finally {
-      setBusy(false);
+      setRequestBusy(false);
     }
   };
 
   const enroll = async () => {
     if (!session) return;
-    setBusy(true);
+    setEnrollmentBusy(true);
     try {
       setEnrollment(
         await createSupportEnrollment(tenantId, displayName.trim(), session.antiforgeryToken),
@@ -180,7 +252,7 @@ export default function SupportPage() {
         caught instanceof Error ? caught.message : 'Support identity could not be enrolled.',
       );
     } finally {
-      setBusy(false);
+      setEnrollmentBusy(false);
     }
   };
 
@@ -199,142 +271,325 @@ export default function SupportPage() {
   };
 
   return (
-    <section className="grid gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Support diagnostics</h1>
-        <p className="text-sm text-muted-foreground">
-          Request bounded read-only diagnostics through the independent support agent. This status
-          is separate from normal connector and runner health.
-        </p>
-      </div>
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      <Card>
-        <CardHeader>
-          <CardTitle as="h2">Support identities</CardTitle>
-          <CardDescription>
-            Active support nodes poll the opaque relay without sharing connector credentials.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <SupportIdentityInventory
-            identities={identities}
-            revokingNodeId={revokingNodeId}
-            onRevoke={revokeIdentity}
+    <section className="grid min-w-0 gap-5">
+      {error ? <StateBanner tone="critical">{error}</StateBanner> : null}
+      <ReadinessSummary
+        title="Support readiness"
+        description="Support diagnostics use an independent outbound identity and remain separate from connector and runner health."
+        status={
+          <StatusBadge
+            status={activeIdentities.length > 0 ? 'Available' : 'Enrollment required'}
+            tone={activeIdentities.length > 0 ? 'positive' : 'caution'}
           />
-          <fieldset className="grid gap-3 rounded-lg border p-3">
-            <legend className="px-2 text-sm font-medium">Create node enrollment</legend>
-            <p className="max-w-[70ch] text-sm text-muted-foreground">
-              The node generates its private keys locally. Create a one-time code, then provide it
-              to the support-agent enrollment configuration before it expires.
-            </p>
-            <FormField label="Display name" hint="Shown after the node completes enrollment.">
-              <input
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                maxLength={128}
-                required
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-              />
-            </FormField>
-            <Button
-              type="button"
-              disabled={busy || displayName.trim().length === 0}
-              onClick={() => void enroll()}
-            >
-              Create one-time code
-            </Button>
-          </fieldset>
-          {enrollment ? (
-            <div
-              role="status"
-              className="grid gap-2 rounded-lg border border-status-caution-foreground/30 bg-status-caution p-4 text-status-caution-foreground"
-            >
-              <strong>Copy this one-time code now</strong>
-              <p className="text-sm">
-                It expires {formatTime(enrollment.enrollmentExpiresAt)} and can enroll only one node
-                in this tenant.
-              </p>
-              <span className="text-xs font-medium">One-time enrollment code</span>
-              <code className="block overflow-x-auto break-all rounded bg-background p-3 text-xs text-foreground">
-                {enrollment.enrollmentCode}
-              </code>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle as="h2">Request diagnostic session</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          {activeIdentities.length > 0 ? (
-            <FormField label="Support node">
-              <select
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                value={nodeId}
-                onChange={(event) => setNodeId(event.target.value)}
-              >
-                {activeIdentities.map((identity) => (
-                  <option key={identity.nodeId} value={identity.nodeId}>
-                    {identity.displayName}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No active support nodes are available. Complete a new node enrollment before
-              requesting diagnostics.
-            </p>
-          )}
-          <FormField label="Diagnostic mode">
-            <select
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as typeof mode)}
-            >
-              {diagnosticModes.map((candidate) => (
-                <option key={candidate}>{candidate}</option>
-              ))}
-            </select>
-          </FormField>
-          <FormField label="Profile ID" hint="Optional locally configured profile.">
-            <input
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={profileId}
-              onChange={(event) => setProfileId(event.target.value)}
+        }
+        items={[
+          {
+            label: 'Active support nodes',
+            value: loaded ? activeIdentities.length : 'Loading…',
+            detail: !loaded
+              ? 'Checking support identity state'
+              : activeIdentities.length > 0
+                ? 'Eligible for new diagnostic sessions'
+                : 'No node can receive a request',
+          },
+          {
+            label: 'Latest relay poll',
+            value: !loaded ? 'Loading…' : latestPollAt ? formatTime(latestPollAt) : 'Unavailable',
+            detail: 'Reported by active support identities',
+          },
+          {
+            label: 'Active sessions',
+            value: loaded ? activeSessions.length : 'Loading…',
+            detail: 'Queued or dispatched',
+          },
+          {
+            label: 'Needs attention',
+            value: loaded ? attentionSessions.length : 'Loading…',
+            detail: 'Rejected or expired sessions',
+          },
+        ]}
+      />
+
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+        <TaskNavigation label="Support tasks" items={taskNavigationItems} />
+        <div className="min-w-0">
+          {section === 'overview' ? (
+            <SupportOverview
+              activeIdentities={activeIdentities}
+              activeSessions={activeSessions}
+              attentionSessions={attentionSessions}
+              latestResultAt={latestResultAt}
+              supportBasePath={supportBasePath}
             />
-          </FormField>
-          <Button type="button" disabled={busy || !nodeId} onClick={() => void requestSession()}>
-            Request read-only diagnostics
-          </Button>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle as="h2">Recent sessions</CardTitle>
-          <CardDescription>
-            Queued and dispatched sessions update automatically every five seconds and can run for
-            up to 15 minutes. You can leave this page and return later.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          {sessionRefreshError ? (
-            <p role="alert" className="text-sm text-destructive">
-              Automatic session refresh failed: {sessionRefreshError}
-            </p>
           ) : null}
-          {sessions.map((supportSession) => (
-            <SupportSessionCard key={supportSession.sessionId} session={supportSession} />
-          ))}
-        </CardContent>
-      </Card>
+          {section === 'run' ? (
+            <DetailPanel
+              title="Run a diagnostic"
+              description="Choose the problem to investigate, then select the support node that should collect the approved read-only evidence."
+            >
+              <div className="grid gap-5">
+                {activeIdentities.length === 0 ? (
+                  <StateBanner tone="caution">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span>Enroll an active support node before requesting diagnostics.</span>
+                      <Button asChild type="button" variant="outline" size="sm">
+                        <Link to={`${supportBasePath}/nodes`}>Manage support nodes</Link>
+                      </Button>
+                    </div>
+                  </StateBanner>
+                ) : null}
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <FormField label="Problem to investigate" hint={selectedMode.description}>
+                    <select
+                      className="h-11 rounded-md border bg-background px-3 text-sm"
+                      value={mode}
+                      onChange={(event) => setMode(event.target.value as DiagnosticMode)}
+                    >
+                      {diagnosticModeOptions.map((candidate) => (
+                        <option key={candidate.value} value={candidate.value}>
+                          {candidate.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Support node">
+                    <select
+                      className="h-11 rounded-md border bg-background px-3 text-sm"
+                      disabled={!loaded || activeIdentities.length === 0}
+                      value={nodeId}
+                      onChange={(event) => setNodeId(event.target.value)}
+                    >
+                      {!loaded || activeIdentities.length === 0 ? (
+                        <option value="">
+                          {loaded ? 'No active support nodes' : 'Loading support nodes…'}
+                        </option>
+                      ) : null}
+                      {activeIdentities.map((identity) => (
+                        <option key={identity.nodeId} value={identity.nodeId}>
+                          {identity.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+                <FormField
+                  label="Profile ID"
+                  hint="Optional. Use only when the diagnostic should target one locally configured profile."
+                >
+                  <input
+                    className="h-11 rounded-md border bg-background px-3 text-sm"
+                    value={profileId}
+                    onChange={(event) => setProfileId(event.target.value)}
+                  />
+                </FormField>
+                <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    disabled={requestBusy || !nodeId}
+                    onClick={() => void requestSession()}
+                  >
+                    {requestBusy ? 'Requesting…' : 'Request read-only diagnostics'}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Sessions expire after 15 minutes and update automatically.
+                  </p>
+                </div>
+              </div>
+            </DetailPanel>
+          ) : null}
+          {section === 'sessions' ? (
+            <DetailPanel
+              title="Support sessions"
+              description="Queued and dispatched sessions update every five seconds. You can leave this page and return later."
+            >
+              <div className="grid gap-3">
+                {sessionRefreshError ? (
+                  <StateBanner tone="critical">
+                    Automatic session refresh failed: {sessionRefreshError}
+                  </StateBanner>
+                ) : null}
+                {sessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No support sessions have been requested for this tenant.
+                  </p>
+                ) : (
+                  sessions.map((supportSession) => (
+                    <SupportSessionCard key={supportSession.sessionId} session={supportSession} />
+                  ))
+                )}
+              </div>
+            </DetailPanel>
+          ) : null}
+          {section === 'nodes' ? (
+            <DetailPanel
+              title="Support nodes"
+              description="Support identities are independent from normal connector credentials and runner registration."
+              actions={
+                <Button
+                  type="button"
+                  variant={showEnrollment ? 'outline' : 'default'}
+                  onClick={() => setShowEnrollment((current) => !current)}
+                >
+                  {showEnrollment ? 'Close enrollment' : 'Enroll support node'}
+                </Button>
+              }
+            >
+              <div className="grid gap-4">
+                <SupportIdentityInventory
+                  identities={identities}
+                  revokingNodeId={revokingNodeId}
+                  onRevoke={revokeIdentity}
+                />
+                {showEnrollment ? (
+                  <fieldset className="grid gap-4 rounded-lg border bg-muted/20 p-4">
+                    <legend className="px-2 text-sm font-medium">Create node enrollment</legend>
+                    <p className="max-w-[70ch] text-sm text-muted-foreground">
+                      The node generates its private keys locally. Create a one-time code, then
+                      provide it to the support-agent enrollment configuration before it expires.
+                    </p>
+                    <FormField
+                      label="Display name"
+                      hint="Shown after the node completes enrollment."
+                    >
+                      <input
+                        className="h-11 rounded-md border bg-background px-3 text-sm"
+                        maxLength={128}
+                        required
+                        value={displayName}
+                        onChange={(event) => setDisplayName(event.target.value)}
+                      />
+                    </FormField>
+                    <div>
+                      <Button
+                        type="button"
+                        disabled={enrollmentBusy || displayName.trim().length === 0}
+                        onClick={() => void enroll()}
+                      >
+                        {enrollmentBusy ? 'Creating code…' : 'Create one-time code'}
+                      </Button>
+                    </div>
+                  </fieldset>
+                ) : null}
+                {enrollment ? (
+                  <StateBanner tone="caution">
+                    <div className="grid gap-2">
+                      <strong>Copy this one-time code now</strong>
+                      <p>
+                        It expires {formatTime(enrollment.enrollmentExpiresAt)} and can enroll only
+                        one node in this tenant.
+                      </p>
+                      <span className="text-xs font-medium">One-time enrollment code</span>
+                      <code className="block overflow-x-auto break-all rounded bg-background p-3 text-xs text-foreground">
+                        {enrollment.enrollmentCode}
+                      </code>
+                    </div>
+                  </StateBanner>
+                ) : null}
+              </div>
+            </DetailPanel>
+          ) : null}
+        </div>
+      </div>
     </section>
   );
+}
+
+interface SupportOverviewProps {
+  readonly activeIdentities: ReadonlyArray<SupportIdentity>;
+  readonly activeSessions: ReadonlyArray<SupportSession>;
+  readonly attentionSessions: ReadonlyArray<SupportSession>;
+  readonly latestResultAt: string | null;
+  readonly supportBasePath: string;
+}
+
+function SupportOverview({
+  activeIdentities,
+  activeSessions,
+  attentionSessions,
+  latestResultAt,
+  supportBasePath,
+}: SupportOverviewProps) {
+  return (
+    <DetailPanel
+      title="Support workspace"
+      description="Start with the current exception, follow live requests, and keep identity administration separate from routine diagnostics."
+    >
+      <OperationalList label="Support workflow">
+        <OperationalRow
+          title="Run a diagnostic"
+          description={
+            activeIdentities.length > 0
+              ? `${activeIdentities.length} active support ${activeIdentities.length === 1 ? 'node is' : 'nodes are'} available.`
+              : 'Enrollment is required before a node can receive diagnostics.'
+          }
+          status={
+            <StatusBadge
+              status={activeIdentities.length > 0 ? 'Ready' : 'Blocked'}
+              tone={activeIdentities.length > 0 ? 'positive' : 'caution'}
+            />
+          }
+          actions={
+            <Button asChild type="button">
+              <Link to={`${supportBasePath}/run`}>
+                {activeIdentities.length > 0 ? 'Start diagnostic' : 'View requirements'}
+              </Link>
+            </Button>
+          }
+        />
+        <OperationalRow
+          title="Follow support sessions"
+          description={
+            activeSessions.length > 0
+              ? `${activeSessions.length} session ${activeSessions.length === 1 ? 'is' : 'are'} still running.`
+              : attentionSessions.length > 0
+                ? `${attentionSessions.length} recent session ${attentionSessions.length === 1 ? 'requires' : 'require'} attention.`
+                : latestResultAt
+                  ? `Latest verified result ${formatTime(latestResultAt)}.`
+                  : 'No verified result is available yet.'
+          }
+          status={
+            activeSessions.length > 0 ? (
+              <StatusBadge status="Active" tone="caution" />
+            ) : attentionSessions.length > 0 ? (
+              <StatusBadge status="Needs attention" tone="critical" />
+            ) : (
+              <StatusBadge status="No active session" tone="neutral" />
+            )
+          }
+          actions={
+            <Button asChild type="button" variant="outline">
+              <Link to={`${supportBasePath}/sessions`}>View sessions</Link>
+            </Button>
+          }
+        />
+        <OperationalRow
+          title="Manage support nodes"
+          description="Enroll a new support identity, review node evidence, or revoke access."
+          actions={
+            <Button asChild type="button" variant="outline">
+              <Link to={`${supportBasePath}/nodes`}>Manage nodes</Link>
+            </Button>
+          }
+        />
+      </OperationalList>
+    </DetailPanel>
+  );
+}
+
+function supportSection(pathname: string, supportBasePath: string): SupportSection {
+  const suffix = pathname.slice(supportBasePath.length).replace(/^\/+|\/+$/g, '');
+  if (suffix === 'run') return 'run';
+  if (suffix === 'nodes') return 'nodes';
+  if (suffix === 'sessions' || suffix.startsWith('sessions/')) return 'sessions';
+  return 'overview';
+}
+
+function latestTimestamp(values: ReadonlyArray<string | null>): string | null {
+  return values.reduce<string | null>((latest, candidate) => {
+    if (candidate === null) return latest;
+    if (latest === null) return candidate;
+    return Date.parse(candidate) > Date.parse(latest) ? candidate : latest;
+  }, null);
 }
 
 export interface SupportIdentityInventoryProps {
