@@ -177,6 +177,7 @@ Pit Navy, Signal Orange, and Instrument Teal preserve the established mascot and
 The interface uses one workhorse system UI family, compact controls, explicit status language, and data typography that separates human-readable identity from machine evidence. Operational surfaces lead with material exceptions and focused evidence, then expose inventory and dense tables inside deliberate containment.
 
 **Key Characteristics:**
+
 - Precise, calm, exception-first hierarchy.
 - Compact controls with a breathable 4px-based spacing rhythm.
 - Restrained navy, orange, and teal identity separated from semantic status roles.
@@ -189,20 +190,24 @@ The interface uses one workhorse system UI family, compact controls, explicit st
 The palette behaves like an instrument panel: navy establishes authority, orange marks the brand signal, teal carries instrumentation, and semantic colors communicate operational state.
 
 ### Primary
+
 - **Pit Navy** (`colors.pit-navy`): shell identity, high-emphasis foreground, and the accessible light-theme primary action surface.
 - **Signal Orange** (`colors.signal-orange`): mascot and logo detail, chart emphasis, and large accent moments; it is not a normal-text or default action color.
 
 ### Secondary
+
 - **Instrument Teal** (`colors.instrument-teal`): focus identity, chart series, and brand instrumentation.
 - **Instrument Ink** (`colors.instrument-ink`): the darker light-theme teal role for normal text on pale instrument surfaces.
 - **Bright Instrument Teal** (`colors.instrument-teal-bright`): dark-theme focus rings and chart lines.
 
 ### Tertiary
+
 - **Positive** (`colors.positive-soft`, `colors.positive-ink`): healthy, current, connected, running, and resolved evidence.
 - **Caution** (`colors.caution-soft`, `colors.caution-ink`): partial, pending, stale, draining, and acknowledged evidence.
 - **Critical** (`colors.critical-soft`, `colors.critical-ink`, `colors.critical-action`): failed, unavailable, blocked, revoked, and destructive actions.
 
 ### Neutral
+
 - **Cool Canvas** (`colors.cool-canvas`): the light operating canvas.
 - **White Surface** (`colors.white-surface`): raised cards and popovers in the light theme.
 - **Mist Surface** (`colors.mist-surface`): secondary and muted control surfaces.
@@ -231,6 +236,7 @@ The global canvas may carry only the existing low-opacity teal and orange corner
 **Character:** The typography is direct, familiar, and compact. A single workhorse family keeps Operate mode fast and coherent; weight, spacing, case, and numeric alignment create hierarchy without a decorative display face.
 
 ### Hierarchy
+
 - **Display** (700, 1.875rem/2.25rem, -0.025em): the single visible page title.
 - **Headline** (700, 1.5rem/2rem, -0.025em): a major route-local section when it does not repeat the page title.
 - **Title** (600, 1.25rem/1.75rem): focused subsection headings.
@@ -250,7 +256,7 @@ Use tabular numerals for capacity, counts, resource values, and sortable numeric
 
 ## Layout
 
-The authenticated shell becomes a two-column frame at the medium breakpoint (48rem): a fixed 17rem navigation rail and a minmax content column. Below that breakpoint, identity remains in a 4rem mobile header and navigation moves into a bounded left sheet.
+The authenticated shell becomes a two-column frame at the medium breakpoint (48rem): a 17rem expanded navigation rail or remembered 10rem compact rail beside a minmax content column. Compact mode keeps full labels, active state, and attention evidence. Below that breakpoint, identity remains in a 4rem mobile header and navigation moves into a bounded left sheet.
 
 Main content is centered to a maximum width of 80rem. It uses 1rem horizontal padding and 1.5rem vertical padding on narrow screens, increasing to 2rem at 40rem and above. The 4px base scale produces the recurring rhythm: 0.5rem inside tight groups, 0.75rem between related controls, 1rem between operational blocks, 1.5rem between major sections, and 2rem for the roomiest page spacing.
 
@@ -267,6 +273,7 @@ Controls are generally 2.25rem high. Filters and evidence summaries use responsi
 Depth is tonal first and structural second. Canvas, card, muted, and instrument surfaces establish layers; a one-pixel cool border defines most boundaries. Soft shadows are present only for controls, genuinely raised evidence containers, navigation sheets, dialogs, and interruptive surfaces.
 
 ### Shadow Vocabulary
+
 - **Control Lift** (`0 1px 2px 0 rgb(0 0 0 / 0.05)`): compact buttons and outlined controls.
 - **Raised Surface** (`0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)`): cards or evidence panels that must sit above the canvas.
 - **Interruptive Surface** (`0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)`): sheets and confirmation dialogs above a 50% black overlay.
@@ -282,6 +289,7 @@ The form language is gently compact rather than pill-heavy: controls use a 0.5re
 ## Components
 
 ### Buttons
+
 - **Shape:** compact rounded rectangle (0.5rem) at 2rem, 2.25rem, or 2.5rem high for small, default, and large sizes.
 - **Primary:** Pit Navy with white text in the established accessible light pairing; default padding is 0.5rem by 1rem.
 - **Secondary / Outline / Ghost / Link:** Mist Surface or Cool Canvas with Pit Navy, Instrument Surface on hover, and underlining only for the link variant.
@@ -291,6 +299,7 @@ The form language is gently compact rather than pill-heavy: controls use a 0.5re
 Do not inherit the current Signal Orange and white normal-text pairing into the authority. Dark-theme actions need an accessible semantic pairing grounded in the existing deep instrument and console text roles.
 
 ### Cards / Containers
+
 - **Corner Style:** gently raised (0.875rem) for the reusable card; compact operational panels commonly use 0.625rem.
 - **Background:** White Surface in light mode and Deep Console in dark mode.
 - **Border:** one-pixel Cool Line or the dark translucent border role.
@@ -300,12 +309,14 @@ Do not inherit the current Signal Orange and white normal-text pairing into the 
 Cards group one coherent task or evidence set. They are not the default page layout and must not create equal visual weight for unequal operational priorities.
 
 ### Inputs / Fields
+
 - **Style:** 2.25rem high, 0.5rem radius, one-pixel border, canvas background, and 0.75rem horizontal padding.
 - **Labels:** visible text labels are required; placeholders provide examples or format hints only.
 - **Focus:** the Instrument Teal ring is visible without changing layout.
 - **Error / Disabled:** error text and border use the critical family; disabled controls retain readable labels and explain blocked action where needed.
 
 ### Status Badges
+
 - **Style:** fully rounded, 0.25rem by 0.5rem internal padding, 0.75rem semibold type, and sentence-readable state text.
 - **State:** positive, caution, critical, and neutral roles map many domain states into a small consistent vocabulary.
 - **Evidence:** status color never stands alone; nearby copy distinguishes current, stale, retained, unavailable, missing, inferred, and measured zero.
@@ -313,6 +324,7 @@ Cards group one coherent task or evidence set. They are not the default page lay
 **The Evidence Has a State Rule.** Never render missing evidence as zero or let color imply certainty that the text does not state.
 
 ### Navigation
+
 - **Primary:** 0.875rem medium labels, 0.75rem by 0.5rem padding, 0.5rem corners, and a pale Instrument Surface for hover and active state.
 - **Secondary:** a 2.75rem-high horizontal route strip with a two-pixel active underline and 1.5rem item gaps.
 - **Mobile:** the same authorized destinations move into a left sheet; identity and tenant context remain stable.
@@ -320,6 +332,7 @@ Cards group one coherent task or evidence set. They are not the default page lay
 Navigation remains familiar and low-motion. Horizontal overflow is contained and must not expose an unstyled browser scrollbar as part of the visual language.
 
 ### Dialogs / Sheets
+
 - **Dialog:** centered, bounded to 32rem, 1.5rem padded, 0.625rem corners, one-pixel border, and Interruptive Surface shadow.
 - **Sheet:** edge-attached, bordered, and shadowed above the same 50% black overlay.
 - **Motion:** 150-200ms fades, zooms, or directional slides clarify layer changes; reduced motion preserves the state change without spatial travel.
@@ -328,6 +341,7 @@ Navigation remains familiar and low-motion. Horizontal overflow is contained and
 **The Confirm Consequence Rule.** Credential rotation, revocation, and other consequential mutations require an explicit confirmation surface before execution.
 
 ### Tables / Charts
+
 - **Tables:** 0.875rem body text, 0.75rem muted uppercase headers, 0.75rem to 1rem cell padding, tabular numeric columns, and monospaced identifiers.
 - **Containment:** wide tables scroll inside rounded bordered regions; sticky headers remain tonal rather than floating.
 - **Charts:** two-pixel series lines use the semantic chart roles derived from Pit Navy, Signal Orange, Instrument Teal, and accessible supporting series; unavailable observations break the line, and an equivalent data table remains available.
@@ -340,6 +354,7 @@ Preserve the mascot, logo, favicon, and PitCrew wordmark treatment. Pit Navy, Si
 ## Do's and Don'ts
 
 ### Do:
+
 - **Do** lead every operational route with one human-readable title, material exceptions, and the freshest trustworthy evidence.
 - **Do** preserve the mascot and navy/orange/teal identity while separating artwork colors from semantic text and action roles.
 - **Do** state whether evidence is current, stale, retained, unavailable, missing, inferred, or measured zero.
@@ -351,11 +366,13 @@ Preserve the mascot, logo, favicon, and PitCrew wordmark treatment. Pit Navy, Si
 - **Do** confirm consequential credential and enrollment actions before execution.
 
 ### Don't:
+
 - **Don't** build generic equal-weight card grids, raw-data walls, neon operations theater, or decorative glass and blur.
 - **Don't** use brand color alone to communicate health, severity, certainty, or action safety.
 - **Don't** use hard offset shadows, ornamental motion, or novelty controls outside the familiar Operate vocabulary.
 
 ### Non-canonical drift — prohibited inheritance:
+
 - **Don't** inherit small Instrument Teal text below AA contrast on light surfaces.
 - **Don't** inherit white normal text on Signal Orange or Signal Orange normal text on dark cards when either pairing is below AA.
 - **Don't** use raw UUIDs as page titles or repeat the shell H1 as a duplicate H2.

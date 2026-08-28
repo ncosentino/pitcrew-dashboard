@@ -10,7 +10,11 @@ export const supportManifest: FeatureManifest = {
   navigation: [
     {
       label: 'Support',
+      description: 'Read-only diagnostics and support sessions',
       path: '/tenants/:tenantId/support',
+      group: 'operate',
+      order: 20,
+      icon: 'support',
       minimumTenantRole: 'administrator',
       activePathPatterns: ['/tenants/:tenantId/support/*'],
     },
