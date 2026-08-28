@@ -2,7 +2,7 @@
 version: 1
 slug: "clientapp-src-features-settings-settingspages-tsx"
 primary_target: "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/SettingsPages.tsx"
-related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/TenantSettings.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/TenantAdministration.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/DiagnosticCredentials.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/OneTimeValue.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/SettingsTask.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/manifest.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/core/ui/TaskNavigation.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/core/ui/TaskWorkspace.tsx"]
+related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/TenantSettings.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/TenantAdministration.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/DiagnosticCredentials.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/OneTimeValue.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/SettingsTask.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/settings/manifest.tsx"]
 ---
 
 ## Scope and mode

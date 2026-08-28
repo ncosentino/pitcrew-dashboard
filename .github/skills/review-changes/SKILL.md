@@ -134,8 +134,9 @@ Open with:
 When any file under `src/PitCrew.Dashboard.WebApi/ClientApp/src/` is changed:
 
 - **Affected routes and states:** list every route and named state the change touches.
-- **Browser results:** reference the latest `Browser UX` CI run or local
-  `npm run test:browser` output. State which routes/viewports passed.
+- **Browser results:** reference the latest successful `Browser UX` evidence for the
+  reviewed head. State which routes/viewports passed and disclose any code-equivalent
+  rather than exact-head evidence.
 - **Keyboard and zoom disclosure:** confirm keyboard walkthrough of affected routes,
   or disclose which flows were not keyboard-tested and which viewports were not
   zoom-verified.
@@ -143,7 +144,7 @@ When any file under `src/PitCrew.Dashboard.WebApi/ClientApp/src/` is changed:
   RTL containment, or disclose which cases were not exercised.
 - **Finish-reviewer output:** when the change is a substantial UI surface or polish
   pass, include or reference the Impeccable finish-reviewer verdict.
-- **Generated mirrors:** confirm `.claude/rules/generated/` mirrors match current
+- **Generated mirrors:** confirm `.claude/rules/` mirrors match current
   instructions via the copilot-to-claude-compiler, or flag drift.
 
 Group introduced findings by severity:

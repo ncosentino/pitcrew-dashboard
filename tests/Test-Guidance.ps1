@@ -9,6 +9,8 @@ $validator = Join-Path $root 'scripts' 'guidance' 'Test-GuidanceContract.ps1'
 $inventoryScript = Join-Path $root 'scripts' 'guidance' 'Get-ValidationInventory.ps1'
 $resolver = Join-Path $root 'scripts' 'guidance' 'Get-ApplicableInstructions.ps1'
 $scopeResolver = Join-Path $root 'scripts' 'guidance' 'Resolve-ValidationScope.ps1'
+$surfaceBriefValidator = Join-Path $root 'scripts' 'guidance' 'check-surface-briefs.mjs'
+$surfaceBriefValidatorTests = Join-Path $root 'scripts' 'guidance' 'check-surface-briefs.test.mjs'
 $errors = [System.Collections.Generic.List[string]]::new()
 $checks = 0
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) (
@@ -300,7 +302,6 @@ try {
     $productPath = Join-Path $root 'PRODUCT.md'
     $designPath = Join-Path $root 'DESIGN.md'
     $designSidecarPath = Join-Path $root '.impeccable' 'design.json'
-    $surfaceBriefRoot = Join-Path $root '.impeccable' 'surfaces'
     Add-Check (Test-Path -LiteralPath $productPath -PathType Leaf) (
         'PRODUCT.md is missing.')
     Add-Check (Test-Path -LiteralPath $designPath -PathType Leaf) (
@@ -336,20 +337,16 @@ try {
             'The Impeccable design-system sidecar does not use schema version 2.')
     }
 
-    $surfaceBriefs = @(
-        Get-ChildItem -LiteralPath $surfaceBriefRoot -Filter '*.md' -File
+    $surfaceBriefTestOutput = @(
+        & node --test $surfaceBriefValidatorTests 2>&1
     )
-    Add-Check ($surfaceBriefs.Count -eq 7) (
-        'The expected seven Impeccable surface briefs are not present.')
-    Add-Check (
-        @(
-            $surfaceBriefs |
-                Where-Object {
-                    (Get-Content -LiteralPath $_.FullName -Raw) -notmatch
-                        '(?m)^primary_target:\s*"src/'
-                }
-        ).Count -eq 0
-    ) 'One or more Impeccable surface briefs lack a source target.'
+    Add-Check ($LASTEXITCODE -eq 0) (
+        "Surface-brief validator tests failed:`n$($surfaceBriefTestOutput -join "`n")")
+    $surfaceBriefOutput = @(
+        & node $surfaceBriefValidator --root $root 2>&1
+    )
+    Add-Check ($LASTEXITCODE -eq 0) (
+        "Surface-brief validation failed:`n$($surfaceBriefOutput -join "`n")")
 
     $inventory = & $inventoryScript -ProjectRoot $root
     Add-Check (
@@ -648,16 +645,20 @@ try {
     $reviewContent = Get-Content -LiteralPath $reviewSkill -Raw
     Add-Check ($reviewContent -match 'Affected routes and states') (
         'review-changes does not require affected-route/state evidence.')
-    Add-Check ($reviewContent -match 'Browser results') (
-        'review-changes does not require browser results reference.')
+    Add-Check (
+        $reviewContent -match 'Browser results' -and
+        $reviewContent -match 'reviewed head'
+    ) 'review-changes does not require exact-head browser results reference.'
     Add-Check ($reviewContent -match 'Keyboard and zoom disclosure') (
         'review-changes does not require keyboard/zoom disclosure.')
     Add-Check ($reviewContent -match 'Localization disclosure') (
         'review-changes does not require localization disclosure.')
     Add-Check ($reviewContent -match 'Finish-reviewer output') (
         'review-changes does not require finish-reviewer output.')
-    Add-Check ($reviewContent -match 'Generated mirrors') (
-        'review-changes does not require generated mirror evidence.')
+    Add-Check (
+        $reviewContent -match 'Generated mirrors' -and
+        $reviewContent -match '\.claude/rules/'
+    ) 'review-changes does not require the repository generated-mirror root.'
 
     # --- Issue #91: delivery contract includes Browser UX ---
     $deliveryPath = Join-Path $root '.github' 'genesis-delivery.json'

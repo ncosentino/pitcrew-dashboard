@@ -1,6 +1,7 @@
 ---
 version: 1
-slug: "api-clientapp-src-features-images-imageworkspace-tsx"
+status: "planned"
+slug: "i-clientapp-src-features-images-imageworkspace-tsx"
 primary_target: "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageWorkspace.tsx"
 related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageCandidatesPage.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageCandidateDetail.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageRecipesPage.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageCampaignsPage.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageCampaignDetail.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/manifest.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileImageRollout.tsx"]
 ---

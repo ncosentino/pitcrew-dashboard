@@ -95,6 +95,23 @@ available when cross-item comparison is genuinely primary, but constrained layou
 use compact rows and explicit drill-in instead of shrinking or stacking the complete
 desktop evidence.
 
+## Migration completion
+
+A migrated route is not complete when the JSX merely looks improved. Delivery includes:
+
+- updating its focused surface brief from the shipped hierarchy, states, responsive
+  behavior, and anti-goals;
+- extending sanitized Browser UX fixtures for every materially new state and
+  interaction, including keyboard focus, zoom, long content, localization, and
+  unavailable evidence;
+- classifying detector output and obtaining a bounded finish-review verdict;
+- running `review-changes` against the exact head and recording affected routes,
+  Browser UX evidence, missing manual evidence, and generated-mirror status.
+
+Promote a rule into project-wide instructions only after multiple shipped surfaces
+demonstrate it. Keep one-surface composition in that surface brief and rationale in
+maintained documentation.
+
 ## Primary references
 
 - [WCAG 2.2 target size minimum](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)
