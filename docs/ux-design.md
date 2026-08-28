@@ -82,6 +82,10 @@ incrementally where it matches the task: settings administration, incident
 investigation, profile detail, and future image-candidate workflows. Do not force the
 workspace topology onto simple pages with one task or small static content.
 
+The [runner image workspace contract](ui/runner-image-workspaces.md) owns the
+candidate, single-profile rollout, and fleet campaign application of this pattern
+without authorizing capabilities their implementation issues have not delivered.
+
 For nested entity investigation, keep entity readiness outside the selected task so
 freshness and material exceptions remain visible while the operator moves between
 subroutes. A child collection that operators scan independently belongs on its own

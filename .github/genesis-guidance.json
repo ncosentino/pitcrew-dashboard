@@ -278,6 +278,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/ui/runner-image-workspaces.md",
+        "title": "Runner image workspace contract",
+        "section": "UX and design",
+        "order": 515,
+        "owner": "repository"
+      },
+      {
         "path": "docs/development/request-validation-and-jobs.md",
         "title": "Request validation and job scheduling",
         "section": "Development",
