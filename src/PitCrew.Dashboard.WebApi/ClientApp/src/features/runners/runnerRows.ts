@@ -52,8 +52,7 @@ export function runnerNeedsReview(row: FleetSlot): boolean {
     row.slot.activity === 'starting' ||
     row.slot.activity === 'draining' ||
     row.slot.activity == null ||
-    row.slot.activity === 'unknown' ||
-    row.slot.currentJob === undefined
+    row.slot.activity === 'unknown'
   );
 }
 

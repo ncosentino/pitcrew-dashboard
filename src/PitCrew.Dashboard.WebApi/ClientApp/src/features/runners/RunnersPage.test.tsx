@@ -6,7 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FleetProvider, type FleetResponse } from '@/core/fleet';
 
 import { runnersManifest } from './manifest';
-import { flattenFleetSlots, runnerSelectionId } from './runnerRows';
+import {
+  flattenFleetSlots,
+  runnerAttentionRank,
+  runnerNeedsReview,
+  runnerSelectionId,
+} from './runnerRows';
 import { RunnersPage } from './RunnersPage';
 
 const localNodeId = '10000000-0000-4000-8000-000000000001';
@@ -256,6 +261,20 @@ describe('runners feature', () => {
       [localNodeId, 'Alpha', 'deploy', 'slot-b'],
       [remoteNodeId, 'Zulu', 'build', 'slot-c'],
     ]);
+  });
+
+  it('does not promote an idle connected legacy slot solely for missing job correlation', () => {
+    const [row] = flattenFleetSlots(
+      fleetResponse([
+        nodeResponse(localNodeId, 'Alpha', [
+          profileResponse('build', [slotResponse('idle-connected')]),
+        ]),
+      ]) as unknown as FleetResponse,
+    );
+    if (!row) throw new Error('Expected one idle runner row.');
+
+    expect(runnerNeedsReview(row)).toBe(false);
+    expect(runnerAttentionRank(row)).toBe(100);
   });
 
   it('loads only the active tenant and links rows to tenant-scoped profile details', async () => {
