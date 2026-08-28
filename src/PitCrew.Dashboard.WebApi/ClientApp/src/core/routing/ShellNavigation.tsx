@@ -145,7 +145,7 @@ export function ShellNavigation({
                       {item.badge ? (
                         <>
                           <span
-                            aria-hidden="true"
+                            aria-label={item.badge.accessibleLabel}
                             className={cn(
                               'min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs font-semibold tabular-nums',
                               badgeClassName(item.badge.tone),

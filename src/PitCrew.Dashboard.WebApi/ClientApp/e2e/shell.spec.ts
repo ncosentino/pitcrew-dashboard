@@ -56,7 +56,10 @@ test('desktop shell groups work and remembers the compact rail', async ({ page }
 
   await page.reload();
   await expect(page.getByRole('button', { name: 'Expand primary navigation' })).toBeVisible();
-  await expect(page.getByLabel('Tenant')).toHaveAttribute('title', `${longTenantName} · owner`);
+  await expect(page.getByLabel('Tenant', { exact: true })).toHaveAttribute(
+    'title',
+    `${longTenantName} · owner`,
+  );
 
   const axeResult = await runAxeCheck(page, testInfo, 'shell-compact-desktop');
   expect(axeResult.unexpected).toHaveLength(0);
@@ -81,7 +84,7 @@ test('mobile shell keeps the same groups, tenant context, and account controls',
   await expect(navigation.getByRole('list', { name: 'Monitor' })).toBeVisible();
   await expect(navigation.getByRole('list', { name: 'Operate' })).toBeVisible();
   await expect(navigation.getByRole('list', { name: 'Configure' })).toBeVisible();
-  await expect(dialog.getByLabel('Tenant')).toHaveValue(tenantId);
+  await expect(dialog.getByLabel('Tenant', { exact: true })).toHaveValue(tenantId);
   await expect(dialog.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await expect(navigation.getByRole('link', { name: 'Settings' })).toBeVisible();
   await expect(navigation.getByRole('link', { name: 'Tenant administration' })).toBeVisible();
