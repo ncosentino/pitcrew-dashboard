@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -93,6 +94,15 @@ describe('settings routes', () => {
       );
       expect(nav).toBeInTheDocument();
       expect(nav.querySelector('[aria-current="page"]')).toHaveTextContent('General');
+      expect(screen.getByRole('region', { name: 'Administration context' })).toHaveTextContent(
+        'Local Tenant',
+      );
+      expect(screen.getByRole('region', { name: 'Administration context' })).toHaveTextContent(
+        'Owner',
+      );
+      expect(
+        screen.getByRole('heading', { level: 2, name: 'Tenant identity' }),
+      ).toBeInTheDocument();
     });
 
     it('renders tenant ID as copyable metadata on general settings', async () => {
@@ -163,11 +173,20 @@ describe('settings routes', () => {
     it('shows diagnostics page with credential form labels', async () => {
       mockSession(adminSession);
       renderRoute('/tenants/local/settings/diagnostics');
+      const user = userEvent.setup();
 
-      expect(await screen.findByLabelText('Credential label')).toBeInTheDocument();
-      expect(screen.getByLabelText('Expiry (hours)')).toBeInTheDocument();
-      expect(screen.getByLabelText('Allowed node IDs')).toBeInTheDocument();
-      expect(screen.getByLabelText('Allowed profile IDs')).toBeInTheDocument();
+      expect(
+        await screen.findByRole('heading', { level: 2, name: 'Read-only diagnostic access' }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Create a credential', { exact: true })).toBeVisible();
+      expect(screen.getByLabelText('Credential label')).not.toBeVisible();
+
+      await user.click(screen.getByText('Create a credential', { exact: true }));
+
+      expect(screen.getByLabelText('Credential label')).toBeVisible();
+      expect(screen.getByLabelText('Expiry (hours)')).toBeVisible();
+      expect(screen.getByLabelText('Allowed node IDs')).toBeVisible();
+      expect(screen.getByLabelText('Allowed profile IDs')).toBeVisible();
     });
 
     it('denies owner-only general settings to administrator', async () => {

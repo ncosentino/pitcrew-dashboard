@@ -66,7 +66,8 @@ investigation, and lower-frequency administration.
 - Lead with a compact readiness or exception summary containing only evidence needed
   to decide whether the primary task can proceed.
 - Keep feature-local task navigation stable and deep-linkable. On constrained
-  layouts, preserve the same reading order in a contained horizontal strip.
+  layouts, preserve the same reading order in a contained horizontal strip and
+  scroll the active task into view without reordering the destinations.
 - Present repeated operational records as full-width rows ordered by current work and
   attention before ordinary history.
 - Open one selected record in a focused detail region. When the regions stack, keep
