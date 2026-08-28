@@ -34,4 +34,19 @@ describe('ReadinessSummary', () => {
     const second = screen.getByRole('region', { name: 'Second readiness' });
     expect(first.getAttribute('aria-labelledby')).not.toBe(second.getAttribute('aria-labelledby'));
   });
+
+  it('supports a compact two-column narrow layout', () => {
+    render(
+      <ReadinessSummary
+        title="Incident readiness"
+        description="Current incident evidence"
+        narrowColumns={2}
+        items={[]}
+      />,
+    );
+
+    expect(
+      screen.getByRole('region', { name: 'Incident readiness' }).querySelector('dl'),
+    ).toHaveClass('grid-cols-2');
+  });
 });

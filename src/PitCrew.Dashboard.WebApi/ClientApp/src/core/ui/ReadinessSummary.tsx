@@ -13,6 +13,8 @@ export interface ReadinessSummaryProps {
   readonly description: ReactNode;
   readonly status?: ReactNode;
   readonly items: ReadonlyArray<ReadinessSummaryItem>;
+  /** Uses two compact metric columns below the shared small-screen breakpoint. */
+  readonly narrowColumns?: 1 | 2;
   readonly className?: string;
 }
 
@@ -22,6 +24,7 @@ export function ReadinessSummary({
   description,
   status,
   items,
+  narrowColumns = 1,
   className,
 }: ReadinessSummaryProps) {
   const titleId = useId();
@@ -40,7 +43,12 @@ export function ReadinessSummary({
         </div>
         {status ? <div className="min-w-0 max-w-full">{status}</div> : null}
       </div>
-      <dl className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
+      <dl
+        className={cn(
+          'mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4',
+          narrowColumns === 2 && 'grid-cols-2',
+        )}
+      >
         {items.map((item) => (
           <div className="min-w-0" key={item.label}>
             <dt className="text-xs font-medium text-muted-foreground">{item.label}</dt>

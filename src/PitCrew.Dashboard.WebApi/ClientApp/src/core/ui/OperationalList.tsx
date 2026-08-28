@@ -49,7 +49,9 @@ export function OperationalRow({
       <article className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className="min-w-0 text-sm font-semibold text-foreground">{title}</h3>
+            <h3 className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold text-foreground">
+              {title}
+            </h3>
             {status}
           </div>
           {description ? (

@@ -56,7 +56,7 @@ test('healthy: fleet renders with no active-incident banner', async ({ page }, t
   await setUpPage(page, healthyScenario(), 'light');
   await page.goto(fleetPath);
 
-  await expect(page.getByRole('heading', { name: 'Fleet status' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fleet readiness' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   await expectStateEvidence(page, testInfo, 'healthy');

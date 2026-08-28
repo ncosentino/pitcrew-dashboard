@@ -30,13 +30,15 @@ export function DetailPanel({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 id={titleId} className="text-lg font-semibold">
+            <h2 id={titleId} className="min-w-0 [overflow-wrap:anywhere] text-lg font-semibold">
               {title}
             </h2>
             {status}
           </div>
           {description ? (
-            <div className="mt-1 max-w-[72ch] text-sm text-muted-foreground">{description}</div>
+            <div className="mt-1 max-w-[72ch] [overflow-wrap:anywhere] text-sm text-muted-foreground">
+              {description}
+            </div>
           ) : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}

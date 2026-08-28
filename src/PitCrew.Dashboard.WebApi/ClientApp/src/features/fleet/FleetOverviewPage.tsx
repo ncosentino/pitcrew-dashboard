@@ -19,9 +19,9 @@ import { FilterToolbar } from '@/core/ui/FilterToolbar';
 import { FormField } from '@/core/ui/FormField';
 import { LoadingState } from '@/core/ui/LoadingState';
 import { OperationalTable } from '@/core/ui/OperationalTable';
+import { ReadinessSummary } from '@/core/ui/ReadinessSummary';
 import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
-import { typography } from '@/core/ui/typography';
 import { cn } from '@/lib/utils';
 
 import {
@@ -31,10 +31,21 @@ import {
   type NodeSort,
   type NodeStatusFilter,
 } from './nodeSummary';
+import {
+  summarizeProfileAttention,
+  type ProfileAttentionSummary,
+  type ProfileAttentionTask,
+} from './profileWorkspace';
 import { HardwareComparison } from './components/HostHardwareSummary';
 import { ActiveIncidentSummary } from './components/ActiveIncidentSummary';
 
 type FleetDensity = 'comfortable' | 'compact';
+type FleetSort = NodeSort | 'attention';
+
+interface NodeProfileAttention {
+  readonly profileId: string;
+  readonly summary: ProfileAttentionSummary;
+}
 
 /** Browser storage key for the fleet overview density preference. */
 export const fleetDensityStorageKey = 'pitcrew-dashboard-fleet-density';
@@ -74,6 +85,7 @@ interface NodeSummaryRowProps {
   readonly selected: boolean;
   readonly onSelectionChanged: (nodeId: string, selected: boolean) => void;
   readonly incidents: ReadonlyArray<OperationalIncident>;
+  readonly profileAttention?: NodeProfileAttention;
 }
 
 function NodeSummaryRow({
@@ -83,6 +95,7 @@ function NodeSummaryRow({
   selected,
   onSelectionChanged,
   incidents,
+  profileAttention,
 }: NodeSummaryRowProps) {
   const aggregate = aggregateNode(node);
   const status = getNodeStatus(node);
@@ -116,7 +129,35 @@ function NodeSummaryRow({
           ) : incidents.length > 0 ? (
             <StatusBadge status="warning" />
           ) : null}
+          {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
+          {profileAttention ? (
+            <StatusBadge
+              status={profileAttention.summary.label}
+              tone={profileAttention.summary.tone}
+            />
+          ) : null}
         </div>
+        {incidents.length > 0 ? (
+          <Link
+            className="mt-1 inline-block text-xs font-semibold text-link underline-offset-4 hover:underline"
+            to={incidentInvestigationHref(tenantId, incidents[0].incidentId)}
+          >
+            Review {incidents.length} active {incidents.length === 1 ? 'incident' : 'incidents'}
+          </Link>
+        ) : null}
+        {profileAttention ? (
+          <Link
+            className="mt-1 block text-xs font-semibold text-link underline-offset-4 hover:underline"
+            to={profileAttentionHref(
+              tenantId,
+              node.nodeId,
+              profileAttention.profileId,
+              profileAttention.summary.task,
+            )}
+          >
+            Review {profileAttention.summary.label}
+          </Link>
+        ) : null}
         {!node.isOnline ? (
           <div className="mt-1 text-xs text-muted-foreground">
             {node.connectorHealth?.snapshot.lastFailureCategory
@@ -212,15 +253,63 @@ export default function FleetOverviewPage() {
   const { fleet, error, isLoading } = useFleet();
   const [status, setStatus] = useState<NodeStatusFilter>('all');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<NodeSort>('name');
+  const [sort, setSort] = useState<FleetSort>('attention');
   const [density, setDensity] = useState<FleetDensity>(readDensity);
   const [visibleLimit, setVisibleLimit] = useState(fleetPageSize);
   const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([]);
-  const nodes = selectNodes(fleet?.nodes ?? [], status, query, sort);
+  const selectedNodes = selectNodes(
+    fleet?.nodes ?? [],
+    status,
+    query,
+    sort === 'attention' ? 'name' : sort,
+  );
+  const activeIncidents = fleet?.activeIncidents ?? [];
+  const incidentsByNode = new Map<string, OperationalIncident[]>();
+  for (const incident of activeIncidents) {
+    const current = incidentsByNode.get(incident.nodeId);
+    if (current) current.push(incident);
+    else incidentsByNode.set(incident.nodeId, [incident]);
+  }
+  const profileAttentionByNode = new Map<string, NodeProfileAttention>();
+  for (const node of fleet?.nodes ?? []) {
+    const profileAttention = selectNodeProfileAttention(node);
+    if (profileAttention) profileAttentionByNode.set(node.nodeId, profileAttention);
+  }
+  const nodes =
+    sort === 'attention'
+      ? [...selectedNodes].sort((left, right) => {
+          const rankDifference =
+            nodeAttentionRank(
+              left,
+              incidentsByNode.get(left.nodeId) ?? [],
+              profileAttentionByNode.get(left.nodeId),
+            ) -
+            nodeAttentionRank(
+              right,
+              incidentsByNode.get(right.nodeId) ?? [],
+              profileAttentionByNode.get(right.nodeId),
+            );
+          if (rankDifference !== 0) return rankDifference;
+          return 0;
+        })
+      : selectedNodes;
   const visibleNodes = nodes.slice(0, visibleLimit);
-  const selectedNodes = (fleet?.nodes ?? []).filter((node) =>
+  const comparisonNodes = (fleet?.nodes ?? []).filter((node) =>
     selectedNodeIds.includes(node.nodeId),
   );
+  const criticalIncidents = activeIncidents.filter(
+    (incident) => incident.severity === 'critical',
+  ).length;
+  const warningIncidents = activeIncidents.length - criticalIncidents;
+  const onlineNodes = fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
+  const attentionNodes =
+    fleet?.nodes.filter(
+      (node) =>
+        getNodeStatus(node) === 'offline' ||
+        nodeHasDegradedConnector(node) ||
+        profileAttentionByNode.has(node.nodeId) ||
+        (incidentsByNode.get(node.nodeId)?.length ?? 0) > 0,
+    ).length ?? 0;
 
   const changeDensity = (nextDensity: FleetDensity) => {
     setDensity(nextDensity);
@@ -237,15 +326,76 @@ export default function FleetOverviewPage() {
 
   return (
     <>
-      <section className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className={typography.sectionHeading}>Fleet status</h2>
-          <p className={typography.metadata}>Node-level capacity and health across this tenant.</p>
-        </div>
-        <div className={cn('text-right', typography.metadata)}>
-          {fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}
-        </div>
-      </section>
+      <ReadinessSummary
+        title="Fleet readiness"
+        description="Current or retained node evidence, active incidents, and the fleet records that require operator attention."
+        status={
+          <StatusBadge
+            status={
+              !fleet
+                ? error
+                  ? 'Status unavailable'
+                  : 'Loading'
+                : criticalIncidents > 0
+                  ? 'Critical incidents'
+                  : warningIncidents > 0 || attentionNodes > 0
+                    ? 'Needs attention'
+                    : 'No reported exception'
+            }
+            tone={
+              !fleet
+                ? error
+                  ? 'critical'
+                  : 'neutral'
+                : criticalIncidents > 0
+                  ? 'critical'
+                  : warningIncidents > 0 || attentionNodes > 0
+                    ? 'caution'
+                    : 'positive'
+            }
+          />
+        }
+        items={[
+          {
+            label: 'Observation',
+            value: fleet ? formatTime(fleet.generatedAt) : error ? 'Unavailable' : 'Loading…',
+            detail: fleet ? 'Latest accepted tenant projection' : 'Waiting for fleet evidence',
+          },
+          {
+            label: 'Nodes online',
+            value: fleet
+              ? `${onlineNodes} of ${fleet.nodes.length}`
+              : error
+                ? 'Unavailable'
+                : 'Loading…',
+            detail: 'Connector-derived node state',
+          },
+          {
+            label: 'Nodes needing attention',
+            value: fleet ? attentionNodes : error ? 'Unavailable' : 'Loading…',
+            detail: 'Incident, profile exception, degraded connector, or offline state',
+          },
+          {
+            label: 'Active incidents',
+            value: fleet ? activeIncidents.length : error ? 'Unavailable' : 'Loading…',
+            detail: fleet
+              ? `${criticalIncidents} critical · ${warningIncidents} warning`
+              : 'Incident evidence unavailable',
+          },
+        ]}
+      />
+
+      {error ? (
+        <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
+          {fleet ? `Showing stale fleet data. ${error}` : error}
+        </StateBanner>
+      ) : null}
+
+      <ActiveIncidentSummary
+        incidents={activeIncidents}
+        tenantId={tenantId}
+        testId="fleet-active-incidents"
+      />
 
       <details className="rounded-lg border bg-card px-4 py-3">
         <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -280,18 +430,6 @@ export default function FleetOverviewPage() {
           </div>
         </dl>
       </details>
-
-      {error ? (
-        <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
-          {fleet ? `Showing stale fleet data. ${error}` : error}
-        </StateBanner>
-      ) : null}
-
-      <ActiveIncidentSummary
-        incidents={fleet?.activeIncidents ?? []}
-        tenantId={tenantId}
-        testId="fleet-active-incidents"
-      />
 
       {isLoading && !fleet ? <LoadingState label="Loading fleet status…" /> : null}
 
@@ -336,10 +474,11 @@ export default function FleetOverviewPage() {
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={sort}
                 onChange={(event) => {
-                  setSort(event.target.value as NodeSort);
+                  setSort(event.target.value as FleetSort);
                   setVisibleLimit(fleetPageSize);
                 }}
               >
+                <option value="attention">Attention first</option>
                 <option value="name">Display name</option>
                 <option value="status">Status</option>
                 <option value="lastSeen">Last seen</option>
@@ -357,7 +496,7 @@ export default function FleetOverviewPage() {
             </FormField>
           </FilterToolbar>
 
-          <HardwareComparison nodes={selectedNodes} />
+          <HardwareComparison nodes={comparisonNodes} />
 
           {nodes.length === 0 ? (
             <EmptyState
@@ -372,6 +511,8 @@ export default function FleetOverviewPage() {
                   const aggregate = aggregateNode(node);
                   const nodeStatus = getNodeStatus(node);
                   const admission = summarizeNodeHostAdmission(node.profiles);
+                  const nodeIncidents = incidentsByNode.get(node.nodeId) ?? [];
+                  const profileAttention = profileAttentionByNode.get(node.nodeId);
                   return (
                     <div
                       key={node.nodeId}
@@ -380,6 +521,18 @@ export default function FleetOverviewPage() {
                     >
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <StatusBadge status={nodeStatus} />
+                        {nodeIncidents.some((incident) => incident.severity === 'critical') ? (
+                          <StatusBadge status="critical" />
+                        ) : nodeIncidents.length > 0 ? (
+                          <StatusBadge status="warning" />
+                        ) : null}
+                        {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
+                        {profileAttention ? (
+                          <StatusBadge
+                            status={profileAttention.summary.label}
+                            tone={profileAttention.summary.tone}
+                          />
+                        ) : null}
                         <Link
                           className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
                           to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
@@ -387,6 +540,28 @@ export default function FleetOverviewPage() {
                           {node.displayName}
                         </Link>
                       </div>
+                      {nodeIncidents.length > 0 ? (
+                        <Link
+                          className="text-xs font-semibold text-link underline-offset-4 hover:underline"
+                          to={incidentInvestigationHref(tenantId, nodeIncidents[0].incidentId)}
+                        >
+                          Review {nodeIncidents.length} active{' '}
+                          {nodeIncidents.length === 1 ? 'incident' : 'incidents'}
+                        </Link>
+                      ) : null}
+                      {profileAttention ? (
+                        <Link
+                          className="text-xs font-semibold text-link underline-offset-4 hover:underline"
+                          to={profileAttentionHref(
+                            tenantId,
+                            node.nodeId,
+                            profileAttention.profileId,
+                            profileAttention.summary.task,
+                          )}
+                        >
+                          Review {profileAttention.summary.label}
+                        </Link>
+                      ) : null}
                       <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
                         <span>Profiles: {node.profiles.length}</span>
                         <span>Configured: {aggregate.configuredSlots}</span>
@@ -439,9 +614,8 @@ export default function FleetOverviewPage() {
                       density={density}
                       selected={selectedNodeIds.includes(node.nodeId)}
                       onSelectionChanged={changeSelection}
-                      incidents={fleet.activeIncidents.filter(
-                        (incident) => incident.nodeId === node.nodeId,
-                      )}
+                      incidents={incidentsByNode.get(node.nodeId) ?? []}
+                      profileAttention={profileAttentionByNode.get(node.nodeId)}
                     />
                   ))}
                 </OperationalTable>
@@ -467,4 +641,48 @@ export default function FleetOverviewPage() {
       ) : null}
     </>
   );
+}
+
+function nodeAttentionRank(
+  node: FleetNode,
+  incidents: ReadonlyArray<OperationalIncident>,
+  profileAttention: NodeProfileAttention | undefined,
+): number {
+  if (incidents.some((incident) => incident.severity === 'critical')) return 0;
+  if (incidents.length > 0) return 1;
+  if (profileAttention?.summary.tone === 'critical') return 2;
+  if (nodeHasDegradedConnector(node)) return 3;
+  if (getNodeStatus(node) === 'offline') return 4;
+  if (profileAttention) return 5;
+  if (getNodeStatus(node) === 'online') return 6;
+  return 7;
+}
+
+function incidentInvestigationHref(tenantId: string, incidentId: string): string {
+  return `/tenants/${encodeURIComponent(tenantId)}/incidents?view=active&incident=${encodeURIComponent(incidentId)}`;
+}
+
+function nodeHasDegradedConnector(node: FleetNode): boolean {
+  return node.isOnline && !node.isRevoked && node.connectorHealth?.snapshot.state === 'degraded';
+}
+
+function selectNodeProfileAttention(node: FleetNode): NodeProfileAttention | undefined {
+  if (!node.isOnline || node.isRevoked) return undefined;
+  return node.profiles
+    .map((profile) => ({
+      profileId: profile.profileId,
+      summary: summarizeProfileAttention(profile, []),
+    }))
+    .filter((candidate) => candidate.summary.rank < 100)
+    .sort((left, right) => left.summary.rank - right.summary.rank)[0];
+}
+
+function profileAttentionHref(
+  tenantId: string,
+  nodeId: string,
+  profileId: string,
+  task: ProfileAttentionTask,
+): string {
+  const basePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profileId)}`;
+  return task === 'overview' ? basePath : `${basePath}/${task}`;
 }

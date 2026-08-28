@@ -96,7 +96,7 @@ describe('authenticated routing', () => {
     await user.click(screen.getByRole('button', { name: 'Retry session' }));
 
     expect(
-      await screen.findByRole('heading', { level: 2, name: 'Fleet status' }),
+      await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' }),
     ).toBeInTheDocument();
     expect(sessionLoads).toBe(2);
   });
@@ -106,7 +106,7 @@ describe('authenticated routing', () => {
     const router = renderRoute('/');
 
     expect(
-      await screen.findByRole('heading', { level: 2, name: 'Fleet status' }),
+      await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/tenants/local/fleet');
     expect(
@@ -181,7 +181,7 @@ describe('authenticated routing', () => {
     renderRoute('/tenants/not-authorized/fleet');
 
     expect(await screen.findByText('Tenant unavailable')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Fleet status' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Fleet readiness' })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -516,7 +516,7 @@ describe('authenticated routing', () => {
   it('moves focus to the main content after route navigation', async () => {
     mockSession(ownerSession);
     const router = renderRoute('/tenants/local/fleet');
-    await screen.findByRole('heading', { level: 2, name: 'Fleet status' });
+    await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' });
     const main = document.querySelector<HTMLElement>('#main-content');
     expect(main).not.toBeNull();
     await waitFor(() => expect(main).toHaveFocus());
@@ -583,7 +583,7 @@ describe('authenticated routing', () => {
     });
     const router = renderRoute('/tenants/local/fleet');
 
-    await screen.findByRole('heading', { level: 2, name: 'Fleet status' });
+    await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' });
     await waitFor(() => expect(fleetSignal).toBeDefined());
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1');
