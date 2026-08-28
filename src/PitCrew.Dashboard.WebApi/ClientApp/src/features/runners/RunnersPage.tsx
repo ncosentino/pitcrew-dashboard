@@ -74,7 +74,7 @@ const sortKeys = new Set<SortKey>([
   'exit',
 ]);
 
-const inputClassName = 'h-9 rounded-md border bg-background px-3 text-sm';
+const inputClassName = 'h-9 min-w-0 w-full rounded-md border bg-background px-3 text-sm';
 const tableColumns: ReadonlyArray<OperationalTableColumn> = [
   { key: 'runner', header: 'Runner' },
   { key: 'workload', header: 'Workload' },
@@ -222,15 +222,15 @@ function RunnerIdentity({ row, tenantId, selectionHref, selected, onSelect }: Ru
   return (
     <div className="grid min-w-28 gap-1">
       <Link
-        className="w-fit font-semibold underline-offset-4 hover:underline focus-visible:underline"
+        className="w-fit max-w-full font-semibold [overflow-wrap:anywhere] underline-offset-4 hover:underline focus-visible:underline"
         to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`}
       >
         {row.nodeName}
       </Link>
       <span className="flex min-w-0 flex-wrap gap-x-1 font-mono text-xs text-muted-foreground">
-        <span className="break-words">{row.profileId}</span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{row.profileId}</span>
         <span aria-hidden="true">·</span>
-        <span className="break-words">{row.slot.key}</span>
+        <span className="min-w-0 [overflow-wrap:anywhere]">{row.slot.key}</span>
       </span>
       <Button asChild className="mt-1 w-fit" size="sm" variant={selected ? 'secondary' : 'outline'}>
         <Link aria-current={selected ? 'page' : undefined} to={selectionHref} onClick={onSelect}>
@@ -246,7 +246,10 @@ function RunnerWorkload({ row }: { readonly row: FleetSlot }) {
   const job = row.slot.currentJob;
   return (
     <div className="grid min-w-32 max-w-56 gap-1">
-      <span className="break-words font-medium" title={job?.displayName ?? repository ?? undefined}>
+      <span
+        className="[overflow-wrap:anywhere] font-medium"
+        title={job?.displayName ?? repository ?? undefined}
+      >
         {job
           ? (job.displayName ?? `GitHub job ${job.jobId}`)
           : row.slot.activity === 'busy' && row.slot.currentJob === undefined
@@ -255,7 +258,7 @@ function RunnerWorkload({ row }: { readonly row: FleetSlot }) {
               ? formatRepositoryLabel(repository)
               : 'Shared scope'}
       </span>
-      <span className="break-words text-xs text-muted-foreground">
+      <span className="[overflow-wrap:anywhere] text-xs text-muted-foreground">
         {job ? formatRepositoryLabel(job.repository) : (row.slot.target ?? 'Target unavailable')}
       </span>
     </div>
