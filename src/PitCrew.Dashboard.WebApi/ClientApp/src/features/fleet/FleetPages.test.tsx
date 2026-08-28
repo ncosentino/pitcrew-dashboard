@@ -538,6 +538,41 @@ describe('fleet overview and node detail', () => {
     expect(screen.getByLabelText('Sort by')).toHaveValue('attention');
   });
 
+  it('treats current degraded connector evidence as node attention', async () => {
+    const response = fleetResponse();
+    const alpha = response.nodes.find((node) => node.nodeId === alphaId);
+    if (alpha?.connectorHealth == null) throw new Error('Alpha connector health is required.');
+    alpha.connectorHealth.snapshot.state = 'degraded';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <RouterProvider router={createTestRouter(features, ['/tenants/local/fleet'])} />
+      </SessionProvider>,
+    );
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringContaining('Alpha'),
+      expect.stringContaining('Bravo'),
+      expect.stringContaining('Charlie'),
+    ]);
+    expect(within(screen.getByTestId(`fleet-node-${alphaId}`)).getByText('degraded')).toBeVisible();
+    const attentionLabel = within(
+      screen.getByRole('region', { name: 'Fleet readiness' }),
+    ).getByText('Nodes needing attention');
+    expect(attentionLabel.parentElement).toHaveTextContent('2');
+  });
+
   it('filters and sorts deterministically and persists density', async () => {
     const user = userEvent.setup();
     renderRoute('/tenants/local/fleet');

@@ -117,6 +117,7 @@ function NodeSummaryRow({
           ) : incidents.length > 0 ? (
             <StatusBadge status="warning" />
           ) : null}
+          {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
         </div>
         {incidents.length > 0 ? (
           <Link
@@ -232,10 +233,11 @@ export default function FleetOverviewPage() {
     sort === 'attention' ? 'name' : sort,
   );
   const activeIncidents = fleet?.activeIncidents ?? [];
-  const incidentsByNode = new Map<string, ReadonlyArray<OperationalIncident>>();
+  const incidentsByNode = new Map<string, OperationalIncident[]>();
   for (const incident of activeIncidents) {
-    const current = incidentsByNode.get(incident.nodeId) ?? [];
-    incidentsByNode.set(incident.nodeId, [...current, incident]);
+    const current = incidentsByNode.get(incident.nodeId);
+    if (current) current.push(incident);
+    else incidentsByNode.set(incident.nodeId, [incident]);
   }
   const nodes =
     sort === 'attention'
@@ -259,7 +261,9 @@ export default function FleetOverviewPage() {
   const attentionNodes =
     fleet?.nodes.filter(
       (node) =>
-        getNodeStatus(node) === 'offline' || (incidentsByNode.get(node.nodeId)?.length ?? 0) > 0,
+        getNodeStatus(node) === 'offline' ||
+        nodeHasDegradedConnector(node) ||
+        (incidentsByNode.get(node.nodeId)?.length ?? 0) > 0,
     ).length ?? 0;
 
   const changeDensity = (nextDensity: FleetDensity) => {
@@ -324,7 +328,7 @@ export default function FleetOverviewPage() {
           {
             label: 'Nodes needing attention',
             value: fleet ? attentionNodes : error ? 'Unavailable' : 'Loading…',
-            detail: 'Offline or named by an active incident',
+            detail: 'Offline, connector-degraded, or named by an active incident',
           },
           {
             label: 'Active incidents',
@@ -476,6 +480,7 @@ export default function FleetOverviewPage() {
                         ) : nodeIncidents.length > 0 ? (
                           <StatusBadge status="warning" />
                         ) : null}
+                        {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
                         <Link
                           className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
                           to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
@@ -544,9 +549,7 @@ export default function FleetOverviewPage() {
                       density={density}
                       selected={selectedNodeIds.includes(node.nodeId)}
                       onSelectionChanged={changeSelection}
-                      incidents={fleet.activeIncidents.filter(
-                        (incident) => incident.nodeId === node.nodeId,
-                      )}
+                      incidents={incidentsByNode.get(node.nodeId) ?? []}
                     />
                   ))}
                 </OperationalTable>
@@ -577,11 +580,16 @@ export default function FleetOverviewPage() {
 function nodeAttentionRank(node: FleetNode, incidents: ReadonlyArray<OperationalIncident>): number {
   if (incidents.some((incident) => incident.severity === 'critical')) return 0;
   if (incidents.length > 0) return 1;
-  if (getNodeStatus(node) === 'offline') return 2;
-  if (getNodeStatus(node) === 'online') return 3;
-  return 4;
+  if (nodeHasDegradedConnector(node)) return 2;
+  if (getNodeStatus(node) === 'offline') return 3;
+  if (getNodeStatus(node) === 'online') return 4;
+  return 5;
 }
 
 function incidentInvestigationHref(tenantId: string, incidentId: string): string {
   return `/tenants/${encodeURIComponent(tenantId)}/incidents?view=active&incident=${encodeURIComponent(incidentId)}`;
+}
+
+function nodeHasDegradedConnector(node: FleetNode): boolean {
+  return node.connectorHealth?.snapshot.state === 'degraded';
 }

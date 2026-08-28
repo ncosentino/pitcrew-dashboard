@@ -175,9 +175,10 @@ test('critical/warning mix: both severities display with labeled counts', async 
 
   // Fleet page shows the incident banner with both counts
   await page.goto(fleetPath);
-  await expect(page.getByText('2 active incidents')).toBeVisible();
-  await expect(page.getByText('1 critical')).toBeVisible();
-  await expect(page.getByText('1 warning')).toBeVisible();
+  const incidentSummary = page.getByTestId('fleet-active-incidents');
+  await expect(incidentSummary.getByText('2 active incidents')).toBeVisible();
+  await expect(incidentSummary.getByText('1 critical', { exact: true })).toBeVisible();
+  await expect(incidentSummary.getByText('1 warning', { exact: true })).toBeVisible();
   await expect(page.getByLabel('2 active incidents; highest severity critical')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Review 2 active incidents' })).toBeVisible();
 

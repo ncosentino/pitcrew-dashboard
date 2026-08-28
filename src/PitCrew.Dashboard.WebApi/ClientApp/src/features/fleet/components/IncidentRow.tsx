@@ -13,9 +13,16 @@ interface IncidentRowProps {
   readonly node: FleetNode | undefined;
   readonly selectionHref: string;
   readonly selected: boolean;
+  readonly onSelect: () => void;
 }
 
-export function IncidentRow({ incident, node, selectionHref, selected }: IncidentRowProps) {
+export function IncidentRow({
+  incident,
+  node,
+  selectionHref,
+  selected,
+  onSelect,
+}: IncidentRowProps) {
   return (
     <OperationalRow
       testId={`incident-row-${incident.incidentId}`}
@@ -37,7 +44,7 @@ export function IncidentRow({ incident, node, selectionHref, selected }: Inciden
       }
       actions={
         <Button asChild size="sm" variant={selected ? 'secondary' : 'outline'}>
-          <Link aria-current={selected ? 'page' : undefined} to={selectionHref}>
+          <Link aria-current={selected ? 'page' : undefined} to={selectionHref} onClick={onSelect}>
             {selected ? 'Selected' : 'Investigate'}
           </Link>
         </Button>
