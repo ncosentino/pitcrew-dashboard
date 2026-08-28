@@ -332,6 +332,11 @@ function CredentialRow({ credential, isBusy, onRotate, onRevoke }: CredentialRow
                   'This credential is permanently revoked.',
                   'It cannot be rotated or reinstated.',
                 ]}
+                prohibitedEffects={[
+                  'Other diagnostic credentials remain unchanged.',
+                  'Tenant membership and connector credentials remain unchanged.',
+                  'Existing audit metadata for this credential is retained.',
+                ]}
               />
             }
             onConfirm={onRevoke}

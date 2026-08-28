@@ -149,6 +149,10 @@ export function TenantAdministration({ tenantId, antiforgeryToken }: TenantAdmin
                           'The user will lose all access to this tenant.',
                           'They can be re-added later.',
                         ]}
+                        prohibitedEffects={[
+                          "This does not change the user's access to other tenants.",
+                          'This does not delete their Dashboard or GitHub identity.',
+                        ]}
                       />
                     }
                     onConfirm={() =>

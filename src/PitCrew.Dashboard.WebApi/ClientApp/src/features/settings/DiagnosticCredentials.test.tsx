@@ -162,6 +162,12 @@ describe('DiagnosticCredentials', () => {
     });
     expect(within(dialog).getByText('This credential is permanently revoked.')).toBeVisible();
     expect(within(dialog).getByText('It cannot be rotated or reinstated.')).toBeVisible();
+    expect(
+      within(dialog).getByText('Tenant membership and connector credentials remain unchanged.'),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText('Existing audit metadata for this credential is retained.'),
+    ).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await user.click(within(dialog).getByRole('button', { name: 'Revoke credential' }));

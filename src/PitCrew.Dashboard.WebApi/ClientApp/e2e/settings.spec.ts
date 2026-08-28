@@ -64,6 +64,7 @@ test.describe('settings roles and navigation', () => {
     await page.getByRole('button', { name: 'Remove' }).first().click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('The user will lose all access to this tenant.');
+    await expect(dialog).toContainText("This does not change the user's access to other tenants.");
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
     await page.getByText('Add a member', { exact: true }).click();
