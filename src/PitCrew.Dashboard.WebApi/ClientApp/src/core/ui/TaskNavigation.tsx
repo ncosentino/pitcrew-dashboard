@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 
 import { cn } from '@/lib/utils';
 
@@ -20,9 +21,18 @@ export interface TaskNavigationProps {
  * horizontal strip until the workspace has room for a left-hand task rail.
  */
 export function TaskNavigation({ label, items }: TaskNavigationProps) {
+  const { pathname } = useLocation();
+  const list = useRef<HTMLUListElement>(null);
+
+  useEffect(() => {
+    const active = list.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  }, [pathname]);
+
   return (
     <nav aria-label={label} className="min-w-0">
       <ul
+        ref={list}
         className={cn(
           'flex min-w-0 gap-2 overflow-x-auto pb-1',
           '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',

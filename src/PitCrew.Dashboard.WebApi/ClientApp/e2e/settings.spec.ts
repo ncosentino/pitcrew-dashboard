@@ -167,6 +167,11 @@ test('one-time enrollment value is focused, copyable, and explicitly cleared', a
   await setUpPage(page, ownerScenario, 'light');
   await page.goto(`/tenants/${tenantId}/settings/enrollment`);
 
+  await expect(
+    page.getByRole('navigation', { name: 'Tenant settings' }).getByRole('link', {
+      name: /Enrollment/,
+    }),
+  ).toBeInViewport({ ratio: 1 });
   await page.getByRole('button', { name: 'Create one-time code' }).click();
 
   const result = page.getByRole('region', { name: 'Enrollment code ready' });

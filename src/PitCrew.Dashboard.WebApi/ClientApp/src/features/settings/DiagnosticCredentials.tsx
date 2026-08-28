@@ -123,7 +123,7 @@ export function DiagnosticCredentials({ tenantId, antiforgeryToken }: Diagnostic
           <OneTimeValue
             title="Diagnostic credential ready"
             value={issued.value}
-            description="Send it only in the Authorization header with the PitCrew-Diagnostics scheme. It is not stored in recoverable form."
+            description={`Credential ${issued.credential.credentialId}. Expires ${formatTime(issued.credential.expiresAt)}. Scope: ${issued.credential.nodeIds.length === 0 ? 'all nodes' : `${issued.credential.nodeIds.length} nodes`}, ${issued.credential.profileIds.length === 0 ? 'all profiles' : `${issued.credential.profileIds.length} profiles`}. Send it only in the Authorization header with the PitCrew-Diagnostics scheme. It is not stored in recoverable form.`}
             onClear={() => setIssued(null)}
           />
         ) : null}
@@ -263,10 +263,22 @@ function CredentialRow({ credential, isBusy, onRotate, onRevoke }: CredentialRow
           </div>
           <div>
             <div className="font-medium text-foreground">Activity</div>
+            <div>Created {formatTime(credential.createdAt)}</div>
+            <div className="[overflow-wrap:anywhere]">
+              Created by GitHub user {credential.createdByGitHubUserId}
+            </div>
             <div>Uses: {credential.useCount}</div>
             <div>
               Last used: {credential.lastUsedAt ? formatTime(credential.lastUsedAt) : 'never'}
             </div>
+            {credential.revokedAt ? (
+              <div>
+                Revoked {formatTime(credential.revokedAt)}
+                {credential.revokedByGitHubUserId
+                  ? ` by GitHub user ${credential.revokedByGitHubUserId}`
+                  : ''}
+              </div>
+            ) : null}
           </div>
         </div>
       }

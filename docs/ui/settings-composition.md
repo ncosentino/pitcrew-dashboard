@@ -46,6 +46,8 @@ function SettingsPage({ children }: { children: ReactNode }) {
 
 Each settings page wraps its content in `SettingsPage` to keep tenant identity,
 authority, and task navigation visible before the selected administration task.
+On constrained widths, `TaskNavigation` preserves task order and scrolls the active
+task into view rather than moving it to a different position.
 
 ## Change-control ledger
 

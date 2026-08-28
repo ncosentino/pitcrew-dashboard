@@ -216,7 +216,7 @@ export function EnrollmentSettingsPage() {
             <OneTimeValue
               title="Enrollment code ready"
               value={code.code}
-              description={`Expires ${formatTime(code.expiresAt)}. Set PitCrew__Connector__EnrollmentCode to this value, start the connector, then remove the consumed variable. The code is not stored in recoverable form.`}
+              description={`Authorization ${code.enrollmentCodeId}. Expires ${formatTime(code.expiresAt)}. Set PitCrew__Connector__EnrollmentCode to this value, start the connector, then remove the consumed variable. The code is not stored in recoverable form.`}
               onClear={() => setCode(null)}
             />
           ) : null}
