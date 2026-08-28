@@ -290,7 +290,7 @@ for (const state of matrix) {
             page.getByRole('heading', { level: 2, name: state.readyHeading }),
           ).toBeVisible();
         } else {
-          await expect(page.getByText(state.readyText).first()).toBeVisible();
+          await expect(page.getByText(state.readyText).last()).toBeVisible();
         }
         await expectSurfaceHealth(page, testInfo, `${state.name}-${theme}-${viewport.name}`);
       });
