@@ -9,6 +9,7 @@ import { runnersManifest } from './manifest';
 import {
   flattenFleetSlots,
   runnerAttentionRank,
+  runnerEvidenceIsCurrent,
   runnerNeedsReview,
   runnerSelectionId,
 } from './runnerRows';
@@ -161,9 +162,15 @@ function standardFleet() {
   ]);
 }
 
-function currentJobFleet() {
+function currentJobFleet({
+  nodeOnline = true,
+  managerStatus = 'running',
+}: {
+  readonly nodeOnline?: boolean;
+  readonly managerStatus?: string;
+} = {}) {
   const observedAt = '2026-07-26T02:00:00+00:00';
-  return fleetResponse([
+  const fleet = fleetResponse([
     nodeResponse(localNodeId, 'Alpha', [
       profileResponse(
         'build',
@@ -236,6 +243,14 @@ function currentJobFleet() {
       ),
     ]),
   ]);
+  return {
+    ...fleet,
+    nodes: fleet.nodes.map((node) => ({
+      ...node,
+      isOnline: nodeOnline,
+      profiles: node.profiles.map((profile) => ({ ...profile, managerStatus })),
+    })),
+  };
 }
 
 describe('runners feature', () => {
@@ -275,6 +290,61 @@ describe('runners feature', () => {
 
     expect(runnerNeedsReview(row)).toBe(false);
     expect(runnerAttentionRank(row)).toBe(100);
+  });
+
+  it('does not promote retained clean exit evidence as a current runner exception', () => {
+    const [row] = flattenFleetSlots(
+      fleetResponse([
+        nodeResponse(localNodeId, 'Alpha', [
+          profileResponse('build', [
+            slotResponse('clean-exit', {
+              lastExit: {
+                observedAt: '2026-07-26T01:59:00+00:00',
+                classification: 'clean',
+                exitCode: 0,
+                signal: null,
+                dockerOomKilled: false,
+                evidence: 'docker-wait',
+              },
+            }),
+          ]),
+        ]),
+      ]) as unknown as FleetResponse,
+    );
+    if (!row) throw new Error('Expected one runner row with clean exit evidence.');
+
+    expect(runnerNeedsReview(row)).toBe(false);
+    expect(runnerAttentionRank(row)).toBe(100);
+  });
+
+  it.each([
+    ['offline node', { nodeOnline: false }],
+    ['stale profile manager', { managerStatus: 'stale' }],
+  ] as const)('keeps correlated jobs last-known when the source is %s', async (_name, options) => {
+    const fleet = currentJobFleet(options);
+    const [row] = flattenFleetSlots(fleet as unknown as FleetResponse);
+    if (!row) throw new Error('Expected one correlated runner row.');
+
+    expect(runnerEvidenceIsCurrent(row)).toBe(false);
+    expect(runnerNeedsReview(row)).toBe(true);
+    expect(runnerAttentionRank(row)).toBe(2);
+
+    renderRunners(fleet);
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: 'Last known: Compile dashboard',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Last-known GitHub job evidence' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/This dispatch sheet shows last-known evidence/)).toBeInTheDocument();
+    expect(screen.getByText('Last reported in progress')).toBeInTheDocument();
+    const currentJobs = screen.getByText('Current jobs').parentElement;
+    if (!currentJobs) throw new Error('Expected the current-jobs readiness item.');
+    expect(within(currentJobs).getByText('0')).toBeInTheDocument();
   });
 
   it('loads only the active tenant and links rows to tenant-scoped profile details', async () => {
@@ -741,6 +811,8 @@ describe('runners feature', () => {
         /Showing stale runner data because the latest fleet refresh failed: temporary outage/,
       ),
     ).toBeInTheDocument();
+    expect(screen.getByText('Stale evidence')).toBeInTheDocument();
+    expect(screen.getByText('Last-known jobs')).toBeInTheDocument();
     expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(3);
   });
 });

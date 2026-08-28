@@ -25,6 +25,7 @@ import { RunnerDetail } from './RunnerDetail';
 import {
   flattenFleetSlots,
   runnerAttentionRank,
+  runnerEvidenceIsCurrent,
   runnerNeedsReview,
   runnerSelectionId,
   type FleetSlot,
@@ -242,9 +243,17 @@ function RunnerIdentity({ row, tenantId, selectionHref, selected, onSelect }: Ru
   );
 }
 
-function RunnerWorkload({ row }: { readonly row: FleetSlot }) {
+function RunnerWorkload({
+  row,
+  fleetRefreshFailed,
+}: {
+  readonly row: FleetSlot;
+  readonly fleetRefreshFailed: boolean;
+}) {
   const repository = row.slot.repository;
   const job = row.slot.currentJob;
+  const evidenceIsCurrent = !fleetRefreshFailed && runnerEvidenceIsCurrent(row);
+  const jobLabel = job?.displayName ?? (job ? `GitHub job ${job.jobId}` : null);
   return (
     <div className="grid min-w-32 max-w-56 gap-1">
       <span
@@ -252,12 +261,20 @@ function RunnerWorkload({ row }: { readonly row: FleetSlot }) {
         title={job?.displayName ?? repository ?? undefined}
       >
         {job
-          ? (job.displayName ?? `GitHub job ${job.jobId}`)
+          ? evidenceIsCurrent
+            ? jobLabel
+            : `Last known: ${jobLabel}`
           : row.slot.activity === 'busy' && row.slot.currentJob === undefined
-            ? 'Job identity unavailable'
-            : repository
-              ? formatRepositoryLabel(repository)
-              : 'Shared scope'}
+            ? evidenceIsCurrent
+              ? 'Job identity unavailable'
+              : 'Last-known job identity unavailable'
+            : row.slot.activity === 'busy'
+              ? evidenceIsCurrent
+                ? 'Busy without job identity'
+                : 'Last reported busy; job unknown'
+              : repository
+                ? formatRepositoryLabel(repository)
+                : 'Shared scope'}
       </span>
       <span className="[overflow-wrap:anywhere] text-xs text-muted-foreground">
         {job ? formatRepositoryLabel(job.repository) : (row.slot.target ?? 'Target unavailable')}
@@ -270,6 +287,9 @@ function RunnerState({ row }: { readonly row: FleetSlot }) {
   return (
     <div className="flex min-w-24 flex-wrap gap-1.5">
       {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+      {row.profileManagerStatus !== 'running' ? (
+        <StatusBadge status={`manager ${row.profileManagerStatus}`} />
+      ) : null}
       {row.slot.activity ? <StatusBadge status={row.slot.activity} /> : null}
       <StatusBadge status={row.slot.state} />
       <span data-testid={`runner-registration-${row.nodeId}-${row.profileId}-${row.slot.key}`}>
@@ -552,9 +572,13 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
   const hasAdvancedFilters = Boolean(
     registrationFilter || stateFilter || exitFilter || sort !== 'attention' || direction !== 'asc',
   );
+  const fleetRefreshFailed = fleet != null && error != null;
   const offlineCount = rows.filter((row) => !row.nodeOnline).length;
   const busyCount = rows.filter((row) => row.slot.activity === 'busy').length;
-  const currentJobCount = allRows.filter((row) => row.slot.currentJob != null).length;
+  const reportedJobCount = allRows.filter((row) => row.slot.currentJob != null).length;
+  const currentJobCount = allRows.filter(
+    (row) => row.slot.currentJob != null && runnerEvidenceIsCurrent(row),
+  ).length;
   const reviewCount = allRows.filter(runnerNeedsReview).length;
   const resultSummary = `Showing ${rows.length} of ${allRows.length} ${allRows.length === 1 ? 'slot' : 'slots'} · ${busyCount} busy · ${offlineCount} offline`;
   const chips = useMemo<ReadonlyArray<FilterChipDescriptor>>(() => {
@@ -652,7 +676,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
     <section className="grid min-w-0 max-w-full gap-4">
       <ReadinessSummary
         title="Runner readiness"
-        description="Explicit current-job correlation, runner lifecycle, GitHub registration, and unavailable evidence across this tenant."
+        description="Current or last-known job correlation, runner lifecycle, GitHub registration, and unavailable evidence across this tenant."
         status={
           <StatusBadge
             status={
@@ -660,14 +684,22 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 ? error
                   ? 'Status unavailable'
                   : 'Loading'
-                : reviewCount > 0
-                  ? 'Needs review'
-                  : currentJobCount > 0
-                    ? 'Current work'
-                    : 'No reported exception'
+                : fleetRefreshFailed
+                  ? 'Stale evidence'
+                  : reviewCount > 0
+                    ? 'Needs review'
+                    : currentJobCount > 0
+                      ? 'Current work'
+                      : 'No reported exception'
             }
             tone={
-              !fleet ? (error ? 'critical' : 'neutral') : reviewCount > 0 ? 'caution' : 'positive'
+              !fleet
+                ? error
+                  ? 'critical'
+                  : 'neutral'
+                : fleetRefreshFailed || reviewCount > 0
+                  ? 'caution'
+                  : 'positive'
             }
           />
         }
@@ -675,12 +707,22 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
           {
             label: 'Observation',
             value: fleet ? formatTime(fleet.generatedAt) : error ? 'Unavailable' : 'Loading…',
-            detail: 'Latest accepted fleet projection',
+            detail: fleetRefreshFailed
+              ? 'Last accepted projection; latest refresh failed'
+              : 'Latest accepted fleet projection',
           },
           {
-            label: 'Current jobs',
-            value: fleet ? currentJobCount : error ? 'Unavailable' : 'Loading…',
-            detail: 'Explicit manager-reported job correlation',
+            label: fleetRefreshFailed ? 'Last-known jobs' : 'Current jobs',
+            value: fleet
+              ? fleetRefreshFailed
+                ? reportedJobCount
+                : currentJobCount
+              : error
+                ? 'Unavailable'
+                : 'Loading…',
+            detail: fleetRefreshFailed
+              ? 'Explicit correlation retained from the last accepted projection'
+              : 'Explicit correlation from online, current manager evidence',
           },
           {
             label: 'Slots needing review',
@@ -869,6 +911,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                 row={selectedRow}
                 tenantId={tenantId}
                 isVisible={selectedRowIsVisible}
+                fleetRefreshFailed={fleetRefreshFailed}
                 focusTitleRef={selectedHeading}
               />
             </div>
@@ -920,9 +963,12 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                         }
                         onSelect={() => selectRunner(selectionId)}
                       />
-                      <RunnerWorkload row={row} />
+                      <RunnerWorkload row={row} fleetRefreshFailed={fleetRefreshFailed} />
                       <div className="flex flex-wrap gap-1.5">
                         {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+                        {row.profileManagerStatus !== 'running' ? (
+                          <StatusBadge status={`manager ${row.profileManagerStatus}`} />
+                        ) : null}
                         {row.slot.activity ? <StatusBadge status={row.slot.activity} /> : null}
                         <StatusBadge status={row.slot.state} />
                         <StatusBadge status={row.slot.registrationStatus ?? 'unknown'} />
@@ -982,7 +1028,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                         />
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <RunnerWorkload row={row} />
+                        <RunnerWorkload row={row} fleetRefreshFailed={fleetRefreshFailed} />
                       </td>
                       <td className="px-3 py-3 align-top">
                         <RunnerState row={row} />

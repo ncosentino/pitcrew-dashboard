@@ -9,28 +9,44 @@ import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 import { WorkerExitEvidence, WorkerImageIdentity } from '@/core/ui/WorkerEvidenceCells';
 
-import type { FleetSlot } from './runnerRows';
+import { runnerEvidenceIsCurrent, type FleetSlot } from './runnerRows';
 
 interface RunnerDetailProps {
   readonly row: FleetSlot;
   readonly tenantId: string;
   readonly isVisible: boolean;
+  readonly fleetRefreshFailed: boolean;
   readonly focusTitleRef?: Ref<HTMLHeadingElement>;
 }
 
 /** Presents one selected runner slot and its explicit GitHub job correlation. */
-export function RunnerDetail({ row, tenantId, isVisible, focusTitleRef }: RunnerDetailProps) {
+export function RunnerDetail({
+  row,
+  tenantId,
+  isVisible,
+  fleetRefreshFailed,
+  focusTitleRef,
+}: RunnerDetailProps) {
   const sectionId = useId();
   const job = row.slot.currentJob;
+  const evidenceIsCurrent = !fleetRefreshFailed && runnerEvidenceIsCurrent(row);
   const profilePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`;
   const jobHref = job
     ? `${job.repository}/actions/runs/${job.workflowRunId}/job/${job.jobId}`
     : null;
-  const title = job
+  const currentTitle = job
     ? (job.displayName ?? `GitHub job ${job.jobId}`)
     : row.slot.activity === 'busy'
       ? 'Busy runner without job identity'
       : `${row.nodeName} · ${row.slot.key}`;
+  const title = evidenceIsCurrent ? currentTitle : `Last known: ${currentTitle}`;
+  const evidenceLimitations = [
+    fleetRefreshFailed ? 'the latest fleet refresh failed' : null,
+    !row.nodeOnline ? 'the node is offline' : null,
+    row.profileManagerStatus === 'stale' || row.profileManagerStatus === 'stopped'
+      ? `the profile manager is ${row.profileManagerStatus}`
+      : null,
+  ].filter((reason): reason is string => reason != null);
 
   return (
     <DetailPanel
@@ -40,6 +56,9 @@ export function RunnerDetail({ row, tenantId, isVisible, focusTitleRef }: Runner
       status={
         <>
           {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
+          {row.profileManagerStatus !== 'running' ? (
+            <StatusBadge status={`manager ${row.profileManagerStatus}`} />
+          ) : null}
           <StatusBadge status={row.slot.activity ?? 'activity unavailable'} />
           <StatusBadge status={row.slot.state} />
           <StatusBadge status={row.slot.registrationStatus ?? 'registration unavailable'} />
@@ -67,10 +86,17 @@ export function RunnerDetail({ row, tenantId, isVisible, focusTitleRef }: Runner
             remains selected so the investigation keeps context.
           </StateBanner>
         ) : null}
+        {!evidenceIsCurrent ? (
+          <StateBanner tone="caution" role="status">
+            This dispatch sheet shows last-known evidence from {formatTime(row.profileObservedAt)}{' '}
+            because {evidenceLimitations.join(' and ')}. It may no longer describe current workload
+            or lifecycle state.
+          </StateBanner>
+        ) : null}
 
         <section aria-labelledby={`${sectionId}-job`}>
           <h3 id={`${sectionId}-job`} className="text-sm font-semibold">
-            Current GitHub job
+            {evidenceIsCurrent ? 'Current GitHub job' : 'Last-known GitHub job evidence'}
           </h3>
           {job ? (
             <dl className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -91,7 +117,13 @@ export function RunnerDetail({ row, tenantId, isVisible, focusTitleRef }: Runner
               <RunnerFact label="Started" value={formatTime(job.startedAt)} />
               <RunnerFact
                 label="Result"
-                value={job.finishedAt ? (job.result ?? 'Unavailable') : 'In progress'}
+                value={
+                  job.finishedAt
+                    ? (job.result ?? 'Unavailable')
+                    : evidenceIsCurrent
+                      ? 'In progress'
+                      : 'Last reported in progress'
+                }
               />
               <RunnerFact
                 label="Workflow run ID"
@@ -112,20 +144,25 @@ export function RunnerDetail({ row, tenantId, isVisible, focusTitleRef }: Runner
               className="mt-3 border-t pt-3 text-sm text-status-caution-foreground"
               role="status"
             >
-              Current job identity is unavailable for this manager contract. Activity and resource
-              use are not treated as workload identity.
+              {evidenceIsCurrent
+                ? 'Current job identity is unavailable for this manager contract.'
+                : 'Job identity was unavailable in the last accepted manager projection.'}{' '}
+              Activity and resource use are not treated as workload identity.
             </div>
           ) : row.slot.activity === 'busy' || row.slot.activity === 'draining' ? (
             <div
               className="mt-3 border-t pt-3 text-sm text-status-caution-foreground"
               role="status"
             >
-              The runner reports {row.slot.activity} activity but no current GitHub job. Do not
-              infer job identity from process or resource activity.
+              The runner {evidenceIsCurrent ? 'reports' : 'last reported'} {row.slot.activity}{' '}
+              activity but no GitHub job identity. Do not infer job identity from process or
+              resource activity.
             </div>
           ) : (
             <div className="mt-3 border-t pt-3 text-sm text-muted-foreground">
-              No current GitHub job is assigned to this runner.
+              {evidenceIsCurrent
+                ? 'No current GitHub job is assigned to this runner.'
+                : 'No GitHub job was reported in the last accepted projection. Current job state is unavailable.'}
             </div>
           )}
         </section>

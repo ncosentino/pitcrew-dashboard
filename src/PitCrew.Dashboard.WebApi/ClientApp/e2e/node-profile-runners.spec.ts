@@ -186,6 +186,40 @@ test('runner dispatch sheet leads with explicit current-job correlation', async 
   });
 });
 
+test('offline runner correlation remains explicitly last-known', async ({ page }, testInfo) => {
+  await page.setViewportSize(viewports.desktop);
+  const scenario = activeJobScenario();
+  const offlineScenario = {
+    ...scenario,
+    fleet: {
+      ...scenario.fleet,
+      nodes: scenario.fleet.nodes.map((node) => ({ ...node, isOnline: false })),
+    },
+  };
+  await setUpPage(page, offlineScenario, 'light');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  await expect(
+    page.getByRole('heading', {
+      level: 2,
+      name: 'Last known: Compile and verify dashboard assets',
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Last-known GitHub job evidence' })).toContainText(
+    'Last reported in progress',
+  );
+  await expect(page.getByText(/because the node is offline/)).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Runner readiness' }).getByText('Current jobs').locator('..'),
+  ).toContainText('0');
+
+  await expectSurfaceHealth(page, testInfo, 'runner-last-known-job-desktop');
+  await testInfo.attach('screenshot-runner-last-known-job-desktop', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
 test('mobile runner selection focuses an explicit no-job dispatch sheet', async ({
   page,
 }, testInfo) => {
