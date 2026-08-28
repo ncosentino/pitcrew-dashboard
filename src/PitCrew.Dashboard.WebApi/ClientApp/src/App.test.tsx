@@ -223,7 +223,9 @@ describe('authenticated routing', () => {
     });
     renderRoute('/tenants/local/settings/access');
 
-    expect(await screen.findByText('Tenant membership')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Membership and roles' }),
+    ).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', { name: 'Tenant settings' });
     expect(navigation).toHaveTextContent('General');
     expect(navigation).toHaveTextContent('Access');
@@ -250,9 +252,13 @@ describe('authenticated routing', () => {
     renderRoute('/tenants/local/settings/enrollment');
     const user = userEvent.setup();
 
-    expect(await screen.findByText('Enroll a connector')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Issue one-time enrollment code' }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create one-time code' }));
     expect(await screen.findByText('one-time-code')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Enrollment code ready' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Copy value' })).toBeInTheDocument();
     expect(screen.getByText(/Expires/)).toBeInTheDocument();
     expect(screen.getByText(/not stored in recoverable form/)).toBeInTheDocument();
     expect(screen.getByText(/PitCrew__Connector__EnrollmentCode/)).toBeInTheDocument();

@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/core/api/httpClient';
 import { formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
+import { EmptyState } from '@/core/ui/EmptyState';
 import { FormField } from '@/core/ui/FormField';
+import { LoadingState } from '@/core/ui/LoadingState';
+import { OperationalList, OperationalRow } from '@/core/ui/OperationalList';
+import { StateBanner } from '@/core/ui/StateBanner';
+import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import {
   createDiagnosticCredential,
@@ -16,6 +20,8 @@ import {
   type DiagnosticCredential,
   type DiagnosticCredentialCreated,
 } from './settingsApi';
+import { SettingsTask } from './SettingsTask';
+import { OneTimeValue } from './OneTimeValue';
 
 /** Props for administrator-managed diagnostic credentials. */
 export interface DiagnosticCredentialsProps {
@@ -32,6 +38,7 @@ export function DiagnosticCredentials({ tenantId, antiforgeryToken }: Diagnostic
   const [profileIds, setProfileIds] = useState('');
   const [issued, setIssued] = useState<DiagnosticCredentialCreated | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
 
   const load = useCallback(
@@ -42,6 +49,8 @@ export function DiagnosticCredentials({ tenantId, antiforgeryToken }: Diagnostic
       } catch (caught) {
         if (caught instanceof Error && caught.name === 'AbortError') return;
         setError(caught instanceof Error ? caught.message : 'Credentials could not be loaded.');
+      } finally {
+        if (!signal.aborted) setIsLoading(false);
       }
     },
     [tenantId],
@@ -104,135 +113,119 @@ export function DiagnosticCredentials({ tenantId, antiforgeryToken }: Diagnostic
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle as="h2">Diagnostic credentials</CardTitle>
-        <CardDescription>
-          Issue tenant-scoped read-only credentials for headless fleet and history queries. Raw
-          values are shown once.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-        <fieldset className="grid gap-3 rounded-lg border p-4">
-          <legend className="px-2 text-sm font-medium">Create a new credential</legend>
-          <FormField label="Credential label" hint="A human-readable name for this credential.">
-            <input
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={label}
-              maxLength={128}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Expiry (hours)" hint="Between 1 and 8760 hours from creation.">
-            <input
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              type="number"
-              min={1}
-              max={8760}
-              inputMode="numeric"
-              value={expiryHours}
-              onChange={(event) => setExpiryHours(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Allowed node IDs" hint="Comma-separated; leave empty for all nodes.">
-            <input
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={nodeIds}
-              onChange={(event) => setNodeIds(event.target.value)}
-            />
-          </FormField>
-          <FormField
-            label="Allowed profile IDs"
-            hint="Comma-separated; leave empty for all profiles."
-          >
-            <input
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              value={profileIds}
-              onChange={(event) => setProfileIds(event.target.value)}
-            />
-          </FormField>
-          <Button
-            type="button"
-            disabled={isBusy || label.trim().length === 0}
-            onClick={() => void create()}
-          >
-            Create diagnostic credential
-          </Button>
-        </fieldset>
+    <SettingsTask
+      title="Read-only diagnostic access"
+      description="Issue tenant-scoped credentials for headless fleet and history queries. Raw values are shown once."
+    >
+      <div className="grid gap-4">
+        {error ? <StateBanner tone="critical">{error}</StateBanner> : null}
         {issued ? (
-          <div
-            className="grid gap-2 rounded-lg border border-status-caution-foreground/30 bg-status-caution p-4 text-status-caution-foreground"
-            role="status"
-          >
-            <div className="text-sm font-semibold">Copy this credential now</div>
-            <code className="overflow-x-auto rounded bg-background p-3 text-xs text-foreground">
-              {issued.value}
-            </code>
-            <div className="text-xs">
-              Send it only in the Authorization header using the PitCrew-Diagnostics scheme. It is
-              not stored in recoverable form.
-            </div>
-          </div>
+          <OneTimeValue
+            title="Diagnostic credential ready"
+            value={issued.value}
+            description="Send it only in the Authorization header with the PitCrew-Diagnostics scheme. It is not stored in recoverable form."
+            onClear={() => setIssued(null)}
+          />
         ) : null}
-        <div className="min-w-0 overflow-x-auto">
-          <table className="w-full min-w-3xl text-left text-sm">
-            <caption className="px-2 py-2 text-left font-semibold">
-              Issued diagnostic credentials
-            </caption>
-            <thead className="text-xs text-muted-foreground uppercase">
-              <tr>
-                <th scope="col" className="px-2 py-2">
-                  Credential
-                </th>
-                <th scope="col" className="px-2 py-2">
-                  Scope
-                </th>
-                <th scope="col" className="px-2 py-2">
-                  Activity
-                </th>
-                <th scope="col" className="px-2 py-2 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {credentials.map((credential) => (
-                <CredentialRow
-                  key={credential.credentialId}
-                  credential={credential}
-                  isBusy={isBusy}
-                  onRotate={() =>
-                    void mutate(
-                      async () =>
-                        await rotateDiagnosticCredential(
-                          tenantId,
-                          credential.credentialId,
-                          antiforgeryToken,
-                        ),
-                    )
-                  }
-                  onRevoke={() =>
-                    void mutate(async () => {
-                      await revokeDiagnosticCredential(
+        {isLoading ? <LoadingState label="Loading diagnostic credentials…" /> : null}
+        {!isLoading && error === null && credentials.length === 0 ? (
+          <EmptyState
+            title="No diagnostic credentials"
+            description="No tenant-scoped diagnostic credential metadata is currently visible. Create one only when a headless read-only integration needs it."
+          />
+        ) : null}
+        {!isLoading && credentials.length > 0 ? (
+          <OperationalList label="Issued diagnostic credentials">
+            {credentials.map((credential) => (
+              <CredentialRow
+                key={credential.credentialId}
+                credential={credential}
+                isBusy={isBusy}
+                onRotate={() =>
+                  void mutate(
+                    async () =>
+                      await rotateDiagnosticCredential(
                         tenantId,
                         credential.credentialId,
                         antiforgeryToken,
-                      );
-                      return null;
-                    })
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
+                      ),
+                  )
+                }
+                onRevoke={() =>
+                  void mutate(async () => {
+                    await revokeDiagnosticCredential(
+                      tenantId,
+                      credential.credentialId,
+                      antiforgeryToken,
+                    );
+                    return null;
+                  })
+                }
+              />
+            ))}
+          </OperationalList>
+        ) : null}
+        <details className="rounded-lg border bg-card">
+          <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring">
+            <span>Create a credential</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              {isLoading ? 'Loading' : `${credentials.length} issued`}
+            </span>
+          </summary>
+          <form
+            className="grid gap-3 border-t p-4 md:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create();
+            }}
+          >
+            <FormField label="Credential label" hint="A human-readable name for this credential.">
+              <input
+                className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                value={label}
+                maxLength={128}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Expiry (hours)" hint="Between 1 and 8760 hours from creation.">
+              <input
+                className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                type="number"
+                min={1}
+                max={8760}
+                inputMode="numeric"
+                value={expiryHours}
+                onChange={(event) => setExpiryHours(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Allowed node IDs" hint="Comma-separated; leave empty for all nodes.">
+              <input
+                className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                value={nodeIds}
+                onChange={(event) => setNodeIds(event.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Allowed profile IDs"
+              hint="Comma-separated; leave empty for all profiles."
+            >
+              <input
+                className="h-9 min-w-0 rounded-md border bg-background px-3 text-sm"
+                value={profileIds}
+                onChange={(event) => setProfileIds(event.target.value)}
+              />
+            </FormField>
+            <Button
+              className="justify-self-start md:col-span-2"
+              type="submit"
+              disabled={isBusy || label.trim().length === 0}
+            >
+              {isBusy ? 'Creating…' : 'Create diagnostic credential'}
+            </Button>
+          </form>
+        </details>
+      </div>
+    </SettingsTask>
   );
 }
 
@@ -244,36 +237,44 @@ interface CredentialRowProps {
 }
 
 function CredentialRow({ credential, isBusy, onRotate, onRevoke }: CredentialRowProps) {
+  const status = getCredentialStatus(credential);
+  const actionsDisabled = isBusy || status !== 'active';
   return (
-    <tr className="border-t align-top">
-      <td className="px-2 py-2">
-        <div className="font-medium">{credential.label}</div>
-        <div className="font-mono text-xs text-muted-foreground">{credential.credentialId}</div>
-        <div className="text-xs text-muted-foreground">
-          Expires {formatTime(credential.expiresAt)}
+    <OperationalRow
+      title={credential.label}
+      description={`Expires ${formatTime(credential.expiresAt)}`}
+      status={
+        <StatusBadge
+          status={status}
+          tone={status === 'active' ? 'positive' : status === 'revoked' ? 'critical' : 'caution'}
+        />
+      }
+      metadata={
+        <div className="grid min-w-0 gap-3 text-xs text-muted-foreground sm:grid-cols-2">
+          <div className="min-w-0">
+            <div className="font-medium text-foreground">Scope</div>
+            <div className="[overflow-wrap:anywhere]">
+              Nodes: {credential.nodeIds.length === 0 ? 'all' : credential.nodeIds.join(', ')}
+            </div>
+            <div className="[overflow-wrap:anywhere]">
+              Profiles:{' '}
+              {credential.profileIds.length === 0 ? 'all' : credential.profileIds.join(', ')}
+            </div>
+          </div>
+          <div>
+            <div className="font-medium text-foreground">Activity</div>
+            <div>Uses: {credential.useCount}</div>
+            <div>
+              Last used: {credential.lastUsedAt ? formatTime(credential.lastUsedAt) : 'never'}
+            </div>
+          </div>
         </div>
-      </td>
-      <td className="px-2 py-2 text-xs">
-        <div>Nodes: {credential.nodeIds.length === 0 ? 'all' : credential.nodeIds.join(', ')}</div>
-        <div>
-          Profiles: {credential.profileIds.length === 0 ? 'all' : credential.profileIds.join(', ')}
-        </div>
-      </td>
-      <td className="px-2 py-2 text-xs">
-        <div>{credential.revokedAt ? `Revoked ${formatTime(credential.revokedAt)}` : 'Active'}</div>
-        <div>Last used: {credential.lastUsedAt ? formatTime(credential.lastUsedAt) : 'never'}</div>
-        <div>Uses: {credential.useCount}</div>
-      </td>
-      <td className="px-2 py-2 text-right">
-        <div className="flex justify-end gap-2">
+      }
+      actions={
+        <div className="flex flex-wrap gap-2">
           <ConfirmActionDialog
             trigger={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isBusy || credential.revokedAt !== null}
-              >
+              <Button type="button" variant="outline" size="sm" disabled={actionsDisabled}>
                 Rotate
               </Button>
             }
@@ -297,12 +298,7 @@ function CredentialRow({ credential, isBusy, onRotate, onRevoke }: CredentialRow
           />
           <ConfirmActionDialog
             trigger={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isBusy || credential.revokedAt !== null}
-              >
+              <Button type="button" variant="outline" size="sm" disabled={actionsDisabled}>
                 Revoke
               </Button>
             }
@@ -329,7 +325,21 @@ function CredentialRow({ credential, isBusy, onRotate, onRevoke }: CredentialRow
             onConfirm={onRevoke}
           />
         </div>
-      </td>
-    </tr>
+      }
+    >
+      <div className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        {credential.credentialId}
+      </div>
+      {credential.rotatedFromCredentialId ? (
+        <div className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          Rotated from {credential.rotatedFromCredentialId}
+        </div>
+      ) : null}
+    </OperationalRow>
   );
+}
+
+function getCredentialStatus(credential: DiagnosticCredential): 'active' | 'expired' | 'revoked' {
+  if (credential.revokedAt) return 'revoked';
+  return Date.parse(credential.expiresAt) <= Date.now() ? 'expired' : 'active';
 }

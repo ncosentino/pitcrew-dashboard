@@ -12,9 +12,9 @@ Settings routes live under `/tenants/:tenantId/settings/`. Each route has:
 - **One human-readable page title** via `routePresentations` in the feature
   manifest. The shell renders it as the single H1 and sets `document.title`.
 - **Breadcrumbs** linking back to the parent settings section.
-- **Section navigation** using the shared `SectionNavigation` primitive from
-  `@/core/ui/SectionNavigation`. Items are filtered by the current user's
-  tenant role using `hasMinimumTenantRole`.
+- **Task navigation** using the shared `TaskWorkspace` and `TaskNavigation`
+  primitives. Items are filtered by the current user's tenant role using
+  `hasMinimumTenantRole`.
 
 ## Settings page composition
 
@@ -25,16 +25,39 @@ function SettingsPage({ children }: { children: ReactNode }) {
     // Build items filtered by tenant.role
   }, [tenant.role]);
   return (
-    <section className="grid gap-4">
-      <SectionNavigation label="Tenant settings" items={items} />
-      {children}
+    <section className="grid gap-5">
+      <ReadinessSummary
+        title="Administration context"
+        description="Current tenant identity and browser-visible authority."
+        items={[
+          { label: 'Tenant', value: tenant.displayName },
+          { label: 'Stable tenant ID', value: tenant.tenantId },
+          { label: 'Your authority', value: tenant.role },
+          { label: 'Available tasks', value: items.length },
+        ]}
+      />
+      <TaskWorkspace navigationLabel="Tenant settings" navigationItems={items}>
+        {children}
+      </TaskWorkspace>
     </section>
   );
 }
 ```
 
-Each settings page wraps its content in `SettingsPage` to get consistent
-secondary navigation with clear active states.
+Each settings page wraps its content in `SettingsPage` to keep tenant identity,
+authority, and task navigation visible before the selected administration task.
+
+## Change-control ledger
+
+Settings tasks use current-state operational rows before editors or mutations:
+
+- `SettingsTask` provides the task heading without another card layer.
+- `OperationalList` and `OperationalRow` present identity, role, scope, expiry,
+  activity, and lifecycle state before trailing actions.
+- Add/create composers follow the current records inside native `details`
+  disclosure instead of competing with the primary scan.
+- Comparison tables remain appropriate only when cross-record comparison is the
+  task; narrow layouts must not push actions outside the viewport.
 
 ## Form fields
 
@@ -53,6 +76,17 @@ removal) use `ConfirmActionDialog` with `ConfirmationSummary`:
 - **Effects**: what will happen.
 - **Prohibited effects**: what will not happen (scope preservation).
 - Optional **acknowledgement** checkbox for high-consequence operations.
+
+## One-time values
+
+Enrollment codes and diagnostic credential values use the shared settings-local
+`OneTimeValue` result:
+
+- focus moves to the newly issued result;
+- the raw value has an explicit copy control and clipboard-failure state;
+- the operator can explicitly clear the value from the rendered page;
+- only non-secret metadata remains after clear, navigation, reload, revoke, or a
+  later mutation.
 
 ## Stable identifiers
 
@@ -74,8 +108,8 @@ level. The section navigation only renders tabs the current role can access.
 
 ## Primary navigation active state
 
-The manifest's `activePathPatterns` for the "Settings" primary navigation
-item includes General, Access, Enrollment, and Diagnostics. Child settings
-routes never contribute separate primary-navigation items, so desktop and
-mobile shells expose one stable Settings parent while section navigation owns
-the authorized child destinations.
+The manifest's `activePathPatterns` for the "Settings" primary navigation item
+includes General, Access, Enrollment, and Diagnostics. Child settings routes
+never contribute separate primary-navigation items, so desktop and mobile
+shells expose one stable Settings parent while task navigation owns the
+authorized child destinations.

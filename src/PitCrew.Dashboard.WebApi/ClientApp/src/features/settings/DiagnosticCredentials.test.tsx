@@ -9,7 +9,7 @@ const credential = {
   label: 'Performance diagnostics',
   createdByGitHubUserId: '1',
   createdAt: '2026-08-04T00:00:00.0000000+00:00',
-  expiresAt: '2026-08-05T00:00:00.0000000+00:00',
+  expiresAt: '2099-08-05T00:00:00.0000000+00:00',
   revokedAt: null,
   revokedByGitHubUserId: null,
   rotatedFromCredentialId: null,
@@ -39,6 +39,7 @@ describe('DiagnosticCredentials', () => {
     render(<DiagnosticCredentials tenantId="local" antiforgeryToken="token" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByText('Create a credential', { exact: true }));
     await user.type(
       screen.getByLabelText('Allowed node IDs'),
       '22222222-2222-4222-8222-222222222222',
@@ -77,13 +78,16 @@ describe('DiagnosticCredentials', () => {
     const user = userEvent.setup();
     render(<DiagnosticCredentials tenantId="local" antiforgeryToken="token" />);
 
-    await screen.findByText('Issued diagnostic credentials');
+    await screen.findByText('No diagnostic credentials');
+    await user.click(screen.getByText('Create a credential', { exact: true }));
     await user.click(screen.getByRole('button', { name: 'Create diagnostic credential' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Every node restriction must belong to the tenant.',
     );
-    expect(screen.queryByText('Copy this credential now')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('region', { name: 'Diagnostic credential ready' }),
+    ).not.toBeInTheDocument();
   });
 
   it('requires explicit confirmation before rotating a credential', async () => {
@@ -168,7 +172,24 @@ describe('DiagnosticCredentials', () => {
       `/api/tenants/local/diagnostic-credentials/${credential.credentialId}/revoke`,
     );
     expect(init?.method).toBe('POST');
-    expect(await screen.findByText(/Revoked/)).toBeInTheDocument();
+    expect(await screen.findByText('revoked')).toBeInTheDocument();
+  });
+
+  it('marks expired credentials and disables lifecycle actions', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse([
+        {
+          ...credential,
+          expiresAt: '2000-01-01T00:00:00.0000000+00:00',
+        },
+      ]),
+    );
+
+    render(<DiagnosticCredentials tenantId="local" antiforgeryToken="token" />);
+
+    expect(await screen.findByText('expired')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Revoke' })).toBeDisabled();
   });
 });
 

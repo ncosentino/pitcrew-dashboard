@@ -1,8 +1,9 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DisplayNameEditor } from '@/components/DisplayNameEditor';
-import { CopyableId } from '@/core/ui/CopyableId';
+import { OperationalList, OperationalRow } from '@/core/ui/OperationalList';
+import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import { renameTenant } from './settingsApi';
+import { SettingsTask } from './SettingsTask';
 
 /** Props for owner-managed tenant settings. */
 export interface TenantSettingsProps {
@@ -20,29 +21,28 @@ export function TenantSettings({
   onRenamed,
 }: TenantSettingsProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle as="h2">Tenant settings</CardTitle>
-        <CardDescription>
-          Change the operator-facing name. The stable tenant ID is not editable.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <div className="grid gap-1">
-          <span className="text-sm font-medium">Tenant ID</span>
-          <CopyableId value={tenantId} label="tenant ID" />
-        </div>
-        <DisplayNameEditor
-          value={displayName}
-          label="Tenant display name"
-          submitLabel="Rename tenant"
-          successMessage="Tenant name updated."
-          onSave={async (nextDisplayName) => {
-            await renameTenant(tenantId, nextDisplayName, antiforgeryToken);
-            onRenamed(nextDisplayName);
-          }}
-        />
-      </CardContent>
-    </Card>
+    <SettingsTask
+      title="Tenant identity"
+      description="Change the operator-facing name. The stable tenant ID in the administration context remains unchanged."
+    >
+      <OperationalList label="Tenant identity settings">
+        <OperationalRow
+          title="Tenant display name"
+          description={displayName}
+          status={<StatusBadge status="Editable" tone="neutral" />}
+        >
+          <DisplayNameEditor
+            value={displayName}
+            label="Tenant display name"
+            submitLabel="Rename tenant"
+            successMessage="Tenant name updated."
+            onSave={async (nextDisplayName) => {
+              await renameTenant(tenantId, nextDisplayName, antiforgeryToken);
+              onRenamed(nextDisplayName);
+            }}
+          />
+        </OperationalRow>
+      </OperationalList>
+    </SettingsTask>
   );
 }

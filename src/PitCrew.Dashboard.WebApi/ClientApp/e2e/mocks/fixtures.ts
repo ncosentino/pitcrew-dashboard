@@ -359,7 +359,7 @@ export function buildDiagnosticCredentials(): ReadonlyArray<DiagnosticCredential
       label: 'Read-only fleet audit',
       createdByGitHubUserId: '1001',
       createdAt: '2026-07-01T09:00:00+00:00',
-      expiresAt: '2026-08-01T09:00:00+00:00',
+      expiresAt: '2027-08-01T09:00:00+00:00',
       revokedAt: null,
       revokedByGitHubUserId: null,
       rotatedFromCredentialId: null,
