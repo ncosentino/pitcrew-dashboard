@@ -292,8 +292,8 @@ try {
         'Instruction and generated mirror counts differ.')
     Add-Check ($result.instructions -ge 130) (
         'The migrated Genesis and project-owned instruction set is incomplete.')
-    Add-Check ($result.docs -eq 51) (
-        'The documentation map does not contain the expected 51 maintained pages.')
+    Add-Check ($result.docs -eq 52) (
+        'The documentation map does not contain the expected 52 maintained pages.')
     Add-Check ($result.adrs -eq 12) (
         'The ADR index does not contain twelve records.')
 
@@ -339,8 +339,8 @@ try {
     $surfaceBriefs = @(
         Get-ChildItem -LiteralPath $surfaceBriefRoot -Filter '*.md' -File
     )
-    Add-Check ($surfaceBriefs.Count -eq 6) (
-        'The expected six Impeccable surface briefs are not present.')
+    Add-Check ($surfaceBriefs.Count -eq 7) (
+        'The expected seven Impeccable surface briefs are not present.')
     Add-Check (
         @(
             $surfaceBriefs |
