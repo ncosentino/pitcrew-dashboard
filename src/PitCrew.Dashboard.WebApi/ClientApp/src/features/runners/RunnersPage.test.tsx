@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FleetProvider, type FleetResponse } from '@/core/fleet';
 
 import { runnersManifest } from './manifest';
-import { flattenFleetSlots } from './runnerRows';
+import { flattenFleetSlots, runnerSelectionId } from './runnerRows';
 import { RunnersPage } from './RunnersPage';
 
 const localNodeId = '10000000-0000-4000-8000-000000000001';
@@ -156,6 +156,83 @@ function standardFleet() {
   ]);
 }
 
+function currentJobFleet() {
+  const observedAt = '2026-07-26T02:00:00+00:00';
+  return fleetResponse([
+    nodeResponse(localNodeId, 'Alpha', [
+      profileResponse(
+        'build',
+        [
+          slotResponse('active-job', {
+            repository: 'octo/alpha',
+            activity: 'busy',
+            runnerNameHash: 'a'.repeat(64),
+            currentJob: {
+              repository: 'https://github.com/octo/alpha',
+              workflowRunId: 12345,
+              jobId: '67890',
+              displayName: 'Compile dashboard',
+              eventName: 'push',
+              queuedAt: '2026-07-26T01:55:00+00:00',
+              scaleSetAssignedAt: '2026-07-26T01:56:00+00:00',
+              runnerAssignedAt: '2026-07-26T01:57:00+00:00',
+              startedAt: '2026-07-26T01:58:00+00:00',
+              finishedAt: null,
+              result: null,
+            },
+          }),
+        ],
+        'available',
+        {
+          managerContractVersion: 15,
+          operationJournal: {
+            status: 'current',
+            capacity: 32,
+            highestSequence: null,
+            droppedEvents: 0,
+            events: [],
+          },
+          subsystemHealth: {
+            docker: {
+              state: 'unknown',
+              observedAt,
+              consecutiveFailures: 0,
+              retryAt: null,
+              lastSuccess: null,
+              lastFailure: null,
+            },
+            github: {
+              state: 'unknown',
+              observedAt,
+              consecutiveFailures: 0,
+              retryAt: null,
+              lastSuccess: null,
+              lastFailure: null,
+            },
+          },
+          capacityEvidence: {
+            fixed: {
+              observedAt,
+              freshness: 'current',
+              targetSlots: 1,
+              activeWorkers: 1,
+              startingWorkers: 0,
+              drainingWorkers: 0,
+              cleanupPendingWorkers: 0,
+              eligibleWorkers: 1,
+              localDeficit: 0,
+              eligibilityDeficit: 0,
+              reason: 'none',
+              evidence: null,
+            },
+            targets: [],
+          },
+        },
+      ),
+    ]),
+  ]);
+}
+
 describe('runners feature', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -197,9 +274,116 @@ describe('runners feature', () => {
       expect.anything(),
     );
     expect(
-      within(screen.getByTestId(`runner-row-${localNodeId}-build-slot-a`)).getByRole('link'),
+      within(screen.getByTestId(`runner-row-${localNodeId}-build-slot-a`)).getByRole('link', {
+        name: 'Alpha',
+      }),
     ).toHaveAttribute('href', `/tenants/local/nodes/${localNodeId}/profiles/build`);
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Busy runner without job identity' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open job in GitHub' })).not.toBeInTheDocument();
+    expect(screen.getByText('Needs review')).toBeInTheDocument();
+  });
+
+  it('deep-links one runner investigation while preserving inventory context and focus', async () => {
+    const fleet = standardFleet();
+    const selected = flattenFleetSlots(fleet as unknown as FleetResponse).find(
+      (row) => row.slot.key === 'slot-b',
+    );
+    if (!selected) throw new Error('Expected slot-b in the test fleet.');
+    renderRunners(fleet);
+    const user = userEvent.setup();
+
+    await screen.findByRole('heading', {
+      level: 2,
+      name: 'Busy runner without job identity',
+    });
+
+    await user.click(
+      within(screen.getByTestId(`runner-row-${localNodeId}-deploy-slot-b`)).getByRole('link', {
+        name: 'Investigate',
+      }),
+    );
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Alpha · slot-b' }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Selected runner investigation' })).toHaveFocus(),
+    );
+    expect(
+      new URLSearchParams(screen.getByLabelText('Current query').textContent ?? '').get('runner'),
+    ).toBe(runnerSelectionId(selected));
+    expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(3);
+    expect(
+      within(screen.getByTestId(`runner-row-${localNodeId}-deploy-slot-b`)).getByRole('link', {
+        name: 'Selected',
+      }),
+    ).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('shows explicit current-job correlation and direct GitHub evidence', async () => {
+    renderRunners(currentJobFleet());
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Compile dashboard' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open job in GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/octo/alpha/actions/runs/12345/job/67890',
+    );
+    expect(
+      within(screen.getByRole('region', { name: 'Runner readiness' })).getByText('Current jobs')
+        .parentElement,
+    ).toHaveTextContent('1');
+    expect(screen.getByText('In progress')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Current GitHub job' })).toBeInTheDocument();
+  });
+
+  it('keeps busy activity explicitly unattributed when job identity is unavailable', async () => {
+    renderRunners(
+      fleetResponse([
+        nodeResponse(localNodeId, 'Alpha', [
+          profileResponse('build', [
+            slotResponse('legacy-busy', {
+              activity: 'busy',
+              currentJob: undefined,
+            }),
+          ]),
+        ]),
+      ]),
+    );
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Busy runner without job identity' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Current job identity is unavailable for this manager contract/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/not treated as workload identity/)).toBeInTheDocument();
+  });
+
+  it('does not substitute another runner when a deep-linked tuple is unavailable', async () => {
+    renderRunners(standardFleet(), '/tenants/local/runners?runner=missing-runner');
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('Selected runner is unavailable')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', {
+        level: 2,
+        name: 'Busy runner without job identity',
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(3);
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: 'Busy runner without job identity',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('restores every filter and sorting field from a bookmarked URL', async () => {
@@ -252,15 +436,11 @@ describe('runners feature', () => {
 
     const table = await screen.findByRole('table');
     const rows = within(table).getAllByTestId(/^runner-row-/);
-    expect(
-      rows.map((row) =>
-        within(row)
-          .getByTestId(/^runner-slot-/)
-          .textContent?.split('·')
-          .at(-1)
-          ?.trim(),
-      ),
-    ).toEqual(['slot-b', 'slot-c', 'slot-a']);
+    expect(rows.map((row) => within(row).getByText(/^slot-/).textContent)).toEqual([
+      'slot-b',
+      'slot-c',
+      'slot-a',
+    ]);
   });
 
   it('keeps missing metrics unavailable while preserving reported zero values', async () => {
@@ -398,7 +578,7 @@ describe('runners feature', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(fleetResponse([])));
 
     expect(
-      await screen.findByText('No runner slots have been reported for this tenant.'),
+      await screen.findByRole('heading', { name: 'No runner slots reported' }),
     ).toBeInTheDocument();
     unmount();
     vi.restoreAllMocks();
@@ -415,7 +595,7 @@ describe('runners feature', () => {
       '/tenants/local/runners?repository=no-match',
     );
     expect(
-      await screen.findByText('No runner slots match the current filters.'),
+      await screen.findByRole('heading', { name: 'No runners match this view' }),
     ).toBeInTheDocument();
   });
 
