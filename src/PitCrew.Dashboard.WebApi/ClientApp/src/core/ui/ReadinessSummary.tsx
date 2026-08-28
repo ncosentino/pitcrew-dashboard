@@ -38,7 +38,7 @@ export function ReadinessSummary({
           </h2>
           <div className="mt-1 max-w-[72ch] text-sm text-muted-foreground">{description}</div>
         </div>
-        {status ? <div className="shrink-0">{status}</div> : null}
+        {status ? <div className="min-w-0 max-w-full">{status}</div> : null}
       </div>
       <dl className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) => (

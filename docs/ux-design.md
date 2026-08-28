@@ -81,6 +81,15 @@ incrementally where it matches the task: settings administration, incident
 investigation, profile detail, and future image-candidate workflows. Do not force the
 workspace topology onto simple pages with one task or small static content.
 
+For nested entity investigation, keep entity readiness outside the selected task so
+freshness and material exceptions remain visible while the operator moves between
+subroutes. A child collection that operators scan independently belongs on its own
+task route rather than at the bottom of the overview. Order its rows only from
+authoritative incidents and reported lifecycle state. A comparison table may remain
+available when cross-item comparison is genuinely primary, but constrained layouts
+use compact rows and explicit drill-in instead of shrinking or stacking the complete
+desktop evidence.
+
 ## Primary references
 
 - [WCAG 2.2 target size minimum](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)

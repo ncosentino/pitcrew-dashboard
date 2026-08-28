@@ -47,12 +47,12 @@ test('node detail renders an EntityHeader with the node display name title', asy
   await expect(page.getByRole('button', { name: `Copy Alpha node ID` })).toBeVisible();
 });
 
-test('desktop node profiles switch between cards and a persisted comparison table', async ({
+test('desktop node profiles switch between list and a persisted comparison table', async ({
   page,
 }, testInfo) => {
   await page.setViewportSize(viewports.wide);
   await setUpPage(page, healthyScenario(), 'dark');
-  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}`);
+  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles`);
 
   await expect(page.getByTestId('node-profile-build')).toBeVisible();
   await expect(page.getByTestId('node-profile-deploy')).toBeVisible();
@@ -164,19 +164,14 @@ test('mobile node overview exposes a compact section index before detailed evide
   await setUpPage(page, pressureScenario(), 'dark');
   await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}`);
 
-  await expect(page.getByTestId(`node-overview-profiles-${nodeIds.alpha}`)).toContainText(
-    '0 named profiles',
-  );
-  await expect(page.getByTestId('node-overview-section-profiles')).toContainText(
-    '1 profile · 0 named in incidents',
-  );
+  await expect(page.getByRole('region', { name: 'Node readiness' })).toContainText('1');
+  await expect(page.getByRole('link', { name: /Profiles/ })).toBeVisible();
 
   const sectionIds = [
     'node-overview-section-identity',
     'node-overview-section-pressure',
     'node-overview-section-connector',
     'node-overview-section-hardware',
-    'node-overview-section-profiles',
   ] as const;
   for (const testId of sectionIds) {
     const section = page.getByTestId(testId);
@@ -189,7 +184,7 @@ test('mobile node overview exposes a compact section index before detailed evide
     .locator(':scope > summary')
     .boundingBox();
   const lastSummary = await page
-    .getByTestId(sectionIds[4])
+    .getByTestId(sectionIds[3])
     .locator(':scope > summary')
     .boundingBox();
   expect(firstSummary).not.toBeNull();
@@ -203,13 +198,12 @@ test('mobile node overview exposes a compact section index before detailed evide
   ).toBeVisible();
   await pressure.locator(':scope > summary').click();
 
-  const profiles = page.getByTestId('node-overview-section-profiles');
-  await profiles.locator(':scope > summary').click();
-  const profile = page.getByTestId('node-profile-disclosure-build');
-  await expect(profile.locator(':scope > summary')).toBeVisible();
-  await expect(profile.getByRole('link', { name: 'Build' })).not.toBeVisible();
-  await profile.locator(':scope > summary').click();
-  await expect(profile.getByRole('link', { name: 'Build' })).toBeVisible();
+  await page.getByRole('link', { name: /Profiles/ }).click();
+  const profile = page.getByTestId('node-profile-build');
+  await expect(
+    profile.getByRole('link', { name: /Review (overview|capacity|workers|diagnostics)/ }),
+  ).toBeVisible();
+  await expect(profile.getByText('Configured')).toBeHidden();
 });
 
 const matrix = [
@@ -236,6 +230,12 @@ const matrix = [
     scenario: activeJobScenario,
     path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}`,
     readyText: 'Active workers and jobs',
+  },
+  {
+    name: 'profile-inventory',
+    scenario: healthyScenario,
+    path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles`,
+    readyText: 'Profiles requiring attention',
   },
   {
     name: 'rolling-image',

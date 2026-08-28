@@ -78,7 +78,7 @@ export function StatusBadge({ status, tone }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex rounded-full px-2 py-1 text-xs font-semibold capitalize',
+        'inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold capitalize',
         tone ? toneClasses(tone) : statusClasses(status),
       )}
     >

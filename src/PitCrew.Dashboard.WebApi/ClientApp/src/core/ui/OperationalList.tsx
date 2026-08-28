@@ -20,6 +20,7 @@ export function OperationalList({ label, children, className }: OperationalListP
 }
 
 export interface OperationalRowProps {
+  readonly testId?: string;
   readonly title: ReactNode;
   readonly description?: ReactNode;
   readonly metadata?: ReactNode;
@@ -31,6 +32,7 @@ export interface OperationalRowProps {
 
 /** Renders one full-width record with stable identity, state, evidence, and trailing actions. */
 export function OperationalRow({
+  testId,
   title,
   description,
   metadata,
@@ -40,7 +42,10 @@ export function OperationalRow({
   children,
 }: OperationalRowProps) {
   return (
-    <li className={cn('min-w-0 px-4 py-3 transition-colors sm:px-5', selected && 'bg-accent/60')}>
+    <li
+      data-testid={testId}
+      className={cn('min-w-0 px-4 py-3 transition-colors sm:px-5', selected && 'bg-accent/60')}
+    >
       <article className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">

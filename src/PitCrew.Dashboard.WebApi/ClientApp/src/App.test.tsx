@@ -377,6 +377,14 @@ describe('authenticated routing', () => {
     expect(await screen.findByText('Node not found')).toBeInTheDocument();
 
     await act(async () => {
+      await router.navigate('/tenants/local/nodes/node-1/profiles');
+    });
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Node profiles' }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1/history');
     });
 
@@ -580,7 +588,7 @@ describe('authenticated routing', () => {
     await act(async () => {
       await router.navigate('/tenants/local/nodes/node-1');
     });
-    expect(await screen.findByText('Loading node…')).toBeInTheDocument();
+    expect(await screen.findByText('Loading node status')).toBeInTheDocument();
     expect(fleetSignal?.aborted).toBe(false);
 
     await act(async () => {
