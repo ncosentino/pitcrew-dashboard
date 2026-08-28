@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/core/auth';
@@ -21,7 +21,7 @@ import {
   type IncidentPage,
   type OperationalIncident,
 } from './incidentsApi';
-import { IncidentDetail } from './components/IncidentDetail';
+import { IncidentDetail, type IncidentEnrichmentStatus } from './components/IncidentDetail';
 import { IncidentFilters } from './components/IncidentFilters';
 import { IncidentRow } from './components/IncidentRow';
 import {
@@ -36,20 +36,25 @@ import {
 } from './incidentView';
 
 const desktopIncidentWorkspaceQuery = '(min-width: 80rem)';
+const expandedIncidentFilterQuery = '(min-width: 48rem)';
 
-function useDesktopIncidentWorkspace(): boolean {
-  const [isDesktop, setIsDesktop] = useState(
-    () => globalThis.matchMedia(desktopIncidentWorkspaceQuery).matches,
-  );
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => globalThis.matchMedia(query).matches);
 
   useEffect(() => {
-    const mediaQuery = globalThis.matchMedia(desktopIncidentWorkspaceQuery);
-    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    const mediaQuery = globalThis.matchMedia(query);
+    const handleChange = (event: MediaQueryListEvent) => setMatches(event.matches);
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
+  }, [query]);
 
-  return isDesktop;
+  return matches;
+}
+
+interface IncidentEnrichmentState {
+  readonly tenantId: string;
+  readonly nodes: ReadonlyArray<FleetNode>;
+  readonly status: IncidentEnrichmentStatus;
 }
 
 /** Renders active incidents and bounded resolved history without crowding fleet status pages. */
@@ -57,7 +62,11 @@ export default function IncidentsPage() {
   const { tenantId = '' } = useParams();
   const { session } = useSession();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [nodes, setNodes] = useState<ReadonlyArray<FleetNode>>([]);
+  const [enrichment, setEnrichment] = useState<IncidentEnrichmentState>({
+    tenantId,
+    nodes: [],
+    status: 'loading',
+  });
   const [page, setPage] = useState<IncidentPage | null>(null);
   const [loadedFilter, setLoadedFilter] = useState<IncidentFilter | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +75,14 @@ export default function IncidentsPage() {
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
   const [isQueueOpenOnMobile, setIsQueueOpenOnMobile] = useState(false);
   const requestVersion = useRef(0);
-  const isDesktopWorkspace = useDesktopIncidentWorkspace();
+  const selectedCase = useRef<HTMLDivElement>(null);
+  const pendingSelectionFocus = useRef<string | null>(null);
+  const isDesktopWorkspace = useMediaQuery(desktopIncidentWorkspaceQuery);
+  const isExpandedFilterLayout = useMediaQuery(expandedIncidentFilterQuery);
+  const currentEnrichment =
+    enrichment.tenantId === tenantId
+      ? enrichment
+      : { tenantId, nodes: [], status: 'loading' as const };
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAcknowledge = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const antiforgeryToken = session?.antiforgeryToken ?? '';
@@ -93,18 +109,30 @@ export default function IncidentsPage() {
       setIsLoading(true);
       try {
         const requestSignal = signal ?? new AbortController().signal;
-        const fleetPromise = getFleet(tenantId, requestSignal).catch((caught: unknown) => {
-          if (caught instanceof DOMException && caught.name === 'AbortError') return null;
-          console.warn('Connector health evidence is unavailable on the incident page.', caught);
-          return null;
-        });
+        const fleetPromise = getFleet(tenantId, requestSignal)
+          .then((nextFleet) => ({ status: 'available' as const, nodes: nextFleet.nodes }))
+          .catch((caught: unknown) => {
+            if (caught instanceof DOMException && caught.name === 'AbortError') return null;
+            console.warn('Connector health evidence is unavailable on the incident page.', caught);
+            return { status: 'unavailable' as const, nodes: [] };
+          });
         const next = await getIncidents(tenantId, sourceFilter, signal);
         if (version !== requestVersion.current) return;
         setPage(next);
         setLoadedFilter(sourceFilter);
         setError(null);
-        void fleetPromise.then((nextFleet) => {
-          if (version === requestVersion.current) setNodes(nextFleet?.nodes ?? []);
+        void fleetPromise.then((result) => {
+          if (version !== requestVersion.current || result == null) return;
+          if (result.status === 'available') {
+            setEnrichment({ tenantId, nodes: result.nodes, status: 'available' });
+            return;
+          }
+          setEnrichment((current) =>
+            current.tenantId === tenantId &&
+            (current.status === 'available' || current.status === 'stale')
+              ? { ...current, status: 'stale' }
+              : { tenantId, nodes: [], status: 'unavailable' },
+          );
         });
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
@@ -131,8 +159,8 @@ export default function IncidentsPage() {
   }, [load]);
 
   const nodesById = useMemo(
-    () => new Map(nodes.map((node) => [node.nodeId, node] as const)),
-    [nodes],
+    () => new Map(currentEnrichment.nodes.map((node) => [node.nodeId, node] as const)),
+    [currentEnrichment.nodes],
   );
   const currentPage = loadedFilter === sourceFilter ? page : null;
   const counts = useMemo(() => {
@@ -160,15 +188,42 @@ export default function IncidentsPage() {
   ).length;
   const sourceHasTriggeredIncident =
     currentPage?.incidents.some((incident) => incident.status === 'triggered') ?? false;
-  const requestedIncidentId = searchParams.get('incident');
+  const requestedIncidentId = searchParams.get('incident') || null;
+  const requestedIncident =
+    requestedIncidentId == null
+      ? undefined
+      : currentPage?.incidents.find((incident) => incident.incidentId === requestedIncidentId);
+  const requestedIncidentIsUnavailable =
+    currentPage != null && requestedIncidentId != null && requestedIncident == null;
   const selectedIncident =
-    currentPage?.incidents.find((incident) => incident.incidentId === requestedIncidentId) ??
-    visibleIncidents[0] ??
-    null;
+    requestedIncidentId == null ? (visibleIncidents[0] ?? null) : (requestedIncident ?? null);
   const selectedNode = selectedIncident ? nodesById.get(selectedIncident.nodeId) : undefined;
   const selectedIncidentIsVisible =
     selectedIncident != null &&
     visibleIncidents.some((incident) => incident.incidentId === selectedIncident.incidentId);
+
+  const selectIncident = useCallback(
+    (incidentId: string) => {
+      if (isDesktopWorkspace) return;
+      pendingSelectionFocus.current = incidentId;
+      setIsQueueOpenOnMobile(false);
+    },
+    [isDesktopWorkspace],
+  );
+
+  useEffect(() => {
+    if (
+      isDesktopWorkspace ||
+      isQueueOpenOnMobile ||
+      selectedIncident == null ||
+      pendingSelectionFocus.current !== selectedIncident.incidentId
+    ) {
+      return;
+    }
+    pendingSelectionFocus.current = null;
+    selectedCase.current?.focus();
+  }, [isDesktopWorkspace, isQueueOpenOnMobile, selectedIncident]);
+
   const filterChips = useMemo<ReadonlyArray<FilterChipDescriptor>>(() => {
     const chips: FilterChipDescriptor[] = [];
     if (view !== 'attention') {
@@ -323,6 +378,7 @@ export default function IncidentsPage() {
           query={searchParams.get('q') ?? ''}
           severity={severity}
           sort={sort}
+          isExpandedLayout={isExpandedFilterLayout}
           chips={filterChips}
           resultSummary={
             !currentPage
@@ -359,7 +415,7 @@ export default function IncidentsPage() {
 
       {isLoading && !currentPage ? <LoadingState label="Loading operational incidents…" /> : null}
 
-      {!isLoading && currentPage?.incidents.length === 0 ? (
+      {!isLoading && currentPage?.incidents.length === 0 && !requestedIncidentIsUnavailable ? (
         <EmptyState
           title={
             view === 'attention' || view === 'active'
@@ -375,7 +431,8 @@ export default function IncidentsPage() {
       {currentPage &&
       currentPage.incidents.length > 0 &&
       visibleIncidents.length === 0 &&
-      selectedIncident == null ? (
+      selectedIncident == null &&
+      !requestedIncidentIsUnavailable ? (
         <EmptyState
           title={
             view === 'attention' && counts.acknowledged > 0
@@ -395,10 +452,41 @@ export default function IncidentsPage() {
         />
       ) : null}
 
+      {requestedIncidentIsUnavailable && requestedIncidentId ? (
+        <StateBanner tone="caution" role="status">
+          <div className="grid gap-3">
+            <div>
+              <p className="font-semibold">Selected incident is unavailable</p>
+              <p className="mt-1">
+                Incident {requestedIncidentId} is not present in this bounded{' '}
+                {viewLabels[view].toLocaleLowerCase()} response. It may have resolved, fallen
+                outside retention, or been omitted by the server limit; another incident has not
+                been substituted.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setParameter('incident', '', '')}
+              >
+                Clear selection
+              </Button>
+              <Button asChild type="button" size="sm" variant="outline">
+                <Link to={incidentHistoryHref(searchParams, requestedIncidentId)}>
+                  Search all history
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </StateBanner>
+      ) : null}
+
       {currentPage && (visibleIncidents.length > 0 || selectedIncident != null) ? (
         <div
           className={
-            visibleIncidents.length > 0
+            visibleIncidents.length > 0 && selectedIncident != null
               ? 'grid min-w-0 gap-4 xl:grid-cols-[minmax(19rem,0.78fr)_minmax(0,1.4fr)] xl:items-start'
               : 'grid min-w-0 gap-4'
           }
@@ -432,8 +520,10 @@ export default function IncidentsPage() {
                 <IncidentQueue
                   incidents={visibleIncidents}
                   nodesById={nodesById}
+                  enrichmentStatus={currentEnrichment.status}
                   searchParams={searchParams}
                   selectedIncidentId={selectedIncident?.incidentId ?? null}
+                  onSelect={selectIncident}
                   className="rounded-none border-0 xl:rounded-xl xl:border"
                 />
               </section>
@@ -441,10 +531,17 @@ export default function IncidentsPage() {
           ) : null}
 
           {selectedIncident ? (
-            <div className="min-w-0">
+            <div
+              ref={selectedCase}
+              aria-label="Selected incident case"
+              className="min-w-0 rounded-xl outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              role="region"
+              tabIndex={-1}
+            >
               <IncidentDetail
                 incident={selectedIncident}
                 node={selectedNode}
+                enrichmentStatus={currentEnrichment.status}
                 isVisible={selectedIncidentIsVisible}
                 canAcknowledge={canAcknowledge}
                 isAcknowledging={acknowledgingId === selectedIncident.incidentId}
@@ -462,16 +559,20 @@ export default function IncidentsPage() {
 interface IncidentQueueProps {
   readonly incidents: ReadonlyArray<OperationalIncident>;
   readonly nodesById: ReadonlyMap<string, FleetNode>;
+  readonly enrichmentStatus: IncidentEnrichmentStatus;
   readonly searchParams: URLSearchParams;
   readonly selectedIncidentId: string | null;
+  readonly onSelect: (incidentId: string) => void;
   readonly className?: string;
 }
 
 function IncidentQueue({
   incidents,
   nodesById,
+  enrichmentStatus,
   searchParams,
   selectedIncidentId,
+  onSelect,
   className,
 }: IncidentQueueProps) {
   return (
@@ -485,11 +586,20 @@ function IncidentQueue({
             key={incident.incidentId}
             incident={incident}
             node={node}
+            enrichmentStatus={enrichmentStatus}
             selectionHref={`?${nextSearchParams.toString()}`}
             selected={incident.incidentId === selectedIncidentId}
+            onSelect={onSelect}
           />
         );
       })}
     </OperationalList>
   );
+}
+
+function incidentHistoryHref(searchParams: URLSearchParams, incidentId: string): string {
+  const next = new URLSearchParams(searchParams);
+  next.set('view', 'history');
+  next.set('incident', incidentId);
+  return `?${next.toString()}`;
 }

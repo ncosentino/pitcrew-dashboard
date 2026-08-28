@@ -2,14 +2,7 @@
 version: 1
 slug: "clientapp-src-features-fleet-fleetoverviewpage-tsx"
 primary_target: "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetOverviewPage.tsx"
-related_targets:
-  [
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/IncidentsPage.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/IncidentDetail.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/IncidentRow.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ActiveIncidentSummary.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/manifest.tsx",
-  ]
+related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/IncidentsPage.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/IncidentDetail.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/IncidentRow.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ActiveIncidentSummary.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/manifest.tsx"]
 ---
 
 ## Scope and mode
@@ -32,22 +25,26 @@ comparison remain available after the operational signal is clear.
   online or revoked records; preserve deliberate name, status, and last-observed
   sorting.
 - Present incidents as one attention-ordered queue and one selected case file.
-  Selection is URL-stable through the `incident` query parameter.
+  Selection is URL-stable through the `incident` query parameter; a missing retained
+  record produces an explicit recovery state and never substitutes another incident.
 - Keep severity, lifecycle, reason, evidence, node/profile identity, timeline,
-  connector recovery evidence, and the owning-route link in the selected case file.
+  incident-specific connector recovery or independent connector context, and the
+  owning-route link in the selected case file.
 - Acknowledgement records reversible operator ownership. It never implies resolution
   or healthy state.
-- Keep filters visible and hardware comparison secondary to exception triage.
+- Keep filter state and results visible, keep filter controls immediately reachable,
+  and keep hardware comparison secondary to exception triage.
 
 ## Responsive behavior and states
 
-At narrow widths, one compact queue disclosure precedes the selected case file in
-DOM and reading order; opening it reveals the same full-width operational rows used
-on desktop. Fleet inventory retains compact mobile summaries and desktop comparison
-tables. Cover healthy, warning, critical, acknowledged, resolved, truncated,
-no-match, empty, stale, connector evidence present, and enrichment unavailable
-states. Unavailable evidence remains explicit and never becomes zero or healthy
-state.
+At narrow widths, compact filter and queue disclosures precede the selected case file
+in DOM and reading order. Selecting a row collapses the queue and focuses the case;
+opening the queue reveals the same full-width operational rows used on desktop. Fleet
+inventory retains compact mobile summaries and desktop comparison tables. Cover
+healthy, warning, critical, acknowledged, resolved, truncated, missing deep link,
+no-match, empty, stale, connector evidence present, enrichment pending, and
+enrichment unavailable states. Missing or pending evidence remains explicit and never
+becomes zero or healthy state.
 
 ## Direction and anti-goals
 

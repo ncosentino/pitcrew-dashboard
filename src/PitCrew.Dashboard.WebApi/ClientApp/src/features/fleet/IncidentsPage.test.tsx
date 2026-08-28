@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -200,9 +200,31 @@ describe('IncidentsPage', () => {
     });
 
     expect(await screen.findByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
+    expect(screen.getAllByText('Node identity loading…')).toHaveLength(2);
+    expect(screen.getByText(/node connector context is still loading/i)).toBeInTheDocument();
     await act(async () => {
       resolveFleet?.(jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] }));
     });
+    expect(await screen.findAllByText('Node not present')).toHaveLength(2);
+  });
+
+  it('distinguishes unavailable fleet enrichment from a pending request', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse(
+          { error: { code: 'fleet_unavailable', message: 'Fleet enrichment failed.' } },
+          503,
+        );
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    expect(await screen.findAllByText('Node identity unavailable')).toHaveLength(2);
+    expect(screen.getByText(/node connector context could not be loaded/i)).toBeInTheDocument();
   });
 
   it('shows retained connector recovery evidence without changing acknowledgement semantics', async () => {
@@ -483,5 +505,81 @@ describe('IncidentsPage', () => {
     expect(screen.queryByTestId(`incident-row-${incidentId}`)).not.toBeInTheDocument();
     expect(screen.getByText(/outside the current queue filters/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Unacknowledge incident' })).toBeInTheDocument();
+  });
+
+  it('does not substitute another incident when a deep-linked record is unavailable', async () => {
+    const missingIncidentId = '66666666-6666-4666-8666-666666666666';
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    }, `/tenants/local/incidents?view=active&incident=${missingIncidentId}`);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('Selected incident is unavailable')).toBeInTheDocument();
+    expect(screen.getByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'default capacity is below target', level: 2 }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Search all history' })).toHaveAttribute(
+      'href',
+      `/tenants/local/incidents?view=history&incident=${missingIncidentId}`,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'default capacity is below target', level: 2 }),
+    ).toBeInTheDocument();
+  });
+
+  it('collapses the mobile queue and focuses the selected case after investigation', async () => {
+    const secondIncident = {
+      ...incident(),
+      incidentId: '77777777-7777-4777-8777-777777777777',
+      severity: 'warning' as const,
+      title: 'Runner startup warning',
+      reason: 'startup-delay',
+    };
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          incidents: [incident(), secondIncident],
+          truncated: false,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    }, '/tenants/local/incidents?view=active');
+    const user = userEvent.setup();
+
+    const queueSummary = await screen.findByText('Choose incident', { exact: true });
+    const queueDisclosure = queueSummary.closest('details');
+    if (queueDisclosure == null) throw new Error('Incident queue disclosure is required.');
+    await user.click(queueSummary);
+    expect(queueDisclosure).toHaveAttribute('open');
+
+    await user.click(
+      within(screen.getByTestId(`incident-row-${secondIncident.incidentId}`)).getByRole('link', {
+        name: 'Investigate',
+      }),
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Runner startup warning', level: 2 }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Selected incident case' })).toHaveFocus(),
+    );
+    expect(queueDisclosure).not.toHaveAttribute('open');
   });
 });

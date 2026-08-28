@@ -9,9 +9,12 @@ import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import type { OperationalIncident } from '../incidentsApi';
 
+export type IncidentEnrichmentStatus = 'loading' | 'available' | 'stale' | 'unavailable';
+
 interface IncidentDetailProps {
   readonly incident: OperationalIncident;
   readonly node?: FleetNode;
+  readonly enrichmentStatus: IncidentEnrichmentStatus;
   readonly isVisible: boolean;
   readonly canAcknowledge: boolean;
   readonly isAcknowledging: boolean;
@@ -23,6 +26,7 @@ interface IncidentDetailProps {
 export function IncidentDetail({
   incident,
   node,
+  enrichmentStatus,
   isVisible,
   canAcknowledge,
   isAcknowledging,
@@ -34,6 +38,29 @@ export function IncidentDetail({
   const connectorHeading = connectorEvidenceIsIncidentSpecific
     ? 'Connector recovery evidence'
     : 'Node connector context';
+  const evidenceHeading = incident.status === 'resolved' ? 'Retained evidence' : 'Current evidence';
+  const nodeValue = node
+    ? node.displayName
+    : enrichmentStatus === 'loading'
+      ? 'Node identity loading…'
+      : enrichmentStatus === 'unavailable'
+        ? 'Node identity unavailable'
+        : 'Node not present';
+  const nodeDetail = node
+    ? node.nodeId
+    : enrichmentStatus === 'loading'
+      ? 'Fleet enrichment is still loading for this incident.'
+      : enrichmentStatus === 'unavailable'
+        ? 'Fleet enrichment could not be loaded for this incident.'
+        : 'The referenced node is not present in the latest accepted fleet projection.';
+  const missingConnectorMessage =
+    enrichmentStatus === 'loading'
+      ? `${connectorHeading} is still loading.`
+      : enrichmentStatus === 'unavailable'
+        ? `${connectorHeading} could not be loaded for this incident.`
+        : node == null
+          ? `The referenced node is not present in the accepted fleet projection, so ${connectorHeading.toLocaleLowerCase()} cannot be shown.`
+          : `No ${connectorHeading.toLocaleLowerCase()} was reported for this node.`;
   return (
     <DetailPanel
       title={incident.title}
@@ -57,17 +84,19 @@ export function IncidentDetail({
             selected so the investigation does not lose context.
           </StateBanner>
         ) : null}
+        {enrichmentStatus === 'stale' ? (
+          <StateBanner tone="caution" role="status">
+            Showing the last accepted node and connector enrichment because its latest refresh
+            failed.
+          </StateBanner>
+        ) : null}
 
         <section aria-labelledby={`incident-evidence-${incident.incidentId}`}>
           <h3 id={`incident-evidence-${incident.incidentId}`} className="text-sm font-semibold">
-            Current evidence
+            {evidenceHeading}
           </h3>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <IncidentFact
-              label="Node"
-              value={node?.displayName ?? 'Node identity unavailable'}
-              detail={node ? node.nodeId : 'Fleet enrichment was not available for this record.'}
-            />
+            <IncidentFact label="Node" value={nodeValue} detail={nodeDetail} />
             <IncidentFact
               label="Profile"
               value={incident.profileId ?? 'Node-scoped incident'}
@@ -156,10 +185,8 @@ export function IncidentDetail({
               className="mt-3 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground"
               role="status"
             >
-              {connectorEvidenceIsIncidentSpecific
-                ? 'Connector recovery evidence is unavailable for this incident.'
-                : 'Node connector context is unavailable for this incident.'}{' '}
-              Missing enrichment is not treated as healthy state.
+              {missingConnectorMessage} Missing or pending enrichment is not treated as healthy
+              state.
             </div>
           )}
         </section>

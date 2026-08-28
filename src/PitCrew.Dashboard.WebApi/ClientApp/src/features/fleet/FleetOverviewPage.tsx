@@ -385,6 +385,18 @@ export default function FleetOverviewPage() {
         ]}
       />
 
+      {error ? (
+        <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
+          {fleet ? `Showing stale fleet data. ${error}` : error}
+        </StateBanner>
+      ) : null}
+
+      <ActiveIncidentSummary
+        incidents={activeIncidents}
+        tenantId={tenantId}
+        testId="fleet-active-incidents"
+      />
+
       <details className="rounded-lg border bg-card px-4 py-3">
         <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           How to read fleet evidence
@@ -418,18 +430,6 @@ export default function FleetOverviewPage() {
           </div>
         </dl>
       </details>
-
-      {error ? (
-        <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
-          {fleet ? `Showing stale fleet data. ${error}` : error}
-        </StateBanner>
-      ) : null}
-
-      <ActiveIncidentSummary
-        incidents={activeIncidents}
-        tenantId={tenantId}
-        testId="fleet-active-incidents"
-      />
 
       {isLoading && !fleet ? <LoadingState label="Loading fleet status…" /> : null}
 

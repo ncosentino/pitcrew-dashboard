@@ -115,10 +115,17 @@ for (const theme of workspaceThemes) {
       await expect(page.getByRole('region', { name: 'Current evidence' })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Lifecycle timeline' })).toBeVisible();
       if (viewport.name === 'mobile') {
+        await expect(page.getByText('Filter incidents', { exact: true })).toBeVisible();
         await expect(page.getByText('Choose incident', { exact: true })).toBeVisible();
-        await page.getByText('Choose incident', { exact: true }).click();
+        await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeHidden();
+        const detailBox = await page
+          .getByRole('heading', { name: 'Critical capacity deficit', level: 2 })
+          .boundingBox();
+        expect(detailBox).not.toBeNull();
+        expect(detailBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(viewport.size.height);
+      } else {
+        await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
       }
-      await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
 
       await expectNoOverflowAndAccessible(page, testInfo, `workspace-${theme}-${viewport.name}`);
     });
@@ -135,6 +142,7 @@ test('long incident and node evidence remains contained at the narrow viewport',
     title: longTitle,
     summary: 's'.repeat(512),
     evidence: 'e'.repeat(512),
+    profileId: 'p'.repeat(128),
   });
   const longNode = buildFleetNode({
     nodeId: nodeIds.alpha,
@@ -158,6 +166,47 @@ test('long incident and node evidence remains contained at the narrow viewport',
   await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'long-content-narrow');
+});
+
+test('mobile incident selection collapses the queue and focuses the case file', async ({
+  page,
+}, testInfo) => {
+  const criticalIncident = buildIncident({
+    incidentId: 'f4444444-4444-4444-8444-444444444444',
+    title: 'Critical capacity deficit',
+  });
+  const warningIncident = buildIncident({
+    incidentId: 'f5555555-5555-4555-8555-555555555555',
+    severity: 'warning',
+    title: 'Runner startup warning',
+    reason: 'startup-delay',
+  });
+  const base = baseScenario();
+  const scenario: MockApiOptions = {
+    ...base,
+    incidents: buildIncidentPage([criticalIncident, warningIncident]),
+  };
+
+  await page.setViewportSize(viewports.mobile);
+  await setUpPage(page, scenario, 'light');
+  await page.goto(`${incidentsPath}?view=active`);
+
+  await page.getByText('Choose incident', { exact: true }).click();
+  const queue = page.getByRole('list', { name: 'Operational incident queue' });
+  await expect(queue).toBeVisible();
+  await page
+    .getByTestId(`incident-row-${warningIncident.incidentId}`)
+    .getByRole('link', { name: 'Investigate' })
+    .click();
+
+  const selectedCase = page.getByRole('region', { name: 'Selected incident case' });
+  await expect(selectedCase).toBeFocused();
+  await expect(
+    page.getByRole('heading', { name: 'Runner startup warning', level: 2 }),
+  ).toBeVisible();
+  await expect(queue).toBeHidden();
+
+  await expectNoOverflowAndAccessible(page, testInfo, 'mobile-selection-focus');
 });
 
 test('critical/warning mix: both severities display with labeled counts', async ({
@@ -406,6 +455,7 @@ test('resolved: resolved incident displays resolved timestamp', async ({ page },
   await expect(
     page.getByRole('region', { name: 'Lifecycle timeline' }).getByText('Resolved', { exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Retained evidence' })).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'resolved');
 });
