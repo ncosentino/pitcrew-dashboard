@@ -28,12 +28,10 @@ paths:
 - Run Impeccable context loader before editing established UI surfaces; use `shape` for new surfaces or materially changed flows.
 - Use only approved shared primitives and design tokens.
 - Cover all relevant states and viewports (320, 390, 768, 1280, 1440 CSS px).
-- On narrow multi-section operational detail routes, show a compact section summary
-  and progressive disclosure before detailed evidence. Never treat vertically
-  stacking every desktop panel at full length as a mobile strategy.
+- On multi-task entity routes, keep readiness above deep-linked tasks and move independently scanned child collections to dedicated routes; on narrow layouts, use a compact section summary and progressive disclosure instead of stacked desktop panels.
 - Never use a raw identifier as a title when a human-readable display name exists.
 - Never introduce a new table without a documented narrow-screen strategy.
-- When investigation and cross-item comparison are both primary tasks, offer card/detail and table/comparison views from the same evidence, persist the operator preference, and define the narrow-screen fallback.
+- When investigation and comparison are both primary, use authoritative attention-ranked card/detail rows plus optional table/comparison, persist the operator preference, and define a compact narrow drill-in.
 - Never add a consequential action without confirmation or approved reversibility.
 - Primary workflows must work with keyboard only, at 200% zoom, under forced-colors,
   and with `prefers-reduced-motion`. Long content (40% expansion), CJK, emoji, and

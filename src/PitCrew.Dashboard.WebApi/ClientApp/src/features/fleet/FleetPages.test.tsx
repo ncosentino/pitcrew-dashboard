@@ -524,39 +524,76 @@ describe('fleet overview and node detail', () => {
   });
 
   it('renders profile triage links and partial telemetry without runner tables', async () => {
-    const user = userEvent.setup();
-    renderRoute(`/tenants/local/nodes/${alphaId}`);
+    renderRoute(`/tenants/local/nodes/${alphaId}/profiles`);
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Alpha' })).toBeInTheDocument();
-    await openDisclosure(user, 'node-overview-section-profiles');
-    await openDisclosure(user, 'node-profile-disclosure-build');
-    const profile = screen.getByTestId('node-profile-build');
-    expect(within(profile).getByRole('link', { name: 'Build' })).toHaveAttribute(
+    expect(screen.getByRole('region', { name: 'Node readiness' })).toBeVisible();
+    const profile = await screen.findByTestId('node-profile-build');
+    expect(within(profile).getByRole('link', { name: 'Review workers' })).toHaveAttribute(
       'href',
-      `/tenants/local/nodes/${alphaId}/profiles/build`,
+      `/tenants/local/nodes/${alphaId}/profiles/build/workers`,
     );
-    expect(profile).toHaveTextContent('Configured4');
-    expect(profile).toHaveTextContent('Local slots2');
-    expect(profile).toHaveTextContent('GitHub eligible1');
+    expect(profile).toHaveTextContent('Configured');
+    expect(profile).toHaveTextContent('4');
+    expect(profile).toHaveTextContent('Local slots');
+    expect(profile).toHaveTextContent('2');
+    expect(profile).toHaveTextContent('GitHub eligible');
+    expect(profile).toHaveTextContent('1');
     expect(profile).toHaveTextContent('Partial telemetry');
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
-    const navigation = screen.getByRole('navigation', { name: 'Alpha navigation' });
-    expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute(
+    const navigation = screen.getByRole('navigation', { name: 'Alpha tasks' });
+    expect(within(navigation).getByRole('link', { name: /Profiles/ })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    expect(within(navigation).getByRole('link', { name: 'History' })).toHaveAttribute(
+    expect(within(navigation).getByRole('link', { name: /History/ })).toHaveAttribute(
       'href',
       `/tenants/local/nodes/${alphaId}/history`,
     );
-    expect(within(navigation).getByRole('link', { name: 'Administration' })).toHaveAttribute(
+    expect(within(navigation).getByRole('link', { name: /Administration/ })).toHaveAttribute(
       'href',
       `/tenants/local/nodes/${alphaId}/administration`,
     );
     expect(screen.queryByTestId('node-history')).not.toBeInTheDocument();
   });
 
-  it('switches between profile cards and a persisted desktop comparison table', async () => {
+  it('orders profile rows requiring attention before ordinary inventory', async () => {
+    const response = fleetResponse();
+    response.nodes[1].profiles = [
+      profileResponse({
+        profileId: 'healthy',
+        managerInstanceId: 'manager-healthy',
+        managerStatus: 'running',
+        desiredStateStatus: 'accepted',
+        autoscaling: null,
+      }),
+      profileResponse({
+        profileId: 'degraded',
+        managerInstanceId: 'manager-degraded',
+        managerStatus: 'stopping',
+      }),
+    ];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <RouterProvider
+          router={createTestRouter(features, [`/tenants/local/nodes/${alphaId}/profiles`])}
+        />
+      </SessionProvider>,
+    );
+
+    const profiles = await screen.findByRole('list', { name: 'Node profiles' });
+    const rows = within(profiles).getAllByRole('listitem');
+    expect(within(rows[0]).getByRole('heading', { name: 'Degraded' })).toBeVisible();
+    expect(within(rows[1]).getByRole('heading', { name: 'Healthy' })).toBeVisible();
+  });
+
+  it('switches between profile list and a persisted desktop comparison table', async () => {
     window.matchMedia = vi.fn((media: string) => ({
       matches: media === '(min-width: 48rem)',
       media,
@@ -568,10 +605,10 @@ describe('fleet overview and node detail', () => {
       dispatchEvent: vi.fn(),
     }));
     const user = userEvent.setup();
-    renderRoute(`/tenants/local/nodes/${alphaId}`);
+    renderRoute(`/tenants/local/nodes/${alphaId}/profiles`);
 
     await screen.findByRole('heading', { level: 2, name: 'Alpha' });
-    expect(screen.getByTestId('node-profile-build')).toBeInTheDocument();
+    expect(await screen.findByTestId('node-profile-build')).toBeInTheDocument();
     expect(screen.queryByTestId('node-profile-comparison-table')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Table' }));
@@ -597,15 +634,17 @@ describe('fleet overview and node detail', () => {
       await router.navigate(`/tenants/local/nodes/${bravoId}`);
     });
     expect(await screen.findByText(/Every connector, profile, capacity/)).toBeInTheDocument();
-    await openDisclosure(user, 'node-overview-section-profiles');
     await openDisclosure(user, 'node-overview-section-hardware');
     await openDisclosure(user, 'node-overview-section-connector');
-    expect(screen.getByText('No profiles reported')).toBeInTheDocument();
     expect(screen.getByTestId('node-hardware')).toHaveTextContent('last known');
     expect(screen.getByTestId('connector-health-summary')).toHaveTextContent('Recovered outage');
     expect(screen.getByTestId('connector-health-summary')).toHaveTextContent(
       'synchronization-network',
     );
+    await act(async () => {
+      await router.navigate(`/tenants/local/nodes/${bravoId}/profiles`);
+    });
+    expect(screen.getByText('No profiles reported')).toBeInTheDocument();
 
     await act(async () => {
       await router.navigate(`/tenants/local/nodes/${charlieId}`);
@@ -652,12 +691,14 @@ describe('fleet overview and node detail', () => {
       'Diagnostics context downloaded',
     );
 
-    await openDisclosure(user, 'node-overview-section-profiles');
-    expect(screen.getByText('No profiles reported')).toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', { name: 'Bravo tasks' });
+    expect(within(navigation).getByRole('link', { name: /Profiles/ })).toHaveAttribute(
+      'href',
+      `/tenants/local/nodes/${bravoId}/profiles`,
+    );
   });
 
   it('shows a compact mobile section index before detailed node evidence', async () => {
-    const user = userEvent.setup();
     renderRoute(`/tenants/local/nodes/${alphaId}`);
 
     await screen.findByRole('heading', { level: 2, name: 'Alpha' });
@@ -666,7 +707,6 @@ describe('fleet overview and node detail', () => {
       'node-overview-section-pressure',
       'node-overview-section-connector',
       'node-overview-section-hardware',
-      'node-overview-section-profiles',
     ]) {
       const summary = screen.getByTestId(testId).querySelector('summary');
       expect(summary).not.toBeNull();
@@ -675,20 +715,8 @@ describe('fleet overview and node detail', () => {
 
     expect(screen.getByTestId('node-overview-section-identity')).not.toHaveAttribute('open');
     expect(screen.getByTestId('node-overview-section-pressure')).not.toHaveAttribute('open');
-    expect(screen.getByTestId('node-overview-section-profiles')).not.toHaveAttribute('open');
-
-    await openDisclosure(user, 'node-overview-section-profiles');
-    expect(screen.getByTestId('node-overview-section-profiles')).toHaveAttribute('open');
-    expect(
-      screen.getByTestId('node-profile-disclosure-build').querySelector('summary'),
-    ).toBeVisible();
-    expect(screen.getByTestId('node-profile-disclosure-build')).not.toHaveAttribute('open');
-
-    await openDisclosure(user, 'node-profile-disclosure-build');
-    expect(screen.getByTestId('node-profile-disclosure-build')).toHaveAttribute('open');
-    expect(
-      within(screen.getByTestId('node-profile-build')).getByRole('link', { name: 'Build' }),
-    ).toBeVisible();
+    const navigation = screen.getByRole('navigation', { name: 'Alpha tasks' });
+    expect(within(navigation).getByRole('link', { name: /Profiles/ })).toBeVisible();
   });
 
   it('preserves rename, rotation, and revoke behavior for administrators', async () => {

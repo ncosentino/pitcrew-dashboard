@@ -467,6 +467,9 @@ describe('profile detail routes', () => {
       await screen.findByRole('heading', { level: 1, name: 'Profile default overview' }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    const readiness = await screen.findByRole('region', { name: 'Profile readiness' });
+    expect(readiness).toBeVisible();
+    expect(within(readiness).getAllByText('Autoscaling degraded').length).toBeGreaterThan(0);
     expect(
       await screen.findByTestId('profile-overview-maximum-default', {}, { timeout: 5_000 }),
     ).toHaveTextContent('30');
@@ -477,10 +480,21 @@ describe('profile detail routes', () => {
     expect(screen.getByTestId('profile-overview-operations-default')).toHaveTextContent(
       'unavailable',
     );
-    expect(screen.getByRole('link', { name: 'View diagnostics' })).toHaveAttribute(
+    expect(screen.getByText('Evidence needs attention')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Review diagnostics' })).toHaveAttribute(
       'href',
       `${profilePath}/diagnostics`,
     );
+    expect(
+      screen.getByRole('link', { name: 'View diagnostics for Docker operations' }),
+    ).toHaveAttribute('href', `${profilePath}/diagnostics`);
+    expect(screen.getByRole('link', { name: 'View capacity for Host admission' })).toHaveAttribute(
+      'href',
+      `${profilePath}/capacity`,
+    );
+    expect(
+      screen.getByRole('link', { name: 'View workers for Worker image rollout' }),
+    ).toHaveAttribute('href', `${profilePath}/workers`);
     expect(screen.getByRole('link', { name: 'View workers' })).toHaveAttribute(
       'href',
       `${profilePath}/workers`,
@@ -491,13 +505,13 @@ describe('profile detail routes', () => {
     );
     expect(screen.queryByTestId('profile-overview-history')).not.toBeInTheDocument();
     const navigation = screen.getByRole('navigation', {
-      name: 'default profile navigation',
+      name: 'default profile tasks',
     });
-    expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute(
+    expect(within(navigation).getByRole('link', { name: /Overview/ })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    expect(within(navigation).getByRole('link', { name: 'Capacity' })).toHaveAttribute(
+    expect(within(navigation).getByRole('link', { name: /Capacity/ })).toHaveAttribute(
       'href',
       `${profilePath}/capacity`,
     );
@@ -568,7 +582,7 @@ describe('profile detail routes', () => {
       'viewer',
     );
 
-    const warning = await screen.findByTestId('profile-node-offline');
+    const warning = await screen.findByTestId('profile-node-offline', {}, { timeout: 5_000 });
     expect(warning).toHaveTextContent('Every profile, capacity, worker, resource');
     expect(warning).toHaveTextContent('last-known evidence observed');
     expect(screen.getByTestId(`prepare-diagnostics-${nodeId}-default`)).toBeInTheDocument();

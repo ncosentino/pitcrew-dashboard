@@ -42,6 +42,10 @@ const routes: readonly RouteCase[] = [
     path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/administration`,
   },
   {
+    name: 'node-profiles',
+    path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles`,
+  },
+  {
     name: 'profile-overview',
     path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build`,
   },

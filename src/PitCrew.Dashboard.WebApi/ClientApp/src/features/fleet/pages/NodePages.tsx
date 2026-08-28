@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown, LayoutGrid, Table2 } from 'lucide-react';
+import { ChevronDown, Rows3, Table2 } from 'lucide-react';
 import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
@@ -17,10 +17,15 @@ import {
 import { formatBytes, formatCpuCores, formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { CopyableId } from '@/core/ui/CopyableId';
+import { DetailPanel } from '@/core/ui/DetailPanel';
+import { EmptyState } from '@/core/ui/EmptyState';
 import { EntityHeader } from '@/core/ui/EntityHeader';
-import { SectionNavigation } from '@/core/ui/SectionNavigation';
+import { LoadingState } from '@/core/ui/LoadingState';
+import { OperationalList, OperationalRow } from '@/core/ui/OperationalList';
+import { ReadinessSummary } from '@/core/ui/ReadinessSummary';
 import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { TaskWorkspace } from '@/core/ui/TaskWorkspace';
 
 import { ActiveIncidentSummary } from '../components/ActiveIncidentSummary';
 import { ConnectorHealthSummary } from '../components/ConnectorHealthSummary';
@@ -31,6 +36,12 @@ import { ProfileComparisonTable } from '../components/ProfileComparisonTable';
 import { renameNode, requestCredentialRotation, revokeNode, setCapacityMaximum } from '../fleetApi';
 import { downloadDiagnosticsContext } from '../diagnosticsDownload';
 import { aggregateNode, aggregateProfileResources, getNodeStatus } from '../nodeSummary';
+import {
+  summarizeNodeWorkload,
+  summarizeProfileAttention,
+  summarizeProfileWorkload,
+  type ProfileAttentionSummary,
+} from '../profileWorkspace';
 
 interface NodeDetailContext {
   readonly tenantId: string;
@@ -42,18 +53,10 @@ interface NodeDetailContext {
 
 interface ProfileSummaryProps {
   readonly profile: ManagerObservedState;
+  readonly attention: ProfileAttentionSummary;
   readonly tenantId: string;
   readonly nodeId: string;
   readonly nodeIsOnline: boolean;
-  readonly isDesktop: boolean;
-}
-
-interface OverviewSummaryCardProps {
-  readonly label: string;
-  readonly value: ReactNode;
-  readonly description: string;
-  readonly status?: string;
-  readonly testId: string;
 }
 
 interface ResponsiveOverviewSectionProps {
@@ -134,163 +137,116 @@ function formatProfileDisplayName(profileId: string): string {
   return words.length > 0 ? words.join(' ') : profileId;
 }
 
-function countPauseReadyProfiles(node: FleetNode): number {
-  return node.capacityControls.filter((control) => {
-    const active =
-      control.latestCommand?.status === 'pending' || control.latestCommand?.status === 'delivered';
-    const recovery = node.recoveryControls.find(
-      (candidate) => candidate.profileId === control.profileId,
-    );
-    return (
-      control.supportsZeroMaximum &&
-      control.currentMaximum > 0 &&
-      !active &&
-      recovery?.operationActive !== true
-    );
-  }).length;
-}
-
-function OverviewSummaryCard({
-  label,
-  value,
-  description,
-  status,
-  testId,
-}: OverviewSummaryCardProps) {
-  return (
-    <div
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 sm:block sm:p-0"
-      data-testid={testId}
-    >
-      <span className="text-xs font-semibold text-muted-foreground uppercase">{label}</span>
-      <strong className="text-xl font-semibold tabular-nums">{value}</strong>
-      {status ? (
-        <span className="col-start-2 row-span-2 row-start-1 justify-self-end sm:mt-2 sm:block">
-          <StatusBadge status={status} />
-        </span>
-      ) : null}
-      <p className="hidden text-xs text-muted-foreground sm:mt-2 sm:block">{description}</p>
-    </div>
-  );
-}
-
 function ProfileSummary({
   profile,
+  attention,
   tenantId,
   nodeId,
   nodeIsOnline,
-  isDesktop,
 }: ProfileSummaryProps) {
   const configured =
     profile.configuredSlots ?? profile.autoscaling?.maximumSlots ?? profile.desiredSlots;
   const resources = aggregateProfileResources(profile);
+  const workload = summarizeProfileWorkload(profile);
   const profileName = formatProfileDisplayName(profile.profileId);
+  const profilePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profile.profileId)}`;
+  const attentionPath =
+    attention.task === 'overview' ? profilePath : `${profilePath}/${attention.task}`;
 
   return (
-    <ResponsiveOverviewSection
-      isDesktop={isDesktop}
-      status={profile.managerStatus}
-      summary={`${configured} configured · ${profile.activeSlots} local · ${profile.eligibleSlots ?? 'unknown'} eligible`}
-      testId={`node-profile-disclosure-${profile.profileId}`}
+    <OperationalRow
+      testId={`node-profile-${profile.profileId}`}
       title={profileName}
+      description={`${attention.label}. ${profile.scope} scope · generation ${profile.generation} · ${
+        nodeIsOnline ? 'observed' : 'last-known observation'
+      } ${formatTime(profile.observedAt)}`}
+      status={
+        <span className="flex flex-wrap gap-2">
+          <StatusBadge status={attention.label} tone={attention.tone} />
+          <StatusBadge status={profile.managerStatus} />
+          <StatusBadge status={profile.desiredStateStatus} />
+          {profile.autoscaling ? <StatusBadge status={profile.autoscaling.status} /> : null}
+        </span>
+      }
+      metadata={
+        <CopyableId
+          label={`${profile.profileId} profile ID`}
+          prefix="Profile ID"
+          value={profile.profileId}
+        />
+      }
+      actions={
+        <Button asChild size="sm" variant="outline">
+          <Link to={attentionPath}>
+            {attention.rank < 100 ? `Review ${attention.task}` : 'Open profile'}
+          </Link>
+        </Button>
+      }
     >
-      <Card data-testid={`node-profile-${profile.profileId}`}>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="grid gap-2">
-              <CardTitle as="h3">
-                <Link
-                  className="text-link underline-offset-4 hover:underline"
-                  to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profile.profileId)}`}
-                >
-                  {profileName}
-                </Link>
-              </CardTitle>
-              <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <CopyableId
-                  label={`${profile.profileId} profile ID`}
-                  prefix="Profile ID"
-                  value={profile.profileId}
-                />
-                <span>{profile.scope} scope</span>
-                <span>generation {profile.generation}</span>
-                <span>
-                  {nodeIsOnline ? 'observed' : 'last-known observation'}{' '}
-                  {formatTime(profile.observedAt)}
-                </span>
-              </CardDescription>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <StatusBadge status={profile.managerStatus} />
-              <StatusBadge status={profile.desiredStateStatus} />
-              {profile.autoscaling ? <StatusBadge status={profile.autoscaling.status} /> : null}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <dl className="grid gap-3 text-sm sm:grid-cols-5">
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {nodeIsOnline ? 'Configured' : 'Last known configured'}
-              </dt>
-              <dd className="mt-1 font-semibold tabular-nums">{configured}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {nodeIsOnline ? 'Desired' : 'Last known desired'}
-              </dt>
-              <dd className="mt-1 font-semibold tabular-nums">{profile.desiredSlots}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {nodeIsOnline ? 'Local slots' : 'Last known local slots'}
-              </dt>
-              <dd className="mt-1 font-semibold tabular-nums">{profile.activeSlots}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {nodeIsOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
-              </dt>
-              <dd className="mt-1 font-semibold tabular-nums">
-                {profile.eligibleSlots ?? 'Unknown'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground uppercase">
-                {nodeIsOnline ? 'Draining' : 'Last known draining'}
-              </dt>
-              <dd className="mt-1 font-semibold tabular-nums">{profile.drainingSlots}</dd>
-            </div>
-          </dl>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
-            <div>
-              <span className="font-medium">
-                {nodeIsOnline ? 'CPU / memory: ' : 'Last known CPU / memory: '}
-              </span>
-              {resources.reportingSources > 0
-                ? `${formatCpuCores(resources.cpuCores)} / ${formatBytes(resources.memoryWorkingSetBytes)}`
-                : 'Unavailable'}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                {resources.reportingSources} of {resources.totalSources} sources
-              </span>
-              <StatusBadge status={resources.status} />
-            </div>
-          </div>
-          {resources.status === 'partial' ? (
-            <StateBanner className="py-3 text-sm" tone="caution">
-              Partial telemetry: totals include only reporting manager and worker sources.
-            </StateBanner>
-          ) : null}
-          {profile.autoscaling?.lastError ? (
-            <StateBanner className="py-3 text-sm" tone="critical">
-              Autoscaling error: {profile.autoscaling.lastError}
-            </StateBanner>
-          ) : null}
-        </CardContent>
-      </Card>
-    </ResponsiveOverviewSection>
+      <div className="hidden gap-3 md:grid">
+        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 xl:grid-cols-6">
+          <ProfileFact
+            label={nodeIsOnline ? 'Configured' : 'Last known configured'}
+            value={configured}
+          />
+          <ProfileFact
+            label={nodeIsOnline ? 'Desired' : 'Last known desired'}
+            value={profile.desiredSlots}
+          />
+          <ProfileFact
+            label={nodeIsOnline ? 'Local slots' : 'Last known local slots'}
+            value={profile.activeSlots}
+          />
+          <ProfileFact
+            label={nodeIsOnline ? 'GitHub eligible' : 'Last known GitHub eligible'}
+            value={profile.eligibleSlots ?? 'Unknown'}
+          />
+          <ProfileFact
+            label={nodeIsOnline ? 'Draining' : 'Last known draining'}
+            value={profile.drainingSlots}
+          />
+          <ProfileFact
+            label={nodeIsOnline ? 'Busy workers' : 'Last known busy workers'}
+            value={workload.busyLabel}
+          />
+        </dl>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/35 px-3 py-2 text-sm">
+          <span>
+            <span className="font-medium">
+              {nodeIsOnline ? 'CPU / memory: ' : 'Last known CPU / memory: '}
+            </span>
+            {resources.reportingSources > 0
+              ? `${formatCpuCores(resources.cpuCores)} / ${formatBytes(resources.memoryWorkingSetBytes)}`
+              : 'Unavailable'}
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {resources.reportingSources} of {resources.totalSources} sources
+            </span>
+            <StatusBadge status={resources.status} />
+          </span>
+        </div>
+        {resources.status === 'partial' ? (
+          <StateBanner className="py-3 text-sm" tone="caution">
+            Partial telemetry: totals include only reporting manager and worker sources.
+          </StateBanner>
+        ) : null}
+        {profile.autoscaling?.lastError ? (
+          <StateBanner className="py-3 text-sm" tone="critical">
+            Autoscaling error: {profile.autoscaling.lastError}
+          </StateBanner>
+        ) : null}
+      </div>
+    </OperationalRow>
+  );
+}
+
+function ProfileFact({ label, value }: { readonly label: string; readonly value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-semibold tabular-nums">{value}</dd>
+    </div>
   );
 }
 
@@ -304,7 +260,7 @@ export function NodeDetailLayout() {
   const canAdminister = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const node = fleet?.nodes.find((candidate) => candidate.nodeId === nodeId);
 
-  if (isLoading && !fleet) return <p className="text-muted-foreground">Loading node…</p>;
+  if (isLoading && !fleet) return <LoadingState label="Loading node status" />;
 
   if (!fleet) {
     return <StateBanner tone="critical">{error ?? 'Node status is unavailable.'}</StateBanner>;
@@ -314,24 +270,50 @@ export function NodeDetailLayout() {
     return (
       <section className="grid gap-4">
         {error ? <StateBanner tone="caution">Showing stale fleet data. {error}</StateBanner> : null}
-        <Card>
-          <CardHeader>
-            <CardTitle as="h2">Node not found</CardTitle>
-            <CardDescription>
-              No node with ID {nodeId} exists in this tenant&apos;s fleet projection.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <DetailPanel
+          title="Node not found"
+          description={`No node with ID ${nodeId} exists in this tenant's fleet projection.`}
+        >
+          <StateBanner tone="critical">
+            Return to the fleet and select a node from the current projection.
+          </StateBanner>
+        </DetailPanel>
       </section>
     );
   }
 
   const status = getNodeStatus(node);
+  const aggregate = aggregateNode(node);
+  const workload = summarizeNodeWorkload(node.profiles);
+  const nodeIncidents = fleet.activeIncidents.filter((incident) => incident.nodeId === node.nodeId);
   const basePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`;
   const navigation = [
-    { label: 'Overview', path: basePath },
-    { label: 'History', path: `${basePath}/history` },
-    ...(canAdminister ? [{ label: 'Administration', path: `${basePath}/administration` }] : []),
+    {
+      label: 'Overview',
+      description: 'Readiness, pressure, and host evidence',
+      path: basePath,
+      badge: nodeIncidents.length > 0 ? String(nodeIncidents.length) : undefined,
+    },
+    {
+      label: 'Profiles',
+      description: 'Manager and capacity inventory',
+      path: `${basePath}/profiles`,
+      badge: node.profiles.length > 0 ? String(node.profiles.length) : undefined,
+    },
+    {
+      label: 'History',
+      description: 'Retained node observations',
+      path: `${basePath}/history`,
+    },
+    ...(canAdminister
+      ? [
+          {
+            label: 'Administration',
+            description: 'Identity and credential lifecycle',
+            path: `${basePath}/administration`,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -370,7 +352,7 @@ export function NodeDetailLayout() {
 
       {error ? <StateBanner tone="caution">Showing stale fleet data. {error}</StateBanner> : null}
       <ActiveIncidentSummary
-        incidents={fleet.activeIncidents.filter((incident) => incident.nodeId === node.nodeId)}
+        incidents={nodeIncidents}
         tenantId={tenantId}
         testId={`node-active-incidents-${node.nodeId}`}
       />
@@ -393,18 +375,49 @@ export function NodeDetailLayout() {
         </StateBanner>
       ) : null}
 
-      <SectionNavigation label={`${node.displayName} navigation`} items={navigation} />
-      <Outlet
-        context={
+      <ReadinessSummary
+        title="Node readiness"
+        description="Current or last-known evidence used to choose the next node or profile investigation."
+        status={<StatusBadge status={status} />}
+        items={[
           {
-            tenantId,
-            node,
-            canAdminister,
-            antiforgeryToken: session?.antiforgeryToken ?? '',
-            refreshNow,
-          } satisfies NodeDetailContext
-        }
+            label: 'Last connector contact',
+            value: formatTime(node.lastSeenAt),
+            detail: node.isOnline ? 'Connector currently online' : 'Last-known connector evidence',
+          },
+          {
+            label: 'Profiles',
+            value: node.profiles.length,
+            detail: `${aggregate.activeSlots} of ${aggregate.configuredSlots} local slots`,
+          },
+          {
+            label: 'Current work',
+            value: workload.busyLabel,
+            detail: `${workload.runningJobsLabel} running jobs · ${workload.runningJobsDetail}`,
+          },
+          {
+            label: 'Active incidents',
+            value: nodeIncidents.length,
+            detail:
+              nodeIncidents.length > 0
+                ? 'Review incident evidence before acting'
+                : 'No active incident retained',
+          },
+        ]}
       />
+      <TaskWorkspace navigationLabel={`${node.displayName} tasks`} navigationItems={navigation}>
+        <Outlet
+          context={
+            {
+              tenantId,
+              node,
+              canAdminister,
+              antiforgeryToken: session?.antiforgeryToken ?? '',
+              refreshNow,
+            } satisfies NodeDetailContext
+          }
+        />
+      </TaskWorkspace>
     </section>
   );
 }
@@ -416,30 +429,11 @@ export function NodeOverviewPage() {
   const isDesktop = useDesktopOverview();
   const [pauseProfileId, setPauseProfileId] = useState<string | null>(null);
   const [pauseError, setPauseError] = useState<string | null>(null);
-  const [profilePresentation, setProfilePresentation] = useState<ProfilePresentation>(() =>
-    globalThis.localStorage.getItem(profileComparisonViewStorageKey) === 'table'
-      ? 'table'
-      : 'cards',
-  );
   const aggregate = aggregateNode(node);
-  const sortedProfiles = [...node.profiles].sort((left, right) =>
-    left.profileId < right.profileId ? -1 : left.profileId > right.profileId ? 1 : 0,
-  );
+  const workload = summarizeNodeWorkload(node.profiles);
   const incidents = (fleet?.activeIncidents ?? []).filter(
     (incident) => incident.nodeId === node.nodeId,
   );
-  const busyWorkers = node.profiles.reduce(
-    (count, profile) => count + profile.slots.filter((slot) => slot.activity === 'busy').length,
-    0,
-  );
-  const runningJobs = node.profiles.reduce(
-    (count, profile) => count + (profile.autoscaling?.runningJobs ?? 0),
-    0,
-  );
-  const affectedProfiles = new Set(
-    incidents.flatMap((incident) => (incident.profileId ? [incident.profileId] : [])),
-  );
-  const pauseReadyProfiles = countPauseReadyProfiles(node);
   const nodeStatus = getNodeStatus(node);
   const connectorStatus =
     node.connectorHealth?.snapshot == null
@@ -459,14 +453,9 @@ export function NodeOverviewPage() {
     ? 'critical'
     : incidents.length > 0
       ? 'warning'
-      : busyWorkers > 0 || runningJobs > 0
+      : workload.confirmedBusyWorkers > 0 || workload.reportedRunningJobs > 0
         ? 'running'
         : 'current';
-  const effectiveProfilePresentation = isDesktop ? profilePresentation : 'cards';
-  const changeProfilePresentation = (next: ProfilePresentation) => {
-    setProfilePresentation(next);
-    globalThis.localStorage.setItem(profileComparisonViewStorageKey, next);
-  };
   const pauseProfile = async (profileId: string) => {
     setPauseProfileId(profileId);
     setPauseError(null);
@@ -482,90 +471,6 @@ export function NodeOverviewPage() {
 
   return (
     <div className="grid gap-2 md:gap-4">
-      <section
-        aria-label="Node triage summary"
-        className="divide-y rounded-lg border bg-card sm:grid sm:grid-cols-2 sm:gap-5 sm:divide-y-0 sm:p-4 xl:grid-cols-4"
-      >
-        <OverviewSummaryCard
-          label="What's wrong"
-          value={
-            incidents.length > 0
-              ? `${incidents.length} active`
-              : node.isOnline && node.connectorHealth?.snapshot.state === 'degraded'
-                ? 'Connector degraded'
-                : node.isOnline
-                  ? 'No active incident'
-                  : 'Node offline'
-          }
-          description={
-            incidents.length > 0
-              ? 'Active incident evidence is attached below with pressure and affected-profile detail.'
-              : node.isOnline
-                ? 'No active incident is retained for this node right now.'
-                : 'Operational evidence below is last-known until the connector returns.'
-          }
-          status={
-            incidents.some((incident) => incident.severity === 'critical')
-              ? 'critical'
-              : incidents.length > 0 || !node.isOnline
-                ? 'warning'
-                : 'healthy'
-          }
-          testId={`node-overview-incidents-${node.nodeId}`}
-        />
-        <OverviewSummaryCard
-          label="What's affected"
-          value={
-            incidents.length > 0
-              ? `${affectedProfiles.size} named ${affectedProfiles.size === 1 ? 'profile' : 'profiles'}`
-              : 'No active impact'
-          }
-          description={
-            incidents.length > 0
-              ? `${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile is' : 'profiles are'} reported; node-wide incidents may not name one.`
-              : `${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile is' : 'profiles are'} available for inspection.`
-          }
-          status={incidents.length > 0 ? 'warning' : 'available'}
-          testId={`node-overview-profiles-${node.nodeId}`}
-        />
-        <OverviewSummaryCard
-          label="What's running"
-          value={`${aggregate.activeSlots} local · ${runningJobs} jobs`}
-          description={`${busyWorkers} busy workers reported across ${aggregate.configuredSlots} configured slots.`}
-          status={busyWorkers > 0 || runningJobs > 0 ? 'running' : 'idle'}
-          testId={`node-overview-workloads-${node.nodeId}`}
-        />
-        <OverviewSummaryCard
-          label="What's safe to do"
-          value={
-            !canAdminister
-              ? 'Read only'
-              : !node.isOnline || node.isRevoked
-                ? 'No capacity action'
-                : pauseReadyProfiles > 0
-                  ? `${pauseReadyProfiles} pause-ready`
-                  : 'Observe only'
-          }
-          description={
-            !canAdminister
-              ? 'Authorized operators can pause new work or administer this node.'
-              : !node.isOnline || node.isRevoked
-                ? 'Capacity changes stay blocked until the connector is online and not revoked.'
-                : 'Pause actions only fence new work; busy workers continue until their current job finishes.'
-          }
-          status={
-            !canAdminister
-              ? 'unavailable'
-              : !node.isOnline || node.isRevoked
-                ? 'warning'
-                : pauseReadyProfiles > 0
-                  ? 'available'
-                  : 'current'
-          }
-          testId={`node-overview-actions-${node.nodeId}`}
-        />
-      </section>
-
       <ResponsiveOverviewSection
         isDesktop={isDesktop}
         status={nodeStatus}
@@ -624,7 +529,7 @@ export function NodeOverviewPage() {
       <ResponsiveOverviewSection
         isDesktop={isDesktop}
         status={pressureStatus}
-        summary={`${busyWorkers} busy ${busyWorkers === 1 ? 'worker' : 'workers'} · ${runningJobs} GitHub ${runningJobs === 1 ? 'job' : 'jobs'}`}
+        summary={`${workload.busyLabel} · ${workload.runningJobsLabel} running jobs`}
         testId="node-overview-section-pressure"
         title="Pressure and workloads"
       >
@@ -679,83 +584,106 @@ export function NodeOverviewPage() {
           lastSeenAt={node.lastSeenAt}
         />
       </ResponsiveOverviewSection>
+    </div>
+  );
+}
 
-      <ResponsiveOverviewSection
-        isDesktop={isDesktop}
-        status={sortedProfiles.length > 0 ? 'available' : 'unavailable'}
-        summary={`${sortedProfiles.length} ${sortedProfiles.length === 1 ? 'profile' : 'profiles'} · ${affectedProfiles.size} named in incidents`}
-        testId="node-overview-section-profiles"
-        title="Profiles"
-      >
-        <section className="grid gap-3">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h3 className="text-xl font-semibold">Profiles</h3>
-              <p className="text-sm text-muted-foreground">
-                Capacity and health summaries from the latest manager observations.
-              </p>
-            </div>
-            {sortedProfiles.length > 0 ? (
-              <div
-                aria-label="Profile presentation"
-                className="hidden items-center rounded-lg border bg-muted/40 p-1 md:flex"
-                role="group"
-              >
-                <Button
-                  aria-pressed={profilePresentation === 'cards'}
-                  size="sm"
-                  type="button"
-                  variant={profilePresentation === 'cards' ? 'secondary' : 'ghost'}
-                  onClick={() => changeProfilePresentation('cards')}
-                >
-                  <LayoutGrid aria-hidden="true" />
-                  Cards
-                </Button>
-                <Button
-                  aria-pressed={profilePresentation === 'table'}
-                  size="sm"
-                  type="button"
-                  variant={profilePresentation === 'table' ? 'secondary' : 'ghost'}
-                  onClick={() => changeProfilePresentation('table')}
-                >
-                  <Table2 aria-hidden="true" />
-                  Table
-                </Button>
-              </div>
-            ) : null}
+/** Renders attention-ranked profile inventory separately from host-level evidence. */
+export function NodeProfilesPage() {
+  const { tenantId, node } = useNodeDetail();
+  const { fleet } = useFleet();
+  const isDesktop = useDesktopOverview();
+  const [profilePresentation, setProfilePresentation] = useState<ProfilePresentation>(() =>
+    globalThis.localStorage.getItem(profileComparisonViewStorageKey) === 'table'
+      ? 'table'
+      : 'cards',
+  );
+  const profileIncidents = (fleet?.activeIncidents ?? []).filter(
+    (incident) => incident.nodeId === node.nodeId && incident.profileId != null,
+  );
+  const sortedProfiles = [...node.profiles].sort((left, right) => {
+    const rankDifference =
+      summarizeProfileAttention(left, profileIncidents).rank -
+      summarizeProfileAttention(right, profileIncidents).rank;
+    if (rankDifference !== 0) return rankDifference;
+    return left.profileId.localeCompare(right.profileId);
+  });
+  const effectiveProfilePresentation = isDesktop ? profilePresentation : 'cards';
+  const changeProfilePresentation = (next: ProfilePresentation) => {
+    setProfilePresentation(next);
+    globalThis.localStorage.setItem(profileComparisonViewStorageKey, next);
+  };
+
+  return (
+    <section aria-labelledby="node-profiles-heading" className="grid min-w-0 gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="node-profiles-heading" className="text-xl font-semibold">
+            Profiles
+          </h2>
+          <p className="mt-1 max-w-[72ch] text-sm text-muted-foreground">
+            Profiles requiring attention appear before ordinary manager inventory. Select one to
+            investigate its capacity, workers, diagnostics, history, or recovery.
+          </p>
+        </div>
+        {sortedProfiles.length > 0 ? (
+          <div
+            aria-label="Profile presentation"
+            className="hidden items-center rounded-lg border bg-muted/40 p-1 md:flex"
+            role="group"
+          >
+            <Button
+              aria-pressed={profilePresentation === 'cards'}
+              size="sm"
+              type="button"
+              variant={profilePresentation === 'cards' ? 'secondary' : 'ghost'}
+              onClick={() => changeProfilePresentation('cards')}
+            >
+              <Rows3 aria-hidden="true" />
+              List
+            </Button>
+            <Button
+              aria-pressed={profilePresentation === 'table'}
+              size="sm"
+              type="button"
+              variant={profilePresentation === 'table' ? 'secondary' : 'ghost'}
+              onClick={() => changeProfilePresentation('table')}
+            >
+              <Table2 aria-hidden="true" />
+              Table
+            </Button>
           </div>
-          {sortedProfiles.length === 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle as="h3">No profiles reported</CardTitle>
-                <CardDescription>
-                  The connector has not reported any profile observations for this node.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          ) : effectiveProfilePresentation === 'table' ? (
-            <ProfileComparisonTable
-              formatProfileName={formatProfileDisplayName}
+        ) : null}
+      </div>
+      {sortedProfiles.length === 0 ? (
+        <EmptyState
+          headingLevel="h3"
+          title="No profiles reported"
+          description="The connector has not reported any profile observations for this node."
+        />
+      ) : effectiveProfilePresentation === 'table' ? (
+        <ProfileComparisonTable
+          formatProfileName={formatProfileDisplayName}
+          nodeId={node.nodeId}
+          nodeIsOnline={node.isOnline}
+          profiles={sortedProfiles}
+          tenantId={tenantId}
+        />
+      ) : (
+        <OperationalList label="Node profiles">
+          {sortedProfiles.map((profile) => (
+            <ProfileSummary
+              key={profile.profileId}
+              profile={profile}
+              attention={summarizeProfileAttention(profile, profileIncidents)}
+              tenantId={tenantId}
               nodeId={node.nodeId}
               nodeIsOnline={node.isOnline}
-              profiles={sortedProfiles}
-              tenantId={tenantId}
             />
-          ) : (
-            sortedProfiles.map((profile) => (
-              <ProfileSummary
-                isDesktop={isDesktop}
-                key={profile.profileId}
-                profile={profile}
-                tenantId={tenantId}
-                nodeId={node.nodeId}
-                nodeIsOnline={node.isOnline}
-              />
-            ))
-          )}
-        </section>
-      </ResponsiveOverviewSection>
-    </div>
+          ))}
+        </OperationalList>
+      )}
+    </section>
   );
 }
 

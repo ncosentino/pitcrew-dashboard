@@ -16,6 +16,10 @@ const NodeHistoryPage = lazyFeature('fleet', async () => {
   const module = await import('./pages/NodePages');
   return { default: module.NodeHistoryPage };
 });
+const NodeProfilesPage = lazyFeature('fleet', async () => {
+  const module = await import('./pages/NodePages');
+  return { default: module.NodeProfilesPage };
+});
 const NodeAdministrationPage = lazyFeature('fleet', async () => {
   const module = await import('./pages/NodePages');
   return { default: module.NodeAdministrationPage };
@@ -81,6 +85,7 @@ export const fleetManifest: FeatureManifest = {
       activePathPatterns: [
         '/tenants/:tenantId/fleet',
         '/tenants/:tenantId/nodes/:nodeId',
+        '/tenants/:tenantId/nodes/:nodeId/profiles',
         '/tenants/:tenantId/nodes/:nodeId/history',
         '/tenants/:tenantId/nodes/:nodeId/administration',
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
@@ -107,6 +112,11 @@ export const fleetManifest: FeatureManifest = {
       path: nodePath,
       title: 'Node overview',
       breadcrumbs: nodeBreadcrumbs(),
+    },
+    {
+      path: `${nodePath}/profiles`,
+      title: 'Node profiles',
+      breadcrumbs: nodeBreadcrumbs('Profiles'),
     },
     {
       path: `${nodePath}/history`,
@@ -172,6 +182,7 @@ export const fleetManifest: FeatureManifest = {
       ),
       children: [
         { index: true, element: <NodeOverviewPage /> },
+        { path: 'profiles', element: <NodeProfilesPage /> },
         { path: 'history', element: <NodeHistoryPage /> },
         {
           path: 'administration',
