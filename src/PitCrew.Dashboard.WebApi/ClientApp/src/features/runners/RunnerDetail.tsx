@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useId, type ReactNode, type Ref } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
@@ -15,10 +15,11 @@ interface RunnerDetailProps {
   readonly row: FleetSlot;
   readonly tenantId: string;
   readonly isVisible: boolean;
+  readonly focusTitleRef?: Ref<HTMLHeadingElement>;
 }
 
 /** Presents one selected runner slot and its explicit GitHub job correlation. */
-export function RunnerDetail({ row, tenantId, isVisible }: RunnerDetailProps) {
+export function RunnerDetail({ row, tenantId, isVisible, focusTitleRef }: RunnerDetailProps) {
   const sectionId = useId();
   const job = row.slot.currentJob;
   const profilePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(row.nodeId)}/profiles/${encodeURIComponent(row.profileId)}`;
@@ -35,6 +36,7 @@ export function RunnerDetail({ row, tenantId, isVisible }: RunnerDetailProps) {
     <DetailPanel
       title={title}
       description={`${row.nodeName} · Profile ${row.profileId} · Slot ${row.slot.key}`}
+      focusTitleRef={focusTitleRef}
       status={
         <>
           {!row.nodeOnline ? <StatusBadge status="offline" /> : null}
@@ -106,17 +108,23 @@ export function RunnerDetail({ row, tenantId, isVisible }: RunnerDetailProps) {
               />
             </dl>
           ) : row.slot.currentJob === undefined ? (
-            <StateBanner className="mt-3" tone="caution" role="status">
+            <div
+              className="mt-3 border-t pt-3 text-sm text-status-caution-foreground"
+              role="status"
+            >
               Current job identity is unavailable for this manager contract. Activity and resource
               use are not treated as workload identity.
-            </StateBanner>
+            </div>
           ) : row.slot.activity === 'busy' || row.slot.activity === 'draining' ? (
-            <StateBanner className="mt-3" tone="caution" role="status">
+            <div
+              className="mt-3 border-t pt-3 text-sm text-status-caution-foreground"
+              role="status"
+            >
               The runner reports {row.slot.activity} activity but no current GitHub job. Do not
               infer job identity from process or resource activity.
-            </StateBanner>
+            </div>
           ) : (
-            <div className="mt-3 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+            <div className="mt-3 border-t pt-3 text-sm text-muted-foreground">
               No current GitHub job is assigned to this runner.
             </div>
           )}
@@ -180,10 +188,7 @@ export function RunnerDetail({ row, tenantId, isVisible }: RunnerDetailProps) {
           </dl>
         </section>
 
-        <section
-          aria-labelledby={`${sectionId}-related`}
-          className="rounded-lg border bg-muted/30 p-4"
-        >
+        <section aria-labelledby={`${sectionId}-related`} className="border-t pt-4">
           <h3 id={`${sectionId}-related`} className="text-sm font-semibold">
             Related evidence
           </h3>

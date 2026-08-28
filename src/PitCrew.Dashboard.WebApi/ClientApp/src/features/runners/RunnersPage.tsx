@@ -75,6 +75,7 @@ const sortKeys = new Set<SortKey>([
 ]);
 
 const inputClassName = 'h-9 min-w-0 w-full rounded-md border bg-background px-3 text-sm';
+const runnerMobileLimit = 50;
 const tableColumns: ReadonlyArray<OperationalTableColumn> = [
   { key: 'runner', header: 'Runner' },
   { key: 'workload', header: 'Workload' },
@@ -379,7 +380,7 @@ function RunnerEvidence({
 export function RunnersPage({ tenantId }: RunnersPageProps) {
   const { fleet, error, isLoading } = useFleet();
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedDetail = useRef<HTMLDivElement>(null);
+  const selectedHeading = useRef<HTMLHeadingElement>(null);
   const pendingSelectionFocus = useRef<string | null>(null);
   const nodeFilter = searchParams.get('node') ?? '';
   const profileFilter = searchParams.get('profile') ?? '';
@@ -470,6 +471,19 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
   const selectedRowIsVisible =
     selectedRow != null &&
     rows.some((row) => runnerSelectionId(row) === runnerSelectionId(selectedRow));
+  const selectedRowId = selectedRow ? runnerSelectionId(selectedRow) : null;
+  const selectedRowIndex =
+    selectedRowId == null ? -1 : rows.findIndex((row) => runnerSelectionId(row) === selectedRowId);
+  const selectedRowIsPinned = selectedRowIndex >= runnerMobileLimit;
+  const mobileRows =
+    selectedRowIsPinned && selectedRow
+      ? [
+          selectedRow,
+          ...rows
+            .filter((row) => runnerSelectionId(row) !== selectedRowId)
+            .slice(0, runnerMobileLimit - 1),
+        ]
+      : rows.slice(0, runnerMobileLimit);
 
   const selectRunner = useCallback((selectionId: string) => {
     pendingSelectionFocus.current = selectionId;
@@ -480,8 +494,22 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
       return;
     }
     pendingSelectionFocus.current = null;
-    selectedDetail.current?.focus();
+    selectedHeading.current?.focus();
   }, [selectedRow]);
+
+  useEffect(() => {
+    if (requestedRunnerId != null || rows[0] == null) return;
+    const initialSelectionId = runnerSelectionId(rows[0]);
+    setSearchParams(
+      (current) => {
+        if (current.get('runner')) return current;
+        const next = new URLSearchParams(current);
+        next.set('runner', initialSelectionId);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [requestedRunnerId, rows, setSearchParams]);
 
   const setParameter = useCallback(
     (name: string, value: string) => {
@@ -836,17 +864,12 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
             </StateBanner>
           ) : null}
           {selectedRow ? (
-            <div
-              ref={selectedDetail}
-              aria-label="Selected runner investigation"
-              className="min-w-0 rounded-xl outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              role="region"
-              tabIndex={-1}
-            >
+            <div aria-label="Selected runner investigation" className="min-w-0" role="region">
               <RunnerDetail
                 row={selectedRow}
                 tenantId={tenantId}
                 isVisible={selectedRowIsVisible}
+                focusTitleRef={selectedHeading}
               />
             </div>
           ) : null}
@@ -880,7 +903,7 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
               </div>
 
               <div className="grid gap-3 lg:hidden" data-testid="runners-mobile-summary">
-                {rows.slice(0, 50).map((row) => {
+                {mobileRows.map((row) => {
                   const selectionId = runnerSelectionId(row);
                   return (
                     <div
@@ -919,9 +942,13 @@ export function RunnersPage({ tenantId }: RunnersPageProps) {
                     </div>
                   );
                 })}
-                {rows.length > 50 ? (
+                {rows.length > runnerMobileLimit ? (
                   <p className="text-xs text-muted-foreground">
-                    Showing 50 of {rows.length} slots. Use filters to narrow results.
+                    Showing {runnerMobileLimit} of {rows.length} slots.
+                    {selectedRowIsPinned
+                      ? ' The selected runner is pinned in this window.'
+                      : ''}{' '}
+                    Use filters to narrow results.
                   </p>
                 ) : null}
               </div>

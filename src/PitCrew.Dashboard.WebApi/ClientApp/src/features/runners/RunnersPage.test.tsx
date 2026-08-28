@@ -302,6 +302,13 @@ describe('runners feature', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open job in GitHub' })).not.toBeInTheDocument();
     expect(screen.getByText('Needs review')).toBeInTheDocument();
+    const initialRow = flattenFleetSlots(standardFleet() as unknown as FleetResponse)[0];
+    if (!initialRow) throw new Error('Expected an initial runner row.');
+    await waitFor(() =>
+      expect(
+        new URLSearchParams(screen.getByLabelText('Current query').textContent ?? '').get('runner'),
+      ).toBe(runnerSelectionId(initialRow)),
+    );
   });
 
   it('deep-links one runner investigation while preserving inventory context and focus', async () => {
@@ -328,7 +335,7 @@ describe('runners feature', () => {
       await screen.findByRole('heading', { level: 2, name: 'Alpha · slot-b' }),
     ).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByRole('region', { name: 'Selected runner investigation' })).toHaveFocus(),
+      expect(screen.getByRole('heading', { level: 2, name: 'Alpha · slot-b' })).toHaveFocus(),
     );
     expect(
       new URLSearchParams(screen.getByLabelText('Current query').textContent ?? '').get('runner'),
@@ -405,6 +412,29 @@ describe('runners feature', () => {
     ).toBeInTheDocument();
   });
 
+  it('pins a selected runner beyond the first mobile result window', async () => {
+    const slots = Array.from({ length: 51 }, (_, index) =>
+      slotResponse(`slot-${String(index).padStart(2, '0')}`),
+    );
+    const fleet = fleetResponse([
+      nodeResponse(localNodeId, 'Alpha', [profileResponse('build', slots)]),
+    ]);
+    const rows = flattenFleetSlots(fleet as unknown as FleetResponse);
+    const selected = rows.at(-1);
+    if (!selected) throw new Error('Expected a selected runner.');
+    renderRunners(
+      fleet,
+      `/tenants/local/runners?runner=${encodeURIComponent(runnerSelectionId(selected))}`,
+    );
+
+    expect(await screen.findAllByTestId(/^runner-card-/)).toHaveLength(50);
+    const selectedCard = screen.getByTestId(
+      `runner-card-${selected.nodeId}-${selected.profileId}-${selected.slot.key}`,
+    );
+    expect(within(selectedCard).getByRole('link', { name: 'Selected' })).toBeInTheDocument();
+    expect(screen.getByText(/selected runner is pinned in this window/i)).toBeInTheDocument();
+  });
+
   it('restores every filter and sorting field from a bookmarked URL', async () => {
     renderRunners(
       standardFleet(),
@@ -439,11 +469,18 @@ describe('runners feature', () => {
     await user.selectOptions(screen.getByLabelText('Sort by'), 'slot');
     await user.selectOptions(screen.getByLabelText('Sort direction'), 'desc');
 
-    await waitFor(() =>
-      expect(screen.getByLabelText('Current query')).toHaveTextContent(
-        `node=${localNodeId}&profile=deploy&repository=beta&activity=draining&registration=disconnected&state=draining&sort=slot&direction=desc`,
-      ),
-    );
+    await waitFor(() => {
+      const query = new URLSearchParams(screen.getByLabelText('Current query').textContent ?? '');
+      expect(query.get('node')).toBe(localNodeId);
+      expect(query.get('profile')).toBe('deploy');
+      expect(query.get('repository')).toBe('beta');
+      expect(query.get('activity')).toBe('draining');
+      expect(query.get('registration')).toBe('disconnected');
+      expect(query.get('state')).toBe('draining');
+      expect(query.get('sort')).toBe('slot');
+      expect(query.get('direction')).toBe('desc');
+      expect(query.get('runner')).not.toBeNull();
+    });
     expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(1);
     expect(screen.getByTestId(`runner-slot-${localNodeId}-deploy-slot-b`)).toHaveTextContent(
       'slot-b',

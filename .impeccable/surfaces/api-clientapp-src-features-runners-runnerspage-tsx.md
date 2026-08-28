@@ -37,8 +37,9 @@ the owning job or profile evidence without inferring workload from resource acti
 ## Responsive behavior and states
 
 At narrow widths, keep primary filters usable, place the selected dispatch sheet
-before the card inventory, focus it after selection, and contain long job, repository,
-node, profile, slot, hash, and image identities. Cover loading, empty fleet,
+before the card inventory, focus its compact title after selection, and pin an
+in-scope selection when it falls beyond the first 50 cards. Contain long job,
+repository, node, profile, slot, hash, and image identities. Cover loading, empty fleet,
 filtered-empty, current job, explicit no-job, job unavailable on older contracts,
 busy, draining, idle, offline, stale, registration missing, exit evidence, missing
 resources, missing deep link, and large-result states in both themes.

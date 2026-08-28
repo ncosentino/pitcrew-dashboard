@@ -197,8 +197,8 @@ test('mobile runner selection focuses an explicit no-job dispatch sheet', async 
   await idleCard.getByRole('link', { name: 'Investigate' }).click();
 
   const selected = page.getByRole('region', { name: 'Selected runner investigation' });
-  await expect(selected).toBeFocused();
-  await expect(page.getByRole('heading', { level: 2, name: 'Alpha · build-000002' })).toBeVisible();
+  await expect(selected).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Alpha · build-000002' })).toBeFocused();
   await expect(page.getByText('No current GitHub job is assigned to this runner.')).toBeVisible();
   await expect(idleCard.getByRole('link', { name: 'Selected' })).toHaveAttribute(
     'aria-current',
