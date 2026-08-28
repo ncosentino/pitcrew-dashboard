@@ -667,6 +667,7 @@ function nodeHasDegradedConnector(node: FleetNode): boolean {
 }
 
 function selectNodeProfileAttention(node: FleetNode): NodeProfileAttention | undefined {
+  if (!node.isOnline || node.isRevoked) return undefined;
   return node.profiles
     .map((profile) => ({
       profileId: profile.profileId,
