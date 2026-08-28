@@ -591,5 +591,5 @@ function incidentInvestigationHref(tenantId: string, incidentId: string): string
 }
 
 function nodeHasDegradedConnector(node: FleetNode): boolean {
-  return node.connectorHealth?.snapshot.state === 'degraded';
+  return node.isOnline && !node.isRevoked && node.connectorHealth?.snapshot.state === 'degraded';
 }

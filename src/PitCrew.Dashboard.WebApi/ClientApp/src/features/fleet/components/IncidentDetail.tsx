@@ -89,10 +89,21 @@ export function IncidentDetail({
               label={incident.status === 'resolved' ? 'Resolved' : 'Ownership'}
               value={
                 incident.status === 'resolved'
-                  ? formatTime(incident.resolvedAt)
+                  ? incident.resolvedAt
+                    ? formatTime(incident.resolvedAt)
+                    : 'Resolution time unavailable'
                   : incident.status === 'acknowledged'
-                    ? `Acknowledged ${formatTime(incident.acknowledgedAt)}`
+                    ? incident.acknowledgedAt
+                      ? `Acknowledged ${formatTime(incident.acknowledgedAt)}`
+                      : 'Acknowledged; time unavailable'
                     : 'Unacknowledged'
+              }
+              detail={
+                incident.status === 'acknowledged'
+                  ? incident.acknowledgedByGitHubUserId
+                    ? `GitHub user ${incident.acknowledgedByGitHubUserId}`
+                    : 'Owner identity unavailable'
+                  : null
               }
             />
           </dl>

@@ -346,6 +346,7 @@ describe('IncidentsPage', () => {
     await screen.findByTestId(`incident-row-${incidentId}`, undefined, {
       timeout: 5000,
     });
+    expect(screen.getByText('GitHub user 123')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Unacknowledge incident' }));
 

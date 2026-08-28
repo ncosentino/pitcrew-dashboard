@@ -434,10 +434,7 @@ export default function IncidentsPage() {
                   nodesById={nodesById}
                   searchParams={searchParams}
                   selectedIncidentId={selectedIncident?.incidentId ?? null}
-                  onSelect={() => {
-                    if (!isDesktopWorkspace) setIsQueueOpenOnMobile(false);
-                  }}
-                  className="rounded-none border-x-0 border-b-0 xl:rounded-xl xl:border"
+                  className="rounded-none border-0 xl:rounded-xl xl:border"
                 />
               </section>
             </details>
@@ -467,7 +464,6 @@ interface IncidentQueueProps {
   readonly nodesById: ReadonlyMap<string, FleetNode>;
   readonly searchParams: URLSearchParams;
   readonly selectedIncidentId: string | null;
-  readonly onSelect: () => void;
   readonly className?: string;
 }
 
@@ -476,7 +472,6 @@ function IncidentQueue({
   nodesById,
   searchParams,
   selectedIncidentId,
-  onSelect,
   className,
 }: IncidentQueueProps) {
   return (
@@ -492,7 +487,6 @@ function IncidentQueue({
             node={node}
             selectionHref={`?${nextSearchParams.toString()}`}
             selected={incident.incidentId === selectedIncidentId}
-            onSelect={onSelect}
           />
         );
       })}
