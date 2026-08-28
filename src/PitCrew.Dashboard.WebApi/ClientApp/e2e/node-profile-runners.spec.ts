@@ -1,6 +1,7 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 
 import { viewports } from '../playwright.config';
+import { buildFleetNode, buildFleetResponse, buildProfile } from './mocks/fixtures';
 import {
   activeJobScenario,
   degradedNodeScenario,
@@ -155,6 +156,179 @@ test('mobile runner summaries retain technical evidence behind disclosure', asyn
   await expect(card.getByText('Image')).toBeVisible();
   await expect(card.getByText('Last exit')).toBeVisible();
   await expect(card.getByText('Updated')).toBeVisible();
+});
+
+test('runner dispatch sheet leads with explicit current-job correlation', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize(viewports.desktop);
+  await setUpPage(page, activeJobScenario(), 'light');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Compile and verify dashboard assets' }),
+  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Current GitHub job' })).toContainText(
+    'In progress',
+  );
+  await expect(page.getByRole('link', { name: 'Open job in GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/example/project/actions/runs/12345/job/67890',
+  );
+  await expect(
+    page.getByRole('region', { name: 'Runner readiness' }).getByText('Current jobs').locator('..'),
+  ).toContainText('1');
+
+  await expectSurfaceHealth(page, testInfo, 'runner-current-job-desktop');
+  await testInfo.attach('screenshot-runner-current-job-desktop', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
+test('offline runner correlation remains explicitly last-known', async ({ page }, testInfo) => {
+  await page.setViewportSize(viewports.desktop);
+  const scenario = activeJobScenario();
+  const offlineScenario = {
+    ...scenario,
+    fleet: {
+      ...scenario.fleet,
+      nodes: scenario.fleet.nodes.map((node) => ({ ...node, isOnline: false })),
+    },
+  };
+  await setUpPage(page, offlineScenario, 'light');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  await expect(
+    page.getByRole('heading', {
+      level: 2,
+      name: 'Last known: Compile and verify dashboard assets',
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Last-known GitHub job evidence' })).toContainText(
+    'Last reported in progress',
+  );
+  await expect(page.getByText(/because the node is offline/)).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Runner readiness' }).getByText('Current jobs').locator('..'),
+  ).toContainText('0');
+
+  await expectSurfaceHealth(page, testInfo, 'runner-last-known-job-desktop');
+  await testInfo.attach('screenshot-runner-last-known-job-desktop', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
+test('mobile runner selection focuses an explicit no-job dispatch sheet', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize(viewports.mobile);
+  await setUpPage(page, activeJobScenario(), 'dark');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  const idleCard = page.getByTestId(`runner-card-${nodeIds.alpha}-build-build-000002`);
+  await idleCard.getByRole('link', { name: 'Investigate' }).click();
+
+  const selected = page.getByRole('region', { name: 'Selected runner investigation' });
+  await expect(selected).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Alpha · build-000002' })).toBeFocused();
+  await expect(page.getByText('No current GitHub job is assigned to this runner.')).toBeVisible();
+  await expect(idleCard.getByRole('link', { name: 'Selected' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+
+  await expectSurfaceHealth(page, testInfo, 'runner-selection-mobile');
+  await testInfo.attach('screenshot-runner-selection-mobile', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
+test('runner job and identity evidence remains contained at 320px', async ({ page }, testInfo) => {
+  const profileId = `profile-${'p'.repeat(120)}`;
+  const baseline = buildProfile(profileId);
+  const slotKey = `slot-${'s'.repeat(120)}`;
+  const repository = `https://github.com/example/${'r'.repeat(100)}`;
+  const profile = buildProfile(profileId, {
+    managerContractVersion: 15,
+    desiredSlots: 1,
+    configuredSlots: 1,
+    activeSlots: 1,
+    eligibleSlots: 1,
+    drainingSlots: 0,
+    capacityEvidence: {
+      fixed: {
+        observedAt: '2026-07-19T18:30:00+00:00',
+        freshness: 'current',
+        targetSlots: 1,
+        activeWorkers: 1,
+        startingWorkers: 0,
+        drainingWorkers: 0,
+        cleanupPendingWorkers: 0,
+        eligibleWorkers: 1,
+        localDeficit: 0,
+        eligibilityDeficit: 0,
+        reason: 'none',
+        evidence: null,
+      },
+      targets: [],
+    },
+    update: {
+      status: 'current',
+      targetImage: null,
+      targetImageId: null,
+      targetRevision: 'b'.repeat(64),
+      currentWorkers: 1,
+      staleWorkers: 0,
+      lastError: null,
+    },
+    slots: [
+      {
+        ...baseline.slots[0],
+        key: slotKey,
+        repository,
+        activity: 'busy',
+        runnerNameHash: 'b'.repeat(64),
+        currentJob: {
+          repository,
+          workflowRunId: 98765,
+          jobId: '43210',
+          displayName: `Job-${'j'.repeat(240)}`,
+          eventName: 'workflow_dispatch',
+          queuedAt: '2026-07-19T18:20:00+00:00',
+          scaleSetAssignedAt: '2026-07-19T18:21:00+00:00',
+          runnerAssignedAt: '2026-07-19T18:22:00+00:00',
+          startedAt: '2026-07-19T18:23:00+00:00',
+          finishedAt: null,
+          result: null,
+        },
+      },
+    ],
+  });
+  const node = buildFleetNode({
+    nodeId: nodeIds.alpha,
+    displayName: `Node-${'n'.repeat(150)}`,
+    isOnline: true,
+    profiles: [profile],
+  });
+  const scenario = {
+    ...healthyScenario(),
+    fleet: buildFleetResponse([node], []),
+  };
+
+  await page.setViewportSize(viewports.narrow);
+  await setUpPage(page, scenario, 'light');
+  await page.goto(`/tenants/${tenantId}/runners`);
+
+  await expect(page.getByRole('region', { name: 'Selected runner investigation' })).toBeVisible();
+  await expect(page.getByTestId(/^runner-card-/)).toBeVisible();
+  await expectSurfaceHealth(page, testInfo, 'runner-long-content-narrow');
+  await testInfo.attach('screenshot-runner-long-content-narrow', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
 });
 
 test('mobile node overview exposes a compact section index before detailed evidence', async ({
