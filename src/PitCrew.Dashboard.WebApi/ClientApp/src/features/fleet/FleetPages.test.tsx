@@ -340,6 +340,9 @@ describe('fleet overview and node detail', () => {
     expect(readiness).toHaveTextContent('Nodes online');
     expect(readiness).toHaveTextContent('1 of 3');
     expect(readiness).toHaveTextContent('Nodes needing attention');
+    expect(within(readiness).getByText('Nodes needing attention').parentElement).toHaveTextContent(
+      '2',
+    );
     expect(readiness).toHaveTextContent('Needs attention');
     expect(within(row).getByRole('link', { name: 'Alpha' })).toHaveAttribute(
       'href',
@@ -353,6 +356,11 @@ describe('fleet overview and node detail', () => {
     expect(row).toHaveTextContent('1.5 cores / 3 KiB');
     expect(row).toHaveTextContent('2 of 3 sources');
     expect(row).toHaveTextContent('partial');
+    expect(row).toHaveTextContent('Worker rollout active');
+    expect(within(row).getByRole('link', { name: 'Review Worker rollout active' })).toHaveAttribute(
+      'href',
+      `/tenants/local/nodes/${alphaId}/profiles/build/workers`,
+    );
     expect(screen.queryByText('Absolute maximum')).not.toBeInTheDocument();
     expect(screen.queryByText('build-000001')).not.toBeInTheDocument();
   });

@@ -31,11 +31,21 @@ import {
   type NodeSort,
   type NodeStatusFilter,
 } from './nodeSummary';
+import {
+  summarizeProfileAttention,
+  type ProfileAttentionSummary,
+  type ProfileAttentionTask,
+} from './profileWorkspace';
 import { HardwareComparison } from './components/HostHardwareSummary';
 import { ActiveIncidentSummary } from './components/ActiveIncidentSummary';
 
 type FleetDensity = 'comfortable' | 'compact';
 type FleetSort = NodeSort | 'attention';
+
+interface NodeProfileAttention {
+  readonly profileId: string;
+  readonly summary: ProfileAttentionSummary;
+}
 
 /** Browser storage key for the fleet overview density preference. */
 export const fleetDensityStorageKey = 'pitcrew-dashboard-fleet-density';
@@ -75,6 +85,7 @@ interface NodeSummaryRowProps {
   readonly selected: boolean;
   readonly onSelectionChanged: (nodeId: string, selected: boolean) => void;
   readonly incidents: ReadonlyArray<OperationalIncident>;
+  readonly profileAttention?: NodeProfileAttention;
 }
 
 function NodeSummaryRow({
@@ -84,6 +95,7 @@ function NodeSummaryRow({
   selected,
   onSelectionChanged,
   incidents,
+  profileAttention,
 }: NodeSummaryRowProps) {
   const aggregate = aggregateNode(node);
   const status = getNodeStatus(node);
@@ -118,6 +130,12 @@ function NodeSummaryRow({
             <StatusBadge status="warning" />
           ) : null}
           {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
+          {profileAttention ? (
+            <StatusBadge
+              status={profileAttention.summary.label}
+              tone={profileAttention.summary.tone}
+            />
+          ) : null}
         </div>
         {incidents.length > 0 ? (
           <Link
@@ -125,6 +143,19 @@ function NodeSummaryRow({
             to={incidentInvestigationHref(tenantId, incidents[0].incidentId)}
           >
             Review {incidents.length} active {incidents.length === 1 ? 'incident' : 'incidents'}
+          </Link>
+        ) : null}
+        {profileAttention ? (
+          <Link
+            className="mt-1 block text-xs font-semibold text-link underline-offset-4 hover:underline"
+            to={profileAttentionHref(
+              tenantId,
+              node.nodeId,
+              profileAttention.profileId,
+              profileAttention.summary.task,
+            )}
+          >
+            Review {profileAttention.summary.label}
           </Link>
         ) : null}
         {!node.isOnline ? (
@@ -239,12 +270,25 @@ export default function FleetOverviewPage() {
     if (current) current.push(incident);
     else incidentsByNode.set(incident.nodeId, [incident]);
   }
+  const profileAttentionByNode = new Map<string, NodeProfileAttention>();
+  for (const node of fleet?.nodes ?? []) {
+    const profileAttention = selectNodeProfileAttention(node);
+    if (profileAttention) profileAttentionByNode.set(node.nodeId, profileAttention);
+  }
   const nodes =
     sort === 'attention'
       ? [...selectedNodes].sort((left, right) => {
           const rankDifference =
-            nodeAttentionRank(left, incidentsByNode.get(left.nodeId) ?? []) -
-            nodeAttentionRank(right, incidentsByNode.get(right.nodeId) ?? []);
+            nodeAttentionRank(
+              left,
+              incidentsByNode.get(left.nodeId) ?? [],
+              profileAttentionByNode.get(left.nodeId),
+            ) -
+            nodeAttentionRank(
+              right,
+              incidentsByNode.get(right.nodeId) ?? [],
+              profileAttentionByNode.get(right.nodeId),
+            );
           if (rankDifference !== 0) return rankDifference;
           return 0;
         })
@@ -263,6 +307,7 @@ export default function FleetOverviewPage() {
       (node) =>
         getNodeStatus(node) === 'offline' ||
         nodeHasDegradedConnector(node) ||
+        profileAttentionByNode.has(node.nodeId) ||
         (incidentsByNode.get(node.nodeId)?.length ?? 0) > 0,
     ).length ?? 0;
 
@@ -328,7 +373,7 @@ export default function FleetOverviewPage() {
           {
             label: 'Nodes needing attention',
             value: fleet ? attentionNodes : error ? 'Unavailable' : 'Loading…',
-            detail: 'Offline, connector-degraded, or named by an active incident',
+            detail: 'Incident, profile exception, degraded connector, or offline state',
           },
           {
             label: 'Active incidents',
@@ -467,6 +512,7 @@ export default function FleetOverviewPage() {
                   const nodeStatus = getNodeStatus(node);
                   const admission = summarizeNodeHostAdmission(node.profiles);
                   const nodeIncidents = incidentsByNode.get(node.nodeId) ?? [];
+                  const profileAttention = profileAttentionByNode.get(node.nodeId);
                   return (
                     <div
                       key={node.nodeId}
@@ -481,6 +527,12 @@ export default function FleetOverviewPage() {
                           <StatusBadge status="warning" />
                         ) : null}
                         {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
+                        {profileAttention ? (
+                          <StatusBadge
+                            status={profileAttention.summary.label}
+                            tone={profileAttention.summary.tone}
+                          />
+                        ) : null}
                         <Link
                           className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
                           to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
@@ -495,6 +547,19 @@ export default function FleetOverviewPage() {
                         >
                           Review {nodeIncidents.length} active{' '}
                           {nodeIncidents.length === 1 ? 'incident' : 'incidents'}
+                        </Link>
+                      ) : null}
+                      {profileAttention ? (
+                        <Link
+                          className="text-xs font-semibold text-link underline-offset-4 hover:underline"
+                          to={profileAttentionHref(
+                            tenantId,
+                            node.nodeId,
+                            profileAttention.profileId,
+                            profileAttention.summary.task,
+                          )}
+                        >
+                          Review {profileAttention.summary.label}
                         </Link>
                       ) : null}
                       <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
@@ -550,6 +615,7 @@ export default function FleetOverviewPage() {
                       selected={selectedNodeIds.includes(node.nodeId)}
                       onSelectionChanged={changeSelection}
                       incidents={incidentsByNode.get(node.nodeId) ?? []}
+                      profileAttention={profileAttentionByNode.get(node.nodeId)}
                     />
                   ))}
                 </OperationalTable>
@@ -577,13 +643,19 @@ export default function FleetOverviewPage() {
   );
 }
 
-function nodeAttentionRank(node: FleetNode, incidents: ReadonlyArray<OperationalIncident>): number {
+function nodeAttentionRank(
+  node: FleetNode,
+  incidents: ReadonlyArray<OperationalIncident>,
+  profileAttention: NodeProfileAttention | undefined,
+): number {
   if (incidents.some((incident) => incident.severity === 'critical')) return 0;
   if (incidents.length > 0) return 1;
-  if (nodeHasDegradedConnector(node)) return 2;
-  if (getNodeStatus(node) === 'offline') return 3;
-  if (getNodeStatus(node) === 'online') return 4;
-  return 5;
+  if (profileAttention?.summary.tone === 'critical') return 2;
+  if (nodeHasDegradedConnector(node)) return 3;
+  if (getNodeStatus(node) === 'offline') return 4;
+  if (profileAttention) return 5;
+  if (getNodeStatus(node) === 'online') return 6;
+  return 7;
 }
 
 function incidentInvestigationHref(tenantId: string, incidentId: string): string {
@@ -592,4 +664,24 @@ function incidentInvestigationHref(tenantId: string, incidentId: string): string
 
 function nodeHasDegradedConnector(node: FleetNode): boolean {
   return node.isOnline && !node.isRevoked && node.connectorHealth?.snapshot.state === 'degraded';
+}
+
+function selectNodeProfileAttention(node: FleetNode): NodeProfileAttention | undefined {
+  return node.profiles
+    .map((profile) => ({
+      profileId: profile.profileId,
+      summary: summarizeProfileAttention(profile, []),
+    }))
+    .filter((candidate) => candidate.summary.rank < 100)
+    .sort((left, right) => left.summary.rank - right.summary.rank)[0];
+}
+
+function profileAttentionHref(
+  tenantId: string,
+  nodeId: string,
+  profileId: string,
+  task: ProfileAttentionTask,
+): string {
+  const basePath = `/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(nodeId)}/profiles/${encodeURIComponent(profileId)}`;
+  return task === 'overview' ? basePath : `${basePath}/${task}`;
 }

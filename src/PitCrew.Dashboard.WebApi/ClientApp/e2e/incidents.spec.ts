@@ -272,7 +272,7 @@ test('attention queue hides acknowledged incidents and supports filtering and so
   ).toBeVisible();
   await expect(page.getByText('Critical capacity deficit')).toBeHidden();
 
-  await page.getByLabel('Work queue').selectOption('active');
+  await page.getByLabel('Work queue', { exact: true }).selectOption('active');
   await page.getByLabel('Severity', { exact: true }).selectOption('all');
   await page.getByLabel('Search incidents').fill('');
   await expect(

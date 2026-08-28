@@ -27,9 +27,10 @@ comparison remain available after the operational signal is clear.
 
 - Lead with one compact readiness band for observation freshness, online nodes,
   attention-bearing nodes, and active incidents.
-- Rank the default node inventory by explicit incidents and offline state before
-  ordinary online or revoked records; preserve deliberate name, status, and
-  last-observed sorting.
+- Rank the default node inventory by explicit incidents, profile lifecycle and
+  rollout exceptions, degraded connector evidence, and offline state before ordinary
+  online or revoked records; preserve deliberate name, status, and last-observed
+  sorting.
 - Present incidents as one attention-ordered queue and one selected case file.
   Selection is URL-stable through the `incident` query parameter.
 - Keep severity, lifecycle, reason, evidence, node/profile identity, timeline,
