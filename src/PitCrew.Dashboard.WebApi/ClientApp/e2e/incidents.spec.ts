@@ -125,6 +125,41 @@ for (const theme of workspaceThemes) {
   }
 }
 
+test('long incident and node evidence remains contained at the narrow viewport', async ({
+  page,
+}, testInfo) => {
+  const longTitle = `Capacity-${'x'.repeat(145)}`;
+  const longNodeName = `Node-${'y'.repeat(150)}`;
+  const longIncident = buildIncident({
+    incidentId: 'f3333333-3333-4333-8333-333333333333',
+    title: longTitle,
+    summary: 's'.repeat(512),
+    evidence: 'e'.repeat(512),
+  });
+  const longNode = buildFleetNode({
+    nodeId: nodeIds.alpha,
+    displayName: longNodeName,
+    isOnline: true,
+    profiles: [buildProfile('build')],
+  });
+  const base = baseScenario();
+  const scenario: MockApiOptions = {
+    ...base,
+    fleet: buildFleetResponse([longNode], [longIncident]),
+    incidents: buildIncidentPage([longIncident]),
+  };
+
+  await page.setViewportSize(viewports.narrow);
+  await setUpPage(page, scenario, 'light');
+  await page.goto(incidentsPath);
+
+  await expect(page.getByRole('heading', { name: longTitle, level: 2 })).toBeVisible();
+  await page.getByText('Choose incident', { exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
+
+  await expectNoOverflowAndAccessible(page, testInfo, 'long-content-narrow');
+});
+
 test('critical/warning mix: both severities display with labeled counts', async ({
   page,
 }, testInfo) => {

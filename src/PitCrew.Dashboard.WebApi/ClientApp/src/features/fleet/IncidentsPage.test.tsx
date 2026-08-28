@@ -99,6 +99,7 @@ describe('IncidentsPage', () => {
     expect(
       screen.getByRole('heading', { name: 'default capacity is below target', level: 2 }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/not proof of this incident's cause/i)).toBeInTheDocument();
     expect(screen.getByText(/1 need attention · 1 critical · 0 warning/i)).toBeInTheDocument();
     expect(screen.getByText(/showing only the newest incidents/i)).toBeInTheDocument();
   });

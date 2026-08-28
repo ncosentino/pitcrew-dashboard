@@ -30,6 +30,10 @@ export function IncidentDetail({
   onUnacknowledge,
 }: IncidentDetailProps) {
   const connector = node?.connectorHealth?.snapshot;
+  const connectorEvidenceIsIncidentSpecific = incident.kind === 'connector-offline';
+  const connectorHeading = connectorEvidenceIsIncidentSpecific
+    ? 'Connector recovery evidence'
+    : 'Node connector context';
   return (
     <DetailPanel
       title={incident.title}
@@ -112,10 +116,16 @@ export function IncidentDetail({
         <section aria-labelledby={`incident-connector-${incident.incidentId}`}>
           <div className="flex flex-wrap items-center gap-2">
             <h3 id={`incident-connector-${incident.incidentId}`} className="text-sm font-semibold">
-              Connector recovery evidence
+              {connectorHeading}
             </h3>
             {connector ? <StatusBadge status={connector.state} /> : null}
           </div>
+          {!connectorEvidenceIsIncidentSpecific ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              This node-level connector evidence is investigation context, not proof of this
+              incident&apos;s cause.
+            </p>
+          ) : null}
           {connector ? (
             <dl className="mt-3 grid gap-3 sm:grid-cols-2">
               <IncidentFact
@@ -146,8 +156,10 @@ export function IncidentDetail({
               className="mt-3 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground"
               role="status"
             >
-              Connector recovery evidence is unavailable for this incident. Missing enrichment is
-              not treated as healthy state.
+              {connectorEvidenceIsIncidentSpecific
+                ? 'Connector recovery evidence is unavailable for this incident.'
+                : 'Node connector context is unavailable for this incident.'}{' '}
+              Missing enrichment is not treated as healthy state.
             </div>
           )}
         </section>

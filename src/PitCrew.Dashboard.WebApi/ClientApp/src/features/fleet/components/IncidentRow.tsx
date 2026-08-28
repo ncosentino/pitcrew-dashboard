@@ -30,7 +30,9 @@ export function IncidentRow({ incident, node, selectionHref, selected }: Inciden
       }
       metadata={
         <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{node?.displayName ?? 'Node identity unavailable'}</span>
+          <span className="[overflow-wrap:anywhere]">
+            {node?.displayName ?? 'Node identity unavailable'}
+          </span>
           <span>{incident.profileId ? `Profile ${incident.profileId}` : 'Node scope'}</span>
           <span>Last observed {formatTime(incident.lastObservedAt)}</span>
         </div>
