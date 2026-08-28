@@ -308,6 +308,7 @@ export default function IncidentsPage() {
       <ReadinessSummary
         title="Incident work queue"
         description="Debounced operational exceptions and bounded history from manager-owned evidence. Acknowledgement records ownership; only new evidence resolves a condition."
+        narrowColumns={2}
         status={
           <StatusBadge
             status={

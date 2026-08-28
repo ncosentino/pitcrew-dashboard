@@ -59,8 +59,8 @@ export function IncidentDetail({
       : enrichmentStatus === 'unavailable'
         ? `${connectorHeading} could not be loaded for this incident.`
         : node == null
-          ? `The referenced node is not present in the accepted fleet projection, so ${connectorHeading.toLocaleLowerCase()} cannot be shown.`
-          : `No ${connectorHeading.toLocaleLowerCase()} was reported for this node.`;
+          ? `The referenced node is not present in the accepted fleet projection, so ${connectorHeading.toLowerCase()} cannot be shown.`
+          : `No ${connectorHeading.toLowerCase()} was reported for this node.`;
   return (
     <DetailPanel
       title={incident.title}

@@ -399,7 +399,9 @@ test('connector evidence absent: absence stated truthfully for never-replayed co
   await page.goto(`${incidentsPath}?view=active`);
 
   await expect(page.getByRole('heading', { name: 'Connector is offline', level: 2 })).toBeVisible();
-  await expect(page.getByText(/connector recovery evidence is unavailable/i)).toBeVisible();
+  await expect(
+    page.getByText(/referenced node is not present in the accepted fleet projection/i),
+  ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'connector-evidence-absent');
 });
