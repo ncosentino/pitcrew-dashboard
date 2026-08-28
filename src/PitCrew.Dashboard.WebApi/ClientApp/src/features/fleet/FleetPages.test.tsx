@@ -336,6 +336,11 @@ describe('fleet overview and node detail', () => {
     renderRoute('/tenants/local/fleet');
 
     const row = await screen.findByTestId(`fleet-node-${alphaId}`);
+    const readiness = screen.getByRole('region', { name: 'Fleet readiness' });
+    expect(readiness).toHaveTextContent('Nodes online');
+    expect(readiness).toHaveTextContent('1 of 3');
+    expect(readiness).toHaveTextContent('Nodes needing attention');
+    expect(readiness).toHaveTextContent('Needs attention');
     expect(within(row).getByRole('link', { name: 'Alpha' })).toHaveAttribute(
       'href',
       `/tenants/local/nodes/${alphaId}`,
@@ -471,6 +476,68 @@ describe('fleet overview and node detail', () => {
     expect(row).toHaveTextContent('Eligible Unknown');
   });
 
+  it('orders active incidents ahead of ordinary node state by default', async () => {
+    const response = {
+      ...fleetResponse(),
+      activeIncidents: [
+        {
+          incidentId: 'd6235ec4-2a15-4f91-a9e0-811152869a54',
+          nodeId: alphaId,
+          profileId: 'build',
+          kind: 'capacity-deficit',
+          severity: 'critical' as const,
+          status: 'triggered' as const,
+          title: 'Build capacity is below target',
+          summary: 'The build profile reports a local capacity deficit.',
+          reason: 'docker-unavailable',
+          evidence: 'Docker is unavailable.',
+          link: `/tenants/local/nodes/${alphaId}/profiles/build/capacity`,
+          firstObservedAt: '2026-07-19T18:20:00+00:00',
+          triggeredAt: '2026-07-19T18:25:00+00:00',
+          lastObservedAt: '2026-07-19T18:30:00+00:00',
+          acknowledgedAt: null,
+          acknowledgedByGitHubUserId: null,
+          resolvedAt: null,
+        },
+      ],
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <RouterProvider router={createTestRouter(features, ['/tenants/local/fleet'])} />
+      </SessionProvider>,
+    );
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringContaining('Alpha'),
+      expect.stringContaining('Bravo'),
+      expect.stringContaining('Charlie'),
+    ]);
+    expect(
+      within(screen.getByTestId(`fleet-node-${alphaId}`)).getByRole('link', {
+        name: 'Review 1 active incident',
+      }),
+    ).toHaveAttribute(
+      'href',
+      `/tenants/local/incidents?view=active&incident=${response.activeIncidents[0].incidentId}`,
+    );
+    expect(screen.getByRole('region', { name: 'Fleet readiness' })).toHaveTextContent(
+      'Critical incidents',
+    );
+    expect(screen.getByLabelText('Sort by')).toHaveValue('attention');
+  });
+
   it('filters and sorts deterministically and persists density', async () => {
     const user = userEvent.setup();
     renderRoute('/tenants/local/fleet');
@@ -482,8 +549,8 @@ describe('fleet overview and node detail', () => {
         .slice(1)
         .map((row) => row.textContent),
     ).toEqual([
-      expect.stringContaining('Alpha'),
       expect.stringContaining('Bravo'),
+      expect.stringContaining('Alpha'),
       expect.stringContaining('Charlie'),
     ]);
 

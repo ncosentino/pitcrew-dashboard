@@ -1,8 +1,7 @@
 /**
- * Responsive foundation evidence (#87): validates mobile summary cards
- * appear at narrow viewports, full tables are available at desktop,
- * ScrollableRegions are keyboard-operable, touch targets meet minimum
- * size, and no document-level overflow at 320/390/768/1280/1440 CSS px.
+ * Responsive foundation evidence (#87): validates compact summaries at narrow
+ * viewports, comparison tables at desktop, keyboard-operable scroll regions,
+ * touch targets, and zero overflow at 320/390/768/1280/1440 CSS px.
  */
 import { test, expect } from '@playwright/test';
 
@@ -84,15 +83,22 @@ test.describe('responsive mobile summaries', () => {
     await expect(table).toBeVisible();
   });
 
-  test('incidents page shows mobile cards at 390px', async ({ page }) => {
+  test('incidents page prioritizes one case file and keeps its queue at 390px', async ({
+    page,
+  }) => {
     await page.setViewportSize(mobileViewport);
     await setUpPage(page, activeIncidentScenario(), 'light');
     await page.goto(`/tenants/${tenantId}/incidents`);
     await expect(page.locator('main')).toBeVisible();
     await page.waitForLoadState('networkidle');
 
-    const mobileSummary = page.getByTestId('incidents-mobile-summary');
-    await expect(mobileSummary).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Sustained capacity deficit', level: 2 }),
+    ).toBeVisible();
+    await expect(page.getByText('Choose incident', { exact: true })).toBeVisible();
+    await page.getByText('Choose incident', { exact: true }).click();
+    await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open owning evidence' })).toBeVisible();
 
     const overflow = await measureDocumentOverflow(page);
     expect(overflow.overflowPx, 'incidents at 390px').toBe(0);

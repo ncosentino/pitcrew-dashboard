@@ -19,9 +19,9 @@ import { FilterToolbar } from '@/core/ui/FilterToolbar';
 import { FormField } from '@/core/ui/FormField';
 import { LoadingState } from '@/core/ui/LoadingState';
 import { OperationalTable } from '@/core/ui/OperationalTable';
+import { ReadinessSummary } from '@/core/ui/ReadinessSummary';
 import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
-import { typography } from '@/core/ui/typography';
 import { cn } from '@/lib/utils';
 
 import {
@@ -35,6 +35,7 @@ import { HardwareComparison } from './components/HostHardwareSummary';
 import { ActiveIncidentSummary } from './components/ActiveIncidentSummary';
 
 type FleetDensity = 'comfortable' | 'compact';
+type FleetSort = NodeSort | 'attention';
 
 /** Browser storage key for the fleet overview density preference. */
 export const fleetDensityStorageKey = 'pitcrew-dashboard-fleet-density';
@@ -117,6 +118,14 @@ function NodeSummaryRow({
             <StatusBadge status="warning" />
           ) : null}
         </div>
+        {incidents.length > 0 ? (
+          <Link
+            className="mt-1 inline-block text-xs font-semibold text-link underline-offset-4 hover:underline"
+            to={incidentInvestigationHref(tenantId, incidents[0].incidentId)}
+          >
+            Review {incidents.length} active {incidents.length === 1 ? 'incident' : 'incidents'}
+          </Link>
+        ) : null}
         {!node.isOnline ? (
           <div className="mt-1 text-xs text-muted-foreground">
             {node.connectorHealth?.snapshot.lastFailureCategory
@@ -212,15 +221,46 @@ export default function FleetOverviewPage() {
   const { fleet, error, isLoading } = useFleet();
   const [status, setStatus] = useState<NodeStatusFilter>('all');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<NodeSort>('name');
+  const [sort, setSort] = useState<FleetSort>('attention');
   const [density, setDensity] = useState<FleetDensity>(readDensity);
   const [visibleLimit, setVisibleLimit] = useState(fleetPageSize);
   const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([]);
-  const nodes = selectNodes(fleet?.nodes ?? [], status, query, sort);
+  const selectedNodes = selectNodes(
+    fleet?.nodes ?? [],
+    status,
+    query,
+    sort === 'attention' ? 'name' : sort,
+  );
+  const activeIncidents = fleet?.activeIncidents ?? [];
+  const incidentsByNode = new Map<string, ReadonlyArray<OperationalIncident>>();
+  for (const incident of activeIncidents) {
+    const current = incidentsByNode.get(incident.nodeId) ?? [];
+    incidentsByNode.set(incident.nodeId, [...current, incident]);
+  }
+  const nodes =
+    sort === 'attention'
+      ? [...selectedNodes].sort((left, right) => {
+          const rankDifference =
+            nodeAttentionRank(left, incidentsByNode.get(left.nodeId) ?? []) -
+            nodeAttentionRank(right, incidentsByNode.get(right.nodeId) ?? []);
+          if (rankDifference !== 0) return rankDifference;
+          return 0;
+        })
+      : selectedNodes;
   const visibleNodes = nodes.slice(0, visibleLimit);
-  const selectedNodes = (fleet?.nodes ?? []).filter((node) =>
+  const comparisonNodes = (fleet?.nodes ?? []).filter((node) =>
     selectedNodeIds.includes(node.nodeId),
   );
+  const criticalIncidents = activeIncidents.filter(
+    (incident) => incident.severity === 'critical',
+  ).length;
+  const warningIncidents = activeIncidents.length - criticalIncidents;
+  const onlineNodes = fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
+  const attentionNodes =
+    fleet?.nodes.filter(
+      (node) =>
+        getNodeStatus(node) === 'offline' || (incidentsByNode.get(node.nodeId)?.length ?? 0) > 0,
+    ).length ?? 0;
 
   const changeDensity = (nextDensity: FleetDensity) => {
     setDensity(nextDensity);
@@ -237,15 +277,64 @@ export default function FleetOverviewPage() {
 
   return (
     <>
-      <section className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className={typography.sectionHeading}>Fleet status</h2>
-          <p className={typography.metadata}>Node-level capacity and health across this tenant.</p>
-        </div>
-        <div className={cn('text-right', typography.metadata)}>
-          {fleet ? `Updated ${formatTime(fleet.generatedAt)}` : 'Waiting for status'}
-        </div>
-      </section>
+      <ReadinessSummary
+        title="Fleet readiness"
+        description="Current or retained node evidence, active incidents, and the fleet records that require operator attention."
+        status={
+          <StatusBadge
+            status={
+              !fleet
+                ? error
+                  ? 'Status unavailable'
+                  : 'Loading'
+                : criticalIncidents > 0
+                  ? 'Critical incidents'
+                  : warningIncidents > 0 || attentionNodes > 0
+                    ? 'Needs attention'
+                    : 'No reported exception'
+            }
+            tone={
+              !fleet
+                ? error
+                  ? 'critical'
+                  : 'neutral'
+                : criticalIncidents > 0
+                  ? 'critical'
+                  : warningIncidents > 0 || attentionNodes > 0
+                    ? 'caution'
+                    : 'positive'
+            }
+          />
+        }
+        items={[
+          {
+            label: 'Observation',
+            value: fleet ? formatTime(fleet.generatedAt) : error ? 'Unavailable' : 'Loading…',
+            detail: fleet ? 'Latest accepted tenant projection' : 'Waiting for fleet evidence',
+          },
+          {
+            label: 'Nodes online',
+            value: fleet
+              ? `${onlineNodes} of ${fleet.nodes.length}`
+              : error
+                ? 'Unavailable'
+                : 'Loading…',
+            detail: 'Connector-derived node state',
+          },
+          {
+            label: 'Nodes needing attention',
+            value: fleet ? attentionNodes : error ? 'Unavailable' : 'Loading…',
+            detail: 'Offline or named by an active incident',
+          },
+          {
+            label: 'Active incidents',
+            value: fleet ? activeIncidents.length : error ? 'Unavailable' : 'Loading…',
+            detail: fleet
+              ? `${criticalIncidents} critical · ${warningIncidents} warning`
+              : 'Incident evidence unavailable',
+          },
+        ]}
+      />
 
       <details className="rounded-lg border bg-card px-4 py-3">
         <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -288,7 +377,7 @@ export default function FleetOverviewPage() {
       ) : null}
 
       <ActiveIncidentSummary
-        incidents={fleet?.activeIncidents ?? []}
+        incidents={activeIncidents}
         tenantId={tenantId}
         testId="fleet-active-incidents"
       />
@@ -336,10 +425,11 @@ export default function FleetOverviewPage() {
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={sort}
                 onChange={(event) => {
-                  setSort(event.target.value as NodeSort);
+                  setSort(event.target.value as FleetSort);
                   setVisibleLimit(fleetPageSize);
                 }}
               >
+                <option value="attention">Attention first</option>
                 <option value="name">Display name</option>
                 <option value="status">Status</option>
                 <option value="lastSeen">Last seen</option>
@@ -357,7 +447,7 @@ export default function FleetOverviewPage() {
             </FormField>
           </FilterToolbar>
 
-          <HardwareComparison nodes={selectedNodes} />
+          <HardwareComparison nodes={comparisonNodes} />
 
           {nodes.length === 0 ? (
             <EmptyState
@@ -372,6 +462,7 @@ export default function FleetOverviewPage() {
                   const aggregate = aggregateNode(node);
                   const nodeStatus = getNodeStatus(node);
                   const admission = summarizeNodeHostAdmission(node.profiles);
+                  const nodeIncidents = incidentsByNode.get(node.nodeId) ?? [];
                   return (
                     <div
                       key={node.nodeId}
@@ -380,6 +471,11 @@ export default function FleetOverviewPage() {
                     >
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <StatusBadge status={nodeStatus} />
+                        {nodeIncidents.some((incident) => incident.severity === 'critical') ? (
+                          <StatusBadge status="critical" />
+                        ) : nodeIncidents.length > 0 ? (
+                          <StatusBadge status="warning" />
+                        ) : null}
                         <Link
                           className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
                           to={`/tenants/${encodeURIComponent(tenantId)}/nodes/${encodeURIComponent(node.nodeId)}`}
@@ -387,6 +483,15 @@ export default function FleetOverviewPage() {
                           {node.displayName}
                         </Link>
                       </div>
+                      {nodeIncidents.length > 0 ? (
+                        <Link
+                          className="text-xs font-semibold text-link underline-offset-4 hover:underline"
+                          to={incidentInvestigationHref(tenantId, nodeIncidents[0].incidentId)}
+                        >
+                          Review {nodeIncidents.length} active{' '}
+                          {nodeIncidents.length === 1 ? 'incident' : 'incidents'}
+                        </Link>
+                      ) : null}
                       <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
                         <span>Profiles: {node.profiles.length}</span>
                         <span>Configured: {aggregate.configuredSlots}</span>
@@ -467,4 +572,16 @@ export default function FleetOverviewPage() {
       ) : null}
     </>
   );
+}
+
+function nodeAttentionRank(node: FleetNode, incidents: ReadonlyArray<OperationalIncident>): number {
+  if (incidents.some((incident) => incident.severity === 'critical')) return 0;
+  if (incidents.length > 0) return 1;
+  if (getNodeStatus(node) === 'offline') return 2;
+  if (getNodeStatus(node) === 'online') return 3;
+  return 4;
+}
+
+function incidentInvestigationHref(tenantId: string, incidentId: string): string {
+  return `/tenants/${encodeURIComponent(tenantId)}/incidents?view=active&incident=${encodeURIComponent(incidentId)}`;
 }

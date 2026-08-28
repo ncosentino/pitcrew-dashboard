@@ -2,41 +2,57 @@
 version: 1
 slug: "clientapp-src-features-fleet-fleetoverviewpage-tsx"
 primary_target: "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetOverviewPage.tsx"
-related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/IncidentsPage.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ActiveIncidentSummary.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/manifest.tsx"]
+related_targets:
+  [
+    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/IncidentsPage.tsx",
+    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/IncidentDetail.tsx",
+    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/IncidentRow.tsx",
+    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ActiveIncidentSummary.tsx",
+    "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/manifest.tsx",
+  ]
 ---
 
 ## Scope and mode
 
-Fleet overview, active incident summary, incident lifecycle/history, fleet filters,
+Fleet readiness, active exception triage, incident lifecycle/history, fleet filters,
 hardware comparison, and node inventory. Visitor mode: Operate.
 
 ## Audience and job
 
-The operator first detects what needs attention, then opens the affected node,
-profile, job, or retained evidence. Inventory and comparison support investigation
-after material exceptions are clear.
+The operator first decides whether the fleet needs attention, then follows one
+exception to its owning node, profile, or retained evidence. Inventory and hardware
+comparison remain available after the operational signal is clear.
 
 ## Hierarchy and interaction
 
-- Lead with freshness and the highest-severity active exception.
-- Show incident severity, lifecycle, evidence source, timeline, and direct evidence
-  link before complete inventory.
-- Capacity values use explicit labels rather than positional slash strings.
-- Search and common filters remain visible; secondary comparison controls do not
-  compete with active incidents.
-- Incident acknowledgement is immediate and reversible through a short undo or
-  unacknowledge path.
+- Lead with one compact readiness band for observation freshness, online nodes,
+  attention-bearing nodes, and active incidents.
+- Rank the default node inventory by explicit incidents and offline state before
+  ordinary online or revoked records; preserve deliberate name, status, and
+  last-observed sorting.
+- Present incidents as one attention-ordered queue and one selected case file.
+  Selection is URL-stable through the `incident` query parameter.
+- Keep severity, lifecycle, reason, evidence, node/profile identity, timeline,
+  connector recovery evidence, and the owning-route link in the selected case file.
+- Acknowledgement records reversible operator ownership. It never implies resolution
+  or healthy state.
+- Keep filters visible and hardware comparison secondary to exception triage.
 
 ## Responsive behavior and states
 
-At narrow widths, show severity/state, human identity, freshness, and the evidence
-link before secondary columns. Full tables remain available inside labeled,
-keyboard-operable scroll regions. Cover healthy, warning, critical, acknowledged,
-resolved, truncated, no-match, empty, stale, connector evidence present, and reason
-unavailable states.
+At narrow widths, one compact queue disclosure precedes the selected case file in
+DOM and reading order; opening it reveals the same full-width operational rows used
+on desktop. Fleet inventory retains compact mobile summaries and desktop comparison
+tables. Cover healthy, warning, critical, acknowledged, resolved, truncated,
+no-match, empty, stale, connector evidence present, and enrichment unavailable
+states. Unavailable evidence remains explicit and never becomes zero or healthy
+state.
 
 ## Direction and anti-goals
 
-The memorable moment is exception-to-evidence clarity: the operator sees the material
-problem and can open its trustworthy source immediately. Avoid inventory-first
-composition, clipped actions, color-only severity, and dense rows with no task order.
+Direction: exception-led signal ledger, grounded surface candidate 6, seed
+`d0d29f53`. The memorable moment is exception-to-evidence clarity: readiness,
+attention order, and the selected trustworthy case file read as one continuous
+operator decision. Avoid inventory-first composition, duplicate mobile/desktop case
+content, row-level action clutter, clipped controls, color-only severity, and
+acknowledgement language that resembles resolution.

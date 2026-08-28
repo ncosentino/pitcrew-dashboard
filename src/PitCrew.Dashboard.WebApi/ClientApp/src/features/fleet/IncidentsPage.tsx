@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/core/auth';
@@ -8,10 +8,10 @@ import { formatTime } from '@/core/formatting/formatters';
 import { EmptyState } from '@/core/ui/EmptyState';
 import type { FilterChipDescriptor } from '@/core/ui/FilterChips';
 import { LoadingState } from '@/core/ui/LoadingState';
-import { ScrollableRegion } from '@/core/ui/ScrollableRegion';
+import { OperationalList } from '@/core/ui/OperationalList';
+import { ReadinessSummary } from '@/core/ui/ReadinessSummary';
 import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
-import { typography } from '@/core/ui/typography';
 
 import {
   acknowledgeIncident,
@@ -21,6 +21,7 @@ import {
   type IncidentPage,
   type OperationalIncident,
 } from './incidentsApi';
+import { IncidentDetail } from './components/IncidentDetail';
 import { IncidentFilters } from './components/IncidentFilters';
 import { IncidentRow } from './components/IncidentRow';
 import {
@@ -34,6 +35,23 @@ import {
   viewLabels,
 } from './incidentView';
 
+const desktopIncidentWorkspaceQuery = '(min-width: 80rem)';
+
+function useDesktopIncidentWorkspace(): boolean {
+  const [isDesktop, setIsDesktop] = useState(
+    () => globalThis.matchMedia(desktopIncidentWorkspaceQuery).matches,
+  );
+
+  useEffect(() => {
+    const mediaQuery = globalThis.matchMedia(desktopIncidentWorkspaceQuery);
+    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return isDesktop;
+}
+
 /** Renders active incidents and bounded resolved history without crowding fleet status pages. */
 export default function IncidentsPage() {
   const { tenantId = '' } = useParams();
@@ -46,7 +64,9 @@ export default function IncidentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
+  const [isQueueOpenOnMobile, setIsQueueOpenOnMobile] = useState(false);
   const requestVersion = useRef(0);
+  const isDesktopWorkspace = useDesktopIncidentWorkspace();
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAcknowledge = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const antiforgeryToken = session?.antiforgeryToken ?? '';
@@ -61,6 +81,7 @@ export default function IncidentsPage() {
       const next = new URLSearchParams(searchParams);
       if (!value || value === defaultValue) next.delete(key);
       else next.set(key, value);
+      if (key === 'view') next.delete('incident');
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],
@@ -133,6 +154,21 @@ export default function IncidentsPage() {
     (incident) => incident.severity === 'critical',
   ).length;
   const visibleWarning = visibleIncidents.length - visibleCritical;
+  const visibleTriggered = visibleIncidents.filter((incident) => incident.status === 'triggered');
+  const visibleTriggeredCritical = visibleTriggered.filter(
+    (incident) => incident.severity === 'critical',
+  ).length;
+  const sourceHasTriggeredIncident =
+    currentPage?.incidents.some((incident) => incident.status === 'triggered') ?? false;
+  const requestedIncidentId = searchParams.get('incident');
+  const selectedIncident =
+    currentPage?.incidents.find((incident) => incident.incidentId === requestedIncidentId) ??
+    visibleIncidents[0] ??
+    null;
+  const selectedNode = selectedIncident ? nodesById.get(selectedIncident.nodeId) : undefined;
+  const selectedIncidentIsVisible =
+    selectedIncident != null &&
+    visibleIncidents.some((incident) => incident.incidentId === selectedIncident.incidentId);
   const filterChips = useMemo<ReadonlyArray<FilterChipDescriptor>>(() => {
     const chips: FilterChipDescriptor[] = [];
     if (view !== 'attention') {
@@ -214,21 +250,72 @@ export default function IncidentsPage() {
 
   return (
     <>
-      <section className="grid gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className={typography.sectionHeading}>Operational incidents</h2>
-            <p className="text-sm text-muted-foreground">
-              Debounced conditions and bounded resolved history from manager-owned evidence.
-            </p>
-          </div>
-          <div className="text-right text-sm text-muted-foreground">
-            {currentPage
-              ? `Updated ${formatTime(currentPage.generatedAt)}`
-              : 'Waiting for incidents'}
-          </div>
-        </div>
-      </section>
+      <ReadinessSummary
+        title="Incident work queue"
+        description="Debounced operational exceptions and bounded history from manager-owned evidence. Acknowledgement records ownership; only new evidence resolves a condition."
+        status={
+          <StatusBadge
+            status={
+              !currentPage
+                ? error
+                  ? 'Status unavailable'
+                  : 'Loading'
+                : view === 'resolved' || view === 'history'
+                  ? 'Historical view'
+                  : visibleTriggeredCritical > 0
+                    ? 'Critical attention'
+                    : visibleTriggered.length > 0
+                      ? 'Needs attention'
+                      : sourceHasTriggeredIncident
+                        ? 'No matching attention'
+                        : visibleIncidents.length > 0
+                          ? 'Active incidents owned'
+                          : 'No incident needs attention'
+            }
+            tone={
+              !currentPage
+                ? error
+                  ? 'critical'
+                  : 'neutral'
+                : view === 'resolved' || view === 'history'
+                  ? 'neutral'
+                  : visibleTriggeredCritical > 0
+                    ? 'critical'
+                    : visibleTriggered.length > 0 || visibleIncidents.length > 0
+                      ? 'caution'
+                      : sourceHasTriggeredIncident
+                        ? 'neutral'
+                        : 'positive'
+            }
+          />
+        }
+        items={[
+          {
+            label: 'Observation',
+            value: currentPage
+              ? formatTime(currentPage.generatedAt)
+              : error
+                ? 'Unavailable'
+                : 'Loading…',
+            detail: 'Latest accepted incident projection',
+          },
+          {
+            label: 'Queue results',
+            value: currentPage ? visibleIncidents.length : error ? 'Unavailable' : 'Loading…',
+            detail: `${viewLabels[view]} after current filters`,
+          },
+          {
+            label: 'Critical in view',
+            value: currentPage ? visibleCritical : error ? 'Unavailable' : 'Loading…',
+            detail: `${visibleWarning} warning`,
+          },
+          {
+            label: 'Acknowledged',
+            value: currentPage ? counts.acknowledged : error ? 'Unavailable' : 'Loading…',
+            detail: 'Still active until evidence resolves them',
+          },
+        ]}
+      />
 
       {page ? (
         <IncidentFilters
@@ -285,7 +372,10 @@ export default function IncidentsPage() {
         />
       ) : null}
 
-      {currentPage && currentPage.incidents.length > 0 && visibleIncidents.length === 0 ? (
+      {currentPage &&
+      currentPage.incidents.length > 0 &&
+      visibleIncidents.length === 0 &&
+      selectedIncident == null ? (
         <EmptyState
           title={
             view === 'attention' && counts.acknowledged > 0
@@ -305,114 +395,101 @@ export default function IncidentsPage() {
         />
       ) : null}
 
-      {currentPage && visibleIncidents.length > 0 ? (
-        <>
-          <div className="grid gap-3 lg:hidden" data-testid="incidents-mobile-summary">
-            {visibleIncidents.map((incident) => (
-              <div
-                key={incident.incidentId}
-                className="grid gap-2 rounded-lg border bg-card p-4"
-                data-testid={`incident-card-${incident.incidentId}`}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={incident.severity} />
-                  <StatusBadge status={incident.status} />
-                </div>
-                <Link
-                  className="min-w-0 break-words font-semibold text-link underline-offset-4 hover:underline"
-                  to={incident.link}
-                >
-                  {incident.title}
-                </Link>
-                <p className="text-xs text-muted-foreground">{incident.summary}</p>
-                <div className="text-xs text-muted-foreground">
-                  Triggered {formatTime(incident.triggeredAt)}
-                </div>
-                {canAcknowledge && incident.status === 'triggered' ? (
-                  <div className="grid gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="min-h-11 justify-self-start"
-                      disabled={acknowledgingId === incident.incidentId}
-                      onClick={() => void acknowledge(incident)}
-                    >
-                      {acknowledgingId === incident.incidentId ? 'Acknowledging…' : 'Acknowledge'}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      Records operator ownership without resolving the condition. Reversible while
-                      active.
-                    </span>
+      {currentPage && (visibleIncidents.length > 0 || selectedIncident != null) ? (
+        <div
+          className={
+            visibleIncidents.length > 0
+              ? 'grid min-w-0 gap-4 xl:grid-cols-[minmax(19rem,0.78fr)_minmax(0,1.4fr)] xl:items-start'
+              : 'grid min-w-0 gap-4'
+          }
+        >
+          {visibleIncidents.length > 0 ? (
+            <details
+              className="group min-w-0 rounded-xl border bg-card xl:contents"
+              open={isDesktopWorkspace || isQueueOpenOnMobile}
+              onToggle={(event) => {
+                if (!isDesktopWorkspace) setIsQueueOpenOnMobile(event.currentTarget.open);
+              }}
+            >
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring xl:hidden">
+                <span>Choose incident</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {visibleIncidents.length} in queue
+                </span>
+              </summary>
+              <section className="min-w-0 border-t xl:border-0">
+                <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3 xl:mb-2 xl:px-0 xl:py-0">
+                  <div>
+                    <h2 className="text-base font-semibold">Incident queue</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Attention-ordered records matching the current view.
+                    </p>
                   </div>
-                ) : canAcknowledge && incident.status === 'acknowledged' ? (
-                  <div className="grid gap-1">
-                    <span className="text-xs text-muted-foreground">
-                      Acknowledged {formatTime(incident.acknowledgedAt)}
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="min-h-11 justify-self-start"
-                      disabled={acknowledgingId === incident.incidentId}
-                      onClick={() => void unacknowledge(incident)}
-                    >
-                      {acknowledgingId === incident.incidentId ? 'Reverting…' : 'Unacknowledge'}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      Returns this active incident to triggered.
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
+                  <span className="text-xs text-muted-foreground">
+                    {visibleIncidents.length} shown
+                  </span>
+                </div>
+                <IncidentQueue
+                  incidents={visibleIncidents}
+                  nodesById={nodesById}
+                  searchParams={searchParams}
+                  selectedIncidentId={selectedIncident?.incidentId ?? null}
+                  className="rounded-none border-x-0 border-b-0 xl:rounded-xl xl:border"
+                />
+              </section>
+            </details>
+          ) : null}
 
-          <ScrollableRegion
-            className="hidden rounded-lg border bg-card lg:block"
-            label={`${viewLabels[view]} operational incidents`}
-          >
-            <table className="w-full min-w-5xl text-left text-sm">
-              <caption className="p-3 text-left text-sm font-semibold">
-                {viewLabels[view]} operational incidents
-              </caption>
-              <thead className="bg-muted/50 text-xs text-muted-foreground uppercase">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">
-                    State
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
-                    Incident
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
-                    Reason
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
-                    Timeline
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleIncidents.map((incident) => (
-                  <IncidentRow
-                    key={incident.incidentId}
-                    incident={incident}
-                    canAcknowledge={canAcknowledge}
-                    isAcknowledging={acknowledgingId === incident.incidentId}
-                    onAcknowledge={(selected) => void acknowledge(selected)}
-                    onUnacknowledge={(selected) => void unacknowledge(selected)}
-                    node={nodesById.get(incident.nodeId)}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </ScrollableRegion>
-        </>
+          {selectedIncident ? (
+            <div className="min-w-0">
+              <IncidentDetail
+                incident={selectedIncident}
+                node={selectedNode}
+                isVisible={selectedIncidentIsVisible}
+                canAcknowledge={canAcknowledge}
+                isAcknowledging={acknowledgingId === selectedIncident.incidentId}
+                onAcknowledge={() => void acknowledge(selectedIncident)}
+                onUnacknowledge={() => void unacknowledge(selectedIncident)}
+              />
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </>
+  );
+}
+
+interface IncidentQueueProps {
+  readonly incidents: ReadonlyArray<OperationalIncident>;
+  readonly nodesById: ReadonlyMap<string, FleetNode>;
+  readonly searchParams: URLSearchParams;
+  readonly selectedIncidentId: string | null;
+  readonly className?: string;
+}
+
+function IncidentQueue({
+  incidents,
+  nodesById,
+  searchParams,
+  selectedIncidentId,
+  className,
+}: IncidentQueueProps) {
+  return (
+    <OperationalList label="Operational incident queue" className={className}>
+      {incidents.map((incident) => {
+        const node = nodesById.get(incident.nodeId);
+        const nextSearchParams = new URLSearchParams(searchParams);
+        nextSearchParams.set('incident', incident.incidentId);
+        return (
+          <IncidentRow
+            key={incident.incidentId}
+            incident={incident}
+            node={node}
+            selectionHref={`?${nextSearchParams.toString()}`}
+            selected={incident.incidentId === selectedIncidentId}
+          />
+        );
+      })}
+    </OperationalList>
   );
 }
