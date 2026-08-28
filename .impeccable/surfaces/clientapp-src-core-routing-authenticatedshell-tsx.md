@@ -2,14 +2,7 @@
 version: 1
 slug: "clientapp-src-core-routing-authenticatedshell-tsx"
 primary_target: "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/AuthenticatedShell.tsx"
-related_targets:
-  [
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/ShellNavigation.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/Breadcrumbs.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/SessionBoundary.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/pages.tsx",
-    "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/guards.tsx",
-  ]
+related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/ShellNavigation.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/Breadcrumbs.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/SessionBoundary.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/pages.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/guards.tsx"]
 ---
 
 ## Scope and mode

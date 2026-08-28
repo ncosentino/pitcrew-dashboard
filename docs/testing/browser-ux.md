@@ -32,15 +32,18 @@ GitHub OAuth credential is required or contacted.
 - **Settings roles and states** (`e2e/settings.spec.ts`): owner, administrator,
   viewer, system administrator, tenantless access, branded loading, active primary
   and section navigation, copyable IDs, and membership/credential confirmations.
+- **Authenticated shell** (`e2e/shell.spec.ts`): Monitor/Operate/Configure grouping,
+  remembered compact desktop rail, keyboard collapse, long tenant identity, incident
+  attention, system administration, and equivalent mobile tenant/account controls.
 - **Fleet and incident interpretation states** (`e2e/incidents.spec.ts`):
   critical/warning mixes, connector evidence present and unavailable, acknowledged,
   resolved, truncated history, severity-aware primary navigation, and labeled
   capacity evidence.
 - **Node, Profile, and Runners investigation states**
   (`e2e/node-profile-runners.spec.ts`): healthy, degraded, pressure, active job,
-  rolling image, recovery, read-only, and unavailable evidence in light/dark desktop
-  and mobile modes, plus entity headings, copyable IDs, advanced filter disclosure,
-  active filter chips, result counts, and clear-all.
+  offline last-known job, rolling image, recovery, read-only, and unavailable evidence
+  in light/dark desktop and mobile modes, plus entity headings, copyable IDs, advanced
+  filter disclosure, active filter chips, result counts, and clear-all.
 - **Responsive foundation** (`e2e/responsive.spec.ts`): zero document overflow at
   320, 390, 768, 1280, and 1440 pixels; prioritized Fleet, Incidents, Active Jobs,
   Runners, and Profile Workers summaries; keyboard-operable table regions; 44-pixel

@@ -41,6 +41,9 @@ paths:
   corpus.
 - Keep the Impeccable skill and agents pinned as one project-owned design workflow.
   Hook and audit automation remain opt-in.
+- Keep surface target mappings parser-valid and unambiguous. `related_targets` stays
+  an inline JSON array; planned briefs declare `status: "planned"`; shipped targets
+  exist; shared primitives do not belong to one route brief.
 - `.github/instructions/` is the source for generated Claude rules. Regenerate
   `.claude/rules/` through the owning compiler and never edit mirrors
   manually.

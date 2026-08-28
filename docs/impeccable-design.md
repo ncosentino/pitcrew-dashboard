@@ -20,6 +20,26 @@ network installer and does not add an application package dependency.
 When these sources disagree with shipped behavior, application code remains executable
 truth and the stale authority must be refreshed deliberately rather than ignored.
 
+### Surface brief integrity
+
+Surface frontmatter is consumed by the vendored Impeccable parser, not a general YAML
+loader:
+
+- `primary_target` is one quoted project-relative source path;
+- `related_targets` is one inline JSON array. Multiline YAML bracket formatting is
+  invalid because the parser will read an empty mapping;
+- one source target maps to at most one brief. Shared primitives stay out of
+  route-specific related targets so context resolution is never ambiguous;
+- shipped briefs omit `status` or use `status: "shipped"` and every mapped source
+  target exists;
+- briefs written before their capability exists use `status: "planned"` and must be
+  updated when the surface ships.
+
+`scripts/guidance/check-surface-briefs.mjs` validates the exact maintained inventory,
+parser shape, filename/slug relationship, unique mappings, required sections, and
+shipped target existence. Use the Impeccable surface writer or preserve its inline
+JSON frontmatter exactly; do not let a generic Markdown formatter rewrite it.
+
 ## Starting work
 
 For an established interface, run the context loader named by the skill before editing.
@@ -30,6 +50,11 @@ Use `shape` before a substantial new surface or interaction flow. Use `audit` an
 `polish` as bounded readiness passes. Detector findings are evidence to classify, not
 instructions to follow without checking project purpose, standards, framework output,
 and the rendered result.
+
+A migrated surface is complete only when its shipped hierarchy and states are reflected
+in the matching brief, the affected Browser UX matrix passes on the reviewed head, the
+finish reviewer returns a disposition, and `review-changes` records the route/state,
+keyboard/zoom, localization, and generated-mirror evidence.
 
 Genesis does not prefill `PRODUCT.md`, `DESIGN.md`, or project runtime state. Those
 files must record actual product truth with the user rather than template assumptions.
