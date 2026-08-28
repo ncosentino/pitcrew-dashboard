@@ -1,9 +1,20 @@
 import type { RouteObject } from 'react-router-dom';
 
+/** Operator-intent groups supported by the authenticated shell. */
+export type FeatureNavigationGroup = 'monitor' | 'operate' | 'configure';
+
+/** Shell-owned icon vocabulary available to feature navigation contributions. */
+export type FeatureNavigationIcon =
+  'fleet' | 'incidents' | 'runners' | 'support' | 'settings' | 'tenants';
+
 /** Navigation contributed by one independently owned feature. */
 export interface FeatureNavigationItem {
   readonly label: string;
+  readonly description: string;
   readonly path: string;
+  readonly group: FeatureNavigationGroup;
+  readonly order: number;
+  readonly icon: FeatureNavigationIcon;
   readonly minimumTenantRole?: 'viewer' | 'administrator' | 'owner';
   readonly requiresSystemAdministrator?: boolean;
   readonly activePathPatterns?: ReadonlyArray<string>;

@@ -29,7 +29,11 @@ export const settingsManifest: FeatureManifest = {
   navigation: [
     {
       label: 'Settings',
+      description: 'Tenant identity, access, and credentials',
       path: '/tenants/:tenantId/settings',
+      group: 'configure',
+      order: 10,
+      icon: 'settings',
       minimumTenantRole: 'administrator',
       activePathPatterns: [
         '/tenants/:tenantId/settings/general',

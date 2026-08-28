@@ -7,7 +7,16 @@ const RunnersRoute = lazyFeature('runners', () => import('./RunnersRoute'));
 /** Cross-fleet runner routes and navigation contribution. */
 export const runnersManifest: FeatureManifest = {
   id: 'runners',
-  navigation: [{ label: 'Runners', path: '/tenants/:tenantId/runners' }],
+  navigation: [
+    {
+      label: 'Runners',
+      description: 'Runner slots and current job correlation',
+      path: '/tenants/:tenantId/runners',
+      group: 'operate',
+      order: 10,
+      icon: 'runners',
+    },
+  ],
   routePresentations: [
     {
       path: '/tenants/:tenantId/runners',

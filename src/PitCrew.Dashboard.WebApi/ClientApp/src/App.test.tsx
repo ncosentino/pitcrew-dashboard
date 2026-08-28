@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider } from '@/core/auth';
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
+import { shellRailStorageKey } from '@/core/routing/AuthenticatedShell';
 import { createTestRouter } from '@/core/routing/createAppRouter';
 import { features } from '@/features.registry';
 
@@ -456,6 +457,43 @@ describe('authenticated routing', () => {
     }
   });
 
+  it('groups routes and remembers a compact desktop rail without hiding context', async () => {
+    localStorage.setItem(shellRailStorageKey, 'compact');
+    mockSession(ownerSession);
+    renderRoute('/tenants/local/fleet');
+    const user = userEvent.setup();
+
+    const navigation = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    expect(within(navigation).getByRole('list', { name: 'Monitor' })).toBeInTheDocument();
+    expect(within(navigation).getByRole('list', { name: 'Operate' })).toBeInTheDocument();
+    expect(within(navigation).getByRole('list', { name: 'Configure' })).toBeInTheDocument();
+    expect(navigation).toHaveAttribute('data-rail-mode', 'compact');
+    expect(within(navigation).getByRole('link', { name: 'Fleet' })).toHaveAccessibleDescription(
+      'Readiness, nodes, and profile health',
+    );
+    expect(screen.getByText('Runner slots and current job correlation')).toHaveClass('sr-only');
+
+    await user.click(screen.getByRole('button', { name: 'Expand primary navigation' }));
+
+    expect(localStorage.getItem(shellRailStorageKey)).toBe('expanded');
+    expect(screen.getByRole('button', { name: 'Collapse primary navigation' })).toBeInTheDocument();
+    expect(navigation).toHaveAttribute('data-rail-mode', 'expanded');
+    expect(screen.getByText('Runner slots and current job correlation')).not.toHaveClass('sr-only');
+  });
+
+  it('keeps incident attention explicitly unavailable when the badge request fails', async () => {
+    mockSession(ownerSession);
+    renderRoute('/tenants/local/fleet');
+
+    const incidents = await screen.findByRole('link', { name: 'Incidents' });
+    await waitFor(() =>
+      expect(incidents).toHaveAccessibleDescription(
+        'Active exceptions and bounded history Active incident count unavailable',
+      ),
+    );
+    expect(within(incidents).getByText('?')).toBeInTheDocument();
+  });
+
   it('marks nested fleet routes active and exposes system administration from its manifest', async () => {
     mockSession({ ...ownerSession, isSystemAdministrator: true });
     renderRoute('/tenants/local/nodes/node-1');
@@ -562,8 +600,8 @@ describe('authenticated routing', () => {
     expect(
       within(dialog)
         .getAllByRole('link')
-        .map((link) => link.textContent),
-    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Settings', 'Support']);
+        .map((link) => link.getAttribute('aria-label')),
+    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Support', 'Settings']);
     expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     await user.click(within(dialog).getByRole('link', { name: 'Settings' }));
 

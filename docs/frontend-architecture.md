@@ -24,6 +24,15 @@ The application shell owns session loading, tenant switching, primary
 navigation, breadcrumbs, theme, and account controls. Feature manifests
 contribute their own routes, navigation entries, and breadcrumb presentation.
 
+Shell navigation entries declare one operator-intent group (`monitor`, `operate`, or
+`configure`), a deterministic order within that group, a concise description, and a
+shell-owned icon key. The shell filters those entries by tenant and role, then renders
+the same grouped taxonomy on desktop and mobile without importing feature internals.
+The desktop rail remembers expanded or compact presentation locally. Compact mode
+keeps full labels, accessible descriptions, active state, and incident attention; it
+does not collapse into unexplained icons. Tenant switching always opens the selected
+tenant's fleet overview.
+
 ## Feature ownership
 
 Frontend features live below `ClientApp/src/features/`:
@@ -49,18 +58,18 @@ PitCrew-specific operational patterns live in `src/core/ui/` and compose the
 generic shadcn/Radix primitives in `src/components/ui/`. Reach for these
 instead of re-deriving the same markup in a feature:
 
-| Primitive             | Use it for                                                                                        | Prefer proximity/dividers instead when…                                                            |
-| ---------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `PageHeader`           | The route's single H1, breadcrumbs, description, and page-level actions.                          | Never duplicate it; a route has exactly one (DESIGN.md "The One Page Title Rule").                  |
-| `EntityHeader`         | An entity's human-readable name, its secondary identifier, and entity-level actions (h2/h3).       | The name is only decorative metadata with no identifier or actions — a plain heading suffices.       |
-| `SectionNavigation`    | A horizontal, ARIA-labeled route-strip between an entity's own sub-views.                          | There is only one sub-view; a tab strip with a single destination adds noise, not orientation.       |
-| `FormField`            | Any labeled input/select in a filter, settings, or mutation form.                                  | —                                                                                                    |
-| `FilterToolbar`        | A responsive grid of `FormField`s that filter or sort a collection.                                | Only one filter control exists; inline it beside the collection instead of a bordered panel.         |
-| `StateBanner`          | A named positive/caution/critical condition the operator must notice (stale data, recovered fault). | The condition is evidence already legible on a value (a status badge, a "last known" caption) — an additional banner would restate it. |
-| `EmptyState`           | A collection is legitimately empty and the absence is itself a state worth announcing.             | A single missing optional field; omit it or explain it inline instead of a dedicated card.            |
-| `LoadingState`         | An in-progress fetch with nothing to show yet.                                                     | Content is already rendered and refreshing; prefer a subtle inline indicator over replacing the view. |
-| `OperationalTable` + `ScrollableRegion` | Any dense tabular collection that can exceed the viewport width.                  | A handful of rows fit comfortably; a plain list or `dl` avoids table semantics for non-tabular data.  |
-| `ConfirmationSummary`  | The identity, effects, prohibited effects, evidence fences, and acknowledgement of a consequential mutation, composed into `ConfirmActionDialog`'s `details` slot. | The action is reversible and low-consequence; a plain description is enough (DESIGN.md "The Confirm Consequence Rule" only requires this for consequential mutations). |
+| Primitive                               | Use it for                                                                                                                                                         | Prefer proximity/dividers instead when…                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PageHeader`                            | The route's single H1, breadcrumbs, description, and page-level actions.                                                                                           | Never duplicate it; a route has exactly one (DESIGN.md "The One Page Title Rule").                                                                                     |
+| `EntityHeader`                          | An entity's human-readable name, its secondary identifier, and entity-level actions (h2/h3).                                                                       | The name is only decorative metadata with no identifier or actions — a plain heading suffices.                                                                         |
+| `SectionNavigation`                     | A horizontal, ARIA-labeled route-strip between an entity's own sub-views.                                                                                          | There is only one sub-view; a tab strip with a single destination adds noise, not orientation.                                                                         |
+| `FormField`                             | Any labeled input/select in a filter, settings, or mutation form.                                                                                                  | —                                                                                                                                                                      |
+| `FilterToolbar`                         | A responsive grid of `FormField`s that filter or sort a collection.                                                                                                | Only one filter control exists; inline it beside the collection instead of a bordered panel.                                                                           |
+| `StateBanner`                           | A named positive/caution/critical condition the operator must notice (stale data, recovered fault).                                                                | The condition is evidence already legible on a value (a status badge, a "last known" caption) — an additional banner would restate it.                                 |
+| `EmptyState`                            | A collection is legitimately empty and the absence is itself a state worth announcing.                                                                             | A single missing optional field; omit it or explain it inline instead of a dedicated card.                                                                             |
+| `LoadingState`                          | An in-progress fetch with nothing to show yet.                                                                                                                     | Content is already rendered and refreshing; prefer a subtle inline indicator over replacing the view.                                                                  |
+| `OperationalTable` + `ScrollableRegion` | Any dense tabular collection that can exceed the viewport width.                                                                                                   | A handful of rows fit comfortably; a plain list or `dl` avoids table semantics for non-tabular data.                                                                   |
+| `ConfirmationSummary`                   | The identity, effects, prohibited effects, evidence fences, and acknowledgement of a consequential mutation, composed into `ConfirmActionDialog`'s `details` slot. | The action is reversible and low-consequence; a plain description is enough (DESIGN.md "The Confirm Consequence Rule" only requires this for consequential mutations). |
 
 **Reach for another Card only when a new grouping is a materially distinct
 task or evidence set.** DESIGN.md's "Cards group one coherent task or
@@ -83,7 +92,7 @@ collection's title still participates correctly in the page outline.
 `FormField` associates its visible `<label>` with the control via `htmlFor`/
 `id` (generating a stable ID when the control doesn't already have one)
 rather than by wrapping the control, so hint and error text can sit beside
-the control without being folded into its accessible *name* — the HTML
+the control without being folded into its accessible _name_ — the HTML
 label-name algorithm includes all of a wrapping label's text, which would
 otherwise announce the hint/error as part of the field's name instead of its
 description. Hint and error text get their own generated IDs, are wired to
@@ -136,10 +145,11 @@ route-specific backend API boundary.
 
 1. Create `src/features/<feature-id>/manifest.tsx`.
 2. Define lazy route entrypoints, navigation, and breadcrumb presentation.
-3. Add the manifest to `src/features.registry.ts`.
-4. Keep all feature-local pages, services, and tests inside that feature.
-5. Move genuinely shared contracts or data ownership into `src/core/`.
-6. Add route, authorization, loading, error, empty, and accessibility tests.
+3. Assign every primary navigation entry a group, order, description, and icon key.
+4. Add the manifest to `src/features.registry.ts`.
+5. Keep all feature-local pages, services, and tests inside that feature.
+6. Move genuinely shared contracts or data ownership into `src/core/`.
+7. Add route, authorization, loading, error, empty, and accessibility tests.
 
 Do not bypass the registry or import another feature directly. The
 `check-feature-boundaries.mjs` fitness function parses static and dynamic

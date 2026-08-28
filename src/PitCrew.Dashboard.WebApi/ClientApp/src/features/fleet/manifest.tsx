@@ -81,7 +81,11 @@ export const fleetManifest: FeatureManifest = {
   navigation: [
     {
       label: 'Fleet',
+      description: 'Readiness, nodes, and profile health',
       path: '/tenants/:tenantId/fleet',
+      group: 'monitor',
+      order: 10,
+      icon: 'fleet',
       activePathPatterns: [
         '/tenants/:tenantId/fleet',
         '/tenants/:tenantId/nodes/:nodeId',
@@ -98,7 +102,11 @@ export const fleetManifest: FeatureManifest = {
     },
     {
       label: 'Incidents',
+      description: 'Active exceptions and bounded history',
       path: '/tenants/:tenantId/incidents',
+      group: 'monitor',
+      order: 20,
+      icon: 'incidents',
       activePathPatterns: ['/tenants/:tenantId/incidents'],
     },
   ],

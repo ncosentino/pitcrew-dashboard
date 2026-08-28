@@ -20,7 +20,11 @@ export function createAdminManifest(createTenant: CreateTenant): FeatureManifest
     navigation: [
       {
         label: 'Tenant administration',
+        description: 'Create and manage tenant boundaries',
         path: '/admin/tenants',
+        group: 'configure',
+        order: 20,
+        icon: 'tenants',
         requiresSystemAdministrator: true,
       },
     ],

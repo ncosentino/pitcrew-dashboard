@@ -262,7 +262,14 @@ describe('runners feature', () => {
   it('registers its viewer route and primary navigation contribution', () => {
     expect(runnersManifest.id).toBe('runners');
     expect(runnersManifest.navigation).toEqual([
-      { label: 'Runners', path: '/tenants/:tenantId/runners' },
+      {
+        label: 'Runners',
+        description: 'Runner slots and current job correlation',
+        path: '/tenants/:tenantId/runners',
+        group: 'operate',
+        order: 10,
+        icon: 'runners',
+      },
     ]);
     expect(runnersManifest.routes).toHaveLength(1);
   });

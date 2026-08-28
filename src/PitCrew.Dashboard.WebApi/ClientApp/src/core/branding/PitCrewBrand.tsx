@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-export type PitCrewBrandVariant = 'compact' | 'hero';
+export type PitCrewBrandVariant = 'mark' | 'compact' | 'hero';
 
 export interface PitCrewBrandProps {
   readonly variant: PitCrewBrandVariant;
@@ -23,6 +23,16 @@ export function PitCrewBrand({ variant }: PitCrewBrandProps) {
           Dashboard
         </div>
       </div>
+    );
+  }
+
+  if (variant === 'mark') {
+    return (
+      <img
+        className="size-10 rounded-xl object-contain shadow-sm"
+        src="/pitcrew-favicon.png"
+        alt="PitCrew Dashboard"
+      />
     );
   }
 

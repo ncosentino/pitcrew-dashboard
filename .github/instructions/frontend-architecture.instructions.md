@@ -6,8 +6,8 @@ applyTo: "src/PitCrew.Dashboard.WebApi/ClientApp/{package.json,src/**/*.{ts,tsx}
 
 - Keep features below `src/features/<feature-id>/`. Features may import shared core
   code but never another feature's internals.
-- `src/features.registry.ts` is the only production composition boundary that imports
-  feature internals.
+- Only `src/features.registry.ts` imports feature internals in production. Navigation
+  manifests declare group/order/description/icon; shell modes preserve labels and attention.
 - Keep one tenant-scoped fleet polling loop in `FleetProvider`. Feature pages consume
   that projection and request a shared refresh after typed mutations.
 - Keep browser authorization as presentation logic only. Server APIs remain the final
@@ -22,8 +22,7 @@ applyTo: "src/PitCrew.Dashboard.WebApi/ClientApp/{package.json,src/**/*.{ts,tsx}
 - Use the project-local Impeccable skill for substantial UI shaping, audit, polish,
   and design documentation. Detector findings remain evidence to review, not automatic
   implementation requirements.
-- Preserve the complete frontend gate owned by `package.json`: build, lint,
-  formatting, feature-boundary checks, and tests.
+- Preserve the `package.json` gate: build, lint, formatting, feature boundaries, and tests.
 - Run Impeccable context loader before editing established UI surfaces; use `shape` for new surfaces or materially changed flows.
 - Use only approved shared primitives and design tokens.
 - Cover all relevant states and viewports (320, 390, 768, 1280, 1440 CSS px).
