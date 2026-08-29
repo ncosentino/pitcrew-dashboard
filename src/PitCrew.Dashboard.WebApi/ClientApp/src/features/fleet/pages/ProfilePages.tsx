@@ -10,6 +10,8 @@ import {
   serializeDiagnosticsContext,
   summarizeManagerOperations,
   describeHostAdmission,
+  buildSupportDiagnosticRequestPath,
+  selectIncidentDiagnosticMode,
   useFleet,
   type CapacityControlState,
   type FleetNode,
@@ -207,6 +209,27 @@ export function ProfileDetailLayout() {
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {canAdminister ? (
+              <Button asChild size="sm">
+                <Link
+                  data-testid={`request-support-diagnostics-${node.nodeId}-${profile.profileId}`}
+                  to={buildSupportDiagnosticRequestPath(
+                    tenantId,
+                    selectIncidentDiagnosticMode(
+                      fleet.activeIncidents.find(
+                        (candidate) =>
+                          candidate.nodeId === node.nodeId &&
+                          candidate.profileId === profile.profileId,
+                      ),
+                      node,
+                    ),
+                    profile.profileId,
+                  )}
+                >
+                  Request support diagnostics
+                </Link>
+              </Button>
+            ) : null}
             <Button
               data-testid={`prepare-diagnostics-${node.nodeId}-${profile.profileId}`}
               type="button"
@@ -222,7 +245,7 @@ export function ProfileDetailLayout() {
                 setDiagnosticsPrepared(true);
               }}
             >
-              Prepare diagnostics
+              Download preflight context
             </Button>
             <StatusBadge
               status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
@@ -268,8 +291,10 @@ export function ProfileDetailLayout() {
       ) : null}
       {diagnosticsPrepared ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Diagnostics context downloaded. Add the exact affected GitHub run or job before host
-          collection.
+          Preflight context downloaded. This file is the starting evidence for the PitCrew remote
+          diagnostics collector, which an operator runs against the host directly. Add the exact
+          affected GitHub run or job before host collection. To collect evidence through the
+          dashboard instead, request support diagnostics.
         </p>
       ) : null}
       {profile.managerStatus === 'stale' || profile.managerStatus === 'stopped' ? (

@@ -1,7 +1,11 @@
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
-import type { FleetNode } from '@/core/fleet';
+import {
+  buildSupportDiagnosticRequestPath,
+  selectIncidentDiagnosticMode,
+  type FleetNode,
+} from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { DetailPanel } from '@/core/ui/DetailPanel';
 import { StateBanner } from '@/core/ui/StateBanner';
@@ -14,9 +18,11 @@ export type IncidentEnrichmentStatus = 'loading' | 'available' | 'stale' | 'unav
 interface IncidentDetailProps {
   readonly incident: OperationalIncident;
   readonly node?: FleetNode;
+  readonly tenantId: string;
   readonly enrichmentStatus: IncidentEnrichmentStatus;
   readonly isVisible: boolean;
   readonly canAcknowledge: boolean;
+  readonly canRequestSupportDiagnostics: boolean;
   readonly isAcknowledging: boolean;
   readonly onAcknowledge: () => void;
   readonly onUnacknowledge: () => void;
@@ -26,13 +32,16 @@ interface IncidentDetailProps {
 export function IncidentDetail({
   incident,
   node,
+  tenantId,
   enrichmentStatus,
   isVisible,
   canAcknowledge,
+  canRequestSupportDiagnostics,
   isAcknowledging,
   onAcknowledge,
   onUnacknowledge,
 }: IncidentDetailProps) {
+  const supportDiagnosticMode = selectIncidentDiagnosticMode(incident, node);
   const connector = node?.connectorHealth?.snapshot;
   const connectorEvidenceIsIncidentSpecific = incident.kind === 'connector-offline';
   const connectorHeading = connectorEvidenceIsIncidentSpecific
@@ -72,9 +81,25 @@ export function IncidentDetail({
         </>
       }
       actions={
-        <Button asChild size="sm" variant="outline">
-          <Link to={incident.link}>Open owning evidence</Link>
-        </Button>
+        <>
+          {canRequestSupportDiagnostics && incident.status !== 'resolved' ? (
+            <Button asChild size="sm">
+              <Link
+                data-testid={`incident-request-support-${incident.incidentId}`}
+                to={buildSupportDiagnosticRequestPath(
+                  tenantId,
+                  supportDiagnosticMode,
+                  incident.profileId,
+                )}
+              >
+                Request support diagnostics
+              </Link>
+            </Button>
+          ) : null}
+          <Button asChild size="sm" variant="outline">
+            <Link to={incident.link}>Open owning evidence</Link>
+          </Button>
+        </>
       }
     >
       <div className="grid min-w-0 gap-5">
@@ -190,6 +215,28 @@ export function IncidentDetail({
             </div>
           )}
         </section>
+
+        {canRequestSupportDiagnostics && incident.status !== 'resolved' ? (
+          <section
+            aria-labelledby={`incident-support-${incident.incidentId}`}
+            className="rounded-lg border bg-muted/30 p-4"
+          >
+            <h3 id={`incident-support-${incident.incidentId}`} className="text-sm font-semibold">
+              Independent support evidence
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              A support node collects bounded read-only evidence over an outbound identity that is
+              separate from connector reporting, so it stays available while this node&apos;s
+              connector does not. Requesting starts the{' '}
+              <span className="font-medium text-foreground">{supportDiagnosticMode}</span>{' '}
+              diagnostic and changes no node, runner, or host state.
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Support identities are enrolled separately from connector node identity. Confirm which
+              enrolled support node should collect the evidence before requesting.
+            </p>
+          </section>
+        ) : null}
 
         {canAcknowledge && incident.status !== 'resolved' ? (
           <section

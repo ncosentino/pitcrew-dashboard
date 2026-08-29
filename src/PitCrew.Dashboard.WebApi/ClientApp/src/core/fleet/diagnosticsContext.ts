@@ -10,6 +10,9 @@ const diagnosticModeSchema = z.enum([
   'Full',
 ]);
 
+export const diagnosticModes = diagnosticModeSchema.options;
+export type DiagnosticMode = z.infer<typeof diagnosticModeSchema>;
+
 const unavailableEvidenceSchema = z.object({
   category: z.string().min(1).max(128),
   reason: z.string().min(1).max(1024),
@@ -117,9 +120,35 @@ function selectDiagnosticMode(
   node: FleetNode,
   incident: OperationalIncident | undefined,
 ): DiagnosticsContext['diagnosticMode'] {
-  if (!node.isOnline || incident?.kind === 'connector-offline') return 'ConnectorOffline';
+  return selectIncidentDiagnosticMode(incident, node);
+}
+
+/**
+ * Chooses the diagnostic mode that matches an incident, optionally refined by the
+ * node it was raised against.
+ */
+export function selectIncidentDiagnosticMode(
+  incident: Pick<OperationalIncident, 'kind'> | undefined,
+  node?: Pick<FleetNode, 'isOnline'>,
+): DiagnosticMode {
+  if (node?.isOnline === false || incident?.kind === 'connector-offline') return 'ConnectorOffline';
   if (incident?.kind === 'capacity-deficit') return 'CapacityMismatch';
   if (incident?.kind.startsWith('resource-')) return 'HostPressure';
   if (incident?.kind.includes('job')) return 'JobNotAssigned';
   return 'Full';
+}
+
+/**
+ * Builds the tenant support route that requests bounded read-only diagnostics with the
+ * given mode preselected. The support node is chosen on that page because support
+ * identities are enrolled independently from connector node identity.
+ */
+export function buildSupportDiagnosticRequestPath(
+  tenantId: string,
+  mode: DiagnosticMode,
+  profileId?: string | null,
+): string {
+  const query = new URLSearchParams({ mode });
+  if (profileId) query.set('profileId', profileId);
+  return `/tenants/${encodeURIComponent(tenantId)}/support/run?${query.toString()}`;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
@@ -56,6 +56,12 @@ const diagnosticModeOptions = [
 ] as const;
 type DiagnosticMode = (typeof diagnosticModeOptions)[number]['value'];
 
+function readRequestedMode(value: string | null): DiagnosticMode | null {
+  return diagnosticModeOptions.some((candidate) => candidate.value === value)
+    ? (value as DiagnosticMode)
+    : null;
+}
+
 type SupportSection = 'overview' | 'run' | 'sessions' | 'nodes';
 
 const sessionRefreshIntervalMilliseconds = 5_000;
@@ -88,12 +94,22 @@ export default function SupportPage() {
   const { tenantId = '' } = useParams();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedMode = readRequestedMode(searchParams.get('mode'));
+  const requestedProfileId = searchParams.get('profileId');
   const { session } = useSession();
   const [identities, setIdentities] = useState<readonly SupportIdentity[]>([]);
   const [sessions, setSessions] = useState<readonly SupportSession[]>([]);
   const [nodeId, setNodeId] = useState('');
-  const [mode, setMode] = useState<DiagnosticMode>('ConnectorOffline');
-  const [profileId, setProfileId] = useState('');
+  const [mode, setMode] = useState<DiagnosticMode>(requestedMode ?? 'ConnectorOffline');
+  const [profileId, setProfileId] = useState(requestedProfileId ?? '');
+  const requestKey = `${requestedMode ?? ''}|${requestedProfileId ?? ''}`;
+  const [appliedRequestKey, setAppliedRequestKey] = useState(requestKey);
+  if (appliedRequestKey !== requestKey) {
+    setAppliedRequestKey(requestKey);
+    if (requestedMode) setMode(requestedMode);
+    if (requestedProfileId) setProfileId(requestedProfileId);
+  }
   const [enrollment, setEnrollment] = useState<CreatedSupportEnrollment | null>(null);
   const [displayName, setDisplayName] = useState('Support node');
   const [error, setError] = useState<string | null>(null);
@@ -422,6 +438,18 @@ export default function SupportPage() {
               description="Choose the problem to investigate, then select the support node that should collect the approved read-only evidence."
             >
               <div className="grid gap-5">
+                {requestedMode ? (
+                  <div
+                    className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground"
+                    role="status"
+                    data-testid="support-run-preselected-mode"
+                  >
+                    Preselected <span className="font-medium">{selectedMode.label}</span> from the
+                    surface you arrived from. Support identities are enrolled independently from
+                    connector node identity, so confirm which support node should collect this
+                    evidence.
+                  </div>
+                ) : null}
                 {loadFailed ? (
                   <StateBanner tone="critical">
                     Support identity state is unavailable. Reload this page before requesting a

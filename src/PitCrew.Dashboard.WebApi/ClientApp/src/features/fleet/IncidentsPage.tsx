@@ -542,9 +542,11 @@ export default function IncidentsPage() {
               <IncidentDetail
                 incident={selectedIncident}
                 node={selectedNode}
+                tenantId={tenantId}
                 enrichmentStatus={currentEnrichment.status}
                 isVisible={selectedIncidentIsVisible}
                 canAcknowledge={canAcknowledge}
+                canRequestSupportDiagnostics={canAcknowledge}
                 isAcknowledging={acknowledgingId === selectedIncident.incidentId}
                 onAcknowledge={() => void acknowledge(selectedIncident)}
                 onUnacknowledge={() => void unacknowledge(selectedIncident)}

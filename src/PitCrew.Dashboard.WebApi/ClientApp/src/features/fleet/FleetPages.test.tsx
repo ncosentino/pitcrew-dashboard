@@ -797,8 +797,8 @@ describe('fleet overview and node detail', () => {
     expect(context.diagnosticMode).toBe('ConnectorOffline');
     expect(context.dashboard.nodeId).toBe(bravoId);
     expect(context.dashboard.incident).toBe('synchronization-network');
-    expect(await screen.findByText(/Diagnostics context downloaded/)).toHaveTextContent(
-      'Diagnostics context downloaded',
+    expect(await screen.findByText(/Preflight context downloaded/)).toHaveTextContent(
+      'Preflight context downloaded',
     );
 
     const navigation = screen.getByRole('navigation', { name: 'Bravo tasks' });

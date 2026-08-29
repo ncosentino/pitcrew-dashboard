@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useSession } from '@/core/auth';
 import {
   buildDiagnosticsContext,
+  buildSupportDiagnosticRequestPath,
+  selectIncidentDiagnosticMode,
   serializeDiagnosticsContext,
   useFleet,
   type FleetNode,
@@ -323,6 +325,22 @@ export function NodeDetailLayout() {
         identifier={<CopyableId label={`${node.displayName} node ID`} value={node.nodeId} />}
         actions={
           <>
+            {canAdminister ? (
+              <Button asChild size="sm">
+                <Link
+                  data-testid={`request-support-diagnostics-${node.nodeId}`}
+                  to={buildSupportDiagnosticRequestPath(
+                    tenantId,
+                    selectIncidentDiagnosticMode(
+                      fleet.activeIncidents.find((candidate) => candidate.nodeId === node.nodeId),
+                      node,
+                    ),
+                  )}
+                >
+                  Request support diagnostics
+                </Link>
+              </Button>
+            ) : null}
             <Button
               data-testid={`prepare-diagnostics-${node.nodeId}`}
               type="button"
@@ -338,7 +356,7 @@ export function NodeDetailLayout() {
                 setDiagnosticsPrepared(true);
               }}
             >
-              Prepare diagnostics
+              Download preflight context
             </Button>
             <StatusBadge status={status} />
             {node.credentialRotationRequested ? <StatusBadge status="rotation requested" /> : null}
@@ -365,8 +383,10 @@ export function NodeDetailLayout() {
       ) : null}
       {diagnosticsPrepared ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Diagnostics context downloaded. Add the exact affected GitHub run or job before host
-          collection.
+          Preflight context downloaded. This file is the starting evidence for the PitCrew remote
+          diagnostics collector, which an operator runs against the host directly. Add the exact
+          affected GitHub run or job before host collection. To collect evidence through the
+          dashboard instead, request support diagnostics.
         </p>
       ) : null}
       {status === 'revoked' ? (
