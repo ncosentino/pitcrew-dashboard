@@ -214,8 +214,8 @@ test('profile changeover keeps candidate, fences, and prohibited effects togethe
 
   const dialog = page.getByRole('alertdialog', { name: 'Roll out ubuntu-runner?' });
   await expect(dialog).toContainText('No automatic rollback or fleet campaign.');
-  await expect(dialog.getByText('Static profile')).toBeVisible();
-  await expect(dialog.getByText('Routing')).toBeVisible();
+  await expect(dialog.getByText('Static profile', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Routing', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Roll out image' })).toBeDisabled();
 
   const requestPromise = page.waitForRequest(
