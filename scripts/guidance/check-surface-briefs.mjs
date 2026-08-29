@@ -11,6 +11,7 @@ import {
 export const expectedSurfacePrimaryTargets = [
   "src/PitCrew.Dashboard.WebApi/ClientApp/src/core/routing/AuthenticatedShell.tsx",
   "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/FleetOverviewPage.tsx",
+  "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileImageRollout.tsx",
   "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/pages/NodePages.tsx",
   "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/ImageWorkspace.tsx",
   "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/runners/RunnersPage.tsx",

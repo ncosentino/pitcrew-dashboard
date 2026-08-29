@@ -399,6 +399,7 @@
       ".github/workflows/container-ci.yml",
       ".impeccable/design.json",
       ".impeccable/surfaces/clientapp-src-core-routing-authenticatedshell-tsx.md",
+      ".impeccable/surfaces/features-fleet-components-profileimagerollout-tsx.md",
       ".impeccable/surfaces/i-clientapp-src-features-images-imageworkspace-tsx.md",
       "AGENTS.md",
       "DESIGN.md",
