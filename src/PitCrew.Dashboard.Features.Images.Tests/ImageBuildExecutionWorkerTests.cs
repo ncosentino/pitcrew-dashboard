@@ -137,10 +137,9 @@ public sealed class ImageBuildExecutionWorkerTests
           fakeTime,
           clientMock.Object);
       using var client = factory.CreateClient();
-      var worker = factory.Services.GetServices<IHostedService>()
-          .OfType<ImageBuildExecutionWorker>()
-          .Single();
-      await worker.StopAsync(cancellationToken);
+      var worker = await GetStoppedWorkerAsync(
+          factory,
+          cancellationToken);
       var store = factory.Services.GetRequiredService<IImageCandidateStore>();
       await SeedAsync(
           factory.Services,
@@ -425,10 +424,9 @@ public sealed class ImageBuildExecutionWorkerTests
           fakeTime,
           clientMock.Object);
       using var client = factory.CreateClient();
-      var worker = factory.Services.GetServices<IHostedService>()
-          .OfType<ImageBuildExecutionWorker>()
-          .Single();
-      await worker.StopAsync(cancellationToken);
+      var worker = await GetStoppedWorkerAsync(
+          factory,
+          cancellationToken);
       var store = factory.Services.GetRequiredService<IImageCandidateStore>();
       await SeedAsync(
           factory.Services,
@@ -496,10 +494,9 @@ public sealed class ImageBuildExecutionWorkerTests
           fakeTime,
           clientMock.Object);
       using var client = factory.CreateClient();
-      var worker = factory.Services.GetServices<IHostedService>()
-          .OfType<ImageBuildExecutionWorker>()
-          .Single();
-      await worker.StopAsync(cancellationToken);
+      var worker = await GetStoppedWorkerAsync(
+          factory,
+          cancellationToken);
       var store = factory.Services.GetRequiredService<IImageCandidateStore>();
       await SeedAsync(
           factory.Services,
@@ -1476,15 +1473,13 @@ public sealed class ImageBuildExecutionWorkerTests
     }
   }
 
-  private static async Task<ImageBuildExecutionWorker> GetStoppedWorkerAsync(
+  private static ValueTask<ImageBuildExecutionWorker> GetStoppedWorkerAsync(
       WebApplicationFactory<Program> factory,
       CancellationToken cancellationToken)
   {
-    var worker = factory.Services.GetServices<IHostedService>()
-        .OfType<ImageBuildExecutionWorker>()
-        .Single();
-    await worker.StopAsync(cancellationToken);
-    return worker;
+    cancellationToken.ThrowIfCancellationRequested();
+    return ValueTask.FromResult(
+        factory.Services.GetRequiredService<ImageBuildExecutionWorker>());
   }
 
   private static GitHubRepositoryIdentity Repository() =>
@@ -1704,6 +1699,22 @@ public sealed class ImageBuildExecutionWorkerTests
                     services.AddSingleton<TimeProvider>(fakeTime);
                     services.RemoveAll<IGitHubImageWorkflowClient>();
                     services.AddSingleton(gitHubClient);
+                    var workerRegistrations = services
+                        .Where(descriptor =>
+                            descriptor.ServiceType == typeof(IHostedService)
+                            && descriptor.ImplementationType ==
+                                typeof(ImageBuildExecutionWorker))
+                        .ToArray();
+                    if (workerRegistrations.Length != 1)
+                    {
+                      throw new InvalidOperationException(
+                          "Expected one hosted image worker registration.");
+                    }
+                    foreach (var registration in workerRegistrations)
+                    {
+                      services.Remove(registration);
+                    }
+                    services.AddSingleton<ImageBuildExecutionWorker>();
                   }));
 
   private static void SetupDispatchAuthority(
