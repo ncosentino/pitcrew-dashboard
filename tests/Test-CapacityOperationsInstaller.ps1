@@ -470,6 +470,9 @@ try {
             $environment -match 'PitCrew__Connector__ImageRolloutEnabled="false"'
         ) 'A capacity-only installation enabled image rollout.'
         Add-Check (
+            $environment -match 'PitCrew__Connector__ImageRolloutStatePath=""'
+        ) 'A capacity-only installation exposed the rollout state path.'
+        Add-Check (
             $environment -notmatch 'PitCrew__Connector__AllowedImageRolloutProfiles__0'
         ) 'A capacity-only installation advertised an image-rollout allowlist.'
         Add-Check (

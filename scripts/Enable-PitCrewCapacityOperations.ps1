@@ -757,7 +757,7 @@ if ($IsWindows) {
 }
 
 $recoveryLedgerPath = Join-Path $dataRoot 'recovery-ledger'
-$imageRolloutStatePath = Join-Path $dataRoot 'image-rollout'
+$imageRolloutStatePath = if ($EnableImageRollout) { Join-Path $dataRoot 'image-rollout' } else { '' }
 
 $existingArtifacts = [System.Collections.Generic.List[string]]::new()
 foreach ($path in @($installRoot, $dataRoot, $environmentPath, $servicePath)) {
