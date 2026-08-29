@@ -49,4 +49,19 @@ describe('ReadinessSummary', () => {
       screen.getByRole('region', { name: 'Incident readiness' }).querySelector('dl'),
     ).toHaveClass('grid-cols-2');
   });
+
+  it('contains unbroken values and details inside the readiness region', () => {
+    const value = `sha256:${'a'.repeat(64)}`;
+    const detail = `registry/${'candidate'.repeat(32)}`;
+    render(
+      <ReadinessSummary
+        title="Image readiness"
+        description="Current image evidence"
+        items={[{ label: 'Candidate', value, detail }]}
+      />,
+    );
+
+    expect(screen.getByText(value)).toHaveClass('min-w-0', '[overflow-wrap:anywhere]');
+    expect(screen.getByText(detail)).toHaveClass('min-w-0', '[overflow-wrap:anywhere]');
+  });
 });

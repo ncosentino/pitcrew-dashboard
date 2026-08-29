@@ -49,6 +49,10 @@ const routes: readonly RouteCase[] = [
     name: 'profile-overview',
     path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build`,
   },
+  {
+    name: 'profile-image-rollout',
+    path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/image`,
+  },
   { name: 'runners', path: `/tenants/${tenantId}/runners` },
   { name: 'image-candidates', path: `/tenants/${tenantId}/images/candidates` },
   { name: 'image-recipes', path: `/tenants/${tenantId}/images/recipes` },

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
+using PitCrew.Dashboard.Kernel.ImageRollouts;
 using PitCrew.Protocol;
 
 namespace PitCrew.Dashboard.Features.Fleet.Tests;
@@ -409,6 +410,19 @@ public sealed class RecoverManagerSyncTests
         .ReturnsAsync(transaction.Object);
     connectorHealthStore ??=
         _mocks.Create<IConnectorHealthStore>();
+    var imageRolloutStore = _mocks.Create<IImageRolloutCommandStore>();
+    imageRolloutStore
+        .Setup(store => store.ApplyConnectorSyncAsync(
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            It.Is<ImageRolloutOperatorCapability?>(
+                capability => capability == null),
+            It.Is<ImageRolloutCommandProgress?>(
+                progress => progress == null),
+            It.Is<ImageRolloutCommandOutcome?>(outcome => outcome == null),
+            It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
+            It.Is<DateTimeOffset>(redeliverBefore => redeliverBefore < Now),
+            It.IsAny<CancellationToken>()))
+        .ReturnsAsync((RollOutProfileImageCommand?)null);
     return new SyncConnectorUnitOfWork(
         fleetStore.Object,
         historyStore.Object,
@@ -416,6 +430,7 @@ public sealed class RecoverManagerSyncTests
         transactionFactory.Object,
         capacityStore.Object,
         recoveryStore.Object,
+        imageRolloutStore.Object,
         new ConnectorCredentialService(),
         Options.Create(new FleetDashboardOptions()),
         new FixedTimeProvider(Now));

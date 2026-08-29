@@ -63,6 +63,20 @@ public sealed class ImagesCarterModule : ICarterModule
     requestAdministrators.MapPost("", CreateBuildRequestAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .AddImageRecipeMutationRateLimit();
+
+    var rolloutReaders = app.MapGroup(
+            "/api/tenants/{tenantId}/images/profile-rollouts")
+        .RequireAuthorization(AccessPolicies.TenantViewer);
+    rolloutReaders.MapGet(
+        "/{nodeId:guid}/{profileId}",
+        GetProfileRolloutAsync);
+
+    var rolloutAdministrators = app.MapGroup(
+            "/api/tenants/{tenantId}/images/profile-rollouts")
+        .RequireAuthorization(AccessPolicies.TenantAdministrator);
+    rolloutAdministrators.MapPost("", CreateProfileRolloutAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
   }
 
   private static async Task<IResult> GetBuildRequestsAsync(
@@ -570,4 +584,189 @@ public sealed class ImagesCarterModule : ICarterModule
           message,
         },
       };
+
+  private static async Task<IResult> GetProfileRolloutAsync(
+      string tenantId,
+      Guid nodeId,
+      string profileId,
+      IProfileImageRolloutReader reader,
+      CancellationToken cancellationToken)
+  {
+    if (!PitCrew.Protocol.PitCrewProfileId.IsValid(profileId))
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_rollout_query",
+          "The profile identifier is invalid."));
+    }
+    var response = await reader.GetProfileControlAsync(
+        tenantId,
+        nodeId,
+        profileId,
+        cancellationToken);
+    if (response is null)
+    {
+      return Results.NotFound(Error(
+          "image_rollout_profile_not_found",
+          "The profile has not advertised image rollout capability."));
+    }
+    return Results.Ok(response);
+  }
+
+  private const string IdempotencyKeyHeader = "Idempotency-Key";
+
+  private static async Task<IResult> CreateProfileRolloutAsync(
+      HttpContext context,
+      string tenantId,
+      RollOutProfileImageRequestBody request,
+      IRollOutProfileImageOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    if (request is null)
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_rollout_request",
+          "A profile-image rollout body is required."));
+    }
+    if (!context.Request.Headers.TryGetValue(
+            IdempotencyKeyHeader,
+            out var idempotencyKeyValues) ||
+        idempotencyKeyValues.Count != 1)
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_rollout_idempotency_key",
+          "Exactly one Idempotency-Key header is required."));
+    }
+    var idempotencyKey = idempotencyKeyValues[0];
+    if (!RollOutProfileImageOrchestrator.IsValidIdempotencyKey(
+            idempotencyKey))
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_rollout_idempotency_key",
+          "Idempotency-Key must be 8 to 200 characters of "
+          + "ASCII letters, digits, '-', '_', '.', or ':'."));
+    }
+    var statusLocation =
+        $"/api/tenants/{tenantId}/images/profile-rollouts/"
+        + $"{request.NodeId:D}/{request.ProfileId}";
+    var outcome = await orchestrator.QueueAsync(
+        context.User,
+        tenantId,
+        new RollOutProfileImageInput(
+            request.NodeId,
+            request.ProfileId ?? string.Empty,
+            request.CandidateId,
+            request.ExpectedCurrentImageReference,
+            request.ExpectedCurrentImageDigest,
+            request.ExpectedCurrentLocalImageId,
+            request.ExpectedCurrentWorkerRevision,
+            request.ExpectedStaticFingerprint ?? string.Empty,
+            request.ExpectedPreservedConfigurationFingerprint ?? string.Empty,
+            request.ExpectedRoutingFingerprint ?? string.Empty,
+            request.ExpectedDesiredGeneration,
+            request.ExpectedDesiredStateHash,
+            idempotencyKey!),
+        cancellationToken);
+    return outcome.Status switch
+    {
+      RollOutProfileImageStatus.Queued when outcome.CommandId is not null =>
+          Results.Accepted(
+              statusLocation,
+              new RollOutProfileImageResponse(
+                  outcome.CommandId.Value,
+                  "queued",
+                  statusLocation)),
+      RollOutProfileImageStatus.IdempotentReplay
+          when outcome.CommandId is not null =>
+          Results.Accepted(
+              statusLocation,
+              new RollOutProfileImageResponse(
+                  outcome.CommandId.Value,
+                  "queued",
+                  statusLocation)),
+      RollOutProfileImageStatus.IdempotencyKeyReuseConflict => Results.Conflict(
+          Error(
+              outcome.Code ?? "image_rollout_idempotency_key_conflict",
+              outcome.Error ??
+              "The Idempotency-Key was already used with different rollout authority.")),
+      RollOutProfileImageStatus.Unauthorized => Results.Json(
+          Error(
+              outcome.Code ?? "unauthorized_image_rollout",
+              outcome.Error ??
+              "The request principal is not an authenticated dashboard user."),
+          statusCode: StatusCodes.Status403Forbidden),
+      RollOutProfileImageStatus.Invalid => Results.BadRequest(
+          Error(
+              outcome.Code ?? "invalid_image_rollout_request",
+              outcome.Error ?? "The rollout request is invalid.")),
+      RollOutProfileImageStatus.CandidateNotFound => Results.NotFound(
+          Error(
+              outcome.Code ?? "image_rollout_target_not_found",
+              outcome.Error ??
+              "The requested candidate or node was not found.")),
+      RollOutProfileImageStatus.CandidateFailed => Results.Conflict(
+          Error(
+              outcome.Code ?? "image_candidate_not_ready",
+              outcome.Error ??
+              "The requested candidate is not eligible for rollout.")),
+      RollOutProfileImageStatus.CandidateNotRegistryReady => Results.Conflict(
+          Error(
+              outcome.Code ?? "image_candidate_not_registry_ready",
+              outcome.Error ??
+              "The requested candidate has no immutable registry reference.")),
+      RollOutProfileImageStatus.Unsupported => Results.Json(
+          Error(
+              outcome.Code ?? "image_rollout_unsupported",
+              outcome.Error ??
+              "The connector does not advertise image rollout for this profile."),
+          statusCode: StatusCodes.Status409Conflict),
+      RollOutProfileImageStatus.UnsupportedTopology => Results.Json(
+          Error(
+              outcome.Code ?? "image_rollout_unsupported_topology",
+              outcome.Error ??
+              "The connector cannot preserve the profile's routing state."),
+          statusCode: StatusCodes.Status409Conflict),
+      RollOutProfileImageStatus.NotAllowed => Results.Json(
+          Error(
+              outcome.Code ?? "image_rollout_not_allowed",
+              outcome.Error ??
+              "Local connector policy does not allow this rollout."),
+          statusCode: StatusCodes.Status403Forbidden),
+      RollOutProfileImageStatus.RecipeNotAllowed => Results.Json(
+          Error(
+              outcome.Code ?? "image_rollout_recipe_not_allowed",
+              outcome.Error ??
+              "The candidate recipe is not on the profile's allowlist."),
+          statusCode: StatusCodes.Status403Forbidden),
+      RollOutProfileImageStatus.RegistryNotAllowed => Results.Json(
+          Error(
+              outcome.Code ?? "image_rollout_registry_not_allowed",
+              outcome.Error ??
+              "The connector's local registry policy does not allow this recipe."),
+          statusCode: StatusCodes.Status403Forbidden),
+      RollOutProfileImageStatus.ArchitectureMismatch => Results.Conflict(
+          Error(
+              outcome.Code ?? "image_rollout_architecture_mismatch",
+              outcome.Error ??
+              "The candidate architecture does not match the profile.")),
+      RollOutProfileImageStatus.StaleFence => Results.Conflict(
+          Error(
+              outcome.Code ?? "image_rollout_stale_fence",
+              outcome.Error ??
+              "The requested fences no longer match the connector's advertised state.")),
+      RollOutProfileImageStatus.Conflict => Results.Conflict(
+          Error(
+              outcome.Code ?? "image_rollout_operation_active",
+              outcome.Error ??
+              "Another profile operation is already active.")),
+      RollOutProfileImageStatus.RateLimited => Results.Json(
+          Error(
+              outcome.Code ?? "image_rollout_cooldown",
+              outcome.Error ??
+              "A rollout for this profile was requested too recently."),
+          statusCode: StatusCodes.Status429TooManyRequests),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported image rollout result."),
+    };
+  }
 }

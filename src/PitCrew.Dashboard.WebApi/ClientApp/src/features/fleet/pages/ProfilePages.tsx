@@ -46,7 +46,7 @@ import { downloadDiagnosticsContext } from '../diagnosticsDownload';
 import { isRecoveryCommandActive, type RecoveryFences } from '../managerRecovery';
 import { summarizeProfileAttention, summarizeProfileWorkload } from '../profileWorkspace';
 
-interface ProfileDetailContext {
+export interface ProfileDetailContext {
   readonly tenantId: string;
   readonly node: FleetNode;
   readonly profile: ManagerObservedState;
@@ -58,7 +58,7 @@ interface ProfileDetailContext {
   readonly refreshNow: () => Promise<void>;
 }
 
-function useProfileDetail(): ProfileDetailContext {
+export function useProfileDetail(): ProfileDetailContext {
   return useOutletContext<ProfileDetailContext>();
 }
 
@@ -177,6 +177,12 @@ export function ProfileDetailLayout() {
             : undefined,
     },
     {
+      label: 'Image',
+      description: 'Qualified image changeover and convergence',
+      path: `${basePath}/image`,
+      badge: profile.update?.status === 'rolling' ? 'Rolling' : undefined,
+    },
+    {
       label: 'Diagnostics',
       description: 'Subsystem, resource, and operation evidence',
       path: `${basePath}/diagnostics`,
@@ -248,8 +254,8 @@ export function ProfileDetailLayout() {
           {profile.managerContractVersion} · observed {formatTime(profile.observedAt)}
         </span>
         <span>
-          {node.isOnline ? 'Current' : 'Last-known'} capacity, worker, diagnostics, and recovery
-          evidence for this profile.
+          {node.isOnline ? 'Current' : 'Last-known'} capacity, worker, image, diagnostics, and
+          recovery evidence for this profile.
         </span>
       </div>
 
@@ -392,7 +398,7 @@ export function ProfileOverviewPage() {
       label: 'Worker image rollout',
       description: describeWorkerUpdate(profile),
       status: profile.update?.status ?? 'unavailable',
-      task: 'workers',
+      task: 'image',
       testId: `profile-overview-worker-update-${profile.profileId}`,
     },
     {
@@ -561,12 +567,12 @@ export function ProfileOverviewPage() {
 function summarizeHealthSignals(
   signals: ReadonlyArray<{
     readonly status: string;
-    readonly task: 'capacity' | 'workers' | 'diagnostics';
+    readonly task: 'capacity' | 'workers' | 'image' | 'diagnostics';
   }>,
 ): {
   readonly label: string;
   readonly tone: 'positive' | 'caution' | 'critical';
-  readonly task: 'capacity' | 'workers' | 'diagnostics';
+  readonly task: 'capacity' | 'workers' | 'image' | 'diagnostics';
 } {
   const critical = signals.find((signal) =>
     ['degraded', 'failed', 'stopped', 'blocked'].includes(signal.status),

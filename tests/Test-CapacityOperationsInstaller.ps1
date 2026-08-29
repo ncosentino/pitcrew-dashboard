@@ -182,26 +182,40 @@ function Invoke-InstallerScenario {
         [Parameter(Mandatory)]
         [string]$PitCrewRoot,
 
-        [switch]$EnableManagerRecovery
+        [switch]$EnableManagerRecovery,
+
+        [switch]$EnableImageRollout,
+
+        [object[]]$ImageRolloutRecipes = @()
     )
 
-    if ($EnableManagerRecovery) {
-        & $installerPath `
-            -Version $version `
-            -PitCrewRoot $PitCrewRoot `
-            -DashboardUrl 'https://127.0.0.1:9' `
-            -Profiles 'copilot-cli' `
-            -CapacityMaximumCeiling 30 `
-            -EnableManagerRecovery `
-            -ManagerRecoveryProfiles 'copilot-cli'
-        return
+    $parameters = @{
+        Version = $version
+        PitCrewRoot = $PitCrewRoot
+        DashboardUrl = 'https://127.0.0.1:9'
+        Profiles = 'copilot-cli'
+        CapacityMaximumCeiling = 30
     }
-    & $installerPath `
-        -Version $version `
-        -PitCrewRoot $PitCrewRoot `
-        -DashboardUrl 'https://127.0.0.1:9' `
-        -Profiles 'copilot-cli' `
-        -CapacityMaximumCeiling 30
+    if ($EnableManagerRecovery) {
+        $parameters.EnableManagerRecovery = $true
+        $parameters.ManagerRecoveryProfiles = 'copilot-cli'
+    }
+    if ($EnableImageRollout) {
+        $parameters.EnableImageRollout = $true
+        $parameters.ImageRolloutProfiles = 'copilot-cli'
+        $parameters.ImageRolloutRecipes = if (
+            $ImageRolloutRecipes.Count -gt 0) {
+            $ImageRolloutRecipes
+        } else {
+            @(
+                [pscustomobject]@{
+                    RecipeId = 'copilot-cli'
+                    RegistryRepository = 'ghcr.io/example/copilot-cli'
+                }
+            )
+        }
+    }
+    & $installerPath @parameters
 }
 
 function Get-InstalledConnectorSettings {
@@ -394,6 +408,16 @@ try {
         Add-Check (
             @($settings.PitCrew.Connector.AllowedManagerRecoveryProfiles).Count -eq 0
         ) 'A capacity-only installation advertised a manager-recovery allowlist.'
+        Add-Check (
+            $settings.PitCrew.Connector.ImageRolloutEnabled -eq $false
+        ) 'A capacity-only installation enabled image rollout.'
+        Add-Check (
+            @($settings.PitCrew.Connector.AllowedImageRolloutProfiles).Count -eq 0
+        ) 'A capacity-only installation advertised an image-rollout allowlist.'
+        Add-Check (
+            [string]::IsNullOrWhiteSpace(
+                [string]$settings.PitCrew.Connector.ImageRolloutStatePath)
+        ) 'A capacity-only installation exposed the rollout state path.'
         $fileSink = @($settings.Serilog.WriteTo) |
             Where-Object Name -eq 'File' |
             Select-Object -First 1
@@ -442,6 +466,18 @@ try {
         Add-Check (
             $environment -notmatch 'PitCrew__Connector__AllowedManagerRecoveryProfiles__0'
         ) 'A capacity-only installation advertised a manager-recovery allowlist.'
+        Add-Check (
+            $environment -match 'PitCrew__Connector__ImageRolloutEnabled="false"'
+        ) 'A capacity-only installation enabled image rollout.'
+        Add-Check (
+            $environment -match 'PitCrew__Connector__ImageRolloutStatePath=""'
+        ) 'A capacity-only installation exposed the rollout state path.'
+        Add-Check (
+            $environment -notmatch 'PitCrew__Connector__AllowedImageRolloutProfiles__0'
+        ) 'A capacity-only installation advertised an image-rollout allowlist.'
+        Add-Check (
+            $environment -notmatch 'PitCrew__Connector__ImageRolloutRecipes__'
+        ) 'A capacity-only installation exposed rollout recipes.'
     }
 
     Remove-TestHostInstallation
@@ -508,6 +544,187 @@ try {
         Add-Check (
             $recoveryEnvironment -match 'PitCrew__Connector__RecoveryCommandTimeoutSeconds="120"'
         ) 'The opt-in installation did not write a bounded recovery timeout.'
+    }
+
+    Remove-TestHostInstallation
+    $global:PitCrewInstallerDockerStops = 0
+    $global:PitCrewInstallerDockerCopies = 0
+    $global:PitCrewInstallerDockerStarts = 0
+
+    $rolloutProfilesRejected = $false
+    try {
+        & $installerPath `
+            -Version $version `
+            -PitCrewRoot $pitCrewRoot `
+            -DashboardUrl 'https://127.0.0.1:9' `
+            -Profiles 'copilot-cli' `
+            -CapacityMaximumCeiling 30 `
+            -ImageRolloutProfiles 'copilot-cli'
+    } catch {
+        $rolloutProfilesRejected = $_.Exception.Message.Contains(
+            'require -EnableImageRollout',
+            [StringComparison]::Ordinal)
+    }
+    Add-Check $rolloutProfilesRejected 'The installer accepted a rollout allowlist without the explicit rollout opt-in.'
+    Add-Check (
+        $global:PitCrewInstallerDockerStops -eq 0
+    ) 'The installer modified the existing deployment before rejecting an invalid rollout request.'
+
+    $badRegistryRejected = $false
+    try {
+        & $installerPath `
+            -Version $version `
+            -PitCrewRoot $pitCrewRoot `
+            -DashboardUrl 'https://127.0.0.1:9' `
+            -Profiles 'copilot-cli' `
+            -CapacityMaximumCeiling 30 `
+            -EnableImageRollout `
+            -ImageRolloutProfiles 'copilot-cli' `
+            -ImageRolloutRecipes @(
+                [pscustomobject]@{
+                    RecipeId = 'copilot-cli'
+                    RegistryRepository = 'ghcr.io/example/copilot-cli:latest'
+                })
+    } catch {
+        $badRegistryRejected = $_.Exception.Message.Contains(
+            'strict registry repository',
+            [StringComparison]::Ordinal)
+    }
+    Add-Check $badRegistryRejected 'The installer accepted a registry repository with a mutable tag.'
+
+    $nonCanonicalRegistryRejected = $false
+    try {
+        & $installerPath `
+            -Version $version `
+            -PitCrewRoot $pitCrewRoot `
+            -DashboardUrl 'https://127.0.0.1:9' `
+            -Profiles 'copilot-cli' `
+            -CapacityMaximumCeiling 30 `
+            -EnableImageRollout `
+            -ImageRolloutProfiles 'copilot-cli' `
+            -ImageRolloutRecipes @(
+                [pscustomobject]@{
+                    RecipeId = 'copilot-cli'
+                    RegistryRepository = 'ghcr.io/example/copilot..cli'
+                })
+    } catch {
+        $nonCanonicalRegistryRejected = $_.Exception.Message.Contains(
+            'strict registry repository',
+            [StringComparison]::Ordinal)
+    }
+    Add-Check $nonCanonicalRegistryRejected 'The installer accepted a repository rejected by connector policy.'
+
+    $duplicateRecipeRejected = $false
+    try {
+        & $installerPath `
+            -Version $version `
+            -PitCrewRoot $pitCrewRoot `
+            -DashboardUrl 'https://127.0.0.1:9' `
+            -Profiles 'copilot-cli' `
+            -CapacityMaximumCeiling 30 `
+            -EnableImageRollout `
+            -ImageRolloutProfiles 'copilot-cli' `
+            -ImageRolloutRecipes @(
+                [pscustomobject]@{
+                    RecipeId = 'copilot-cli'
+                    RegistryRepository = 'ghcr.io/example/copilot-cli'
+                }
+                [pscustomobject]@{
+                    RecipeId = 'Copilot-CLI'
+                    RegistryRepository = 'ghcr.io/example/other'
+                })
+    } catch {
+        $duplicateRecipeRejected = $_.Exception.Message.Contains(
+            'case-insensitive duplicate',
+            [StringComparison]::Ordinal)
+    }
+    Add-Check $duplicateRecipeRejected 'The installer accepted a case-insensitively duplicated recipe identifier.'
+
+    Remove-TestHostInstallation
+    Invoke-InstallerScenario -PitCrewRoot $pitCrewRoot -EnableImageRollout
+    if ($IsWindows) {
+        $rolloutSettings = Get-InstalledConnectorSettings `
+            -InstallRoot $paths.InstallRoot
+        Add-Check (
+            $rolloutSettings.PitCrew.Connector.ImageRolloutEnabled -eq $true
+        ) 'The opt-in installation did not enable image rollout.'
+        Add-Check (
+            (@($rolloutSettings.PitCrew.Connector.AllowedImageRolloutProfiles) -join ',') -eq
+            'copilot-cli'
+        ) 'The opt-in installation did not write the image-rollout allowlist.'
+        $rolloutRecipes = @($rolloutSettings.PitCrew.Connector.ImageRolloutRecipes)
+        Add-Check (
+            $rolloutRecipes.Count -eq 1
+        ) 'The opt-in installation did not write exactly one rollout recipe entry.'
+        Add-Check (
+            [string]$rolloutRecipes[0].RecipeId -eq 'copilot-cli'
+        ) 'The opt-in installation did not write the rollout recipe id.'
+        Add-Check (
+            [string]$rolloutRecipes[0].RegistryRepository -eq 'ghcr.io/example/copilot-cli'
+        ) 'The opt-in installation did not write the rollout registry repository.'
+        Add-Check (
+            ([string]$rolloutSettings.PitCrew.Connector.ImageRolloutStatePath).StartsWith(
+                $paths.DataRoot,
+                [StringComparison]::OrdinalIgnoreCase)
+        ) 'The rollout state path is not below the protected data root.'
+        Add-Check (
+            Test-Path -LiteralPath $rolloutSettings.PitCrew.Connector.ImageRolloutStatePath -PathType Container
+        ) 'The rollout state path was not created by the installer.'
+        # Windows: the rollout state root must have inheritance disabled and
+        # grant only SYSTEM + Administrators. Any broad-user Allow rule fails
+        # the check.
+        $rolloutAcl = Get-Acl -LiteralPath $rolloutSettings.PitCrew.Connector.ImageRolloutStatePath
+        $rolloutBroadRules = @(
+            $rolloutAcl.GetAccessRules(
+                $true,
+                $true,
+                [Security.Principal.SecurityIdentifier]) |
+                Where-Object {
+                    $_.AccessControlType -eq
+                        [Security.AccessControl.AccessControlType]::Allow -and
+                    $_.IdentityReference.Value -in @(
+                        'S-1-1-0',
+                        'S-1-5-11',
+                        'S-1-5-32-545')
+                }
+        )
+        Add-Check (
+            $rolloutBroadRules.Count -eq 0
+        ) 'The rollout state root ACL grants a broad local principal.'
+        Add-Check (
+            [bool]$rolloutAcl.AreAccessRulesProtected
+        ) 'The rollout state root ACL inherits parent grants instead of being explicit.'
+        Add-Check (
+            $rolloutSettings.PitCrew.Connector.ImageRolloutCommandTimeoutSeconds -eq 600
+        ) 'The opt-in installation did not write a bounded rollout timeout.'
+    } else {
+        $rolloutEnvironment = Get-Content `
+            -LiteralPath $paths.EnvironmentPath `
+            -Raw `
+            -Encoding UTF8
+        Add-Check (
+            $rolloutEnvironment -match 'PitCrew__Connector__ImageRolloutEnabled="true"'
+        ) 'The opt-in installation did not enable image rollout.'
+        Add-Check (
+            $rolloutEnvironment -match
+            'PitCrew__Connector__AllowedImageRolloutProfiles__0="copilot-cli"'
+        ) 'The opt-in installation did not write the image-rollout allowlist.'
+        Add-Check (
+            $rolloutEnvironment -match
+            'PitCrew__Connector__ImageRolloutRecipes__0__RecipeId="copilot-cli"'
+        ) 'The opt-in installation did not write the rollout recipe id under an indexed key.'
+        Add-Check (
+            $rolloutEnvironment -match
+            'PitCrew__Connector__ImageRolloutRecipes__0__RegistryRepository="ghcr.io/example/copilot-cli"'
+        ) 'The opt-in installation did not write the rollout registry repository under an indexed key.'
+        Add-Check (
+            $rolloutEnvironment.Contains(
+                "PitCrew__Connector__ImageRolloutStatePath=`"$($paths.DataRoot)",
+                [StringComparison]::Ordinal)
+        ) 'The rollout state path is not below the protected data root.'
+        Add-Check (
+            $rolloutEnvironment -match 'PitCrew__Connector__ImageRolloutCommandTimeoutSeconds="600"'
+        ) 'The opt-in installation did not write a bounded rollout timeout.'
     }
 
     Remove-TestHostInstallation

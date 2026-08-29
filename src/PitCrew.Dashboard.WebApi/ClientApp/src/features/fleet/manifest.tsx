@@ -40,6 +40,10 @@ const ProfileWorkersPage = lazyFeature('fleet', async () => {
   const module = await import('./pages/ProfilePages');
   return { default: module.ProfileWorkersPage };
 });
+const ProfileImageRolloutPage = lazyFeature(
+  'fleet',
+  () => import('./pages/ProfileImageRolloutPage'),
+);
 const ProfileDiagnosticsPage = lazyFeature('fleet', async () => {
   const module = await import('./pages/ProfilePages');
   return { default: module.ProfileDiagnosticsPage };
@@ -95,6 +99,7 @@ export const fleetManifest: FeatureManifest = {
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId',
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId/capacity',
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId/workers',
+        '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId/image',
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId/diagnostics',
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId/history',
         '/tenants/:tenantId/nodes/:nodeId/profiles/:profileId/recovery',
@@ -157,6 +162,11 @@ export const fleetManifest: FeatureManifest = {
       breadcrumbs: profileBreadcrumbs('Workers'),
     },
     {
+      path: `${profilePath}/image`,
+      title: 'Profile :profileId image rollout',
+      breadcrumbs: profileBreadcrumbs('Image rollout'),
+    },
+    {
       path: `${profilePath}/diagnostics`,
       title: 'Profile :profileId diagnostics',
       breadcrumbs: profileBreadcrumbs('Diagnostics'),
@@ -213,6 +223,7 @@ export const fleetManifest: FeatureManifest = {
         { index: true, element: <ProfileOverviewPage /> },
         { path: 'capacity', element: <ProfileCapacityPage /> },
         { path: 'workers', element: <ProfileWorkersPage /> },
+        { path: 'image', element: <ProfileImageRolloutPage /> },
         { path: 'diagnostics', element: <ProfileDiagnosticsPage /> },
         { path: 'history', element: <ProfileHistoryPage /> },
         { path: 'recovery', element: <ProfileRecoveryPage /> },

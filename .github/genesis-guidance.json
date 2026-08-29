@@ -355,6 +355,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0013-typed-profile-image-rollout.md",
+        "title": "ADR-0013: Typed profile image rollout through outbound connectors",
+        "section": "Architecture decisions",
+        "order": 113,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",
@@ -392,6 +399,7 @@
       ".github/workflows/container-ci.yml",
       ".impeccable/design.json",
       ".impeccable/surfaces/clientapp-src-core-routing-authenticatedshell-tsx.md",
+      ".impeccable/surfaces/features-fleet-components-profileimagerollout-tsx.md",
       ".impeccable/surfaces/i-clientapp-src-features-images-imageworkspace-tsx.md",
       "AGENTS.md",
       "DESIGN.md",

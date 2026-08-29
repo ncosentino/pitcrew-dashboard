@@ -18,9 +18,12 @@ using Moq;
 
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Access.Abstractions;
+using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Dashboard.Features.Images;
 using PitCrew.Dashboard.Features.Images.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
+using PitCrew.Dashboard.Kernel.ImageRollouts;
+using PitCrew.Protocol;
 
 namespace PitCrew.Dashboard.WebApi.Tests;
 
@@ -962,6 +965,725 @@ public sealed class ImagesHostingTests
     {
       DashboardTestHelpers.DeleteDatabase(databasePath);
     }
+  }
+
+  [Test]
+  public async Task Rollout_Endpoints_Enforce_Authentication_Roles_And_Antiforgery(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    var now = new DateTimeOffset(
+        2026,
+        9,
+        15,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          SystemAdministratorGitHubUserId,
+          "Production");
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      await using var factory = CreateFactory(fakeTime, clientMock.Object);
+      await SeedTenantAccessAsync(factory, cancellationToken);
+      var candidateId = await SeedCandidateAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      var (nodeId, profileId) = await SeedRolloutCapableNodeAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+
+      using var administratorClient = CreateAuthenticatedClient(
+          factory,
+          AdministratorGitHubUserId);
+      using var viewerClient = CreateAuthenticatedClient(
+          factory,
+          ViewerGitHubUserId);
+      using var anonymousClient = factory.CreateClient(
+          new WebApplicationFactoryClientOptions
+          {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri(
+                "https://pitcrew.example.com",
+                UriKind.Absolute),
+          });
+      var administratorSession = await DashboardTestHelpers.GetSessionAsync(
+          administratorClient,
+          cancellationToken);
+      var viewerSession = await DashboardTestHelpers.GetSessionAsync(
+          viewerClient,
+          cancellationToken);
+
+      using var anonymousGet = await anonymousClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts/{nodeId:D}/{profileId}",
+          cancellationToken);
+      using var anonymousPost = await anonymousClient.PostAsJsonAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+
+      using var viewerGet = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts/{nodeId:D}/{profileId}",
+          cancellationToken);
+      using var viewerPost = await PostRolloutAsync(
+          viewerClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          viewerSession.AntiforgeryToken,
+          "viewer-post-attempt-01",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+
+      using var missingAntiforgeryRequest = new HttpRequestMessage(
+          HttpMethod.Post,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts")
+      {
+        Content = JsonContent.Create(
+            CreateRolloutRequest(nodeId, profileId, candidateId)),
+      };
+      missingAntiforgeryRequest.Headers.Add(
+          RolloutIdempotencyKeyHeader,
+          "admin-missing-antiforgery-1");
+      using var missingAntiforgery = await administratorClient.SendAsync(
+          missingAntiforgeryRequest,
+          cancellationToken);
+
+      using var invalidAntiforgery = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          "not-a-real-token",
+          "admin-invalid-antiforgery-1",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+
+      using var missingIdempotencyRequest = new HttpRequestMessage(
+          HttpMethod.Post,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts")
+      {
+        Content = JsonContent.Create(
+            CreateRolloutRequest(nodeId, profileId, candidateId)),
+      };
+      missingIdempotencyRequest.Headers.Add(
+          DashboardTestHelpers.AntiforgeryHeader,
+          administratorSession.AntiforgeryToken);
+      using var missingIdempotency = await administratorClient.SendAsync(
+          missingIdempotencyRequest,
+          cancellationToken);
+
+      using var invalidIdempotency = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          "bad key with spaces",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+
+      using var administratorPost = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          "admin-first-success-01",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+
+      using var crossTenantGet = await administratorClient.GetAsync(
+          $"/api/tenants/other-tenant/images/profile-rollouts/{nodeId:D}/{profileId}",
+          cancellationToken);
+
+      await Assert.That(anonymousGet.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(anonymousPost.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(viewerGet.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      var viewerBody = await viewerGet.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+      await Assert.That(
+              viewerBody.GetProperty("nodeId").GetGuid())
+          .IsEqualTo(nodeId);
+      await Assert.That(
+              viewerBody.GetProperty("profileId").GetString())
+          .IsEqualTo(profileId);
+      await Assert.That(viewerBody.TryGetProperty("reportJson", out _))
+          .IsFalse()
+          .Because("bounded response never surfaces raw connector reportJson");
+      await Assert.That(viewerPost.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(missingAntiforgery.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      await Assert.That(invalidAntiforgery.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      await Assert.That(missingIdempotency.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      var missingIdempotencyBody = await missingIdempotency.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+      await Assert.That(
+              missingIdempotencyBody.GetProperty("error")
+                  .GetProperty("code").GetString())
+          .IsEqualTo("invalid_image_rollout_idempotency_key");
+      await Assert.That(invalidIdempotency.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      var invalidIdempotencyBody = await invalidIdempotency.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+      await Assert.That(
+              invalidIdempotencyBody.GetProperty("error")
+                  .GetProperty("code").GetString())
+          .IsEqualTo("invalid_image_rollout_idempotency_key");
+      await Assert.That(administratorPost.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      var administratorBody = await administratorPost.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+      await Assert.That(
+              administratorBody.GetProperty("status").GetString())
+          .IsEqualTo("queued");
+      var commandLocation = administratorBody
+          .GetProperty("statusLocation").GetString()!;
+      await Assert.That(commandLocation)
+          .IsEqualTo(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}"
+              + $"/images/profile-rollouts/{nodeId:D}/{profileId}");
+      var administratorHeader = administratorPost.Headers.Location?.ToString();
+      await Assert.That(administratorHeader).IsEqualTo(commandLocation);
+      await Assert.That(crossTenantGet.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden)
+          .Because(
+              "cross-tenant access is denied by the TenantViewer policy "
+              + "before the handler runs, hiding the resource without a 404");
+
+      fakeTime.Advance(TimeSpan.FromSeconds(91));
+      using var staleViewerGet = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts/{nodeId:D}/{profileId}",
+          cancellationToken);
+      var staleViewerBody = await staleViewerGet.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+      await Assert.That(staleViewerBody.GetProperty(
+              "observedStateAgeSeconds").GetInt32())
+          .IsEqualTo(121);
+      await Assert.That(staleViewerBody.GetProperty(
+              "observedStateFresh").GetBoolean())
+          .IsFalse()
+          .Because(
+              "capability freshness must include elapsed dashboard time "
+              + "since the connector last synchronized");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  [Arguments(
+      "recipe",
+      HttpStatusCode.Forbidden,
+      "image_rollout_recipe_not_allowed")]
+  [Arguments(
+      "registry",
+      HttpStatusCode.Forbidden,
+      "image_rollout_registry_not_allowed")]
+  [Arguments(
+      "topology",
+      HttpStatusCode.Conflict,
+      "image_rollout_unsupported_topology")]
+  [Arguments(
+      "architecture",
+      HttpStatusCode.Conflict,
+      "image_rollout_architecture_mismatch")]
+  [Arguments(
+      "stale-fence",
+      HttpStatusCode.Conflict,
+      "image_rollout_stale_fence")]
+  public async Task Rollout_Post_Preserves_Typed_Rejection_Contracts(
+      string scenario,
+      HttpStatusCode expectedStatus,
+      string expectedCode,
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    var now = new DateTimeOffset(
+        2026,
+        9,
+        16,
+        6,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          SystemAdministratorGitHubUserId,
+          "Production");
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      await using var factory = CreateFactory(fakeTime, clientMock.Object);
+      await SeedTenantAccessAsync(factory, cancellationToken);
+      var candidateId = await SeedCandidateAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      IReadOnlyList<string>? allowedRecipeIds = scenario == "recipe"
+          ? ["other-recipe"]
+          : null;
+      var localFailureCategory = scenario switch
+      {
+        "registry" => "registry-not-allowed",
+        "topology" => "unsupported-topology",
+        _ => null,
+      };
+      var (nodeId, profileId) = await SeedRolloutCapableNodeAsync(
+          factory.Services,
+          now,
+          cancellationToken,
+          allowedRecipeIds,
+          rolloutAllowed: localFailureCategory is null,
+          localFailureCategory: localFailureCategory,
+          architecture: scenario == "architecture"
+              ? "linux/arm64"
+              : "linux/amd64");
+      var rolloutRequest = CreateRolloutRequest(
+          nodeId,
+          profileId,
+          candidateId);
+      if (scenario == "stale-fence")
+      {
+        rolloutRequest = rolloutRequest with
+        {
+          ExpectedStaticFingerprint = new string('f', 64),
+        };
+      }
+      using var administratorClient = CreateAuthenticatedClient(
+          factory,
+          AdministratorGitHubUserId);
+      var administratorSession = await DashboardTestHelpers.GetSessionAsync(
+          administratorClient,
+          cancellationToken);
+
+      using var response = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          $"typed-rejection-{scenario}",
+          rolloutRequest,
+          cancellationToken);
+      var body = await response.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+
+      await Assert.That(response.StatusCode).IsEqualTo(expectedStatus);
+      await Assert.That(
+              body.GetProperty("error").GetProperty("code").GetString())
+          .IsEqualTo(expectedCode);
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Rollout_Post_Handles_Idempotency_Replay_Conflict_And_Rate_Limit(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    var now = new DateTimeOffset(
+        2026,
+        9,
+        16,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          SystemAdministratorGitHubUserId,
+          "Production");
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      await using var factory = CreateFactory(fakeTime, clientMock.Object);
+      await SeedTenantAccessAsync(factory, cancellationToken);
+      var candidateId = await SeedCandidateAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      var otherCandidateId = await SeedSecondaryCandidateAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      var (nodeId, profileId) = await SeedRolloutCapableNodeAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      using var administratorClient = CreateAuthenticatedClient(
+          factory,
+          AdministratorGitHubUserId);
+      var administratorSession = await DashboardTestHelpers.GetSessionAsync(
+          administratorClient,
+          cancellationToken);
+
+      using var initialPost = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          "primary-key-alpha-01",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+      var initialBody = await initialPost.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+      var initialCommandId = initialBody.GetProperty("commandId").GetGuid();
+
+      using var replayPost = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          "primary-key-alpha-01",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+      var replayBody = await replayPost.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+
+      using var conflictPost = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          "primary-key-alpha-01",
+          CreateRolloutRequest(nodeId, profileId, otherCandidateId),
+          cancellationToken);
+      var conflictBody = await conflictPost.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+
+      using var cooldownPost = await PostRolloutAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+          administratorSession.AntiforgeryToken,
+          "primary-key-beta-02",
+          CreateRolloutRequest(nodeId, profileId, candidateId),
+          cancellationToken);
+      var cooldownBody = await cooldownPost.Content
+          .ReadFromJsonAsync<JsonElement>(cancellationToken);
+
+      HttpStatusCode limitedStatus = default;
+      string? retryAfter = null;
+      for (var requestIndex = 0;
+          requestIndex < 30 &&
+          limitedStatus != HttpStatusCode.TooManyRequests;
+          requestIndex++)
+      {
+        using var rateResponse = await PostRolloutAsync(
+            administratorClient,
+            $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
+            administratorSession.AntiforgeryToken,
+            $"rate-limit-probe-key-{requestIndex:D2}",
+            CreateRolloutRequest(nodeId, profileId, candidateId),
+            cancellationToken);
+        limitedStatus = rateResponse.StatusCode;
+        if (limitedStatus == HttpStatusCode.TooManyRequests)
+        {
+          retryAfter = rateResponse.Headers.TryGetValues(
+                  "Retry-After",
+                  out var values)
+              ? values.Single()
+              : null;
+          break;
+        }
+      }
+
+      await Assert.That(initialPost.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(replayPost.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted)
+          .Because("replay must be idempotent and return 202 like the original");
+      await Assert.That(replayBody.GetProperty("commandId").GetGuid())
+          .IsEqualTo(initialCommandId);
+      await Assert.That(replayBody.GetProperty("status").GetString())
+          .IsEqualTo("queued");
+      var initialLocation = initialBody
+          .GetProperty("statusLocation").GetString();
+      var replayLocation = replayBody
+          .GetProperty("statusLocation").GetString();
+      await Assert.That(replayLocation).IsEqualTo(initialLocation);
+      await Assert.That(replayPost.Headers.Location?.ToString())
+          .IsEqualTo(initialPost.Headers.Location?.ToString());
+      await Assert.That(conflictPost.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+      await Assert.That(
+              conflictBody.GetProperty("error")
+                  .GetProperty("code").GetString())
+          .IsEqualTo("image_rollout_idempotency_key_conflict");
+      await Assert.That(cooldownPost.StatusCode)
+          .IsNotEqualTo(HttpStatusCode.Accepted)
+          .Because("cooldown or profile conflict is never an idempotent replay");
+      var cooldownCode = cooldownBody.GetProperty("error")
+          .GetProperty("code").GetString();
+      await Assert.That(cooldownCode)
+          .IsNotEqualTo("image_rollout_idempotency_key_conflict")
+          .Because("a fresh key with same authority is not an idempotency reuse conflict");
+      await Assert.That(limitedStatus)
+          .IsEqualTo(HttpStatusCode.TooManyRequests);
+      await Assert.That(retryAfter).IsEqualTo("60");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  private const string RolloutIdempotencyKeyHeader = "Idempotency-Key";
+
+  private static async Task<HttpResponseMessage> PostRolloutAsync(
+      HttpClient client,
+      string path,
+      string antiforgeryToken,
+      string idempotencyKey,
+      object body,
+      CancellationToken cancellationToken)
+  {
+    using var request = new HttpRequestMessage(HttpMethod.Post, path)
+    {
+      Content = JsonContent.Create(body),
+    };
+    request.Headers.Add(
+        DashboardTestHelpers.AntiforgeryHeader,
+        antiforgeryToken);
+    request.Headers.Add(RolloutIdempotencyKeyHeader, idempotencyKey);
+    return await client.SendAsync(request, cancellationToken);
+  }
+
+  private static RollOutProfileImageRequestBody CreateRolloutRequest(
+      Guid nodeId,
+      string profileId,
+      Guid candidateId) =>
+      new(
+          nodeId,
+          profileId,
+          candidateId,
+          "ghcr.io/example/runner:main",
+          "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          RolloutCurrentWorkerRevision,
+          RolloutStaticFingerprint,
+          RolloutPreservedFingerprint,
+          RolloutRoutingFingerprint,
+          7,
+          RolloutDesiredStateHash);
+
+  private const string RolloutCurrentWorkerRevision =
+      "a3b4c5d6e7f80912132435465768798a9bacbdcedfe0f102030405060708090a";
+  private const string RolloutStaticFingerprint =
+      "a1b2c3d4e5f60718293a4b5c6d7e8f902112233445566778899aabbccddeeff0";
+  private const string RolloutPreservedFingerprint =
+      "b2c3d4e5f60718293a4b5c6d7e8f902112233445566778899aabbccddeeff001";
+  private const string RolloutRoutingFingerprint =
+      "c3d4e5f60718293a4b5c6d7e8f902112233445566778899aabbccddeeff00112";
+  private const string RolloutDesiredStateHash =
+      "e5f60718293a4b5c6d7e8f902112233445566778899aabbccddeeff001a1b2c3";
+  private const string RolloutRecipeId = "pitcrew-default";
+
+  private static async Task<(Guid NodeId, string ProfileId)>
+      SeedRolloutCapableNodeAsync(
+          IServiceProvider services,
+          DateTimeOffset now,
+          CancellationToken cancellationToken,
+          IReadOnlyList<string>? allowedRecipeIds = null,
+          bool rolloutAllowed = true,
+          string? localFailureCategory = null,
+          string architecture = "linux/amd64")
+  {
+    var fleetStore = services.GetRequiredService<IFleetStore>();
+    var rolloutStore =
+        services.GetRequiredService<IImageRolloutCommandStore>();
+    const string enrollmentCodeHash = "rollout-http-code-hash";
+    await fleetStore.CreateEnrollmentCodeAsync(
+        Guid.NewGuid(),
+        DashboardTestHelpers.TenantId,
+        enrollmentCodeHash,
+        "rollout-http-connector",
+        AdministratorGitHubUserId,
+        now,
+        now.AddMinutes(10),
+        cancellationToken);
+    var enrollment = await fleetStore.RedeemEnrollmentCodeAsync(
+        enrollmentCodeHash,
+        "connector-instance",
+        "Connector",
+        "credential-hash",
+        now,
+        cancellationToken);
+    var nodeId = enrollment.NodeId ??
+        throw new InvalidOperationException(
+            "Failed to enroll HTTP integration test node.");
+    var capability = new ImageRolloutOperatorCapability(
+        [
+            new ImageRolloutOperatorProfile(
+                "default",
+                architecture,
+                "ghcr.io/example/runner:main",
+                "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                RolloutCurrentWorkerRevision,
+                RolloutStaticFingerprint,
+                RolloutPreservedFingerprint,
+                RolloutRoutingFingerprint,
+                7,
+                RolloutDesiredStateHash,
+                allowedRecipeIds ?? [RolloutRecipeId],
+                rolloutAllowed,
+                true,
+                localFailureCategory,
+                false,
+                30,
+                600,
+                1800,
+                "current",
+                4,
+                0),
+        ]);
+    await rolloutStore.ApplyConnectorSyncAsync(
+        nodeId,
+        capability,
+        null,
+        null,
+        now,
+        now.AddMinutes(1),
+        cancellationToken);
+    return (nodeId, "default");
+  }
+
+  private static async Task<Guid> SeedSecondaryCandidateAsync(
+      IServiceProvider services,
+      DateTimeOffset now,
+      CancellationToken cancellationToken)
+  {
+    var registrationId = Guid.Parse(
+        "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        CultureInfo.InvariantCulture);
+    var store = services.GetRequiredService<IImageCandidateStore>();
+    var requestId = Guid.Parse(
+        "bbbbbbbb-1111-2222-3333-555555555555",
+        CultureInfo.InvariantCulture);
+    const string inputs = "{}";
+    var request = new ImageBuildRequest(
+        DashboardTestHelpers.TenantId,
+        requestId,
+        registrationId,
+        1,
+        "pitcrew-default",
+        "ncosentino/pitcrew-dashboard",
+        new string('f', 40),
+        inputs,
+        Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(inputs))),
+        AdministratorGitHubUserId,
+        now,
+        ImageBuildRequestStatus.Requested,
+        null,
+        null,
+        null,
+        null,
+        now,
+        "refs/heads/main",
+        null);
+    await store.CreateBuildRequestAsync(request, cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        request.TenantId,
+        request.RequestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Requested,
+            ImageBuildRequestStatus.Dispatching,
+            null,
+            null,
+            null,
+            null,
+            now.AddMinutes(1)),
+        cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        request.TenantId,
+        request.RequestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Dispatching,
+            ImageBuildRequestStatus.Building,
+            8001,
+            "https://github.com/ncosentino/pitcrew-dashboard/actions/runs/8001",
+            null,
+            null,
+            now.AddMinutes(2)),
+        cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        request.TenantId,
+        request.RequestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Building,
+            ImageBuildRequestStatus.Qualifying,
+            8001,
+            "https://github.com/ncosentino/pitcrew-dashboard/actions/runs/8001",
+            null,
+            null,
+            now.AddMinutes(3)),
+        cancellationToken);
+    const string report = """{"schemaVersion":1,"status":"ready"}""";
+    var candidate = new ReadyImageCandidate(
+        requestId,
+        request.TenantId,
+        request.RequestId,
+        request.RecipeId,
+        request.SourceRepository,
+        request.SourceCommit,
+        8001,
+        9001,
+        "pitcrew-image-candidate",
+        $"sha256:{new string('a', 64)}",
+        Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(report))),
+        report,
+        "ghcr.io/ncosentino/pitcrew-dashboard:secondary",
+        ImageCandidatePlatform.LinuxAmd64,
+        ImageCandidateOutputMode.Registry,
+        now.AddMinutes(4),
+        now.AddMinutes(5),
+        $"sha256:{new string('b', 64)}",
+        $"ghcr.io/ncosentino/pitcrew-dashboard@sha256:{new string('b', 64)}");
+    var qualifications = new[]
+    {
+      ImageCandidateQualificationName.ImageBuild,
+      ImageCandidateQualificationName.BuildKitDigest,
+      ImageCandidateQualificationName.RegistryDigest,
+      ImageCandidateQualificationName.BuilderCleanup,
+    }.Select(name => new ImageCandidateQualification(
+        candidate.CandidateId,
+        name,
+        ImageCandidateQualificationStatus.Passed))
+        .ToArray();
+    var storeResult = await store.StoreCandidateAsync(
+        request.TenantId,
+        candidate,
+        qualifications,
+        cancellationToken);
+    if (storeResult != ImageCandidateMutationResult.Succeeded &&
+        storeResult != ImageCandidateMutationResult.Unchanged)
+    {
+      throw new InvalidOperationException(
+          $"Secondary candidate seed failed with {storeResult}.");
+    }
+    return candidate.CandidateId;
   }
 
   private static async Task SeedTenantAccessAsync(

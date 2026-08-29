@@ -3203,5 +3203,380 @@ internal static class SqliteMigrationCatalog
                       'invalid image build request execution state');
               END;
               """),
+        new(
+              29,
+              "typed-profile-image-rollout",
+              """
+              DROP TRIGGER IF EXISTS trg_capacity_commands_require_operation_slot;
+              DROP TRIGGER IF EXISTS trg_recovery_commands_require_operation_slot;
+
+              CREATE TABLE profile_active_operations_next (
+                  node_id TEXT NOT NULL,
+                  profile_id TEXT NOT NULL,
+                  operation_kind TEXT NOT NULL
+                      CHECK (operation_kind IN (
+                          'capacity',
+                          'recovery',
+                          'image-rollout')),
+                  command_id TEXT NOT NULL UNIQUE,
+                  acquired_at TEXT NOT NULL,
+                  PRIMARY KEY (node_id, profile_id),
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE
+              );
+
+              INSERT INTO profile_active_operations_next (
+                  node_id,
+                  profile_id,
+                  operation_kind,
+                  command_id,
+                  acquired_at)
+              SELECT
+                  node_id,
+                  profile_id,
+                  operation_kind,
+                  command_id,
+                  acquired_at
+              FROM profile_active_operations;
+
+              DROP TABLE profile_active_operations;
+
+              ALTER TABLE profile_active_operations_next
+                  RENAME TO profile_active_operations;
+
+              CREATE TRIGGER trg_capacity_commands_require_operation_slot
+              BEFORE INSERT ON capacity_commands
+              FOR EACH ROW
+              WHEN NOT EXISTS (
+                  SELECT 1
+                  FROM profile_active_operations
+                  WHERE node_id = NEW.node_id
+                    AND profile_id = NEW.profile_id
+                    AND command_id = NEW.command_id
+                    AND operation_kind = 'capacity')
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'capacity command requires an exclusive profile operation');
+              END;
+
+              CREATE TRIGGER trg_recovery_commands_require_operation_slot
+              BEFORE INSERT ON recovery_commands
+              FOR EACH ROW
+              WHEN NOT EXISTS (
+                  SELECT 1
+                  FROM profile_active_operations
+                  WHERE node_id = NEW.node_id
+                    AND profile_id = NEW.profile_id
+                    AND command_id = NEW.command_id
+                    AND operation_kind = 'recovery')
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'recovery command requires an exclusive profile operation');
+              END;
+
+              ALTER TABLE nodes
+                  ADD COLUMN image_rollout_capability_json TEXT NULL;
+
+              ALTER TABLE nodes
+                  ADD COLUMN image_rollout_capability_at TEXT NULL;
+
+              CREATE TABLE image_rollout_commands (
+                  command_id TEXT PRIMARY KEY,
+                  node_id TEXT NOT NULL,
+                  profile_id TEXT NOT NULL,
+                  candidate_id TEXT NOT NULL,
+                  recipe_id TEXT NOT NULL
+                      CHECK (length(recipe_id) BETWEEN 1 AND 100),
+                  target_digest TEXT NOT NULL
+                      CHECK (length(target_digest) = 71
+                          AND substr(target_digest, 1, 7) = 'sha256:'),
+                  target_platform TEXT NOT NULL
+                      CHECK (target_platform IN (
+                          'linux/amd64',
+                          'linux/arm64')),
+                  expected_current_image_reference TEXT NULL
+                      CHECK (expected_current_image_reference IS NULL
+                          OR length(expected_current_image_reference)
+                              BETWEEN 1 AND 512),
+                  expected_current_image_digest TEXT NULL
+                      CHECK (expected_current_image_digest IS NULL
+                          OR (length(expected_current_image_digest) = 71
+                              AND substr(
+                                  expected_current_image_digest, 1, 7)
+                                  = 'sha256:')),
+                  expected_current_local_image_id TEXT NULL
+                      CHECK (expected_current_local_image_id IS NULL
+                          OR (length(expected_current_local_image_id) = 71
+                              AND substr(
+                                  expected_current_local_image_id, 1, 7)
+                                  = 'sha256:')),
+                  expected_current_worker_revision TEXT NULL
+                      CHECK (expected_current_worker_revision IS NULL
+                          OR length(expected_current_worker_revision) = 64),
+                  expected_static_fingerprint TEXT NOT NULL
+                      CHECK (length(expected_static_fingerprint) = 64),
+                  expected_preserved_configuration_fingerprint TEXT NOT NULL
+                      CHECK (length(
+                          expected_preserved_configuration_fingerprint) = 64),
+                  expected_routing_fingerprint TEXT NOT NULL
+                      CHECK (length(expected_routing_fingerprint) = 64),
+                  expected_desired_generation INTEGER NOT NULL
+                      CHECK (expected_desired_generation >= 0),
+                  expected_desired_state_hash TEXT NULL
+                      CHECK (expected_desired_state_hash IS NULL
+                          OR length(expected_desired_state_hash) = 64),
+                  previous_image_reference TEXT NULL
+                      CHECK (previous_image_reference IS NULL
+                          OR length(previous_image_reference)
+                              BETWEEN 1 AND 512),
+                  previous_image_digest TEXT NULL
+                      CHECK (previous_image_digest IS NULL
+                          OR (length(previous_image_digest) = 71
+                              AND substr(previous_image_digest, 1, 7)
+                                  = 'sha256:')),
+                  previous_worker_revision TEXT NULL
+                      CHECK (previous_worker_revision IS NULL
+                          OR length(previous_worker_revision) = 64),
+                  previous_candidate_id TEXT NULL
+                      CHECK (previous_candidate_id IS NULL
+                          OR length(previous_candidate_id) = 36),
+                  previous_recipe_id TEXT NULL
+                      CHECK (previous_recipe_id IS NULL
+                          OR length(previous_recipe_id) BETWEEN 1 AND 100),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'queued',
+                          'claimed',
+                          'started',
+                          'succeeded',
+                          'rejected',
+                          'failed',
+                          'expired',
+                          'indeterminate')),
+                  failure_category TEXT NULL
+                      CHECK (failure_category IS NULL
+                          OR failure_category IN (
+                              'not-allowed',
+                              'recipe-not-allowed',
+                              'registry-not-allowed',
+                              'stale-fence',
+                              'expired',
+                              'unsupported',
+                              'unsupported-architecture',
+                              'unsupported-topology',
+                              'operation-active',
+                              'timeout',
+                              'process-failure',
+                              'unknown')),
+                  requested_by_github_user_id TEXT NOT NULL,
+                  requested_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  delivered_at TEXT NULL,
+                  delivery_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (delivery_attempts >= 0),
+                  claimed_at TEXT NULL,
+                  started_at TEXT NULL,
+                  completed_at TEXT NULL,
+                  target_worker_revision TEXT NULL
+                      CHECK (target_worker_revision IS NULL
+                          OR length(target_worker_revision) = 64),
+                  manager_convergence_status TEXT NULL
+                      CHECK (manager_convergence_status IS NULL
+                          OR manager_convergence_status IN (
+                              'current',
+                              'rolling',
+                              'degraded')),
+                  current_workers INTEGER NULL
+                      CHECK (current_workers IS NULL
+                          OR current_workers >= 0),
+                  stale_workers INTEGER NULL
+                      CHECK (stale_workers IS NULL
+                          OR stale_workers >= 0),
+                  last_error TEXT NULL
+                      CHECK (last_error IS NULL
+                          OR length(last_error) <= 128),
+                  result_message TEXT NULL
+                      CHECK (result_message IS NULL
+                          OR length(result_message) <= 512),
+                  idempotency_key TEXT NOT NULL
+                      CHECK (length(idempotency_key) BETWEEN 8 AND 200),
+                  idempotency_signature TEXT NOT NULL
+                      CHECK (length(idempotency_signature) = 64),
+                  FOREIGN KEY (node_id)
+                      REFERENCES nodes(node_id) ON DELETE CASCADE,
+                  FOREIGN KEY (requested_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id)
+              );
+
+              CREATE UNIQUE INDEX ix_image_rollout_commands_profile_active
+                  ON image_rollout_commands (node_id, profile_id)
+                  WHERE status IN ('queued', 'claimed', 'started');
+
+              CREATE UNIQUE INDEX ix_image_rollout_commands_idempotency
+                  ON image_rollout_commands (
+                      node_id,
+                      requested_by_github_user_id,
+                      idempotency_key);
+
+              CREATE INDEX ix_image_rollout_commands_node_requested
+                  ON image_rollout_commands (
+                      node_id,
+                      profile_id,
+                      requested_at DESC);
+
+              CREATE INDEX ix_image_rollout_commands_candidate
+                  ON image_rollout_commands (candidate_id);
+
+              CREATE TRIGGER trg_image_rollout_commands_require_operation_slot
+              BEFORE INSERT ON image_rollout_commands
+              FOR EACH ROW
+              WHEN NOT EXISTS (
+                  SELECT 1
+                  FROM profile_active_operations
+                  WHERE node_id = NEW.node_id
+                    AND profile_id = NEW.profile_id
+                    AND command_id = NEW.command_id
+                    AND operation_kind = 'image-rollout')
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout command requires an exclusive profile operation');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_commands_insert_queued
+              BEFORE INSERT ON image_rollout_commands
+              FOR EACH ROW
+              WHEN NEW.status <> 'queued'
+                OR NEW.delivered_at IS NOT NULL
+                OR NEW.claimed_at IS NOT NULL
+                OR NEW.started_at IS NOT NULL
+                OR NEW.completed_at IS NOT NULL
+                OR NEW.failure_category IS NOT NULL
+                OR NEW.target_worker_revision IS NOT NULL
+                OR NEW.manager_convergence_status IS NOT NULL
+                OR NEW.current_workers IS NOT NULL
+                OR NEW.stale_workers IS NOT NULL
+                OR NEW.last_error IS NOT NULL
+                OR NEW.result_message IS NOT NULL
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout commands must be inserted as queued');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_commands_immutable
+              BEFORE UPDATE ON image_rollout_commands
+              FOR EACH ROW
+              WHEN OLD.status IN (
+                      'succeeded',
+                      'rejected',
+                      'failed',
+                      'expired',
+                      'indeterminate')
+                OR OLD.command_id <> NEW.command_id
+                OR OLD.node_id <> NEW.node_id
+                OR OLD.profile_id <> NEW.profile_id
+                OR OLD.candidate_id <> NEW.candidate_id
+                OR OLD.recipe_id <> NEW.recipe_id
+                OR OLD.target_digest <> NEW.target_digest
+                OR OLD.target_platform <> NEW.target_platform
+                OR OLD.requested_by_github_user_id
+                    <> NEW.requested_by_github_user_id
+                OR OLD.requested_at <> NEW.requested_at
+                OR OLD.expires_at <> NEW.expires_at
+                OR IFNULL(OLD.expected_current_image_reference, '')
+                    <> IFNULL(NEW.expected_current_image_reference, '')
+                OR IFNULL(OLD.expected_current_image_digest, '')
+                    <> IFNULL(NEW.expected_current_image_digest, '')
+                OR IFNULL(OLD.expected_current_local_image_id, '')
+                    <> IFNULL(NEW.expected_current_local_image_id, '')
+                OR IFNULL(OLD.expected_current_worker_revision, '')
+                    <> IFNULL(NEW.expected_current_worker_revision, '')
+                OR OLD.expected_static_fingerprint
+                    <> NEW.expected_static_fingerprint
+                OR OLD.expected_preserved_configuration_fingerprint
+                    <> NEW.expected_preserved_configuration_fingerprint
+                OR OLD.expected_routing_fingerprint
+                    <> NEW.expected_routing_fingerprint
+                OR OLD.expected_desired_generation
+                    <> NEW.expected_desired_generation
+                OR IFNULL(OLD.expected_desired_state_hash, '')
+                    <> IFNULL(NEW.expected_desired_state_hash, '')
+                OR IFNULL(OLD.previous_image_reference, '')
+                    <> IFNULL(NEW.previous_image_reference, '')
+                OR IFNULL(OLD.previous_image_digest, '')
+                    <> IFNULL(NEW.previous_image_digest, '')
+                OR IFNULL(OLD.previous_worker_revision, '')
+                    <> IFNULL(NEW.previous_worker_revision, '')
+                OR IFNULL(OLD.previous_candidate_id, '')
+                    <> IFNULL(NEW.previous_candidate_id, '')
+                OR IFNULL(OLD.previous_recipe_id, '')
+                    <> IFNULL(NEW.previous_recipe_id, '')
+                OR OLD.idempotency_key <> NEW.idempotency_key
+                OR OLD.idempotency_signature <> NEW.idempotency_signature
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout audit data and terminal outcomes are immutable');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_commands_transitions
+              BEFORE UPDATE OF status ON image_rollout_commands
+              FOR EACH ROW
+              WHEN NOT (
+                  OLD.status = NEW.status
+                  OR (OLD.status = 'queued' AND NEW.status IN (
+                          'claimed',
+                          'started',
+                          'succeeded',
+                          'rejected',
+                          'failed',
+                          'expired',
+                          'indeterminate'))
+                  OR (OLD.status = 'claimed' AND NEW.status IN (
+                          'started',
+                          'succeeded',
+                          'rejected',
+                          'failed',
+                          'expired',
+                          'indeterminate'))
+                  OR (OLD.status = 'started' AND NEW.status IN (
+                          'succeeded',
+                          'rejected',
+                          'failed',
+                          'indeterminate')))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout lifecycle transition is not allowed');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_commands_terminal_evidence
+              BEFORE UPDATE ON image_rollout_commands
+              FOR EACH ROW
+              WHEN NEW.status IN (
+                      'succeeded',
+                      'rejected',
+                      'failed',
+                      'expired',
+                      'indeterminate')
+                AND (NEW.completed_at IS NULL
+                  OR (NEW.status = 'succeeded'
+                      AND NEW.failure_category IS NOT NULL)
+                  OR (NEW.status <> 'succeeded'
+                      AND NEW.failure_category IS NULL)
+                  OR (NEW.status = 'succeeded'
+                      AND (NEW.target_worker_revision IS NULL
+                          OR NEW.current_workers IS NULL
+                          OR NEW.stale_workers IS NULL
+                          OR NEW.manager_convergence_status IS NULL)))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout terminal state requires bounded evidence');
+              END;
+              """),
     ];
 }
