@@ -83,7 +83,9 @@ test('blocked requests lead active and ready history without substitution', asyn
 
   const list = page.getByRole('list', { name: 'Image build requests' });
   await expect(list.getByRole('listitem').first()).toContainText('artifact-identity-mismatch');
-  await expect(page.getByText('Needs attention')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Image readiness' })).toContainText(
+    'Needs attention',
+  );
 
   await page.goto(
     `/tenants/${tenantId}/images/candidates?request=79900000-0000-4000-8000-000000000099`,
