@@ -207,9 +207,9 @@ test('profile changeover keeps candidate, fences, and prohibited effects togethe
   await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/image`);
 
   await expect(page.getByRole('heading', { name: 'Profile image rollout' })).toBeVisible();
-  await expect(page.getByText('Current profile image')).toBeVisible();
-  await expect(page.getByText('Selected candidate')).toBeVisible();
-  await expect(page.getByText('Preserved operating contract')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Current profile image' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Selected candidate' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Preserved operating contract' })).toBeVisible();
   await page.getByRole('button', { name: 'Roll out image' }).click();
 
   const dialog = page.getByRole('alertdialog', { name: 'Roll out ubuntu-runner?' });

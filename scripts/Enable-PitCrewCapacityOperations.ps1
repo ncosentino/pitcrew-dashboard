@@ -434,6 +434,7 @@ function Write-WindowsConnectorSettings {
         [object[]]$ImageRolloutRecipes,
 
         [Parameter(Mandatory)]
+        [AllowEmptyString()]
         [string]$ImageRolloutStatePath,
 
         [Parameter(Mandatory)]
