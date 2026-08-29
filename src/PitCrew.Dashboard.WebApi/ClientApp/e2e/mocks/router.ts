@@ -11,6 +11,11 @@ import type { DashboardSession } from '../../src/core/auth/sessionApi';
 import type { FleetResponse } from '../../src/core/fleet/fleetApi';
 import type { IncidentPage } from '../../src/features/fleet/incidentsApi';
 import type {
+  ImageBuildRequest,
+  ImageCandidate,
+  ImageRecipeRegistration,
+} from '../../src/features/images/imagesApi';
+import type {
   DiagnosticCredential,
   DiagnosticCredentialCreated,
   EnrollmentCodeResponse,
@@ -46,6 +51,12 @@ export interface MockApiOptions {
   readonly diagnosticCredentialCreated?: DiagnosticCredentialCreated;
   readonly supportIdentities?: ReadonlyArray<SupportIdentity>;
   readonly supportSessions?: ReadonlyArray<SupportSession>;
+  readonly imageRecipeRegistrations?: ReadonlyArray<ImageRecipeRegistration>;
+  readonly imageRecipeRegistrationsTruncated?: boolean;
+  readonly imageBuildRequests?: ReadonlyArray<ImageBuildRequest>;
+  readonly imageBuildRequestsTruncated?: boolean;
+  readonly imageCandidates?: ReadonlyArray<ImageCandidate>;
+  readonly imageCandidatesTruncated?: boolean;
   /** Controls every write endpoint (revoke/rotate/rename/acknowledge/etc). Defaults to `'success'`. */
   readonly mutationOutcome?: MutationOutcome;
 }
@@ -192,6 +203,82 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
     }
     return mutationResponse(route, mutationOutcome, options.supportSessions?.[0]);
   });
+
+  await page.route(
+    /\/api\/tenants\/[^/]+\/images\/v1\/recipes\/registrations\/[^/]+\/disable$/,
+    (route) => {
+      const registration = options.imageRecipeRegistrations?.[0];
+      return mutationResponse(
+        route,
+        mutationOutcome,
+        registration ? { ...registration, disabledAt: '2026-08-28T12:30:00+00:00' } : undefined,
+      );
+    },
+  );
+  await page.route(
+    /\/api\/tenants\/[^/]+\/images\/v1\/recipes\/registrations\/[^/?]+$/,
+    (route) => {
+      const registrationId = route.request().url().split('/').at(-1);
+      const registration = options.imageRecipeRegistrations?.find(
+        (candidate) => candidate.registrationId === registrationId,
+      );
+      return registration
+        ? fulfillJson(route, registration)
+        : route.fulfill({
+            status: 404,
+            headers: jsonHeaders,
+            body: errorBody('not_found', 'Image recipe registration not found.'),
+          });
+    },
+  );
+  await page.route(/\/api\/tenants\/[^/]+\/images\/v1\/recipes\/registrations(\?.*)?$/, (route) => {
+    if (route.request().method() === 'GET') {
+      return fulfillJson(route, {
+        registrations: options.imageRecipeRegistrations ?? [],
+        truncated: options.imageRecipeRegistrationsTruncated ?? false,
+      });
+    }
+    return mutationResponse(route, mutationOutcome, options.imageRecipeRegistrations?.[0]);
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/requests\/[^/?]+$/, (route) => {
+    const requestId = route.request().url().split('/').at(-1);
+    const request = options.imageBuildRequests?.find(
+      (candidate) => candidate.requestId === requestId,
+    );
+    return request
+      ? fulfillJson(route, request)
+      : route.fulfill({
+          status: 404,
+          headers: jsonHeaders,
+          body: errorBody('not_found', 'Image build request not found.'),
+        });
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/requests(\?.*)?$/, (route) => {
+    if (route.request().method() === 'GET') {
+      return fulfillJson(route, {
+        requests: options.imageBuildRequests ?? [],
+        truncated: options.imageBuildRequestsTruncated ?? false,
+      });
+    }
+    return mutationResponse(route, mutationOutcome, options.imageBuildRequests?.[0]);
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/candidates\/[^/?]+$/, (route) => {
+    const candidateId = route.request().url().split('/').at(-1);
+    const candidate = options.imageCandidates?.find((item) => item.candidateId === candidateId);
+    return candidate
+      ? fulfillJson(route, candidate)
+      : route.fulfill({
+          status: 404,
+          headers: jsonHeaders,
+          body: errorBody('not_found', 'Image candidate not found.'),
+        });
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/candidates(\?.*)?$/, (route) =>
+    fulfillJson(route, {
+      candidates: options.imageCandidates ?? [],
+      truncated: options.imageCandidatesTruncated ?? false,
+    }),
+  );
 
   await page.route('**/api/tenants', (route) => mutationResponse(route, mutationOutcome));
 }

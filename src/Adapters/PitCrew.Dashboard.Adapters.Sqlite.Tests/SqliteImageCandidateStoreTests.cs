@@ -75,7 +75,7 @@ public sealed class SqliteImageCandidateStoreTests
           10,
           cancellationToken);
 
-      await Assert.That(migrationVersion).IsEqualTo(27);
+      await Assert.That(migrationVersion).IsEqualTo(28);
       await Assert.That(created)
           .IsEqualTo(ImageCandidateMutationResult.Succeeded);
       await Assert.That(exactReplay)
@@ -100,7 +100,7 @@ public sealed class SqliteImageCandidateStoreTests
   }
 
   [Test]
-  public async Task Migrations_25_Through_27_Upgrade_Exact_Migration_24_And_Preserve_Checksums(
+  public async Task Migrations_25_Through_28_Upgrade_Exact_Migration_24_And_Preserve_Checksums(
       CancellationToken cancellationToken)
   {
     var databasePath = CreateDatabasePath("migration-25-upgrade");
@@ -241,7 +241,7 @@ public sealed class SqliteImageCandidateStoreTests
       await Assert.That(priorChecksums.Keys.Max()).IsEqualTo(24);
       await Assert.That(priorChecksums[23])
           .IsEqualTo(OriginMainMigration23Checksum);
-      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(27);
+      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(28);
       await Assert.That(afterChecksums[25])
           .IsEqualTo(SqliteMigrationCatalog.All
               .Single(static migration => migration.Version == 25).Checksum);
@@ -251,6 +251,9 @@ public sealed class SqliteImageCandidateStoreTests
       await Assert.That(afterChecksums[27])
           .IsEqualTo(SqliteMigrationCatalog.All
               .Single(static migration => migration.Version == 27).Checksum);
+      await Assert.That(afterChecksums[28])
+          .IsEqualTo(SqliteMigrationCatalog.All
+              .Single(static migration => migration.Version == 28).Checksum);
       await Assert.That(
               priorChecksums.All(pair =>
                   afterChecksums.TryGetValue(
@@ -689,6 +692,75 @@ public sealed class SqliteImageCandidateStoreTests
       await Assert.That(qualificationCount).IsEqualTo(4);
       await Assert.That(terminalRewrite)
           .IsEqualTo(ImageCandidateMutationResult.InvalidTransition);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Candidate_Reads_Are_Tenant_Scoped_And_Follow_Retention(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath("candidate-reads");
+    try
+    {
+      var context = await CreateQualifyingContextAsync(
+          databasePath,
+          cancellationToken);
+      var request = context.Request!;
+      var candidate = CreateReadyCandidate(
+          request,
+          context.Now.AddMinutes(5));
+      var qualifications = CreatePassedQualifications(candidate.CandidateId);
+      await context.Store.StoreCandidateAsync(
+          request.TenantId,
+          candidate,
+          qualifications,
+          cancellationToken);
+
+      var listed = await context.Store.ListCandidatesAsync(
+          request.TenantId,
+          10,
+          cancellationToken);
+      var exact = await context.Store.GetCandidateOrNullAsync(
+          request.TenantId,
+          candidate.CandidateId,
+          cancellationToken);
+      var crossTenantList = await context.Store.ListCandidatesAsync(
+          "tenant-b",
+          10,
+          cancellationToken);
+      var crossTenantExact = await context.Store.GetCandidateOrNullAsync(
+          "tenant-b",
+          candidate.CandidateId,
+          cancellationToken);
+      var purged = await context.Store.PurgeTerminalBuildRequestsAsync(
+          request.TenantId,
+          context.Now.AddMinutes(6),
+          10,
+          cancellationToken);
+      var afterPurge = await context.Store.ListCandidatesAsync(
+          request.TenantId,
+          10,
+          cancellationToken);
+
+      await Assert.That(listed).HasSingleItem();
+      await Assert.That(listed[0].Candidate).IsEqualTo(candidate);
+      await Assert.That(listed[0].Qualifications)
+          .IsEquivalentTo(qualifications);
+      await Assert.That(listed[0].RegistrationId)
+          .IsEqualTo(request.RegistrationId);
+      await Assert.That(exact).IsNotNull();
+      await Assert.That(exact!.Candidate).IsEqualTo(candidate);
+      await Assert.That(exact.Qualifications)
+          .IsEquivalentTo(qualifications);
+      await Assert.That(crossTenantList).IsEmpty();
+      await Assert.That(crossTenantExact).IsNull();
+      await Assert.That(purged).IsEqualTo(1);
+      await Assert.That(afterPurge).IsEmpty();
     }
     finally
     {

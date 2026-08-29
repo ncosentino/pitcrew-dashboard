@@ -5,7 +5,7 @@ export type FeatureNavigationGroup = 'monitor' | 'operate' | 'configure';
 
 /** Shell-owned icon vocabulary available to feature navigation contributions. */
 export type FeatureNavigationIcon =
-  'fleet' | 'incidents' | 'runners' | 'support' | 'settings' | 'tenants';
+  'fleet' | 'incidents' | 'images' | 'runners' | 'support' | 'settings' | 'tenants';
 
 /** Navigation contributed by one independently owned feature. */
 export interface FeatureNavigationItem {

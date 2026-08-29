@@ -3161,5 +3161,47 @@ internal static class SqliteMigrationCatalog
                       'support rejection disposition must match rejected status');
               END;
               """),
+        new(
+              28,
+              "qualifying-image-candidate-execution",
+              """
+              DROP INDEX ix_image_build_requests_due;
+
+              CREATE INDEX ix_image_build_requests_due
+                  ON image_build_requests (
+                      next_attempt_at,
+                      requested_at,
+                      tenant_id,
+                      request_id)
+                  WHERE status IN (
+                      'requested',
+                      'dispatching',
+                      'building',
+                      'qualifying');
+
+              DROP TRIGGER
+                  trg_image_build_requests_execution_invariants;
+
+              CREATE TRIGGER trg_image_build_requests_execution_invariants
+              BEFORE UPDATE ON image_build_requests
+              FOR EACH ROW
+              WHEN (NEW.lease_owner IS NULL) <> (NEW.lease_expires_at IS NULL)
+                OR (NEW.status IN ('ready', 'blocked', 'failed')
+                    AND (NEW.lease_owner IS NOT NULL
+                        OR NEW.dispatch_safe_to_retry <> 0))
+                OR (NEW.dispatch_safe_to_retry = 1
+                    AND NEW.status <> 'dispatching')
+                OR (NEW.status IN ('building', 'qualifying')
+                    AND (NEW.github_run_id IS NULL
+                        OR NEW.github_run_url IS NULL
+                        OR NEW.github_run_api_url IS NULL))
+                OR ((NEW.github_run_id IS NULL)
+                    <> (NEW.github_run_api_url IS NULL))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'invalid image build request execution state');
+              END;
+              """),
     ];
 }

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
@@ -445,6 +446,151 @@ internal sealed class GitHubImageWorkflowClient(
         cancellationToken);
   }
 
+  public async Task<GitHubClientOutcome<GitHubWorkflowArtifactArchive>>
+      DownloadWorkflowArtifactArchiveAsync(
+          long installationId,
+          GitHubRepositoryIdentity repository,
+          GitHubWorkflowArtifact artifact,
+          int maximumBytes,
+          CancellationToken cancellationToken)
+  {
+    if (!_options.Value.Enabled)
+    {
+      return await NotConfiguredAsync<GitHubWorkflowArtifactArchive>(
+          cancellationToken);
+    }
+
+    var path =
+        $"{GitHubTransportValidation.RepositoryPath(repository)}/actions/artifacts/" +
+        $"{artifact.Id}/zip";
+    var expectedUri = new Uri(_options.Value.BaseAddress, path);
+    if (!IsOperationIdentityValid(installationId, repository) ||
+        !GitHubTransportValidation.IsPositiveId(artifact.Id) ||
+        !GitHubTransportValidation.IsPositiveId(artifact.WorkflowRunId) ||
+        !GitHubTransportValidation.IsBoundedText(artifact.Name, 256) ||
+        artifact.SizeInBytes is <= 0 ||
+        artifact.SizeInBytes > maximumBytes ||
+        artifact.Expired ||
+        artifact.ExpiresAt <= _timeProvider.GetUtcNow() ||
+        artifact.Digest is not null &&
+        !GitHubTransportValidation.IsSha256Digest(artifact.Digest) ||
+        maximumBytes is <= 0 or
+            > GitHubTransportValidation.MaximumArtifactArchiveBytes ||
+        !GitHubTransportValidation.IsExactUri(
+            artifact.ArchiveDownloadUrl,
+            expectedUri))
+    {
+      return await InvalidRequestAsync<GitHubWorkflowArtifactArchive>(
+          "artifact-download-request-invalid",
+          cancellationToken);
+    }
+
+    var tokenOutcome = await _tokenProvider.CreateAsync(
+        installationId,
+        repository.Id,
+        cancellationToken);
+    if (tokenOutcome.Kind != GitHubClientOutcomeKind.Success ||
+        string.IsNullOrEmpty(tokenOutcome.Value))
+    {
+      return new(
+          tokenOutcome.Kind,
+          default,
+          tokenOutcome.RetryAt,
+          tokenOutcome.Detail);
+    }
+
+    using var request = CreateRequest(HttpMethod.Get, path, tokenOutcome.Value);
+    try
+    {
+      using var client = CreateClient();
+      using var timeoutSource = new CancellationTokenSource(
+          _options.Value.Timeout,
+          _timeProvider);
+      using var requestSource = CancellationTokenSource.CreateLinkedTokenSource(
+          cancellationToken,
+          timeoutSource.Token);
+      using var response = await client.SendAsync(
+          request,
+          HttpCompletionOption.ResponseHeadersRead,
+          requestSource.Token);
+      if (!GitHubTransportValidation.IsExactUri(
+              response.RequestMessage?.RequestUri,
+              expectedUri))
+      {
+        return InvalidResponse<GitHubWorkflowArtifactArchive>(
+            "artifact-download-authority-expanded");
+      }
+
+      if (response.StatusCode == HttpStatusCode.Found)
+      {
+        if (!GitHubTransportValidation.IsAllowedArtifactRedirect(
+                _options.Value.BaseAddress,
+                response.Headers.Location))
+        {
+          return InvalidResponse<GitHubWorkflowArtifactArchive>(
+              "artifact-download-redirect-invalid");
+        }
+
+        using var downloadRequest = CreateArchiveRequest(
+            response.Headers.Location!);
+        using var downloadResponse = await client.SendAsync(
+            downloadRequest,
+            HttpCompletionOption.ResponseHeadersRead,
+            requestSource.Token);
+        if (!GitHubTransportValidation.IsExactUri(
+                downloadResponse.RequestMessage?.RequestUri,
+                response.Headers.Location!))
+        {
+          return InvalidResponse<GitHubWorkflowArtifactArchive>(
+              "artifact-download-authority-expanded");
+        }
+
+        return await ReadArchiveAsync(
+            artifact.Id,
+            downloadResponse,
+            maximumBytes,
+            requestSource.Token);
+      }
+
+      if ((int)response.StatusCode is >= 300 and < 400)
+      {
+        return InvalidResponse<GitHubWorkflowArtifactArchive>(
+            "artifact-download-redirect-invalid");
+      }
+
+      return await ReadArchiveAsync(
+          artifact.Id,
+          response,
+          maximumBytes,
+          requestSource.Token);
+    }
+    catch (OperationCanceledException)
+        when (cancellationToken.IsCancellationRequested)
+    {
+      return new(
+          GitHubClientOutcomeKind.Cancelled,
+          default,
+          null,
+          "cancelled");
+    }
+    catch (OperationCanceledException)
+    {
+      return new(
+          GitHubClientOutcomeKind.TimedOut,
+          default,
+          null,
+          "request-timed-out");
+    }
+    catch (HttpRequestException)
+    {
+      return new(
+          GitHubClientOutcomeKind.TransientFailure,
+          default,
+          null,
+          "transport-failure");
+    }
+  }
+
   private async Task<GitHubClientOutcome<TResult>> ExecuteAsync<TExternal, TResult>(
       long installationId,
       long repositoryId,
@@ -560,6 +706,51 @@ internal sealed class GitHubImageWorkflowClient(
     return request;
   }
 
+  private static HttpRequestMessage CreateArchiveRequest(Uri uri)
+  {
+    var request = new HttpRequestMessage(HttpMethod.Get, uri);
+    request.Headers.Accept.Add(
+        new MediaTypeWithQualityHeaderValue("application/zip"));
+    request.Headers.UserAgent.ParseAdd("PitCrew-Dashboard-GitHubApp/1");
+    return request;
+  }
+
+  private async Task<GitHubClientOutcome<GitHubWorkflowArtifactArchive>>
+      ReadArchiveAsync(
+          long artifactId,
+          HttpResponseMessage response,
+          int maximumBytes,
+          CancellationToken cancellationToken)
+  {
+    var mediaType = response.Content.Headers.ContentType?.MediaType;
+    if (response.IsSuccessStatusCode &&
+        mediaType is not "application/zip"
+            and not "application/octet-stream"
+            and not "binary/octet-stream"
+            and not "application/x-zip-compressed")
+    {
+      return InvalidResponse<GitHubWorkflowArtifactArchive>(
+          "artifact-download-content-type-invalid");
+    }
+
+    var content = await GitHubHttpResponseReader.ReadBytesAsync(
+        response,
+        maximumBytes,
+        _timeProvider,
+        cancellationToken);
+    return content.Kind == GitHubClientOutcomeKind.Success &&
+        content.Value is not null
+        ? Success(
+            new GitHubWorkflowArtifactArchive(
+                artifactId,
+                content.Value))
+        : new(
+            content.Kind,
+            default,
+            content.RetryAt,
+            content.Detail);
+  }
+
   private static GitHubClientOutcome<GitHubWorkflowRun> MapWorkflowRun(
       GitHubWorkflowRunPayload response,
       long expectedRunId)
@@ -615,7 +806,7 @@ internal sealed class GitHubImageWorkflowClient(
           !GitHubTransportValidation.IsBoundedText(artifact.Name, 256) ||
           artifact.SizeInBytes < 0 ||
           artifact.Digest is { } digest &&
-          !GitHubTransportValidation.IsBoundedText(digest, 256) ||
+          !GitHubTransportValidation.IsSha256Digest(digest) ||
           artifact.ExpiresAt == default ||
           !GitHubTransportValidation.GetHttpsUri(
               artifact.ArchiveDownloadUrl,

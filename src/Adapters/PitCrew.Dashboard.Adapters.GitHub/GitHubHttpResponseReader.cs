@@ -81,6 +81,59 @@ internal static class GitHubHttpResponseReader
     }
   }
 
+  public static async Task<GitHubClientOutcome<byte[]>> ReadBytesAsync(
+      HttpResponseMessage response,
+      int maximumBytes,
+      TimeProvider timeProvider,
+      CancellationToken cancellationToken)
+  {
+    if (!response.IsSuccessStatusCode)
+    {
+      return Failure<byte[]>(response, timeProvider);
+    }
+    if (response.Content.Headers.ContentLength is > 0 and var contentLength &&
+        contentLength > maximumBytes)
+    {
+      return InvalidResponse<byte[]>("response-body-oversized");
+    }
+
+    var rented = ArrayPool<byte>.Shared.Rent(maximumBytes + 1);
+    try
+    {
+      await using var stream =
+          await response.Content.ReadAsStreamAsync(cancellationToken);
+      var total = 0;
+      var readLimit = maximumBytes + 1;
+      while (total < readLimit)
+      {
+        var read = await stream.ReadAsync(
+            rented.AsMemory(total, readLimit - total),
+            cancellationToken);
+        if (read == 0)
+        {
+          break;
+        }
+        total += read;
+      }
+      if (total == 0 || total > maximumBytes)
+      {
+        return InvalidResponse<byte[]>(
+            total == 0 ? "response-body-empty" : "response-body-oversized");
+      }
+
+      return new(
+          GitHubClientOutcomeKind.Success,
+          rented.AsSpan(0, total).ToArray(),
+          null,
+          null);
+    }
+    finally
+    {
+      CryptographicOperations.ZeroMemory(rented);
+      ArrayPool<byte>.Shared.Return(rented);
+    }
+  }
+
   public static GitHubClientOutcome<T> Failure<T>(
       HttpResponseMessage response,
       TimeProvider timeProvider)

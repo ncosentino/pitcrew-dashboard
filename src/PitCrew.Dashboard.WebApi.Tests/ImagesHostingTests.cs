@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Authentication;
@@ -15,6 +17,7 @@ using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 using PitCrew.Dashboard.Features.Access;
+using PitCrew.Dashboard.Features.Access.Abstractions;
 using PitCrew.Dashboard.Features.Images;
 using PitCrew.Dashboard.Features.Images.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
@@ -195,6 +198,109 @@ public sealed class ImagesHostingTests
               revision,
               It.IsAny<CancellationToken>()),
           Times.Exactly(2));
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Candidate_List_And_Detail_Are_Bounded_And_Tenant_Authorized(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    var now = new DateTimeOffset(
+        2026,
+        8,
+        24,
+        4,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          SystemAdministratorGitHubUserId,
+          "Production");
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      await using var factory = CreateFactory(
+          fakeTime,
+          clientMock.Object);
+      await SeedTenantAccessAsync(factory, cancellationToken);
+      var candidateId = await SeedCandidateAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+
+      using var viewerClient = CreateAuthenticatedClient(
+          factory,
+          ViewerGitHubUserId);
+      using var outsiderClient = CreateAuthenticatedClient(
+          factory,
+          "9999");
+      using var anonymousClient = factory.CreateClient();
+      using var listResponse = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/candidates?limit=1",
+          cancellationToken);
+      var list = await listResponse.Content.ReadFromJsonAsync<
+          ImageCandidateListResponse>(
+              cancellationToken);
+      using var detailResponse = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/candidates/{candidateId:D}",
+          cancellationToken);
+      var detailJson = await detailResponse.Content.ReadAsStringAsync(
+          cancellationToken);
+      var detail = JsonSerializer.Deserialize<ImageCandidateResponse>(
+          detailJson,
+          new JsonSerializerOptions(JsonSerializerDefaults.Web));
+      using var invalidLimitResponse = await viewerClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/candidates?limit=101",
+          cancellationToken);
+      using var anonymousResponse = await anonymousClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/candidates",
+          cancellationToken);
+      using var outsiderResponse = await outsiderClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/candidates",
+          cancellationToken);
+      using var crossTenantResponse = await viewerClient.GetAsync(
+          $"/api/tenants/tenant-b/images/candidates/{candidateId:D}",
+          cancellationToken);
+
+      await Assert.That(listResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(list).IsNotNull();
+      await Assert.That(list!.Candidates).HasSingleItem();
+      await Assert.That(list.Truncated).IsFalse()
+          .Because("the tenant has one candidate");
+      await Assert.That(detailResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(detail).IsNotNull();
+      await Assert.That(detail!.CandidateId).IsEqualTo(candidateId);
+      await Assert.That(detail.GitHubRunId).IsEqualTo("7001");
+      await Assert.That(detail.ArtifactId).IsEqualTo("8001");
+      await Assert.That(detail.Qualifications).Count().IsEqualTo(4);
+      await Assert.That(detailJson.Contains(
+              "reportJson",
+              StringComparison.Ordinal))
+          .IsFalse()
+          .Because("candidate responses must not expose raw reports");
+      await Assert.That(invalidLimitResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      await Assert.That(anonymousResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Unauthorized);
+      await Assert.That(outsiderResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(crossTenantResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.NotFound);
       mocks.VerifyAll();
       clientMock.VerifyNoOtherCalls();
     }
@@ -1119,6 +1225,149 @@ public sealed class ImagesHostingTests
     client.DefaultRequestHeaders.Add(
         "Cookie",
         $"{cookieOptions.Cookie.Name}={protectedTicket}");
+  }
+
+  private static async Task<Guid> SeedCandidateAsync(
+      IServiceProvider services,
+      DateTimeOffset now,
+      CancellationToken cancellationToken)
+  {
+    var accessStore = services.GetRequiredService<IAccessStore>();
+    await accessStore.EnsureTenantOwnerAsync(
+        "tenant-b",
+        "Tenant B",
+        new DashboardUser(
+            ViewerGitHubUserId,
+            "viewer",
+            "Viewer",
+            null),
+        now,
+        cancellationToken);
+    var store = services.GetRequiredService<IImageCandidateStore>();
+    var registration = new ImageRecipeRegistration(
+        DashboardTestHelpers.TenantId,
+        Guid.Parse(
+            "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            CultureInfo.InvariantCulture),
+        1,
+        1001,
+        2001,
+        3001,
+        "ncosentino",
+        "pitcrew-dashboard",
+        ".github/workflows/image-candidate.yml",
+        new string('a', 40),
+        "release/v1",
+        "pitcrew-default",
+        1,
+        """{"allowedSourceRefs":["refs/heads/main"]}""",
+        """{"type":"object","additionalProperties":false}""",
+        AdministratorGitHubUserId,
+        now,
+        null,
+        null);
+    await store.CreateRecipeVersionAsync(registration, cancellationToken);
+    var requestId = Guid.Parse(
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        CultureInfo.InvariantCulture);
+    const string inputs = "{}";
+    var request = new ImageBuildRequest(
+        DashboardTestHelpers.TenantId,
+        requestId,
+        registration.RegistrationId,
+        registration.Version,
+        registration.RecipeId,
+        "ncosentino/pitcrew-dashboard",
+        new string('b', 40),
+        inputs,
+        Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(inputs))),
+        AdministratorGitHubUserId,
+        now,
+        ImageBuildRequestStatus.Requested,
+        null,
+        null,
+        null,
+        null,
+        now,
+        "refs/heads/main",
+        null);
+    await store.CreateBuildRequestAsync(request, cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        request.TenantId,
+        request.RequestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Requested,
+            ImageBuildRequestStatus.Dispatching,
+            null,
+            null,
+            null,
+            null,
+            now.AddMinutes(1)),
+        cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        request.TenantId,
+        request.RequestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Dispatching,
+            ImageBuildRequestStatus.Building,
+            7001,
+            "https://github.com/ncosentino/pitcrew-dashboard/actions/runs/7001",
+            null,
+            null,
+            now.AddMinutes(2)),
+        cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        request.TenantId,
+        request.RequestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Building,
+            ImageBuildRequestStatus.Qualifying,
+            7001,
+            "https://github.com/ncosentino/pitcrew-dashboard/actions/runs/7001",
+            null,
+            null,
+            now.AddMinutes(3)),
+        cancellationToken);
+    const string report = """{"schemaVersion":1,"status":"ready"}""";
+    var candidate = new ReadyImageCandidate(
+        requestId,
+        request.TenantId,
+        request.RequestId,
+        request.RecipeId,
+        request.SourceRepository,
+        request.SourceCommit,
+        7001,
+        8001,
+        "pitcrew-image-candidate",
+        $"sha256:{new string('c', 64)}",
+        Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(report))),
+        report,
+        "ghcr.io/ncosentino/pitcrew-dashboard:test",
+        ImageCandidatePlatform.LinuxAmd64,
+        ImageCandidateOutputMode.Registry,
+        now.AddMinutes(4),
+        now.AddMinutes(5),
+        $"sha256:{new string('d', 64)}",
+        $"ghcr.io/ncosentino/pitcrew-dashboard@sha256:{new string('d', 64)}");
+    var qualifications = new[]
+    {
+      ImageCandidateQualificationName.ImageBuild,
+      ImageCandidateQualificationName.BuildKitDigest,
+      ImageCandidateQualificationName.RegistryDigest,
+      ImageCandidateQualificationName.BuilderCleanup,
+    }.Select(name => new ImageCandidateQualification(
+        candidate.CandidateId,
+        name,
+        ImageCandidateQualificationStatus.Passed))
+        .ToArray();
+    await store.StoreCandidateAsync(
+        request.TenantId,
+        candidate,
+        qualifications,
+        cancellationToken);
+    return candidate.CandidateId;
   }
 
   private sealed record GitHubFailureScenario(

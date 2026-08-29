@@ -144,4 +144,21 @@ public interface IGitHubImageWorkflowClient
       long runId,
       int limit,
       CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Downloads one exact artifact archive through the bounded GitHub artifact endpoint.
+  /// </summary>
+  /// <param name="installationId">Positive GitHub App installation identity.</param>
+  /// <param name="repository">Validated exact repository identity.</param>
+  /// <param name="artifact">Validated exact-run artifact metadata.</param>
+  /// <param name="maximumBytes">Positive response ceiling no greater than 10 MiB.</param>
+  /// <param name="cancellationToken">Token that cancels the operation.</param>
+  /// <returns>A bounded archive outcome containing no credentials or response metadata.</returns>
+  Task<GitHubClientOutcome<GitHubWorkflowArtifactArchive>>
+      DownloadWorkflowArtifactArchiveAsync(
+          long installationId,
+          GitHubRepositoryIdentity repository,
+          GitHubWorkflowArtifact artifact,
+          int maximumBytes,
+          CancellationToken cancellationToken);
 }

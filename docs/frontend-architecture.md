@@ -14,6 +14,8 @@ Authenticated routes are tenant-scoped:
 /tenants/:tenantId/nodes/:nodeId       node detail
 /tenants/:tenantId/nodes/:nodeId/profiles/:profileId
 /tenants/:tenantId/runners
+/tenants/:tenantId/images/candidates
+/tenants/:tenantId/images/recipes
 /tenants/:tenantId/settings/general
 /tenants/:tenantId/settings/access
 /tenants/:tenantId/settings/enrollment
@@ -41,6 +43,7 @@ Frontend features live below `ClientApp/src/features/`:
 | ---------- | --------------------------------------------------------------- |
 | `admin`    | System-administrator tenant creation                            |
 | `fleet`    | Fleet overview, node detail, profile detail, and pool mutations |
+| `images`   | Trusted image build requests, candidates, and recipe authority  |
 | `runners`  | Cross-fleet read-only runner and slot search                    |
 | `settings` | Tenant settings, membership, and connector enrollment           |
 

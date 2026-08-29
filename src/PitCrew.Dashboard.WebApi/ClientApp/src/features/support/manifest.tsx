@@ -13,7 +13,7 @@ export const supportManifest: FeatureManifest = {
       description: 'Read-only diagnostics and support sessions',
       path: '/tenants/:tenantId/support',
       group: 'operate',
-      order: 20,
+      order: 30,
       icon: 'support',
       minimumTenantRole: 'administrator',
       activePathPatterns: ['/tenants/:tenantId/support/*'],

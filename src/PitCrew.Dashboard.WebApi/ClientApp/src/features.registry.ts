@@ -1,6 +1,7 @@
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
 import { createAdminManifest } from '@/features/admin/manifest';
 import { fleetManifest } from '@/features/fleet/manifest';
+import { imagesManifest } from '@/features/images/manifest';
 import { runnersManifest } from '@/features/runners/manifest';
 import { settingsManifest } from '@/features/settings/manifest';
 import { supportManifest } from '@/features/support/manifest';
@@ -10,6 +11,7 @@ import { createTenant } from '@/features/settings/settingsApi';
 export const features: ReadonlyArray<FeatureManifest> = [
   fleetManifest,
   runnersManifest,
+  imagesManifest,
   settingsManifest,
   supportManifest,
   createAdminManifest(createTenant),

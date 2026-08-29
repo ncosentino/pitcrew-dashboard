@@ -10,7 +10,14 @@
  */
 import { test, expect } from '@playwright/test';
 
-import { buildFleetNode, buildProfile, nodeIds } from './mocks/fixtures';
+import {
+  buildFleetNode,
+  buildImageBuildRequest,
+  buildImageCandidate,
+  buildImageRecipeRegistration,
+  buildProfile,
+  nodeIds,
+} from './mocks/fixtures';
 
 test('buildProfile output satisfies managerObservedStateSchema', () => {
   expect(() => buildProfile('build')).not.toThrow();
@@ -40,4 +47,15 @@ test('buildFleetNode rejects a malformed nodeId instead of silently casting it',
       profiles: [],
     }),
   ).toThrow();
+});
+
+test('runner image fixtures satisfy their production API schemas', () => {
+  expect(() => buildImageRecipeRegistration()).not.toThrow();
+  expect(() => buildImageBuildRequest()).not.toThrow();
+  expect(() => buildImageCandidate()).not.toThrow();
+});
+
+test('runner image fixtures reject malformed immutable evidence', () => {
+  expect(() => buildImageBuildRequest({ sourceCommit: 'not-a-commit' })).toThrow();
+  expect(() => buildImageCandidate({ candidateId: 'not-a-uuid' })).toThrow();
 });

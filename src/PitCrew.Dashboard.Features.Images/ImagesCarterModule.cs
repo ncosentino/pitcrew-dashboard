@@ -1,10 +1,13 @@
 using Carter;
 
+using System.Globalization;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
 using PitCrew.Dashboard.Features.Access;
+using PitCrew.Dashboard.Features.Images.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
 
 namespace PitCrew.Dashboard.Features.Images;
@@ -47,6 +50,12 @@ public sealed class ImagesCarterModule : ICarterModule
         .RequireAuthorization(AccessPolicies.TenantViewer);
     requestReaders.MapGet("", GetBuildRequestsAsync);
     requestReaders.MapGet("/{requestId:guid}", GetBuildRequestAsync);
+
+    var candidateReaders = app.MapGroup(
+            "/api/tenants/{tenantId}/images/candidates")
+        .RequireAuthorization(AccessPolicies.TenantViewer);
+    candidateReaders.MapGet("", GetCandidatesAsync);
+    candidateReaders.MapGet("/{candidateId:guid}", GetCandidateAsync);
 
     var requestAdministrators = app.MapGroup(
             "/api/tenants/{tenantId}/images/requests")
@@ -93,6 +102,49 @@ public sealed class ImagesCarterModule : ICarterModule
             "image_build_request_not_found",
             "The image build request was not found."))
         : Results.Ok(ImageBuildRequestValidation.ToResponse(request));
+  }
+
+  private static async Task<IResult> GetCandidatesAsync(
+      HttpContext context,
+      string tenantId,
+      IImageBuildRequestUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    if (!ReadLimit(
+            context,
+            out var limit,
+            out var error,
+            "invalid_image_candidate_query"))
+    {
+      return error!;
+    }
+
+    var candidates = await unitOfWork.ListCandidatesAsync(
+        tenantId,
+        limit + 1,
+        cancellationToken);
+    return Results.Ok(new ImageCandidateListResponse(
+        candidates.Take(limit)
+            .Select(ToCandidateResponse)
+            .ToArray(),
+        candidates.Count > limit));
+  }
+
+  private static async Task<IResult> GetCandidateAsync(
+      string tenantId,
+      Guid candidateId,
+      IImageBuildRequestUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    var candidate = await unitOfWork.GetCandidateOrNullAsync(
+        tenantId,
+        candidateId,
+        cancellationToken);
+    return candidate is null
+        ? Results.NotFound(Error(
+            "image_candidate_not_found",
+            "The image candidate was not found."))
+        : Results.Ok(ToCandidateResponse(candidate));
   }
 
   private static async Task<IResult> CreateBuildRequestAsync(
@@ -375,10 +427,96 @@ public sealed class ImagesCarterModule : ICarterModule
     return true;
   }
 
+  private static ImageCandidateResponse ToCandidateResponse(
+      ImageCandidateDetails details)
+  {
+    var candidate = details.Candidate;
+    var ready = candidate as ReadyImageCandidate;
+    var failed = candidate as FailedImageCandidate;
+    return new ImageCandidateResponse(
+        candidate.CandidateId,
+        candidate.RequestId,
+        details.RegistrationId,
+        details.RegistrationVersion,
+        ready is not null ? "ready" : "failed",
+        candidate.RecipeId,
+        candidate.SourceRepository,
+        candidate.SourceCommit,
+        Convert.ToString(
+            candidate.GitHubRunId,
+            CultureInfo.InvariantCulture),
+        details.GitHubRunApiUrl,
+        details.GitHubRunUrl,
+        Convert.ToString(
+            candidate.ArtifactId,
+            CultureInfo.InvariantCulture),
+        candidate.ArtifactName,
+        candidate.ArtifactDigest,
+        candidate.ReportHash,
+        candidate.ImageReference,
+        ready?.Digest ?? failed?.Digest,
+        ready?.ImmutableReference ?? failed?.ImmutableReference,
+        Format(candidate.Platform),
+        Format(candidate.OutputMode),
+        failed?.FailureCategory,
+        failed?.FailureDetail,
+        candidate.CreatedAt,
+        candidate.StoredAt,
+        details.Qualifications.Select(qualification =>
+            new ImageCandidateQualificationResponse(
+                Format(qualification.Name),
+                Format(qualification.Status)))
+            .ToArray());
+  }
+
+  private static string Format(
+      ImageCandidatePlatform value) =>
+      value switch
+      {
+        ImageCandidatePlatform.LinuxAmd64 => "linux/amd64",
+        ImageCandidatePlatform.LinuxArm64 => "linux/arm64",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+      };
+
+  private static string Format(
+      ImageCandidateOutputMode value) =>
+      value switch
+      {
+        ImageCandidateOutputMode.Registry => "registry",
+        ImageCandidateOutputMode.Oci => "oci",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+      };
+
+  private static string Format(
+      ImageCandidateQualificationName value) =>
+      value switch
+      {
+        ImageCandidateQualificationName.ImageBuild => "image-build",
+        ImageCandidateQualificationName.BuildKitDigest =>
+            "buildkit-digest",
+        ImageCandidateQualificationName.RegistryDigest =>
+            "registry-digest",
+        ImageCandidateQualificationName.OciManifest => "oci-manifest",
+        ImageCandidateQualificationName.BuilderCleanup =>
+            "builder-cleanup",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+      };
+
+  private static string Format(
+      ImageCandidateQualificationStatus value) =>
+      value switch
+      {
+        ImageCandidateQualificationStatus.Passed => "passed",
+        ImageCandidateQualificationStatus.Failed => "failed",
+        ImageCandidateQualificationStatus.Unavailable => "unavailable",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+      };
+
   private static bool ReadLimit(
       HttpContext context,
       out int limit,
-      out IResult? error)
+      out IResult? error,
+      string errorCode = "invalid_image_recipe_query")
   {
     error = null;
     var rawLimit = context.Request.Query["limit"].ToString();
@@ -396,7 +534,7 @@ public sealed class ImagesCarterModule : ICarterModule
         limit is < 1 or > MaximumListLimit)
     {
       error = Results.BadRequest(Error(
-          "invalid_image_recipe_query",
+          errorCode,
           $"The limit query parameter must be between 1 and {MaximumListLimit}."));
       return false;
     }
