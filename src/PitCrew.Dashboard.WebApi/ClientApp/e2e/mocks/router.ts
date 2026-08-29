@@ -10,6 +10,7 @@ import type { Page, Route } from '@playwright/test';
 import type { DashboardSession } from '../../src/core/auth/sessionApi';
 import type { FleetResponse } from '../../src/core/fleet/fleetApi';
 import type { IncidentPage } from '../../src/features/fleet/incidentsApi';
+import type { ProfileImageRolloutControl } from '../../src/features/fleet/imageRolloutApi';
 import type {
   ImageBuildRequest,
   ImageCandidate,
@@ -57,6 +58,7 @@ export interface MockApiOptions {
   readonly imageBuildRequestsTruncated?: boolean;
   readonly imageCandidates?: ReadonlyArray<ImageCandidate>;
   readonly imageCandidatesTruncated?: boolean;
+  readonly profileImageRolloutControl?: ProfileImageRolloutControl;
   /** Controls every write endpoint (revoke/rotate/rename/acknowledge/etc). Defaults to `'success'`. */
   readonly mutationOutcome?: MutationOutcome;
 }
@@ -153,6 +155,40 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
     /\/api\/tenants\/[^/]+\/fleet\/v1\/nodes\/[^/]+\/profiles\/[^/]+\/manager-recovery$/,
     (route) => mutationResponse(route, mutationOutcome),
   );
+  await page.route(/\/api\/tenants\/[^/]+\/images\/profile-rollouts\/[^/]+\/[^/]+$/, (route) => {
+    const control = options.profileImageRolloutControl;
+    return control
+      ? fulfillJson(route, control)
+      : route.fulfill({
+          status: 404,
+          headers: jsonHeaders,
+          body: errorBody(
+            'image_rollout_profile_not_found',
+            'Profile image rollout is unavailable.',
+          ),
+        });
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/profile-rollouts$/, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    if (mutationOutcome === 'failure') return mutationResponse(route, mutationOutcome);
+    const control = options.profileImageRolloutControl;
+    const requestPath = new URL(route.request().url()).pathname;
+    const statusLocation = control
+      ? `${requestPath}/${control.nodeId}/${control.profileId}`
+      : requestPath;
+    return route.fulfill({
+      status: 202,
+      headers: {
+        ...jsonHeaders,
+        location: statusLocation,
+      },
+      body: JSON.stringify({
+        commandId: '90000000-0000-4000-8000-000000000001',
+        status: 'queued',
+        statusLocation,
+      }),
+    });
+  });
 
   await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/enrollment-codes$/, (route) =>
     mutationResponse(route, mutationOutcome, options.enrollmentCode),

@@ -5,10 +5,12 @@ import {
   buildImageBuildRequest,
   buildImageCandidate,
   buildImageRecipeRegistration,
+  buildProfileImageRolloutCommand,
+  buildProfileImageRolloutControl,
   buildSession,
   buildTenantAccess,
 } from './mocks/fixtures';
-import { healthyScenario, tenantId } from './mocks/scenarios';
+import { healthyScenario, nodeIds, tenantId } from './mocks/scenarios';
 import { runAxeCheck } from './support/axe';
 import { measureDocumentOverflow } from './support/overflow';
 import { setUpPage } from './support/session';
@@ -195,4 +197,106 @@ test('recipe administration is role-aware and confirmation names prohibited effe
   await expect(page.getByText(/Viewer access is read-only/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Disable registration' })).toHaveCount(0);
   await expect(page.getByText('Register a trusted image recipe')).toHaveCount(0);
+});
+
+test('profile changeover keeps candidate, fences, and prohibited effects together', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize(viewports.desktop);
+  await setUpPage(page, healthyScenario(), 'light');
+  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/image`);
+
+  await expect(page.getByRole('heading', { name: 'Profile image rollout' })).toBeVisible();
+  await expect(page.getByText('Current profile image')).toBeVisible();
+  await expect(page.getByText('Selected candidate')).toBeVisible();
+  await expect(page.getByText('Preserved operating contract')).toBeVisible();
+  await page.getByRole('button', { name: 'Roll out image' }).click();
+
+  const dialog = page.getByRole('alertdialog', { name: 'Roll out ubuntu-runner?' });
+  await expect(dialog).toContainText('No automatic rollback or fleet campaign.');
+  await expect(dialog.getByText('Static profile')).toBeVisible();
+  await expect(dialog.getByText('Routing')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Roll out image' })).toBeDisabled();
+
+  const requestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/api/tenants/${tenantId}/images/profile-rollouts`),
+  );
+  await dialog
+    .getByRole('checkbox', {
+      name: 'I verified the exact candidate, profile, and current fences for this image-only change.',
+    })
+    .check();
+  await dialog.getByRole('button', { name: 'Roll out image' }).click();
+  const request = await requestPromise;
+
+  expect(request.headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/u);
+  expect(request.headers()['x-pitcrew-antiforgery']).toBe('e2e-antiforgery-token');
+  expect(request.postDataJSON()).toMatchObject({
+    nodeId: nodeIds.alpha,
+    profileId: 'build',
+    candidateId: '70300000-0000-4000-8000-000000000003',
+    expectedDesiredGeneration: 4,
+  });
+  await expect(page.getByRole('status')).toContainText('is queued');
+
+  await expectImageSurfaceHealth(page, testInfo, 'profile-changeover-desktop');
+  await testInfo.attach('screenshot-profile-image-changeover-desktop', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
+test('profile rollout keeps viewer and indeterminate state explicit', async ({ page }) => {
+  const indeterminate = buildProfileImageRolloutCommand({
+    status: 'indeterminate',
+    failureCategory: 'unknown',
+    completedAt: '2026-08-28T12:30:00+00:00',
+    resultMessage: 'The started rollout could not be proved.',
+  });
+  const scenario = {
+    ...healthyScenario(),
+    session: buildSession('viewer'),
+    profileImageRolloutControl: buildProfileImageRolloutControl({
+      latestCommand: indeterminate,
+      recentCommands: [indeterminate],
+    }),
+  };
+  await setUpPage(page, scenario, 'dark');
+  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/image`);
+
+  await expect(page.getByText(/Viewer access is read-only/)).toBeVisible();
+  await expect(page.getByText('Indeterminate')).toBeVisible();
+  await expect(page.getByText(/never executed automatically again/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Roll out image' })).toBeDisabled();
+});
+
+test('profile changeover contains long candidate evidence on a narrow screen', async ({
+  page,
+}, testInfo) => {
+  const recipeId = `runner-${'r'.repeat(50)}`;
+  const candidate = buildImageCandidate({
+    recipeId,
+    sourceRepository: `example/${'runner-images-'.repeat(15)}release`,
+    imageReference: `ghcr.io/example/${'runner-image-'.repeat(20)}candidate:latest`,
+    immutableReference: `ghcr.io/example/${'runner-image-'.repeat(20)}candidate@sha256:${'e'.repeat(64)}`,
+  });
+  const scenario = {
+    ...healthyScenario(),
+    imageCandidates: [candidate],
+    profileImageRolloutControl: buildProfileImageRolloutControl({
+      allowedRecipeIds: [recipeId],
+    }),
+  };
+  await page.setViewportSize(viewports.narrow);
+  await setUpPage(page, scenario, 'light');
+  await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/image`);
+
+  await expect(page.getByText(recipeId).first()).toBeVisible();
+  await expectImageSurfaceHealth(page, testInfo, 'profile-changeover-long-narrow');
+  await testInfo.attach('screenshot-profile-image-changeover-long-narrow', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
 });

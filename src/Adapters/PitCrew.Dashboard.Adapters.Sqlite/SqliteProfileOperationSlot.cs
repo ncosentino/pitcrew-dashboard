@@ -13,6 +13,8 @@ internal static class SqliteProfileOperationSlot
 
   public const string RecoveryKind = "recovery";
 
+  public const string ImageRolloutKind = "image-rollout";
+
   public static async Task<bool> AcquireAsync(
       SqliteConnection connection,
       SqliteTransaction transaction,
@@ -97,6 +99,15 @@ internal static class SqliteProfileOperationSlot
               WHERE recovery_commands.command_id =
                       profile_active_operations.command_id
                 AND recovery_commands.status IN (
+                    'queued',
+                    'claimed',
+                    'started'))
+          AND NOT EXISTS (
+              SELECT 1
+              FROM image_rollout_commands
+              WHERE image_rollout_commands.command_id =
+                      profile_active_operations.command_id
+                AND image_rollout_commands.status IN (
                     'queued',
                     'claimed',
                     'started'));

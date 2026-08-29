@@ -174,6 +174,17 @@ and `Setup-Runner.ps1` with the local manifest and those local routing values,
 omitting the runner credential so PitCrew reuses its protected registration
 credential.
 
+Protocol v11 supports a single-target repo shape only. PowerShell `-File`
+parameter binding rejects a repeated `-AddRepos` switch, binds only the first
+value when adjacent values are supplied to a string-array parameter, and
+treats a comma-joined token as a single string, so there is no safe way to
+project more than one repository target through the Setup-Runner CLI in this
+release. Zero-count is retained as the fully-paused shape (`-Pause`);
+positive-count emits one `-AddRepos url=count` pair. Multi-target repo
+routing is reported as the closed `unsupported-topology` category and never
+executed. This mirrors the existing capacity protocol's single-target
+invariant. Later protocol revisions may add a multi-target repo shape.
+
 Profiles whose stored schema or manifest cannot be reconstructed exactly are
 reported unsupported. The connector does not guess, silently drop fields, or
 fall back to a success-shaped partial invocation.
@@ -223,9 +234,11 @@ by capacity and recovery. Schema triggers require the slot for active rollout
 rows and release it only after the owning operation is terminal.
 
 SQLite stores capability observations and immutable rollout commands behind a
-fleet-owned abstraction. The image feature validates candidate authority and
-then queues through that abstraction; the fleet synchronization path can deliver
-commands without depending on the image feature implementation.
+shared kernel rollout contract that both the fleet synchronization path and the
+image feature consume without depending on each other. The image feature
+validates candidate authority and then queues through that contract; the fleet
+synchronization path can deliver commands without depending on the image
+feature implementation.
 
 The queue mutation is tenant-administrator-only, antiforgery-protected,
 rate-limited, and idempotent. It returns `202 Accepted` with the durable command

@@ -17,6 +17,7 @@ internal sealed partial class ConnectorWorker(
     ObservedStateReader _observedStateReader,
     CapacityCommandExecutor _capacityCommandExecutor,
     RecoveryCommandExecutor _recoveryCommandExecutor,
+    ImageRolloutCommandExecutor _imageRolloutCommandExecutor,
     ConnectorHealthJournal _healthJournal,
     ConnectorHealthReplayStore _healthReplayStore,
     IOptions<ConnectorOptions> _options,
@@ -80,6 +81,11 @@ internal sealed partial class ConnectorWorker(
     var pendingRecoveryOutcomes = new Queue<RecoveryCommandOutcome>(
         await _recoveryCommandExecutor.ResolveInterruptedAsync(stoppingToken));
     RecoveryCommandOutcome? pendingRecoveryOutcome = null;
+    ImageRolloutCommandProgress? pendingImageRolloutProgress = null;
+    var pendingImageRolloutOutcomes = new Queue<ImageRolloutCommandOutcome>(
+        await _imageRolloutCommandExecutor.ResolveInterruptedAsync(stoppingToken));
+    ImageRolloutCommandOutcome? pendingImageRolloutOutcome = null;
+    await _imageRolloutCommandExecutor.PruneManifestHistoryAsync(stoppingToken);
 
     while (!stoppingToken.IsCancellationRequested)
     {
@@ -115,6 +121,9 @@ internal sealed partial class ConnectorWorker(
           var recoveryOperator =
               await _recoveryCommandExecutor.ReadCapabilityAsync(
                   stoppingToken);
+          var imageRolloutOperator =
+              await _imageRolloutCommandExecutor.ReadCapabilityAsync(
+                  stoppingToken);
           var healthReplay =
               await _healthReplayStore.ReadPendingAsync(
                   stoppingToken);
@@ -122,6 +131,11 @@ internal sealed partial class ConnectorWorker(
               pendingRecoveryOutcomes.Count > 0)
           {
             pendingRecoveryOutcome = pendingRecoveryOutcomes.Dequeue();
+          }
+          if (pendingImageRolloutOutcome is null &&
+              pendingImageRolloutOutcomes.Count > 0)
+          {
+            pendingImageRolloutOutcome = pendingImageRolloutOutcomes.Dequeue();
           }
           var heartbeatDue =
               now - lastSentAt >=
@@ -135,6 +149,8 @@ internal sealed partial class ConnectorWorker(
               pendingCapacityOutcome is not null ||
               pendingRecoveryProgress is not null ||
               pendingRecoveryOutcome is not null ||
+              pendingImageRolloutProgress is not null ||
+              pendingImageRolloutOutcome is not null ||
               healthReplay.RequiresSynchronization)
           {
             var replayedActiveOutage =
@@ -154,11 +170,16 @@ internal sealed partial class ConnectorWorker(
                     recoveryOperator,
                     pendingRecoveryProgress,
                     pendingRecoveryOutcome,
-                    healthReplay.Replay),
+                    healthReplay.Replay,
+                    imageRolloutOperator,
+                    pendingImageRolloutProgress,
+                    pendingImageRolloutOutcome),
                 stoppingToken);
             pendingCapacityOutcome = null;
             pendingRecoveryProgress = null;
             pendingRecoveryOutcome = null;
+            pendingImageRolloutProgress = null;
+            pendingImageRolloutOutcome = null;
             if (response.CredentialRotation is not null)
             {
               identity = identity with
@@ -205,6 +226,18 @@ internal sealed partial class ConnectorWorker(
                       stoppingToken);
               pendingRecoveryProgress = report.Progress;
               pendingRecoveryOutcome = report.Outcome;
+              lastSentHash = string.Empty;
+              lastSentAt = DateTimeOffset.MinValue;
+              nextDelay = TimeSpan.Zero;
+            }
+            if (response.ImageRolloutCommand is not null)
+            {
+              var report =
+                  await _imageRolloutCommandExecutor.ExecuteAsync(
+                      response.ImageRolloutCommand,
+                      stoppingToken);
+              pendingImageRolloutProgress = report.Progress;
+              pendingImageRolloutOutcome = report.Outcome;
               lastSentHash = string.Empty;
               lastSentAt = DateTimeOffset.MinValue;
               nextDelay = TimeSpan.Zero;

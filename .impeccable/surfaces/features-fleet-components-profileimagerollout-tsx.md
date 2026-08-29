@@ -1,9 +1,9 @@
 ---
 version: 1
-status: "planned"
+status: "shipped"
 slug: "features-fleet-components-profileimagerollout-tsx"
 primary_target: "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileImageRollout.tsx"
-related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileWorkerUpdateSummary.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/imageRolloutApi.ts","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileImageRollout.test.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/e2e/images.spec.ts"]
+related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/pages/ProfileImageRolloutPage.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileImageRolloutAuthorization.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/ProfileImageRolloutEvidence.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/ProfileImageCandidateList.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileWorkerUpdateSummary.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/imageRolloutApi.ts","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/profileRolloutView.ts","src/PitCrew.Dashboard.WebApi/ClientApp/src/features/fleet/components/ProfileImageRollout.test.tsx","src/PitCrew.Dashboard.WebApi/ClientApp/e2e/images.spec.ts"]
 ---
 
 ## Scope and mode

@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Fleet.Abstractions\PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Images.Abstractions\PitCrew.Dashboard.Features.Images.Abstractions.csproj" />
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Support.Abstractions\PitCrew.Dashboard.Features.Support.Abstractions.csproj" />
+    <ProjectReference Include="..\..\PitCrew.Dashboard.Kernel.ImageRollouts\PitCrew.Dashboard.Kernel.ImageRollouts.csproj" />
     <ProjectReference Include="..\..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
     <ProjectReference Include="..\..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
   </ItemGroup>

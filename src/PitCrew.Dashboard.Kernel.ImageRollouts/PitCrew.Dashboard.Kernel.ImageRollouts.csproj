@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -36,11 +36,35 @@
 .PARAMETER RecoveryCommandTimeoutSeconds
     Bounded local timeout for one manager-recovery invocation.
 
+.PARAMETER EnableImageRollout
+    Opts this host in to typed profile-image rollout commands. Rollout stays
+    disabled unless this switch is supplied.
+
+.PARAMETER ImageRolloutProfiles
+    Existing built-in profile identifiers allowed to receive rollout commands.
+    Required with -EnableImageRollout and independent of -Profiles.
+
+.PARAMETER ImageRolloutRecipes
+    Ordered collection of typed recipe/registry-repository entries. Each entry
+    is a hashtable or PSCustomObject with two keys: RecipeId (strict recipe
+    identifier, case-insensitively unique across the collection) and
+    RegistryRepository (strict registry repository — no scheme, credentials,
+    tag, digest, whitespace, or control characters). Modeled as an indexed
+    collection so hyphenated recipe identifiers (for example 'copilot-cli')
+    survive Linux systemd environment variable naming, which forbids hyphens
+    in key names.
+
+.PARAMETER ImageRolloutCommandTimeoutSeconds
+    Bounded local timeout for one rollout invocation.
+
 .EXAMPLE
     ./Enable-PitCrewCapacityOperations.ps1 -Version 0.3.4 -PitCrewRoot C:\dev\pitcrew -DashboardUrl https://pitcrew.example.com -Profiles copilot-cli -CapacityMaximumCeiling 30
 
 .EXAMPLE
     ./Enable-PitCrewCapacityOperations.ps1 -Version 0.3.4 -PitCrewRoot C:\dev\pitcrew -DashboardUrl https://pitcrew.example.com -Profiles copilot-cli -CapacityMaximumCeiling 30 -EnableManagerRecovery -ManagerRecoveryProfiles copilot-cli
+
+.EXAMPLE
+    ./Enable-PitCrewCapacityOperations.ps1 -Version 0.3.4 -PitCrewRoot C:\dev\pitcrew -DashboardUrl https://pitcrew.example.com -Profiles copilot-cli -CapacityMaximumCeiling 30 -EnableImageRollout -ImageRolloutProfiles copilot-cli -ImageRolloutRecipes @(@{ RecipeId = 'copilot-cli'; RegistryRepository = 'ghcr.io/example/copilot-cli' })
 #>
 [CmdletBinding()]
 param(
@@ -72,7 +96,22 @@ param(
 
     [Parameter()]
     [ValidateRange(30, 600)]
-    [int]$RecoveryCommandTimeoutSeconds = 120
+    [int]$RecoveryCommandTimeoutSeconds = 120,
+
+    [Parameter()]
+    [switch]$EnableImageRollout,
+
+    [Parameter()]
+    [AllowEmptyCollection()]
+    [string[]]$ImageRolloutProfiles = @(),
+
+    [Parameter()]
+    [AllowNull()]
+    [object[]]$ImageRolloutRecipes = $null,
+
+    [Parameter()]
+    [ValidateRange(60, 3600)]
+    [int]$ImageRolloutCommandTimeoutSeconds = 600
 )
 
 $ErrorActionPreference = 'Stop'
@@ -384,6 +423,23 @@ function Write-WindowsConnectorSettings {
         [string]$RecoveryLedgerPath,
 
         [Parameter(Mandatory)]
+        [bool]$ImageRolloutEnabled,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$AllowedImageRolloutProfiles,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [object[]]$ImageRolloutRecipes,
+
+        [Parameter(Mandatory)]
+        [string]$ImageRolloutStatePath,
+
+        [Parameter(Mandatory)]
+        [int]$ImageRolloutCommandTimeoutSeconds,
+
+        [Parameter(Mandatory)]
         [string]$LogPath
     )
 
@@ -438,6 +494,14 @@ function Write-WindowsConnectorSettings {
                 AllowedManagerRecoveryProfiles = @($AllowedRecoveryProfiles)
                 RecoveryCommandTimeoutSeconds = $RecoveryTimeoutSeconds
                 RecoveryLedgerPath = $RecoveryLedgerPath
+                ImageRolloutEnabled = $ImageRolloutEnabled
+                AllowedImageRolloutProfiles = @($AllowedImageRolloutProfiles)
+                ImageRolloutRecipes = @($ImageRolloutRecipes)
+                ImageRolloutStatePath = $ImageRolloutStatePath
+                ImageRolloutCommandTimeoutSeconds = $ImageRolloutCommandTimeoutSeconds
+                ImageRolloutCommandMaximumExpirySeconds = 1800
+                ImageRolloutObservedStateMaximumAgeSeconds = 300
+                ImageRolloutRetainedManifests = 16
             }
         }
     }
@@ -464,6 +528,10 @@ if ($IsLinux) {
         EnableManagerRecovery = [bool]$EnableManagerRecovery
         ManagerRecoveryProfiles = [string[]]$ManagerRecoveryProfiles
         RecoveryCommandTimeoutSeconds = $RecoveryCommandTimeoutSeconds
+        EnableImageRollout = [bool]$EnableImageRollout
+        ImageRolloutProfiles = [string[]]$ImageRolloutProfiles
+        ImageRolloutRecipes = $ImageRolloutRecipes
+        ImageRolloutCommandTimeoutSeconds = $ImageRolloutCommandTimeoutSeconds
     }
     return
 }
@@ -540,7 +608,96 @@ if (-not $EnableManagerRecovery) {
         throw 'ManagerRecoveryProfiles must contain one or more valid PitCrew profile identifiers when -EnableManagerRecovery is supplied.'
     }
 }
-foreach ($profile in @($normalizedProfiles + $normalizedRecoveryProfiles | Sort-Object -Unique)) {
+$normalizedImageRolloutProfiles = @(
+    $ImageRolloutProfiles |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.Trim().ToLowerInvariant() } |
+        Sort-Object -Unique
+)
+# Normalise ImageRolloutRecipes into an ordered array of PSCustomObjects with
+# a strict RecipeId / RegistryRepository pair. Callers may pass hashtables or
+# PSCustomObjects; both are supported so the surface reads naturally on both
+# Windows JSON and Linux systemd installers.
+$normalizedImageRolloutRecipes = [System.Collections.Generic.List[object]]::new()
+if ($null -ne $ImageRolloutRecipes) {
+    foreach ($rawEntry in @($ImageRolloutRecipes)) {
+        if ($null -eq $rawEntry) {
+            continue
+        }
+        $recipeId = $null
+        $registryRepository = $null
+        if ($rawEntry -is [hashtable]) {
+            if ($rawEntry.Contains('RecipeId')) {
+                $recipeId = [string]$rawEntry['RecipeId']
+            }
+            if ($rawEntry.Contains('RegistryRepository')) {
+                $registryRepository = [string]$rawEntry['RegistryRepository']
+            }
+        } elseif ($rawEntry -is [System.Collections.IDictionary]) {
+            if ($rawEntry.Contains('RecipeId')) {
+                $recipeId = [string]$rawEntry['RecipeId']
+            }
+            if ($rawEntry.Contains('RegistryRepository')) {
+                $registryRepository = [string]$rawEntry['RegistryRepository']
+            }
+        } else {
+            $recipeIdProperty = $rawEntry.PSObject.Properties['RecipeId']
+            $registryRepositoryProperty =
+                $rawEntry.PSObject.Properties['RegistryRepository']
+            if ($null -ne $recipeIdProperty) {
+                $recipeId = [string]$recipeIdProperty.Value
+            }
+            if ($null -ne $registryRepositoryProperty) {
+                $registryRepository = [string]$registryRepositoryProperty.Value
+            }
+        }
+        $normalizedImageRolloutRecipes.Add(
+            [pscustomobject]@{
+                RecipeId = $recipeId
+                RegistryRepository = $registryRepository
+            })
+    }
+}
+if (-not $EnableImageRollout) {
+    if ($normalizedImageRolloutProfiles.Count -gt 0 -or
+        $normalizedImageRolloutRecipes.Count -gt 0) {
+        throw 'ImageRolloutProfiles and ImageRolloutRecipes require -EnableImageRollout.'
+    }
+} else {
+    $invalidImageRolloutProfiles = @(
+        $normalizedImageRolloutProfiles |
+            Where-Object { $_ -notmatch '^[a-z][a-z0-9-]{0,31}$' }
+    )
+    if ($normalizedImageRolloutProfiles.Count -eq 0 -or
+        $invalidImageRolloutProfiles.Count -gt 0) {
+        throw 'ImageRolloutProfiles must contain one or more valid PitCrew profile identifiers when -EnableImageRollout is supplied.'
+    }
+    if ($normalizedImageRolloutRecipes.Count -eq 0) {
+        throw 'ImageRolloutRecipes must map every allowed recipe when -EnableImageRollout is supplied.'
+    }
+    $seenRecipes = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $normalizedImageRolloutRecipes) {
+        $recipeId = [string]$entry.RecipeId
+        $registryRepository = [string]$entry.RegistryRepository
+        if ([string]::IsNullOrWhiteSpace($recipeId) -or
+            $recipeId -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$') {
+            throw "ImageRolloutRecipes entry '$recipeId' is not a strict recipe identifier."
+        }
+        if (-not $seenRecipes.Add($recipeId)) {
+            throw "ImageRolloutRecipes contains a case-insensitive duplicate recipe identifier '$recipeId'."
+        }
+        if ([string]::IsNullOrWhiteSpace($registryRepository) -or
+            $registryRepository -match '[:@#\s]' -or
+            $registryRepository -match '[\x00-\x1f\x7f]' -or
+            $registryRepository -match '["\\<>|]' -or
+            $registryRepository -match '://' -or
+            $registryRepository -notmatch '^(?=.{1,255}$)(?:[a-z0-9]+(?:(?:\.|__|[_-]+)[a-z0-9]+)*)(?:/(?:[a-z0-9]+(?:(?:\.|__|[_-]+)[a-z0-9]+)*))*$') {
+            throw "ImageRolloutRecipes value for recipe '$recipeId' is not a strict registry repository."
+        }
+    }
+}
+foreach ($profile in @($normalizedProfiles + $normalizedRecoveryProfiles + $normalizedImageRolloutProfiles | Sort-Object -Unique)) {
     if (-not (Test-Path -LiteralPath (Join-Path $stateRoot $profile) -PathType Container)) {
         throw "Profile '$profile' does not exist below '$stateRoot'."
     }
@@ -600,6 +757,7 @@ if ($IsWindows) {
 }
 
 $recoveryLedgerPath = Join-Path $dataRoot 'recovery-ledger'
+$imageRolloutStatePath = Join-Path $dataRoot 'image-rollout'
 
 $existingArtifacts = [System.Collections.Generic.List[string]]::new()
 foreach ($path in @($installRoot, $dataRoot, $environmentPath, $servicePath)) {
@@ -676,18 +834,34 @@ try {
 
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
+    if ($EnableImageRollout) {
+        # Provision the protected rollout state root with the same restrictive
+        # ownership/permissions as the dataRoot before the connector starts;
+        # the connector itself now fails closed rather than silently creating
+        # this directory (or its ancestor chain) with default permissions.
+        New-Item -ItemType Directory -Path $imageRolloutStatePath -Force |
+            Out-Null
+    }
     $hostArtifactsCreated = $true
     if ($IsWindows) {
-        foreach ($permission in @(
-            @($installRoot, '/inheritance:r'),
-            @($installRoot, '/grant:r', '*S-1-5-18:(OI)(CI)RX'),
-            @($installRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'),
-            @($dataRoot, '/inheritance:r'),
-            @($dataRoot, '/grant:r', '*S-1-5-18:(OI)(CI)F'),
-            @($dataRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'),
-            @($resolvedPitCrewRoot, '/grant', '*S-1-5-18:(OI)(CI)RX', '/T', '/C'),
-            @($stateRoot, '/grant', '*S-1-5-18:(OI)(CI)M', '/T', '/C')
-        )) {
+        $windowsAcls = [System.Collections.Generic.List[object]]::new()
+        $windowsAcls.Add(@($installRoot, '/inheritance:r'))
+        $windowsAcls.Add(@($installRoot, '/grant:r', '*S-1-5-18:(OI)(CI)RX'))
+        $windowsAcls.Add(@($installRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'))
+        $windowsAcls.Add(@($dataRoot, '/inheritance:r'))
+        $windowsAcls.Add(@($dataRoot, '/grant:r', '*S-1-5-18:(OI)(CI)F'))
+        $windowsAcls.Add(@($dataRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'))
+        $windowsAcls.Add(@($resolvedPitCrewRoot, '/grant', '*S-1-5-18:(OI)(CI)RX', '/T', '/C'))
+        $windowsAcls.Add(@($stateRoot, '/grant', '*S-1-5-18:(OI)(CI)M', '/T', '/C'))
+        if ($EnableImageRollout) {
+            # Explicit inheritance-reset + SYSTEM/Administrators grants for
+            # the rollout state path so the child directory cannot be widened
+            # by a later dataRoot ACL edit or a legacy inherited grant.
+            $windowsAcls.Add(@($imageRolloutStatePath, '/inheritance:r'))
+            $windowsAcls.Add(@($imageRolloutStatePath, '/grant:r', '*S-1-5-18:(OI)(CI)F'))
+            $windowsAcls.Add(@($imageRolloutStatePath, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'))
+        }
+        foreach ($permission in $windowsAcls) {
             Invoke-Checked -FilePath 'icacls.exe' -ArgumentList $permission |
                 Out-Null
         }
@@ -711,6 +885,11 @@ try {
             -AllowedRecoveryProfiles $normalizedRecoveryProfiles `
             -RecoveryTimeoutSeconds $RecoveryCommandTimeoutSeconds `
             -RecoveryLedgerPath $recoveryLedgerPath `
+            -ImageRolloutEnabled ([bool]$EnableImageRollout) `
+            -AllowedImageRolloutProfiles $normalizedImageRolloutProfiles `
+            -ImageRolloutRecipes ([object[]]$normalizedImageRolloutRecipes.ToArray()) `
+            -ImageRolloutStatePath $imageRolloutStatePath `
+            -ImageRolloutCommandTimeoutSeconds $ImageRolloutCommandTimeoutSeconds `
             -LogPath (Join-Path $dataRoot 'connector-.log')
 
         $installedExecutable = Join-Path $installRoot $executableName
@@ -780,6 +959,16 @@ try {
             '0755',
             (Join-Path $installRoot $executableName)
         )
+        if ($EnableImageRollout) {
+            # Restrictive permissions on the rollout state root before the
+            # connector service starts. The service user is already the
+            # recursive owner of $dataRoot, so mode 0700 leaves the connector
+            # itself with full access while excluding every other principal.
+            Invoke-Checked -FilePath 'chmod' -ArgumentList @(
+                '0700',
+                $imageRolloutStatePath
+            )
+        }
 
         $environmentLines = [System.Collections.Generic.List[string]]::new()
         $environmentLines.Add(
@@ -806,6 +995,15 @@ try {
             "PitCrew__Connector__RecoveryCommandTimeoutSeconds=$(ConvertTo-EnvironmentValue -Value ([string]$RecoveryCommandTimeoutSeconds))")
         $environmentLines.Add(
             "PitCrew__Connector__RecoveryLedgerPath=$(ConvertTo-EnvironmentValue -Value ([string]$recoveryLedgerPath))")
+        $environmentLines.Add(
+            "PitCrew__Connector__ImageRolloutEnabled=$(ConvertTo-EnvironmentValue -Value $(if ($EnableImageRollout) { 'true' } else { 'false' }))")
+        $environmentLines.Add(
+            "PitCrew__Connector__ImageRolloutStatePath=$(ConvertTo-EnvironmentValue -Value ([string]$imageRolloutStatePath))")
+        $environmentLines.Add(
+            "PitCrew__Connector__ImageRolloutCommandTimeoutSeconds=$(ConvertTo-EnvironmentValue -Value ([string]$ImageRolloutCommandTimeoutSeconds))")
+        $environmentLines.Add('PitCrew__Connector__ImageRolloutCommandMaximumExpirySeconds="1800"')
+        $environmentLines.Add('PitCrew__Connector__ImageRolloutObservedStateMaximumAgeSeconds="300"')
+        $environmentLines.Add('PitCrew__Connector__ImageRolloutRetainedManifests="16"')
         for ($index = 0; $index -lt $normalizedProfiles.Count; $index++) {
             $environmentLines.Add(
                 "PitCrew__Connector__AllowedCapacityProfiles__${index}=$(ConvertTo-EnvironmentValue -Value ([string]$normalizedProfiles[$index]))")
@@ -813,6 +1011,22 @@ try {
         for ($index = 0; $index -lt $normalizedRecoveryProfiles.Count; $index++) {
             $environmentLines.Add(
                 "PitCrew__Connector__AllowedManagerRecoveryProfiles__${index}=$(ConvertTo-EnvironmentValue -Value ([string]$normalizedRecoveryProfiles[$index]))")
+        }
+        for ($index = 0; $index -lt $normalizedImageRolloutProfiles.Count; $index++) {
+            $environmentLines.Add(
+                "PitCrew__Connector__AllowedImageRolloutProfiles__${index}=$(ConvertTo-EnvironmentValue -Value ([string]$normalizedImageRolloutProfiles[$index]))")
+        }
+        # Emit ImageRolloutRecipes as an indexed collection of typed entries.
+        # Numeric indexes are always valid systemd environment variable name
+        # components, so hyphenated recipe identifiers (for example
+        # 'copilot-cli') survive intact inside the RecipeId value instead of
+        # colliding with hyphen-in-key restrictions in the env key path.
+        for ($index = 0; $index -lt $normalizedImageRolloutRecipes.Count; $index++) {
+            $entry = $normalizedImageRolloutRecipes[$index]
+            $environmentLines.Add(
+                "PitCrew__Connector__ImageRolloutRecipes__${index}__RecipeId=$(ConvertTo-EnvironmentValue -Value ([string]$entry.RecipeId))")
+            $environmentLines.Add(
+                "PitCrew__Connector__ImageRolloutRecipes__${index}__RegistryRepository=$(ConvertTo-EnvironmentValue -Value ([string]$entry.RegistryRepository))")
         }
         [IO.File]::WriteAllLines(
             $environmentPath,
@@ -869,7 +1083,15 @@ WantedBy=multi-user.target
     } else {
         'manager recovery disabled'
     }
-    Write-Host "PitCrew capacity operations enabled through $serviceDescription for profiles: $($normalizedProfiles -join ', ') ($recoveryDescription)."
+    $rolloutDescription = if ($EnableImageRollout) {
+        $recipeIds = @($normalizedImageRolloutRecipes |
+            ForEach-Object { [string]$_.RecipeId } |
+            Sort-Object -Unique)
+        "image rollout enabled for profiles: $($normalizedImageRolloutProfiles -join ', ') with recipes: $($recipeIds -join ', ')"
+    } else {
+        'image rollout disabled'
+    }
+    Write-Host "PitCrew capacity operations enabled through $serviceDescription for profiles: $($normalizedProfiles -join ', ') ($recoveryDescription; $rolloutDescription)."
 } catch {
     $installationFailure = $_
     $rollbackFailures = [System.Collections.Generic.List[string]]::new()

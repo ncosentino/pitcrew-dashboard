@@ -29,6 +29,12 @@ import {
 } from '../../src/core/fleet/fleetApi';
 import { incidentPageSchema, type IncidentPage } from '../../src/features/fleet/incidentsApi';
 import {
+  profileImageRolloutCommandSchema,
+  profileImageRolloutControlSchema,
+  type ProfileImageRolloutCommand,
+  type ProfileImageRolloutControl,
+} from '../../src/features/fleet/imageRolloutApi';
+import {
   imageBuildRequestSchema,
   imageCandidateSchema,
   imageRecipeRegistrationSchema,
@@ -183,6 +189,72 @@ export function buildImageCandidate(overrides: Partial<ImageCandidate> = {}): Im
       { name: 'oci-manifest', status: 'passed' },
       { name: 'builder-cleanup', status: 'passed' },
     ],
+    ...overrides,
+  });
+}
+
+export function buildProfileImageRolloutControl(
+  overrides: Partial<ProfileImageRolloutControl> = {},
+): ProfileImageRolloutControl {
+  return profileImageRolloutControlSchema.parse({
+    nodeId: nodeIds.alpha,
+    profileId: 'build',
+    architecture: 'linux/amd64',
+    currentImageReference: 'ghcr.io/example/runner:current',
+    currentImageDigest: `sha256:${'1'.repeat(64)}`,
+    currentLocalImageId: `sha256:${'2'.repeat(64)}`,
+    currentWorkerRevision: '3'.repeat(64),
+    staticFingerprint: '4'.repeat(64),
+    preservedConfigurationFingerprint: '5'.repeat(64),
+    routingFingerprint: '6'.repeat(64),
+    desiredGeneration: 4,
+    desiredStateHash: 'a'.repeat(64),
+    allowedRecipeIds: ['ubuntu-runner'],
+    rolloutAllowed: true,
+    localSchemaSupported: true,
+    localFailureCategory: null,
+    operationActive: false,
+    observedStateAgeSeconds: 5,
+    observedStateMaximumAgeSeconds: 120,
+    observedStateFresh: true,
+    managerConvergenceStatus: 'current',
+    currentWorkers: 2,
+    staleWorkers: 0,
+    latestCommand: null,
+    recentCommands: [],
+    ...overrides,
+  });
+}
+
+export function buildProfileImageRolloutCommand(
+  overrides: Partial<ProfileImageRolloutCommand> = {},
+): ProfileImageRolloutCommand {
+  return profileImageRolloutCommandSchema.parse({
+    commandId: '70400000-0000-4000-8000-000000000004',
+    candidateId: '70300000-0000-4000-8000-000000000003',
+    recipeId: 'ubuntu-runner',
+    targetDigest: `sha256:${'e'.repeat(64)}`,
+    targetPlatform: 'linux/amd64',
+    previousImageReference: null,
+    previousImageDigest: null,
+    previousWorkerRevision: null,
+    status: 'started',
+    failureCategory: null,
+    requestedByGitHubUserId: '1001',
+    requestedAt: '2026-08-28T12:20:00+00:00',
+    expiresAt: '2026-08-28T12:50:00+00:00',
+    deliveredAt: '2026-08-28T12:20:05+00:00',
+    claimedAt: '2026-08-28T12:20:06+00:00',
+    startedAt: '2026-08-28T12:20:07+00:00',
+    completedAt: null,
+    targetWorkerRevision: null,
+    managerConvergenceStatus: null,
+    currentWorkers: null,
+    staleWorkers: null,
+    lastError: null,
+    resultMessage: null,
+    previousCandidateId: null,
+    previousRecipeId: null,
     ...overrides,
   });
 }

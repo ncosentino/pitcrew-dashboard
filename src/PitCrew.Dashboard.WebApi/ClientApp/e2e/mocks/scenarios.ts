@@ -15,6 +15,7 @@ import {
   buildImageBuildRequest,
   buildImageCandidate,
   buildImageRecipeRegistration,
+  buildProfileImageRolloutControl,
   buildProfile,
   buildSession,
   buildTenantMembers,
@@ -39,6 +40,7 @@ function buildScenarioSupport(
     imageRecipeRegistrations: [buildImageRecipeRegistration()],
     imageBuildRequests: [buildImageBuildRequest()],
     imageCandidates: [buildImageCandidate()],
+    profileImageRolloutControl: buildProfileImageRolloutControl(),
   };
 }
 

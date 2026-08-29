@@ -625,11 +625,13 @@ public sealed class SqliteRecoveryCommandStoreTests
 
           DROP TRIGGER trg_capacity_commands_require_operation_slot;
           DROP TRIGGER trg_recovery_commands_require_operation_slot;
+          DROP TRIGGER trg_image_rollout_commands_require_operation_slot;
           DROP TRIGGER trg_recovery_commands_insert_queued;
           DROP TRIGGER trg_recovery_commands_immutable;
           DROP TRIGGER trg_recovery_commands_transitions;
           DROP TRIGGER trg_recovery_commands_terminal_evidence;
 
+          DROP TABLE image_rollout_commands;
           DROP TABLE recovery_commands;
           DROP TABLE profile_active_operations;
           """,
@@ -640,7 +642,16 @@ public sealed class SqliteRecoveryCommandStoreTests
           ALTER TABLE nodes DROP COLUMN recovery_capability_json;
 
           ALTER TABLE nodes DROP COLUMN recovery_capability_at;
+
+          ALTER TABLE nodes DROP COLUMN image_rollout_capability_json;
+
+          ALTER TABLE nodes DROP COLUMN image_rollout_capability_at;
           """,
+          cancellationToken);
+
+      await ExecuteRawAsync(
+          connectionFactory,
+          "DELETE FROM schema_migrations WHERE version = 29;",
           cancellationToken);
 
       await new SqliteMigrationRunner(connectionFactory).ApplyAsync(

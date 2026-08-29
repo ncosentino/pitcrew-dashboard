@@ -147,6 +147,36 @@ public sealed class FleetDashboardOptions
   public int RecoveryCapabilityFreshnessSeconds { get; set; } = 120;
 
   /// <summary>
+  /// Gets or sets how long a queued profile-image rollout command remains deliverable.
+  /// </summary>
+  [Range(1, 1440)]
+  public int ImageRolloutCommandLifetimeMinutes { get; set; } = 15;
+
+  /// <summary>
+  /// Gets or sets when an unclaimed profile-image rollout command may be offered again.
+  /// </summary>
+  [Range(30, 3600)]
+  public int ImageRolloutCommandRedeliverySeconds { get; set; } = 120;
+
+  /// <summary>
+  /// Gets or sets the minimum delay between profile-image rollout requests for one profile.
+  /// </summary>
+  [Range(1, 3600)]
+  public int ImageRolloutCommandCooldownSeconds { get; set; } = 60;
+
+  /// <summary>
+  /// Gets or sets the oldest connector rollout capability accepted when queueing.
+  /// </summary>
+  [Range(10, 3600)]
+  public int ImageRolloutCapabilityFreshnessSeconds { get; set; } = 120;
+
+  /// <summary>
+  /// Gets or sets how many terminal rollout commands are retained per profile.
+  /// </summary>
+  [Range(1, 500)]
+  public int ImageRolloutHistoryPerProfile { get; set; } = 20;
+
+  /// <summary>
   /// Gets or sets how long per-observation historical telemetry samples are retained.
   /// </summary>
   /// <remarks>
@@ -414,6 +444,11 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "RecoveryCapabilityFreshnessSeconds must be at least twice ConnectorPollSeconds.";
+    }
+    if (ImageRolloutCapabilityFreshnessSeconds < ConnectorPollSeconds * 2)
+    {
+      yield return
+          "ImageRolloutCapabilityFreshnessSeconds must be at least twice ConnectorPollSeconds.";
     }
     if (TelemetryRollupRetentionDays < TelemetrySampleRetentionDays)
     {
