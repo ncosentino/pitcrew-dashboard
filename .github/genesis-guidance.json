@@ -355,6 +355,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0013-typed-profile-image-rollout.md",
+        "title": "ADR-0013: Typed profile image rollout through outbound connectors",
+        "section": "Architecture decisions",
+        "order": 113,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",
