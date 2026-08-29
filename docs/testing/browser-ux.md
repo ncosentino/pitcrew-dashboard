@@ -25,16 +25,21 @@ GitHub OAuth credential is required or contacted.
 ## What it covers
 
 - **Route matrix**: Fleet Overview, Incidents, Node Overview, Node Administration,
-  Profile Overview, Runners, Settings (General, Access, Enrollment, Diagnostics), and an unknown route
-  (404), each rendered in light/dark at desktop (1440×900), wide (1280×800),
+  Profile Overview, Runners, Image Candidates, Image Recipes, Settings (General,
+  Access, Enrollment, Diagnostics), Support (Overview, Sessions), and an unknown
+  route (404), each rendered in light/dark at desktop (1440×900), wide (1280×800),
   intermediate (768×1024), strict mobile (390×844), and narrow (320×568) sizes —
-  110 combinations.
+  160 combinations.
 - **Settings roles and states** (`e2e/settings.spec.ts`): owner, administrator,
   viewer, system administrator, tenantless access, branded loading, active primary
   and section navigation, copyable IDs, and membership/credential confirmations.
 - **Authenticated shell** (`e2e/shell.spec.ts`): Monitor/Operate/Configure grouping,
   remembered compact desktop rail, keyboard collapse, long tenant identity, incident
   attention, system administration, and equivalent mobile tenant/account controls.
+- **Runner image candidates** (`e2e/images.spec.ts`): immutable ready evidence,
+  blocked/active/ready request ordering, missing-selection recovery, trusted recipe
+  confirmation, viewer read-only state, 100-record bounded inventory, and long-content
+  containment.
 - **Fleet and incident interpretation states** (`e2e/incidents.spec.ts`):
   critical/warning mixes, connector evidence present and unavailable, acknowledged,
   resolved, truncated history, severity-aware primary navigation, and labeled

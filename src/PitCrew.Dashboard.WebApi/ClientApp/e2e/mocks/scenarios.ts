@@ -12,6 +12,9 @@ import {
   buildFleetResponse,
   buildIncident,
   buildIncidentPage,
+  buildImageBuildRequest,
+  buildImageCandidate,
+  buildImageRecipeRegistration,
   buildProfile,
   buildSession,
   buildTenantMembers,
@@ -33,6 +36,9 @@ function buildScenarioSupport(
     diagnosticCredentials: buildDiagnosticCredentials(),
     enrollmentCode: buildEnrollmentCode(),
     diagnosticCredentialCreated: buildDiagnosticCredentialCreated(),
+    imageRecipeRegistrations: [buildImageRecipeRegistration()],
+    imageBuildRequests: [buildImageBuildRequest()],
+    imageCandidates: [buildImageCandidate()],
   };
 }
 

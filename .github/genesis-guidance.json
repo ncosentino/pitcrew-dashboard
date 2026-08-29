@@ -479,6 +479,22 @@
       "reason": "Support UI files compose frontend, support-plane, accessibility, and untrusted-result rendering guidance."
     },
     {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/**/*.ts",
+      "maxLines": 400,
+      "maxBytes": 20480,
+      "phase": "migration",
+      "owner": "ADR-0009 and ncosentino/pitcrew-dashboard#150",
+      "reason": "Image API contracts compose frontend, typed boundary, candidate-authority, and immutable-evidence guidance."
+    },
+    {
+      "pattern": "src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/**/*.tsx",
+      "maxLines": 450,
+      "maxBytes": 24576,
+      "phase": "migration",
+      "owner": "ADR-0009 and ncosentino/pitcrew-dashboard#150",
+      "reason": "Image workspaces compose frontend, candidate-authority, confirmation, accessibility, and unavailable-state guidance."
+    },
+    {
       "pattern": "src/**/*Tests/**/*.cs",
       "maxLines": 600,
       "maxBytes": 32768,

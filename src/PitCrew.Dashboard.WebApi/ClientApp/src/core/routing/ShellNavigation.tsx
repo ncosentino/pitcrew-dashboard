@@ -3,6 +3,7 @@ import {
   ActivityIcon,
   Building2Icon,
   LifeBuoyIcon,
+  PackageCheckIcon,
   ServerIcon,
   SettingsIcon,
   TriangleAlertIcon,
@@ -50,6 +51,7 @@ const navigationGroups: ReadonlyArray<{
 const navigationIcons: Record<FeatureNavigationIcon, LucideIcon> = {
   fleet: ActivityIcon,
   incidents: TriangleAlertIcon,
+  images: PackageCheckIcon,
   runners: ServerIcon,
   support: LifeBuoyIcon,
   settings: SettingsIcon,

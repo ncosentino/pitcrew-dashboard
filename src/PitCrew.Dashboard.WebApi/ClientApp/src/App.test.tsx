@@ -428,17 +428,17 @@ describe('authenticated routing', () => {
   it.each([
     {
       role: 'viewer',
-      visible: ['Fleet'],
+      visible: ['Fleet', 'Runner images'],
       hidden: ['Settings', 'Enrollment'],
     },
     {
       role: 'administrator',
-      visible: ['Fleet', 'Settings'],
+      visible: ['Fleet', 'Runner images', 'Settings'],
       hidden: ['Enrollment'],
     },
     {
       role: 'owner',
-      visible: ['Fleet', 'Settings'],
+      visible: ['Fleet', 'Runner images', 'Settings'],
       hidden: ['Enrollment'],
     },
   ] as const)('shows only $role tenant navigation', async ({ role, visible, hidden }) => {
@@ -601,7 +601,7 @@ describe('authenticated routing', () => {
       within(dialog)
         .getAllByRole('link')
         .map((link) => link.getAttribute('aria-label')),
-    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Support', 'Settings']);
+    ).toEqual(['Fleet', 'Incidents', 'Runners', 'Runner images', 'Support', 'Settings']);
     expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     await user.click(within(dialog).getByRole('link', { name: 'Settings' }));
 

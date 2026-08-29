@@ -29,6 +29,14 @@ import {
 } from '../../src/core/fleet/fleetApi';
 import { incidentPageSchema, type IncidentPage } from '../../src/features/fleet/incidentsApi';
 import {
+  imageBuildRequestSchema,
+  imageCandidateSchema,
+  imageRecipeRegistrationSchema,
+  type ImageBuildRequest,
+  type ImageCandidate,
+  type ImageRecipeRegistration,
+} from '../../src/features/images/imagesApi';
+import {
   diagnosticCredentialCreatedSchema,
   diagnosticCredentialSchema,
   dashboardUsersSchema,
@@ -81,6 +89,100 @@ export function buildSession(
     isSystemAdministrator: false,
     tenants: role === null ? [] : [buildTenantAccess(role)],
     antiforgeryToken: 'e2e-antiforgery-token',
+    ...overrides,
+  });
+}
+
+export function buildImageRecipeRegistration(
+  overrides: Partial<ImageRecipeRegistration> = {},
+): ImageRecipeRegistration {
+  return imageRecipeRegistrationSchema.parse({
+    registrationId: '70100000-0000-4000-8000-000000000001',
+    version: 1,
+    githubInstallationId: '101',
+    githubRepositoryId: '202',
+    githubWorkflowId: '303',
+    repositoryOwner: 'example',
+    repositoryName: 'runner-images',
+    workflowPath: '.github/workflows/build-runner-image.yml',
+    workflowBlobSha: 'a'.repeat(40),
+    dispatchRef: 'refs/heads/main',
+    recipeId: 'ubuntu-runner',
+    candidateSchemaVersion: 1,
+    allowedSourceRefs: ['refs/heads/main'],
+    inputs: [
+      {
+        name: 'ubuntuVersion',
+        type: 'string',
+        required: true,
+        maxLength: 16,
+        allowedValues: ['24.04', '22.04'],
+      },
+    ],
+    createdByGitHubUserId: '1001',
+    createdAt: '2026-08-28T12:00:00+00:00',
+    disabledByGitHubUserId: null,
+    disabledAt: null,
+    ...overrides,
+  });
+}
+
+export function buildImageBuildRequest(
+  overrides: Partial<ImageBuildRequest> = {},
+): ImageBuildRequest {
+  return imageBuildRequestSchema.parse({
+    requestId: '70200000-0000-4000-8000-000000000002',
+    registrationId: '70100000-0000-4000-8000-000000000001',
+    registrationVersion: 1,
+    recipeId: 'ubuntu-runner',
+    sourceRepository: 'example/runner-images',
+    sourceRef: 'refs/heads/main',
+    sourceCommit: 'b'.repeat(40),
+    status: 'ready',
+    githubRunId: '98765',
+    githubRunApiUrl: 'https://api.github.com/repos/example/runner-images/actions/runs/98765',
+    githubRunHtmlUrl: 'https://github.com/example/runner-images/actions/runs/98765',
+    terminalCategory: null,
+    terminalDetail: null,
+    requestedAt: '2026-08-28T12:05:00+00:00',
+    updatedAt: '2026-08-28T12:15:00+00:00',
+    ...overrides,
+  });
+}
+
+export function buildImageCandidate(overrides: Partial<ImageCandidate> = {}): ImageCandidate {
+  return imageCandidateSchema.parse({
+    candidateId: '70300000-0000-4000-8000-000000000003',
+    requestId: '70200000-0000-4000-8000-000000000002',
+    registrationId: '70100000-0000-4000-8000-000000000001',
+    registrationVersion: 1,
+    outcome: 'ready',
+    recipeId: 'ubuntu-runner',
+    sourceRepository: 'example/runner-images',
+    sourceCommit: 'b'.repeat(40),
+    githubRunId: '98765',
+    githubRunApiUrl: 'https://api.github.com/repos/example/runner-images/actions/runs/98765',
+    githubRunUrl: 'https://github.com/example/runner-images/actions/runs/98765',
+    artifactId: '4567',
+    artifactName: 'pitcrew-image-candidate',
+    artifactDigest: `sha256:${'c'.repeat(64)}`,
+    reportHash: 'd'.repeat(64),
+    imageReference: 'ghcr.io/example/runner:candidate',
+    digest: `sha256:${'e'.repeat(64)}`,
+    immutableReference: `ghcr.io/example/runner@sha256:${'e'.repeat(64)}`,
+    platform: 'linux/amd64',
+    outputMode: 'registry',
+    failureCategory: null,
+    failureDetail: null,
+    createdAt: '2026-08-28T12:14:00+00:00',
+    storedAt: '2026-08-28T12:15:00+00:00',
+    qualifications: [
+      { name: 'image-build', status: 'passed' },
+      { name: 'buildkit-digest', status: 'passed' },
+      { name: 'registry-digest', status: 'passed' },
+      { name: 'oci-manifest', status: 'passed' },
+      { name: 'builder-cleanup', status: 'passed' },
+    ],
     ...overrides,
   });
 }
