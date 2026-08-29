@@ -113,7 +113,7 @@ jobs:
               -FilePath $assets
 
       - name: Upload support package artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: support-plane-${{ matrix.rid }}
           path: artifacts/support-plane-${{ matrix.rid }}/archives/*
