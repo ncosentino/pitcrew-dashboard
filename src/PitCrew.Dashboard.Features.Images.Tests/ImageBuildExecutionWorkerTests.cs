@@ -19,7 +19,7 @@ namespace PitCrew.Dashboard.Features.Images.Tests;
 public sealed class ImageBuildExecutionWorkerTests
 {
   [Test]
-  public async Task Worker_Dispatches_Frozen_Authority_And_Qualifies_Exact_Run(
+  public async Task Worker_Dispatches_And_Persists_Ready_Exact_Run_Candidate(
       CancellationToken cancellationToken)
   {
     var databasePath =
@@ -100,6 +100,38 @@ public sealed class ImageBuildExecutionWorkerTests
           repository,
           new string('c', 40),
           new string('a', 40));
+      var archive = ImageCandidateArchiveTestData.CreateArchive(
+          ImageCandidateArchiveTestData.CreateReadyReport());
+      var artifact = ImageCandidateArchiveTestData.CreateArtifact(
+          archive,
+          now);
+      clientMock.Setup(client => client.ListWorkflowRunArtifactsAsync(
+              1001,
+              repository,
+              7001,
+              100,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(new GitHubClientOutcome<GitHubWorkflowArtifactList>(
+              GitHubClientOutcomeKind.Success,
+              new GitHubWorkflowArtifactList(1, [artifact]),
+              null,
+              null))
+          .Verifiable();
+      clientMock.Setup(client => client.DownloadWorkflowArtifactArchiveAsync(
+              1001,
+              repository,
+              artifact,
+              262_144,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(
+              new GitHubClientOutcome<GitHubWorkflowArtifactArchive>(
+                  GitHubClientOutcomeKind.Success,
+                  new GitHubWorkflowArtifactArchive(
+                      artifact.Id,
+                      archive),
+                  null,
+                  null))
+          .Verifiable();
 
       await using var factory = CreateFactory(
           fakeTime,
@@ -128,6 +160,15 @@ public sealed class ImageBuildExecutionWorkerTests
           "tenant-a",
           requestId,
           cancellationToken);
+      var qualified = await worker.ProcessOnceAsync(cancellationToken);
+      var ready = await store.GetBuildRequestOrNullAsync(
+          "tenant-a",
+          requestId,
+          cancellationToken);
+      var candidate = await store.GetCandidateOrNullAsync(
+          "tenant-a",
+          requestId,
+          cancellationToken);
 
       await Assert.That(dispatched).IsEqualTo(1);
       await Assert.That(building!.Status)
@@ -140,6 +181,194 @@ public sealed class ImageBuildExecutionWorkerTests
       await Assert.That(polled).IsEqualTo(1);
       await Assert.That(qualifying!.Status)
           .IsEqualTo(ImageBuildRequestStatus.Qualifying);
+      await Assert.That(qualified).IsEqualTo(1);
+      await Assert.That(ready!.Status)
+          .IsEqualTo(ImageBuildRequestStatus.Ready);
+      await Assert.That(candidate).IsNotNull();
+      await Assert.That(candidate!.Candidate)
+          .IsTypeOf<ReadyImageCandidate>();
+      await Assert.That(candidate.Qualifications).Count().IsEqualTo(4);
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      ImagesFeatureTestEnvironment.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Qualifying_Transient_GitHub_Failure_Remains_Retryable(
+      CancellationToken cancellationToken)
+  {
+    var databasePath =
+        ImagesFeatureTestEnvironment.CreateDatabasePath("qualifying-retry");
+    var now = new DateTimeOffset(
+        2026,
+        8,
+        24,
+        2,
+        30,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration =
+          new ImagesFeatureTestConfigurationScope(databasePath);
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      var requestId = Guid.NewGuid();
+      var repository = Repository();
+      clientMock.Setup(client => client.ListWorkflowRunArtifactsAsync(
+              1001,
+              repository,
+              7001,
+              100,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(new GitHubClientOutcome<GitHubWorkflowArtifactList>(
+              GitHubClientOutcomeKind.TransientFailure,
+              null,
+              null,
+              "never-log-this-detail"))
+          .Verifiable();
+
+      await using var factory = CreateFactory(
+          fakeTime,
+          clientMock.Object);
+      using var client = factory.CreateClient();
+      var worker = await GetStoppedWorkerAsync(factory, cancellationToken);
+      var store = factory.Services.GetRequiredService<IImageCandidateStore>();
+      await SeedAsync(
+          factory.Services,
+          store,
+          requestId,
+          now,
+          cancellationToken);
+      await AdvanceToQualifyingAsync(
+          store,
+          requestId,
+          now,
+          cancellationToken);
+
+      var processed = await worker.ProcessOnceAsync(cancellationToken);
+      var immediateReplay = await worker.ProcessOnceAsync(cancellationToken);
+      var request = await store.GetBuildRequestOrNullAsync(
+          "tenant-a",
+          requestId,
+          cancellationToken);
+      var candidate = await store.GetCandidateOrNullAsync(
+          "tenant-a",
+          requestId,
+          cancellationToken);
+
+      await Assert.That(processed).IsEqualTo(1);
+      await Assert.That(immediateReplay).IsEqualTo(0);
+      await Assert.That(request!.Status)
+          .IsEqualTo(ImageBuildRequestStatus.Qualifying);
+      await Assert.That(candidate).IsNull();
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      ImagesFeatureTestEnvironment.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Qualifying_Failed_Report_Persists_Failed_Candidate(
+      CancellationToken cancellationToken)
+  {
+    var databasePath =
+        ImagesFeatureTestEnvironment.CreateDatabasePath("qualifying-failed");
+    var now = new DateTimeOffset(
+        2026,
+        8,
+        24,
+        2,
+        45,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration =
+          new ImagesFeatureTestConfigurationScope(databasePath);
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      var requestId = Guid.NewGuid();
+      var repository = Repository();
+      var archive = ImageCandidateArchiveTestData.CreateArchive(
+          ImageCandidateArchiveTestData.CreateFailedReport());
+      var artifact = ImageCandidateArchiveTestData.CreateArtifact(
+          archive,
+          now);
+      clientMock.Setup(client => client.ListWorkflowRunArtifactsAsync(
+              1001,
+              repository,
+              7001,
+              100,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(new GitHubClientOutcome<GitHubWorkflowArtifactList>(
+              GitHubClientOutcomeKind.Success,
+              new GitHubWorkflowArtifactList(1, [artifact]),
+              null,
+              null))
+          .Verifiable();
+      clientMock.Setup(client => client.DownloadWorkflowArtifactArchiveAsync(
+              1001,
+              repository,
+              artifact,
+              262_144,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(
+              new GitHubClientOutcome<GitHubWorkflowArtifactArchive>(
+                  GitHubClientOutcomeKind.Success,
+                  new GitHubWorkflowArtifactArchive(
+                      artifact.Id,
+                      archive),
+                  null,
+                  null))
+          .Verifiable();
+
+      await using var factory = CreateFactory(
+          fakeTime,
+          clientMock.Object);
+      using var client = factory.CreateClient();
+      var worker = await GetStoppedWorkerAsync(factory, cancellationToken);
+      var store = factory.Services.GetRequiredService<IImageCandidateStore>();
+      await SeedAsync(
+          factory.Services,
+          store,
+          requestId,
+          now,
+          cancellationToken);
+      await AdvanceToQualifyingAsync(
+          store,
+          requestId,
+          now,
+          cancellationToken);
+
+      var processed = await worker.ProcessOnceAsync(cancellationToken);
+      var request = await store.GetBuildRequestOrNullAsync(
+          "tenant-a",
+          requestId,
+          cancellationToken);
+      var candidate = await store.GetCandidateOrNullAsync(
+          "tenant-a",
+          requestId,
+          cancellationToken);
+
+      await Assert.That(processed).IsEqualTo(1);
+      await Assert.That(request!.Status)
+          .IsEqualTo(ImageBuildRequestStatus.Failed);
+      await Assert.That(request.TerminalCategory)
+          .IsEqualTo("build-failed");
+      await Assert.That(candidate).IsNotNull();
+      await Assert.That(candidate!.Candidate)
+          .IsTypeOf<FailedImageCandidate>();
+      await Assert.That(candidate.Qualifications).Count().IsEqualTo(4);
       mocks.VerifyAll();
       clientMock.VerifyNoOtherCalls();
     }
@@ -462,6 +691,17 @@ public sealed class ImageBuildExecutionWorkerTests
           .ReturnsAsync(RevisionOutcome(
               new string('c', 40),
               new string('a', 40)));
+      clientMock.Setup(client => client.ListWorkflowRunArtifactsAsync(
+              1001,
+              repository,
+              7001,
+              100,
+              It.IsAny<CancellationToken>()))
+          .ReturnsAsync(new GitHubClientOutcome<GitHubWorkflowArtifactList>(
+              GitHubClientOutcomeKind.TransientFailure,
+              null,
+              null,
+              "transient"));
 
       await using (var firstFactory = CreateFactory(
           fakeTime,
@@ -1579,5 +1819,49 @@ public sealed class ImageBuildExecutionWorkerTests
         "refs/heads/main",
         null);
     await store.CreateBuildRequestAsync(request, cancellationToken);
+  }
+
+  private static async Task AdvanceToQualifyingAsync(
+      IImageCandidateStore store,
+      Guid requestId,
+      DateTimeOffset now,
+      CancellationToken cancellationToken)
+  {
+    await store.ApplyBuildRequestTransitionAsync(
+        "tenant-a",
+        requestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Requested,
+            ImageBuildRequestStatus.Dispatching,
+            null,
+            null,
+            null,
+            null,
+            now),
+        cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        "tenant-a",
+        requestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Dispatching,
+            ImageBuildRequestStatus.Building,
+            7001,
+            RunHtmlUrl().AbsoluteUri,
+            null,
+            null,
+            now),
+        cancellationToken);
+    await store.ApplyBuildRequestTransitionAsync(
+        "tenant-a",
+        requestId,
+        new ImageBuildRequestTransition(
+            ImageBuildRequestStatus.Building,
+            ImageBuildRequestStatus.Qualifying,
+            7001,
+            RunHtmlUrl().AbsoluteUri,
+            null,
+            null,
+            now),
+        cancellationToken);
   }
 }

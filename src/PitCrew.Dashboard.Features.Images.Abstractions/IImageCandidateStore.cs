@@ -154,6 +154,30 @@ public interface IImageCandidateStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Lists bounded tenant-owned immutable candidates with complete qualifications.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the candidates.</param>
+  /// <param name="limit">Maximum candidates returned.</param>
+  /// <param name="cancellationToken">Token that cancels the query.</param>
+  /// <returns>Newest candidates first with bounded evidence.</returns>
+  Task<IReadOnlyList<ImageCandidateDetails>> ListCandidatesAsync(
+      string tenantId,
+      int limit,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Loads one tenant-owned immutable candidate with complete qualifications.
+  /// </summary>
+  /// <param name="tenantId">Tenant expected to own the candidate.</param>
+  /// <param name="candidateId">Candidate identity.</param>
+  /// <param name="cancellationToken">Token that cancels the query.</param>
+  /// <returns>The candidate details, or <see langword="null" /> when absent.</returns>
+  Task<ImageCandidateDetails?> GetCandidateOrNullAsync(
+      string tenantId,
+      Guid candidateId,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Transactionally leases a deterministic bounded batch of due active requests.
   /// </summary>
   Task<IReadOnlyList<ImageBuildExecutionClaim>> ClaimDueBuildRequestsAsync(
@@ -267,6 +291,18 @@ public interface IImageCandidateStore
       string tenantId,
       Guid requestId,
       string leaseOwner,
+      string externalStatus,
+      DateTimeOffset updatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Defers retryable exact-artifact qualification without changing the qualifying state.
+  /// </summary>
+  Task<ImageCandidateMutationResult> DeferCandidateQualificationAsync(
+      string tenantId,
+      Guid requestId,
+      string leaseOwner,
+      DateTimeOffset nextPollAt,
       string externalStatus,
       DateTimeOffset updatedAt,
       CancellationToken cancellationToken);

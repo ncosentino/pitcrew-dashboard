@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 
 using PitCrew.Dashboard.Features.Images.Abstractions;
@@ -580,7 +582,7 @@ public sealed class GitHubImageWorkflowClientTests
                   "id": 555,
                   "name": "pitcrew-image-candidate",
                   "size_in_bytes": 1234,
-                  "digest": "sha256:abcdef",
+                  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                   "expired": false,
                   "expires_at": "2026-09-01T00:00:00Z",
                   "archive_download_url": "https://api.github.com/repos/nexus-labs/pitcrew/actions/artifacts/555/zip",
@@ -618,6 +620,139 @@ public sealed class GitHubImageWorkflowClientTests
         .IsEqualTo(
             "/repos/nexus-labs/pitcrew/actions/runs/987/artifacts?per_page=10&page=1");
   }
+
+  [Test]
+  public async Task Exact_Artifact_Archive_Follows_One_Allowed_Redirect_Without_Token(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    var redirect = new Uri(
+        "https://productionresultssa0.blob.core.windows.net/actions-results/candidate.zip?sig=bounded",
+        UriKind.Absolute);
+    var expected = Encoding.UTF8.GetBytes("bounded-archive");
+    var artifact = CreateArtifact(expected.Length);
+    context.EnqueueToken();
+    context.Handler.Enqueue(new HttpResponseMessage(HttpStatusCode.Found)
+    {
+      Headers =
+      {
+        Location = redirect,
+      },
+    });
+    var archiveResponse = new HttpResponseMessage(HttpStatusCode.OK)
+    {
+      Content = new ByteArrayContent(expected),
+    };
+    archiveResponse.Content.Headers.ContentType =
+        new MediaTypeHeaderValue("application/zip");
+    context.Handler.Enqueue(archiveResponse);
+
+    var outcome = await context.Client.DownloadWorkflowArtifactArchiveAsync(
+        77,
+        repository,
+        artifact,
+        1024,
+        cancellationToken);
+
+    await Assert.That(outcome.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.Success);
+    await Assert.That(outcome.Value!.ArtifactId).IsEqualTo(555);
+    await Assert.That(outcome.Value.Content.ToArray())
+        .IsEquivalentTo(expected);
+    await Assert.That(context.Handler.Requests).Count().IsEqualTo(3);
+    await Assert.That(context.Handler.Requests[1].Headers["Authorization"])
+        .IsEqualTo("Bearer installation-token");
+    await Assert.That(
+            context.Handler.Requests[2].Headers.ContainsKey("Authorization"))
+        .IsFalse()
+        .Because("signed archive redirects must not receive installation tokens");
+    await Assert.That(context.Handler.Requests[2].Uri)
+        .IsEqualTo(redirect);
+  }
+
+  [Test]
+  public async Task Artifact_Archive_Rejects_Unexpected_Redirect_Authority(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    var artifact = CreateArtifact(64);
+    context.EnqueueToken();
+    context.Handler.Enqueue(new HttpResponseMessage(HttpStatusCode.Found)
+    {
+      Headers =
+      {
+        Location = new Uri(
+            "https://downloads.example.com/candidate.zip",
+            UriKind.Absolute),
+      },
+    });
+
+    var outcome = await context.Client.DownloadWorkflowArtifactArchiveAsync(
+        77,
+        repository,
+        artifact,
+        1024,
+        cancellationToken);
+
+    await Assert.That(outcome.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+    await Assert.That(outcome.Detail)
+        .IsEqualTo("artifact-download-redirect-invalid");
+    await Assert.That(context.Handler.Requests).Count().IsEqualTo(2);
+  }
+
+  [Test]
+  public async Task Artifact_Archive_Rejects_Response_That_Exceeds_Bound(
+      CancellationToken cancellationToken)
+  {
+    using var context = new GitHubAdapterTestContext();
+    var repository = new GitHubRepositoryIdentity(
+        42,
+        "nexus-labs",
+        "pitcrew");
+    var artifact = CreateArtifact(10);
+    context.EnqueueToken();
+    var response = new HttpResponseMessage(HttpStatusCode.OK)
+    {
+      Content = new ByteArrayContent(new byte[11]),
+    };
+    response.Content.Headers.ContentType =
+        new MediaTypeHeaderValue("application/zip");
+    context.Handler.Enqueue(response);
+
+    var outcome = await context.Client.DownloadWorkflowArtifactArchiveAsync(
+        77,
+        repository,
+        artifact,
+        10,
+        cancellationToken);
+
+    await Assert.That(outcome.Kind)
+        .IsEqualTo(GitHubClientOutcomeKind.InvalidResponse);
+    await Assert.That(outcome.Detail)
+        .IsEqualTo("response-body-oversized");
+  }
+
+  private static GitHubWorkflowArtifact CreateArtifact(long sizeInBytes) =>
+      new(
+          555,
+          987,
+          "pitcrew-image-candidate",
+          sizeInBytes,
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          false,
+          GitHubAdapterTestContext.FixedNow.AddHours(1),
+          new Uri(
+              "https://api.github.com/repos/nexus-labs/pitcrew/actions/artifacts/555/zip",
+              UriKind.Absolute));
 
   private static string CreateWorkflowContentJson(
       string path,

@@ -16,6 +16,7 @@ internal sealed partial class ImageBuildExecutionWorker(
     TimeProvider _timeProvider,
     ILogger<ImageBuildExecutionWorker> _logger) : BackgroundService
 {
+  private const int MaximumArtifactListSize = 100;
   private readonly string _leaseOwner = $"images-{Guid.NewGuid():N}";
 
   protected override async Task ExecuteAsync(
@@ -77,6 +78,8 @@ internal sealed partial class ImageBuildExecutionWorker(
                 cancellationToken),
         ImageBuildRequestStatus.Building =>
             PollAsync(claim, cancellationToken),
+        ImageBuildRequestStatus.Qualifying =>
+            QualifyAsync(claim, cancellationToken),
         _ => Task.CompletedTask,
       };
 
@@ -614,6 +617,222 @@ internal sealed partial class ImageBuildExecutionWorker(
     return false;
   }
 
+  private async Task QualifyAsync(
+      ImageBuildExecutionClaim claim,
+      CancellationToken cancellationToken)
+  {
+    if (claim.Request.GitHubRunId is null)
+    {
+      await BlockAsync(
+          claim,
+          "candidate-run-identity-missing",
+          "The exact GitHub workflow run identity is unavailable for qualification.",
+          "candidate-run-identity-missing",
+          cancellationToken);
+      return;
+    }
+
+    var repository = new GitHubRepositoryIdentity(
+        claim.Registration.GitHubRepositoryId,
+        claim.Registration.RepositoryOwner,
+        claim.Registration.RepositoryName);
+    var artifactsOutcome =
+        await _gitHubClient.ListWorkflowRunArtifactsAsync(
+            claim.Registration.GitHubInstallationId,
+            repository,
+            claim.Request.GitHubRunId.Value,
+            MaximumArtifactListSize,
+            cancellationToken);
+    if (await HandleRetryableQualificationOutcomeAsync(
+            claim,
+            artifactsOutcome.Kind,
+            artifactsOutcome.RetryAt,
+            "candidate-artifacts",
+            cancellationToken))
+    {
+      return;
+    }
+    if (artifactsOutcome.Kind == GitHubClientOutcomeKind.Cancelled &&
+        cancellationToken.IsCancellationRequested)
+    {
+      return;
+    }
+    if (artifactsOutcome.Kind != GitHubClientOutcomeKind.Success ||
+        artifactsOutcome.Value is null)
+    {
+      await BlockAsync(
+          claim,
+          QualificationCategory(
+              "candidate-artifact-list",
+              artifactsOutcome.Kind),
+          QualificationDetail(
+              "candidate artifact metadata",
+              artifactsOutcome.Kind),
+          $"candidate-artifacts-{Format(artifactsOutcome.Kind)}",
+          cancellationToken);
+      return;
+    }
+
+    var artifacts = artifactsOutcome.Value;
+    if (artifacts.TotalCount != artifacts.Artifacts.Count)
+    {
+      await BlockAsync(
+          claim,
+          "candidate-artifact-set-unbounded",
+          "The exact workflow run has more artifacts than Dashboard can inspect safely.",
+          "candidate-artifact-set-unbounded",
+          cancellationToken);
+      return;
+    }
+
+    var candidates = artifacts.Artifacts
+        .Where(artifact => string.Equals(
+            artifact.Name,
+            ImageCandidateArchiveParser.ArtifactName,
+            StringComparison.Ordinal))
+        .ToArray();
+    if (candidates.Length == 0)
+    {
+      await _store.TerminalizeBuildRequestAsync(
+          claim.Request.TenantId,
+          claim.Request.RequestId,
+          claim.LeaseOwner,
+          ImageBuildRequestStatus.Failed,
+          "candidate-artifact-missing",
+          "The required candidate artifact was not published.",
+          "candidate-artifact-missing",
+          _timeProvider.GetUtcNow(),
+          cancellationToken);
+      return;
+    }
+    if (candidates.Length != 1)
+    {
+      await BlockAsync(
+          claim,
+          "candidate-artifact-ambiguous",
+          "The exact workflow run published duplicate candidate artifacts.",
+          "candidate-artifact-ambiguous",
+          cancellationToken);
+      return;
+    }
+
+    var artifact = candidates[0];
+    var now = _timeProvider.GetUtcNow();
+    if (artifact.Expired || artifact.ExpiresAt <= now)
+    {
+      await BlockAsync(
+          claim,
+          "candidate-artifact-expired",
+          "The exact candidate artifact expired before it could be validated.",
+          "candidate-artifact-expired",
+          cancellationToken);
+      return;
+    }
+
+    var archiveOutcome =
+        await _gitHubClient.DownloadWorkflowArtifactArchiveAsync(
+            claim.Registration.GitHubInstallationId,
+            repository,
+            artifact,
+            _options.Value.MaximumArtifactArchiveBytes,
+            cancellationToken);
+    if (await HandleRetryableQualificationOutcomeAsync(
+            claim,
+            archiveOutcome.Kind,
+            archiveOutcome.RetryAt,
+            "candidate-archive",
+            cancellationToken))
+    {
+      return;
+    }
+    if (archiveOutcome.Kind == GitHubClientOutcomeKind.Cancelled &&
+        cancellationToken.IsCancellationRequested)
+    {
+      return;
+    }
+    if (archiveOutcome.Kind != GitHubClientOutcomeKind.Success ||
+        archiveOutcome.Value is null)
+    {
+      await BlockAsync(
+          claim,
+          QualificationCategory(
+              "candidate-artifact-download",
+              archiveOutcome.Kind),
+          QualificationDetail(
+              "candidate artifact archive",
+              archiveOutcome.Kind),
+          $"candidate-archive-{Format(archiveOutcome.Kind)}",
+          cancellationToken);
+      return;
+    }
+
+    var parsed = ImageCandidateArchiveParser.Parse(
+        claim,
+        artifact,
+        archiveOutcome.Value,
+        _options.Value.MaximumArtifactArchiveBytes,
+        _options.Value.MaximumCandidateReportBytes);
+    if (!parsed.Succeeded ||
+        parsed.Candidate is null)
+    {
+      await BlockAsync(
+          claim,
+          parsed.ErrorCode ?? "candidate-report-invalid",
+          parsed.ErrorDetail ??
+              "The candidate report does not satisfy the trusted contract.",
+          parsed.ErrorCode ?? "candidate-report-invalid",
+          cancellationToken);
+      return;
+    }
+
+    var stored = await _store.StoreCandidateAsync(
+        claim.Request.TenantId,
+        parsed.Candidate,
+        parsed.Qualifications,
+        cancellationToken);
+    if (stored is ImageCandidateMutationResult.Succeeded
+        or ImageCandidateMutationResult.Unchanged
+        or ImageCandidateMutationResult.NotFound)
+    {
+      return;
+    }
+
+    await BlockAsync(
+        claim,
+        "candidate-persistence-conflict",
+        "The validated candidate could not be committed to durable state.",
+        "candidate-persistence-conflict",
+        cancellationToken);
+  }
+
+  private async Task<bool> HandleRetryableQualificationOutcomeAsync(
+      ImageBuildExecutionClaim claim,
+      GitHubClientOutcomeKind kind,
+      DateTimeOffset? retryAt,
+      string externalStatusPrefix,
+      CancellationToken cancellationToken)
+  {
+    if (kind is not (
+        GitHubClientOutcomeKind.RateLimited or
+        GitHubClientOutcomeKind.TransientFailure or
+        GitHubClientOutcomeKind.TimedOut))
+    {
+      return false;
+    }
+
+    var now = _timeProvider.GetUtcNow();
+    await _store.DeferCandidateQualificationAsync(
+        claim.Request.TenantId,
+        claim.Request.RequestId,
+        claim.LeaseOwner,
+        Max(now, retryAt)
+            ?? now.Add(CalculateBackoff(claim.PollAttempts + 1)),
+        $"{externalStatusPrefix}-{Format(kind)}",
+        now,
+        cancellationToken);
+    return true;
+  }
+
   private Task DeferRunPollAsync(
       ImageBuildExecutionClaim claim,
       DateTimeOffset nextPollAt,
@@ -759,6 +978,42 @@ internal sealed partial class ImageBuildExecutionWorker(
         GitHubClientOutcomeKind.InvalidResponse =>
             "GitHub returned an invalid exact workflow run response.",
         _ => "The exact workflow run cannot be polled safely.",
+      };
+
+  private static string QualificationCategory(
+      string prefix,
+      GitHubClientOutcomeKind kind) =>
+      kind switch
+      {
+        GitHubClientOutcomeKind.NotConfigured =>
+            "integration-not-configured",
+        GitHubClientOutcomeKind.UnauthorizedOrForbidden =>
+            $"{prefix}-forbidden",
+        GitHubClientOutcomeKind.NotFound =>
+            $"{prefix}-not-found",
+        GitHubClientOutcomeKind.InvalidRequest =>
+            $"{prefix}-request-invalid",
+        GitHubClientOutcomeKind.InvalidResponse =>
+            $"{prefix}-response-invalid",
+        _ => $"{prefix}-blocked",
+      };
+
+  private static string QualificationDetail(
+      string evidenceName,
+      GitHubClientOutcomeKind kind) =>
+      kind switch
+      {
+        GitHubClientOutcomeKind.NotConfigured =>
+            "Trusted GitHub image execution is not configured.",
+        GitHubClientOutcomeKind.UnauthorizedOrForbidden =>
+            $"The GitHub installation cannot read the exact {evidenceName}.",
+        GitHubClientOutcomeKind.NotFound =>
+            $"The exact {evidenceName} was not found.",
+        GitHubClientOutcomeKind.InvalidRequest =>
+            $"The exact {evidenceName} request is invalid.",
+        GitHubClientOutcomeKind.InvalidResponse =>
+            $"GitHub returned invalid {evidenceName}.",
+        _ => $"The exact {evidenceName} cannot be processed safely.",
       };
 
   private static string Format(GitHubClientOutcomeKind kind) =>

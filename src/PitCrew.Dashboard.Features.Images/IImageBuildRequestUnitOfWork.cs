@@ -21,4 +21,14 @@ internal interface IImageBuildRequestUnitOfWork
       string tenantId,
       Guid requestId,
       CancellationToken cancellationToken);
+
+  Task<IReadOnlyList<ImageCandidateDetails>> ListCandidatesAsync(
+      string tenantId,
+      int limit,
+      CancellationToken cancellationToken);
+
+  Task<ImageCandidateDetails?> GetCandidateOrNullAsync(
+      string tenantId,
+      Guid candidateId,
+      CancellationToken cancellationToken);
 }

@@ -7,6 +7,7 @@ namespace PitCrew.Dashboard.Adapters.GitHub;
 internal static class GitHubTransportValidation
 {
   public const int MaximumArtifacts = 100;
+  public const int MaximumArtifactArchiveBytes = 10 * 1024 * 1024;
 
   public static bool IsPositiveId(long value) => value > 0;
 
@@ -122,6 +123,63 @@ internal static class GitHubTransportValidation
         uri.Scheme == Uri.UriSchemeHttps &&
         string.IsNullOrEmpty(uri.UserInfo) &&
         string.IsNullOrEmpty(uri.Fragment);
+  }
+
+  public static bool IsSha256Digest(string? value) =>
+      value is { Length: 71 } &&
+      value.StartsWith("sha256:", StringComparison.Ordinal) &&
+      value.AsSpan(7).ContainsAnyExcept(
+          "0123456789abcdef") is false;
+
+  public static bool IsExactUri(Uri? value, Uri expected) =>
+      value is not null &&
+      Uri.Compare(
+          value,
+          expected,
+          UriComponents.HttpRequestUrl,
+          UriFormat.UriEscaped,
+          StringComparison.Ordinal) == 0;
+
+  public static bool IsAllowedArtifactRedirect(
+      Uri apiBaseAddress,
+      Uri? value)
+  {
+    if (value is not
+        {
+          IsAbsoluteUri: true,
+          IsDefaultPort: true,
+        } ||
+        value.Scheme != Uri.UriSchemeHttps ||
+        value.OriginalString.Length > 8192 ||
+        value.UserInfo.Length != 0 ||
+        value.Fragment.Length != 0 ||
+        value.AbsolutePath.Length == 0)
+    {
+      return false;
+    }
+
+    if (string.Equals(
+            value.Host,
+            apiBaseAddress.Host,
+            StringComparison.OrdinalIgnoreCase))
+    {
+      return value.Port == apiBaseAddress.Port;
+    }
+
+    if (!string.Equals(
+            apiBaseAddress.Host,
+            "api.github.com",
+            StringComparison.OrdinalIgnoreCase))
+    {
+      return false;
+    }
+
+    return value.Host.EndsWith(
+            ".blob.core.windows.net",
+            StringComparison.OrdinalIgnoreCase) ||
+        value.Host.EndsWith(
+            ".actions.githubusercontent.com",
+            StringComparison.OrdinalIgnoreCase);
   }
 
   public static bool IsBoundedText(string? value, int maximumLength) =>

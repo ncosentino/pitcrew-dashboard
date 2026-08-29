@@ -565,6 +565,153 @@ internal sealed class SqliteImageCandidateStore(
         : null;
   }
 
+  public async Task<IReadOnlyList<ImageCandidateDetails>> ListCandidatesAsync(
+      string tenantId,
+      int limit,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        WITH bounded_candidates AS (
+            SELECT
+                candidate_id,
+                tenant_id,
+                request_id,
+                outcome,
+                recipe_id,
+                source_repository,
+                source_commit,
+                github_run_id,
+                artifact_id,
+                artifact_name,
+                artifact_digest,
+                report_hash,
+                report_json,
+                image_reference,
+                digest,
+                immutable_reference,
+                platform,
+                output_mode,
+                failure_category,
+                failure_detail,
+                created_at,
+                stored_at
+            FROM image_candidates
+            WHERE tenant_id = $tenantId
+            ORDER BY stored_at DESC, candidate_id DESC
+            LIMIT $limit
+        )
+        SELECT
+            candidate.candidate_id,
+            candidate.tenant_id,
+            candidate.request_id,
+            candidate.outcome,
+            candidate.recipe_id,
+            candidate.source_repository,
+            candidate.source_commit,
+            candidate.github_run_id,
+            candidate.artifact_id,
+            candidate.artifact_name,
+            candidate.artifact_digest,
+            candidate.report_hash,
+            candidate.report_json,
+            candidate.image_reference,
+            candidate.digest,
+            candidate.immutable_reference,
+            candidate.platform,
+            candidate.output_mode,
+            candidate.failure_category,
+            candidate.failure_detail,
+            candidate.created_at,
+            candidate.stored_at,
+            request.registration_id,
+            request.registration_version,
+            request.github_run_api_url,
+            request.github_run_url,
+            qualification.name,
+            qualification.status
+        FROM bounded_candidates candidate
+        INNER JOIN image_build_requests request
+          ON request.tenant_id = candidate.tenant_id
+          AND request.request_id = candidate.request_id
+        LEFT JOIN image_candidate_qualifications qualification
+          ON qualification.candidate_id = candidate.candidate_id
+        ORDER BY
+            candidate.stored_at DESC,
+            candidate.candidate_id DESC,
+            qualification.name;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$limit",
+        Math.Clamp(limit, 1, MaximumListLimit));
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    return await ReadCandidateDetailsAsync(reader, cancellationToken);
+  }
+
+  public async Task<ImageCandidateDetails?> GetCandidateOrNullAsync(
+      string tenantId,
+      Guid candidateId,
+      CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        SELECT
+            candidate.candidate_id,
+            candidate.tenant_id,
+            candidate.request_id,
+            candidate.outcome,
+            candidate.recipe_id,
+            candidate.source_repository,
+            candidate.source_commit,
+            candidate.github_run_id,
+            candidate.artifact_id,
+            candidate.artifact_name,
+            candidate.artifact_digest,
+            candidate.report_hash,
+            candidate.report_json,
+            candidate.image_reference,
+            candidate.digest,
+            candidate.immutable_reference,
+            candidate.platform,
+            candidate.output_mode,
+            candidate.failure_category,
+            candidate.failure_detail,
+            candidate.created_at,
+            candidate.stored_at,
+            request.registration_id,
+            request.registration_version,
+            request.github_run_api_url,
+            request.github_run_url,
+            qualification.name,
+            qualification.status
+        FROM image_candidates candidate
+        INNER JOIN image_build_requests request
+          ON request.tenant_id = candidate.tenant_id
+          AND request.request_id = candidate.request_id
+        LEFT JOIN image_candidate_qualifications qualification
+          ON qualification.candidate_id = candidate.candidate_id
+        WHERE candidate.tenant_id = $tenantId
+          AND candidate.candidate_id = $candidateId
+        ORDER BY qualification.name;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$candidateId",
+        candidateId.ToString("D"));
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+    var details = await ReadCandidateDetailsAsync(
+        reader,
+        cancellationToken);
+    return details.Count == 0 ? null : details[0];
+  }
+
   public async Task<IReadOnlyList<ImageBuildExecutionClaim>>
       ClaimDueBuildRequestsAsync(
           string leaseOwner,
@@ -592,7 +739,7 @@ internal sealed class SqliteImageCandidateStore(
           """
           SELECT request_id
           FROM image_build_requests
-          WHERE status IN ('requested', 'dispatching', 'building')
+          WHERE status IN ('requested', 'dispatching', 'building', 'qualifying')
             AND next_attempt_at <= $now
             AND (lease_owner IS NULL OR lease_expires_at <= $now)
           ORDER BY next_attempt_at, requested_at, tenant_id, request_id
@@ -623,7 +770,7 @@ internal sealed class SqliteImageCandidateStore(
           SET lease_owner = $leaseOwner,
               lease_expires_at = $leaseExpiresAt
           WHERE request_id = $requestId
-            AND status IN ('requested', 'dispatching', 'building')
+            AND status IN ('requested', 'dispatching', 'building', 'qualifying')
             AND next_attempt_at <= $now
             AND (lease_owner IS NULL OR lease_expires_at <= $now);
           """;
@@ -1047,6 +1194,48 @@ internal sealed class SqliteImageCandidateStore(
         cancellationToken);
   }
 
+  public async Task<ImageCandidateMutationResult>
+      DeferCandidateQualificationAsync(
+          string tenantId,
+          Guid requestId,
+          string leaseOwner,
+          DateTimeOffset nextPollAt,
+          string externalStatus,
+          DateTimeOffset updatedAt,
+          CancellationToken cancellationToken)
+  {
+    await using var connection = await _connectionFactory.OpenAsync(
+        cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE image_build_requests
+        SET next_attempt_at = $nextPollAt,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            poll_attempts = poll_attempts + 1,
+            last_external_status = $externalStatus,
+            updated_at = $updatedAt
+        WHERE tenant_id = $tenantId
+          AND request_id = $requestId
+          AND lease_owner = $leaseOwner
+          AND status = 'qualifying';
+        """;
+    AddLeaseIdentityParameters(
+        command,
+        tenantId,
+        requestId,
+        leaseOwner);
+    command.Parameters.AddWithValue("$nextPollAt", Format(nextPollAt));
+    command.Parameters.AddWithValue("$externalStatus", externalStatus);
+    command.Parameters.AddWithValue("$updatedAt", Format(updatedAt));
+    return await ExecuteLeasedMutationAsync(
+        command,
+        tenantId,
+        requestId,
+        cancellationToken);
+  }
+
   public async Task<ImageCandidateMutationResult> TerminalizeBuildRequestAsync(
       string tenantId,
       Guid requestId,
@@ -1087,7 +1276,7 @@ internal sealed class SqliteImageCandidateStore(
         WHERE tenant_id = $tenantId
           AND request_id = $requestId
           AND lease_owner = $leaseOwner
-          AND status IN ('requested', 'dispatching', 'building');
+          AND status IN ('requested', 'dispatching', 'building', 'qualifying');
         """;
     AddLeaseIdentityParameters(
         command,
@@ -1513,6 +1702,10 @@ internal sealed class SqliteImageCandidateStore(
         SET status = $status,
             terminal_category = $terminalCategory,
             terminal_detail = $terminalDetail,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            dispatch_safe_to_retry = 0,
+            last_external_status = 'candidate-stored',
             updated_at = $updatedAt
         WHERE tenant_id = $tenantId
           AND request_id = $requestId
@@ -1879,6 +2072,72 @@ internal sealed class SqliteImageCandidateStore(
   private static IEnumerable<ImageCandidateQualification> OrderQualifications(
       IEnumerable<ImageCandidateQualification> qualifications) =>
       qualifications.OrderBy(qualification => Format(qualification.Name));
+
+  private static async Task<IReadOnlyList<ImageCandidateDetails>>
+      ReadCandidateDetailsAsync(
+          SqliteDataReader reader,
+          CancellationToken cancellationToken)
+  {
+    var details = new List<ImageCandidateDetails>();
+    ImageCandidate? current = null;
+    Guid registrationId = default;
+    var registrationVersion = 0;
+    string? runApiUrl = null;
+    string? runUrl = null;
+    var qualifications = new List<ImageCandidateQualification>(4);
+    while (await reader.ReadAsync(cancellationToken))
+    {
+      var candidate = ReadCandidate(reader);
+      if (current is null ||
+          current.CandidateId != candidate.CandidateId)
+      {
+        if (current is not null)
+        {
+          details.Add(new ImageCandidateDetails(
+              current,
+              registrationId,
+              registrationVersion,
+              runApiUrl,
+              runUrl,
+              qualifications.ToArray()));
+          qualifications.Clear();
+        }
+
+        current = candidate;
+        registrationId = Guid.Parse(
+            reader.GetString(22),
+            CultureInfo.InvariantCulture);
+        registrationVersion = reader.GetInt32(23);
+        runApiUrl = await reader.IsDBNullAsync(24, cancellationToken)
+            ? null
+            : reader.GetString(24);
+        runUrl = await reader.IsDBNullAsync(25, cancellationToken)
+            ? null
+            : reader.GetString(25);
+      }
+
+      if (!await reader.IsDBNullAsync(26, cancellationToken) &&
+          !await reader.IsDBNullAsync(27, cancellationToken))
+      {
+        qualifications.Add(new ImageCandidateQualification(
+            candidate.CandidateId,
+            ParseQualificationName(reader.GetString(26)),
+            ParseQualificationStatus(reader.GetString(27))));
+      }
+    }
+
+    if (current is not null)
+    {
+      details.Add(new ImageCandidateDetails(
+          current,
+          registrationId,
+          registrationVersion,
+          runApiUrl,
+          runUrl,
+          qualifications.ToArray()));
+    }
+    return details;
+  }
 
   private static void AddRecipeParameters(
       SqliteCommand command,

@@ -31,6 +31,14 @@ public sealed class ImageBuildExecutionOptions
   [Range(30, 86400)]
   public int NotFoundGraceSeconds { get; set; } = 300;
 
+  /// <summary>Gets or sets the maximum compressed candidate artifact bytes.</summary>
+  [Range(1024, 10 * 1024 * 1024)]
+  public int MaximumArtifactArchiveBytes { get; set; } = 262_144;
+
+  /// <summary>Gets or sets the maximum expanded candidate report bytes.</summary>
+  [Range(1024, 32_768)]
+  public int MaximumCandidateReportBytes { get; set; } = 32_768;
+
   public IEnumerable<ValidationError> Validate()
   {
     if (ClaimLeaseSeconds <= PollIntervalSeconds)
@@ -42,6 +50,11 @@ public sealed class ImageBuildExecutionOptions
     {
       yield return
           "MaximumRetryBackoffSeconds must be at least RetryBackoffSeconds.";
+    }
+    if (MaximumCandidateReportBytes > MaximumArtifactArchiveBytes)
+    {
+      yield return
+          "MaximumCandidateReportBytes must not exceed MaximumArtifactArchiveBytes.";
     }
   }
 }

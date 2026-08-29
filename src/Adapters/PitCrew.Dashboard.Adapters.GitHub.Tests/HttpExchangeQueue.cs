@@ -49,6 +49,8 @@ internal sealed class HttpExchangeQueue
       throw new InvalidOperationException(
           "No deterministic HTTP response was queued.");
     }
-    return await response(request, cancellationToken);
+    var result = await response(request, cancellationToken);
+    result.RequestMessage ??= request;
+    return result;
   }
 }

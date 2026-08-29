@@ -217,6 +217,24 @@ internal sealed class ImageBuildRequestUnitOfWork(
           requestId,
           cancellationToken);
 
+  public Task<IReadOnlyList<ImageCandidateDetails>> ListCandidatesAsync(
+      string tenantId,
+      int limit,
+      CancellationToken cancellationToken) =>
+      _imageCandidateStore.ListCandidatesAsync(
+          tenantId,
+          limit,
+          cancellationToken);
+
+  public Task<ImageCandidateDetails?> GetCandidateOrNullAsync(
+      string tenantId,
+      Guid candidateId,
+      CancellationToken cancellationToken) =>
+      _imageCandidateStore.GetCandidateOrNullAsync(
+          tenantId,
+          candidateId,
+          cancellationToken);
+
   private async Task<DashboardUser?> GetActorOrNullAsync(
       ClaimsPrincipal principal,
       DateTimeOffset observedAt,
