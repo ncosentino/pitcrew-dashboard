@@ -24,6 +24,11 @@ function qualificationLabel(name: ImageCandidate['qualifications'][number]['name
   return name.replaceAll('-', ' ');
 }
 
+function formatLifecycle(status: ImageBuildRequest['status']): string {
+  const label = status.replaceAll('-', ' ');
+  return label.charAt(0).toLocaleUpperCase() + label.slice(1);
+}
+
 /** Presents one build request and its immutable candidate evidence without raw workflow logs. */
 export function ImageCandidateDetail({
   request,
@@ -41,7 +46,12 @@ export function ImageCandidateDetail({
       status={
         <>
           <StatusBadge status={request.status} />
-          {candidate ? <StatusBadge status={candidate.outcome} /> : null}
+          {candidate ? (
+            <StatusBadge
+              status={candidate.outcome}
+              tone={candidate.outcome === 'ready' ? 'positive' : 'critical'}
+            />
+          ) : null}
         </>
       }
       actions={
@@ -94,7 +104,7 @@ export function ImageCandidateDetail({
             Workflow execution
           </h3>
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Fact label="Lifecycle" value={request.status} />
+            <Fact label="Lifecycle" value={formatLifecycle(request.status)} />
             <Fact label="Updated" value={formatTime(request.updatedAt)} />
             <Fact
               label="GitHub run ID"
@@ -190,7 +200,16 @@ export function ImageCandidateDetail({
                     <span className="text-sm font-medium capitalize">
                       {qualificationLabel(qualification.name)}
                     </span>
-                    <StatusBadge status={qualification.status} />
+                    <StatusBadge
+                      status={qualification.status}
+                      tone={
+                        qualification.status === 'passed'
+                          ? 'positive'
+                          : qualification.status === 'failed'
+                            ? 'critical'
+                            : 'caution'
+                      }
+                    />
                   </li>
                 ))}
               </ul>

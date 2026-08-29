@@ -177,6 +177,13 @@ test('recipe administration is role-aware and confirmation names prohibited effe
   await page.getByRole('button', { name: 'Disable registration' }).click();
   const dialog = page.getByRole('alertdialog', { name: 'Disable ubuntu-runner?' });
   await expect(dialog).toContainText('Does not cancel active GitHub workflow runs.');
+  await expect(dialog.getByRole('button', { name: 'Disable registration' })).toBeDisabled();
+  await dialog
+    .getByRole('checkbox', {
+      name: 'I verified the exact registration version and workflow blob to disable.',
+    })
+    .check();
+  await expect(dialog.getByRole('button', { name: 'Disable registration' })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
   const viewerScenario = {

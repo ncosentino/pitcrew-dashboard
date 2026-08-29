@@ -242,6 +242,9 @@ function RecipeDetail({
   readonly focusTitleRef: React.Ref<HTMLHeadingElement>;
   readonly onDisable: () => Promise<void>;
 }) {
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disableAcknowledged, setDisableAcknowledged] = useState(false);
+
   return (
     <DetailPanel
       title={`${registration.recipeId} · version ${registration.version}`}
@@ -264,6 +267,12 @@ function RecipeDetail({
             title={`Disable ${registration.recipeId}?`}
             description="Prevent new requests from using this exact registration version while preserving prior evidence."
             confirmLabel="Disable registration"
+            confirmDisabled={!disableAcknowledged || disabling}
+            open={disableOpen}
+            onOpenChange={(open) => {
+              setDisableOpen(open);
+              if (!open) setDisableAcknowledged(false);
+            }}
             details={
               <ConfirmationSummary
                 identity={[
@@ -275,6 +284,16 @@ function RecipeDetail({
                   },
                   { label: 'Workflow', value: registration.workflowPath },
                 ]}
+                fences={[
+                  {
+                    label: 'Registration version',
+                    value: `${registration.registrationId} · version ${registration.version}`,
+                  },
+                  {
+                    label: 'Workflow blob',
+                    value: registration.workflowBlobSha,
+                  },
+                ]}
                 effects={[
                   'Prevents new image build requests from using this registration version.',
                   'Preserves prior requests, candidates, qualifications, and audit history.',
@@ -284,6 +303,11 @@ function RecipeDetail({
                   'Does not disable another registration version or delete candidate evidence.',
                   'Does not change any runner host or profile.',
                 ]}
+                acknowledgement={{
+                  label: 'I verified the exact registration version and workflow blob to disable.',
+                  checked: disableAcknowledged,
+                  onCheckedChange: setDisableAcknowledged,
+                }}
               />
             }
             onConfirm={onDisable}

@@ -186,7 +186,12 @@ export default function ImageCandidatesPage() {
                   status={
                     <div className="flex flex-wrap gap-1.5">
                       <StatusBadge status={request.status} />
-                      {candidate ? <StatusBadge status={candidate.outcome} /> : null}
+                      {candidate ? (
+                        <StatusBadge
+                          status={candidate.outcome}
+                          tone={candidate.outcome === 'ready' ? 'positive' : 'critical'}
+                        />
+                      ) : null}
                     </div>
                   }
                   title={`${request.recipeId} · ${request.sourceCommit.slice(0, 12)}`}

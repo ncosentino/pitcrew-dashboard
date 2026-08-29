@@ -215,6 +215,7 @@ describe('runner image workspace', () => {
         name: `ubuntu-runner · ${sourceCommit.slice(0, 12)}`,
       }),
     ).toBeInTheDocument();
+    expect(screen.getByText('Lifecycle').parentElement).toHaveTextContent('Blocked');
 
     const readyRow = rows.find((row) => row.textContent?.includes('98765'));
     if (!readyRow) throw new Error('Expected the ready image request row.');
@@ -226,6 +227,9 @@ describe('runner image workspace', () => {
     );
     expect(screen.getByText('Immutable candidate evidence')).toBeInTheDocument();
     expect(screen.getByText('Qualification evidence')).toBeInTheDocument();
+    for (const passed of screen.getAllByText('passed')) {
+      expect(passed).toHaveClass('bg-status-positive');
+    }
     expect(screen.getByRole('link', { name: 'Open exact GitHub run' })).toHaveAttribute(
       'href',
       'https://github.com/example/runner-images/actions/runs/98765',
@@ -293,7 +297,16 @@ describe('runner image workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Disable registration' }));
     const dialog = screen.getByRole('alertdialog', { name: 'Disable ubuntu-runner?' });
     expect(within(dialog).getByText(/Preserves prior requests, candidates/)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Disable registration' }));
+    expect(within(dialog).getByText('Workflow blob')).toBeInTheDocument();
+    const confirm = within(dialog).getByRole('button', { name: 'Disable registration' });
+    expect(confirm).toBeDisabled();
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'I verified the exact registration version and workflow blob to disable.',
+      }),
+    );
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
 
     await waitFor(() =>
       expect(
