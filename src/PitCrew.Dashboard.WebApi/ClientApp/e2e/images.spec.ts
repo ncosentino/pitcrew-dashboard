@@ -40,7 +40,7 @@ test('candidate workspace leads with immutable qualification evidence', async ({
     page.getByRole('heading', { level: 2, name: /ubuntu-runner · b{12}/ }),
   ).toBeVisible();
   await expect(page.getByText('Immutable candidate evidence')).toBeVisible();
-  await expect(page.getByText('Qualification evidence')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Qualification evidence' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open exact GitHub run' })).toHaveAttribute(
     'href',
     'https://github.com/example/runner-images/actions/runs/98765',

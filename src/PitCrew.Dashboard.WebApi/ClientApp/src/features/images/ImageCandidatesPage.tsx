@@ -199,6 +199,11 @@ export default function ImageCandidatesPage() {
                           ? `GitHub run ${request.githubRunId}`
                           : 'Run identity unavailable'}
                       </span>
+                      {request.terminalCategory ? (
+                        <span className="font-medium text-foreground">
+                          {request.terminalCategory}
+                        </span>
+                      ) : null}
                     </div>
                   }
                   actions={

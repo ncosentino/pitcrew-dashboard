@@ -203,7 +203,7 @@ describe('runner image workspace', () => {
     expect(screen.getByText('Needs attention')).toBeInTheDocument();
     const requestList = await screen.findByRole('list', { name: 'Image build requests' });
     const rows = within(requestList).getAllByRole('listitem');
-    expect(rows[0]).toHaveTextContent('blocked');
+    expect(rows[0]).toHaveTextContent('artifact-missing');
     await waitFor(() =>
       expect(new URLSearchParams(router.state.location.search).get('request')).toBe(
         blockedRequestId,
