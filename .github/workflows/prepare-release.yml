@@ -46,7 +46,7 @@ jobs:
     steps:
       - name: Validate candidate and release identity
         id: candidate
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           DASHBOARD_SHA: ${{ inputs.dashboard_sha }}
@@ -228,7 +228,7 @@ jobs:
 
       - name: Create reviewable draft release
         id: release
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
           RELEASE_VERSION: ${{ inputs.version }}
