@@ -8,6 +8,7 @@ const ImageWorkspaceLandingPage = lazyFeature('images', async () => {
   return { default: module.ImageWorkspaceLandingPage };
 });
 const ImageCandidatesPage = lazyFeature('images', () => import('./ImageCandidatesPage'));
+const ImageCampaignsPage = lazyFeature('images', () => import('./ImageCampaignsPage'));
 const ImageRecipesPage = lazyFeature('images', () => import('./ImageRecipesPage'));
 
 /** Trusted runner-image candidate routes and navigation contribution. */
@@ -39,6 +40,26 @@ export const imagesManifest: FeatureManifest = {
       ],
     },
     {
+      path: '/tenants/:tenantId/images/campaigns',
+      title: 'Image rollout campaigns',
+      breadcrumbs: [
+        { label: 'Runner images', path: '/tenants/:tenantId/images' },
+        { label: 'Campaigns' },
+      ],
+    },
+    {
+      path: '/tenants/:tenantId/images/campaigns/:campaignId',
+      title: 'Image rollout campaign',
+      breadcrumbs: [
+        { label: 'Runner images', path: '/tenants/:tenantId/images' },
+        {
+          label: 'Campaigns',
+          path: '/tenants/:tenantId/images/campaigns',
+        },
+        { label: 'Campaign' },
+      ],
+    },
+    {
       path: '/tenants/:tenantId/images/recipes',
       title: 'Trusted image recipes',
       breadcrumbs: [
@@ -58,6 +79,8 @@ export const imagesManifest: FeatureManifest = {
       children: [
         { index: true, element: <ImageWorkspaceLandingPage /> },
         { path: 'candidates', element: <ImageCandidatesPage /> },
+        { path: 'campaigns', element: <ImageCampaignsPage /> },
+        { path: 'campaigns/:campaignId', element: <ImageCampaignsPage /> },
         { path: 'recipes', element: <ImageRecipesPage /> },
       ],
     },

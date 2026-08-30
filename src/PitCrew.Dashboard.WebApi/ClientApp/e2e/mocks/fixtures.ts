@@ -43,6 +43,16 @@ import {
   type ImageRecipeRegistration,
 } from '../../src/features/images/imagesApi';
 import {
+  imageCampaignSchema,
+  imageCampaignSummarySchema,
+  imageCampaignTargetSchema,
+  imageCampaignWaveSchema,
+  type ImageCampaign,
+  type ImageCampaignSummary,
+  type ImageCampaignTarget,
+  type ImageCampaignWave,
+} from '../../src/features/images/imageCampaignApi';
+import {
   diagnosticCredentialCreatedSchema,
   diagnosticCredentialSchema,
   dashboardUsersSchema,
@@ -255,6 +265,144 @@ export function buildProfileImageRolloutCommand(
     resultMessage: null,
     previousCandidateId: null,
     previousRecipeId: null,
+    ...overrides,
+  });
+}
+
+export function buildImageCampaignTarget(
+  overrides: Partial<ImageCampaignTarget> = {},
+): ImageCampaignTarget {
+  return imageCampaignTargetSchema.parse({
+    targetId: '71100000-0000-4000-8000-000000000001',
+    nodeId: nodeIds.alpha,
+    nodeDisplayName: 'Alpha',
+    profileId: 'build',
+    candidate: {
+      candidateId: '70300000-0000-4000-8000-000000000003',
+      recipeId: 'ubuntu-runner',
+      targetDigest: `sha256:${'e'.repeat(64)}`,
+      targetPlatform: 'linux/amd64',
+    },
+    expectedCurrentImageReference: 'ghcr.io/example/runner:current',
+    expectedCurrentImageDigest: `sha256:${'1'.repeat(64)}`,
+    expectedCurrentLocalImageId: `sha256:${'2'.repeat(64)}`,
+    expectedCurrentWorkerRevision: '3'.repeat(64),
+    expectedStaticFingerprint: '4'.repeat(64),
+    expectedPreservedConfigurationFingerprint: '5'.repeat(64),
+    expectedRoutingFingerprint: '6'.repeat(64),
+    expectedDesiredGeneration: 4,
+    expectedDesiredStateHash: 'a'.repeat(64),
+    exclusionCategory: null,
+    status: 'eligible',
+    waveNumber: null,
+    isCanary: false,
+    commandId: null,
+    failureCategory: null,
+    resultMessage: null,
+    targetWorkerRevision: null,
+    managerConvergenceStatus: null,
+    currentWorkers: null,
+    staleWorkers: null,
+    claimedAt: null,
+    startedAt: null,
+    completedAt: null,
+    previousCandidateId: null,
+    previousRecipeId: null,
+    previousImageReference: null,
+    previousImageDigest: null,
+    previousWorkerRevision: null,
+    ...overrides,
+  });
+}
+
+export function buildImageCampaignWave(
+  overrides: Partial<ImageCampaignWave> = {},
+): ImageCampaignWave {
+  return imageCampaignWaveSchema.parse({
+    waveNumber: 0,
+    status: 'pending',
+    targetCount: 1,
+    approvedByGitHubUserId: null,
+    approvedAt: null,
+    completedAt: null,
+    ...overrides,
+  });
+}
+
+export function buildImageCampaign(overrides: Partial<ImageCampaign> = {}): ImageCampaign {
+  return imageCampaignSchema.parse({
+    campaignId: '71000000-0000-4000-8000-000000000001',
+    kind: 'forward',
+    sourceCampaignId: null,
+    candidate: {
+      candidateId: '70300000-0000-4000-8000-000000000003',
+      recipeId: 'ubuntu-runner',
+      targetDigest: `sha256:${'e'.repeat(64)}`,
+      targetPlatform: 'linux/amd64',
+    },
+    targetSetHash: 'f'.repeat(64),
+    status: 'draft',
+    revision: 0,
+    waveSize: null,
+    requestedByGitHubUserId: '1001',
+    requestedAt: '2026-08-29T12:00:00+00:00',
+    configuredByGitHubUserId: null,
+    configuredAt: null,
+    pausedAt: null,
+    cancelledAt: null,
+    completedAt: null,
+    targets: [
+      buildImageCampaignTarget(),
+      buildImageCampaignTarget({
+        targetId: '71200000-0000-4000-8000-000000000002',
+        nodeId: nodeIds.bravo,
+        nodeDisplayName: 'Bravo',
+        exclusionCategory: 'node-offline',
+        status: 'excluded',
+        candidate: null,
+        expectedCurrentImageReference: null,
+        expectedCurrentImageDigest: null,
+        expectedCurrentLocalImageId: null,
+        expectedCurrentWorkerRevision: null,
+        expectedStaticFingerprint: null,
+        expectedPreservedConfigurationFingerprint: null,
+        expectedRoutingFingerprint: null,
+        expectedDesiredGeneration: null,
+        expectedDesiredStateHash: null,
+      }),
+    ],
+    waves: [],
+    ...overrides,
+  });
+}
+
+export function buildImageCampaignSummary(
+  overrides: Partial<ImageCampaignSummary> = {},
+): ImageCampaignSummary {
+  return imageCampaignSummarySchema.parse({
+    campaignId: '71000000-0000-4000-8000-000000000001',
+    kind: 'forward',
+    sourceCampaignId: null,
+    candidate: {
+      candidateId: '70300000-0000-4000-8000-000000000003',
+      recipeId: 'ubuntu-runner',
+      targetDigest: `sha256:${'e'.repeat(64)}`,
+      targetPlatform: 'linux/amd64',
+    },
+    targetSetHash: 'f'.repeat(64),
+    status: 'draft',
+    revision: 0,
+    waveSize: null,
+    eligibleTargetCount: 1,
+    excludedTargetCount: 1,
+    completeTargetCount: 0,
+    adverseTargetCount: 0,
+    currentWaveNumber: null,
+    nextWaveNumber: null,
+    requestedByGitHubUserId: '1001',
+    requestedAt: '2026-08-29T12:00:00+00:00',
+    configuredAt: null,
+    completedAt: null,
     ...overrides,
   });
 }

@@ -362,6 +362,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0014-frozen-image-rollout-campaigns.md",
+        "title": "ADR-0014: Frozen image rollout campaigns over typed profile operations",
+        "section": "Architecture decisions",
+        "order": 114,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",

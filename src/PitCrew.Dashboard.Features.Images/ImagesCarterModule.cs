@@ -1,6 +1,7 @@
 using Carter;
 
 using System.Globalization;
+using System.Security.Claims;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -9,11 +10,12 @@ using Microsoft.AspNetCore.Routing;
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Images.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
+using PitCrew.Dashboard.Kernel.ImageRollouts;
 
 namespace PitCrew.Dashboard.Features.Images;
 
 /// <summary>
-/// Maps tenant-scoped trusted image recipe registration endpoints.
+/// Maps tenant-scoped trusted image workflow, candidate, rollout, and campaign endpoints.
 /// </summary>
 public sealed class ImagesCarterModule : ICarterModule
 {
@@ -75,6 +77,49 @@ public sealed class ImagesCarterModule : ICarterModule
             "/api/tenants/{tenantId}/images/profile-rollouts")
         .RequireAuthorization(AccessPolicies.TenantAdministrator);
     rolloutAdministrators.MapPost("", CreateProfileRolloutAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+
+    var campaignReaders = app.MapGroup(
+            "/api/tenants/{tenantId}/images/campaigns")
+        .RequireAuthorization(AccessPolicies.TenantViewer);
+    campaignReaders.MapGet("", GetCampaignsAsync);
+    campaignReaders.MapGet("/{campaignId:guid}", GetCampaignAsync);
+
+    var campaignAdministrators = app.MapGroup(
+            "/api/tenants/{tenantId}/images/campaigns")
+        .RequireAuthorization(AccessPolicies.TenantAdministrator);
+    campaignAdministrators.MapPost("", CreateCampaignAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+    campaignAdministrators.MapPost(
+            "/{campaignId:guid}/configure",
+            ConfigureCampaignAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+    campaignAdministrators.MapPost(
+            "/{campaignId:guid}/waves/{waveNumber:int}/approve",
+            ApproveCampaignWaveAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+    campaignAdministrators.MapPost(
+            "/{campaignId:guid}/pause",
+            PauseCampaignAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+    campaignAdministrators.MapPost(
+            "/{campaignId:guid}/resume",
+            ResumeCampaignAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+    campaignAdministrators.MapPost(
+            "/{campaignId:guid}/cancel",
+            CancelCampaignAsync)
+        .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
+        .AddImageRecipeMutationRateLimit();
+    campaignAdministrators.MapPost(
+            "/{campaignId:guid}/rollback",
+            CreateRollbackCampaignAsync)
         .AddEndpointFilter<DashboardAntiforgeryEndpointFilter>()
         .AddImageRecipeMutationRateLimit();
   }
@@ -585,6 +630,314 @@ public sealed class ImagesCarterModule : ICarterModule
         },
       };
 
+  private static async Task<IResult> GetCampaignsAsync(
+      HttpContext context,
+      string tenantId,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    if (!ReadLimit(
+            context,
+            out var limit,
+            out var error,
+            "invalid_image_campaign_query"))
+    {
+      return error!;
+    }
+    var campaigns = await orchestrator.ListAsync(
+        tenantId,
+        limit + 1,
+        cancellationToken);
+    return Results.Ok(new ImageRolloutCampaignListResponse(
+        campaigns.Take(limit)
+            .Select(ImageRolloutCampaignResponseMapper.ToResponse)
+            .ToArray(),
+        campaigns.Count > limit));
+  }
+
+  private static async Task<IResult> GetCampaignAsync(
+      string tenantId,
+      Guid campaignId,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    var campaign = await orchestrator.GetOrNullAsync(
+        tenantId,
+        campaignId,
+        cancellationToken);
+    return campaign is null
+        ? Results.NotFound(Error(
+            "image_campaign_not_found",
+            "The requested image rollout campaign was not found."))
+        : Results.Ok(ImageRolloutCampaignResponseMapper.ToResponse(campaign));
+  }
+
+  private static async Task<IResult> CreateCampaignAsync(
+      HttpContext context,
+      string tenantId,
+      CreateImageRolloutCampaignRequest request,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    if (request is null)
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_campaign_request",
+          "An image rollout campaign body is required."));
+    }
+    if (!ReadIdempotencyKey(context, out var idempotencyKey, out var error))
+    {
+      return error!;
+    }
+    var result = await orchestrator.CreateForwardDraftAsync(
+        context.User,
+        tenantId,
+        request.CandidateId,
+        idempotencyKey,
+        cancellationToken);
+    return ToCampaignMutationResult(result);
+  }
+
+  private static async Task<IResult> ConfigureCampaignAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      ConfigureImageRolloutCampaignRequest request,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    if (request is null)
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_campaign_configuration",
+          "A campaign configuration body is required."));
+    }
+    if (!ReadIdempotencyKey(context, out var idempotencyKey, out var error))
+    {
+      return error!;
+    }
+    var result = await orchestrator.ConfigureAsync(
+        context.User,
+        tenantId,
+        campaignId,
+        new ImageRolloutCampaignConfiguration(
+            request.CanaryTargetId,
+            request.WaveSize,
+            request.ExpectedRevision,
+            request.ExpectedTargetSetHash ?? string.Empty),
+        idempotencyKey,
+        cancellationToken);
+    return ToCampaignMutationResult(result);
+  }
+
+  private static async Task<IResult> ApproveCampaignWaveAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      int waveNumber,
+      ApproveImageRolloutCampaignWaveRequest request,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    if (request is null)
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_campaign_wave_approval",
+          "A campaign wave approval body is required."));
+    }
+    if (!ReadIdempotencyKey(context, out var idempotencyKey, out var error))
+    {
+      return error!;
+    }
+    var result = await orchestrator.ApproveWaveAsync(
+        context.User,
+        tenantId,
+        campaignId,
+        new ImageRolloutCampaignWaveApproval(
+            waveNumber,
+            request.ExpectedRevision,
+            request.ExpectedTargetSetHash ?? string.Empty),
+        idempotencyKey,
+        cancellationToken);
+    return ToCampaignMutationResult(result);
+  }
+
+  private static Task<IResult> PauseCampaignAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      MutateImageRolloutCampaignRequest request,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken) =>
+      ChangeCampaignStateAsync(
+          context,
+          tenantId,
+          campaignId,
+          request,
+          orchestrator.PauseAsync,
+          cancellationToken);
+
+  private static Task<IResult> ResumeCampaignAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      MutateImageRolloutCampaignRequest request,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken) =>
+      ChangeCampaignStateAsync(
+          context,
+          tenantId,
+          campaignId,
+          request,
+          orchestrator.ResumeAsync,
+          cancellationToken);
+
+  private static Task<IResult> CancelCampaignAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      MutateImageRolloutCampaignRequest request,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken) =>
+      ChangeCampaignStateAsync(
+          context,
+          tenantId,
+          campaignId,
+          request,
+          orchestrator.CancelAsync,
+          cancellationToken);
+
+  private static async Task<IResult> CreateRollbackCampaignAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      IImageRolloutCampaignOrchestrator orchestrator,
+      CancellationToken cancellationToken)
+  {
+    if (!ReadIdempotencyKey(context, out var idempotencyKey, out var error))
+    {
+      return error!;
+    }
+    var result = await orchestrator.CreateRollbackDraftAsync(
+        context.User,
+        tenantId,
+        campaignId,
+        idempotencyKey,
+        cancellationToken);
+    return ToCampaignMutationResult(result);
+  }
+
+  private static async Task<IResult> ChangeCampaignStateAsync(
+      HttpContext context,
+      string tenantId,
+      Guid campaignId,
+      MutateImageRolloutCampaignRequest request,
+      Func<
+          ClaimsPrincipal,
+          string,
+          Guid,
+          ImageRolloutCampaignMutationFence,
+          string,
+          CancellationToken,
+          Task<ImageRolloutCampaignCommandOutcome>> mutation,
+      CancellationToken cancellationToken)
+  {
+    if (request is null)
+    {
+      return Results.BadRequest(Error(
+          "invalid_image_campaign_mutation",
+          "A campaign mutation body is required."));
+    }
+    if (!ReadIdempotencyKey(context, out var idempotencyKey, out var error))
+    {
+      return error!;
+    }
+    var result = await mutation(
+        context.User,
+        tenantId,
+        campaignId,
+        new ImageRolloutCampaignMutationFence(
+            request.ExpectedRevision,
+            request.ExpectedTargetSetHash ?? string.Empty),
+        idempotencyKey,
+        cancellationToken);
+    return ToCampaignMutationResult(result);
+  }
+
+  private static IResult ToCampaignMutationResult(
+      ImageRolloutCampaignCommandOutcome result)
+  {
+    var body = result.Campaign is null
+        ? null
+        : ImageRolloutCampaignResponseMapper.ToResponse(result.Campaign);
+    return result.Status switch
+    {
+      ImageRolloutCampaignCommandStatus.Created when body is not null =>
+          Results.Created(
+              $"/api/tenants/{result.Campaign!.TenantId}"
+              + $"/images/campaigns/{result.Campaign.CampaignId:D}",
+              body),
+      ImageRolloutCampaignCommandStatus.Updated when body is not null =>
+          Results.Ok(body),
+      ImageRolloutCampaignCommandStatus.IdempotentReplay when body is not null =>
+          Results.Ok(body),
+      ImageRolloutCampaignCommandStatus.Forbidden => Results.Json(
+          Error(
+              result.Code ?? "forbidden_image_campaign",
+              result.Error ?? "The image campaign request is forbidden."),
+          statusCode: StatusCodes.Status403Forbidden),
+      ImageRolloutCampaignCommandStatus.NotFound => Results.NotFound(
+          Error(
+              result.Code ?? "image_campaign_not_found",
+              result.Error ?? "The image campaign was not found.")),
+      ImageRolloutCampaignCommandStatus.Invalid => Results.BadRequest(
+          Error(
+              result.Code ?? "invalid_image_campaign_request",
+              result.Error ?? "The image campaign request is invalid.")),
+      ImageRolloutCampaignCommandStatus.Conflict or
+      ImageRolloutCampaignCommandStatus.TargetLimitExceeded or
+      ImageRolloutCampaignCommandStatus.RollbackAuthorityUnavailable =>
+          Results.Conflict(
+              Error(
+                  result.Code ?? "image_campaign_conflict",
+                  result.Error ??
+                  "The image campaign mutation conflicts with current state.")),
+      _ => Results.Problem(
+          statusCode: StatusCodes.Status500InternalServerError,
+          title: "Unsupported image campaign result."),
+    };
+  }
+
+  private static bool ReadIdempotencyKey(
+      HttpContext context,
+      out string idempotencyKey,
+      out IResult? error)
+  {
+    error = null;
+    idempotencyKey = string.Empty;
+    if (!context.Request.Headers.TryGetValue(
+            IdempotencyKeyHeader,
+            out var values) ||
+        values.Count != 1)
+    {
+      error = Results.BadRequest(Error(
+          "invalid_image_rollout_idempotency_key",
+          "Exactly one Idempotency-Key header is required."));
+      return false;
+    }
+    idempotencyKey = values[0] ?? string.Empty;
+    if (!RollOutProfileImageOrchestrator.IsValidIdempotencyKey(
+            idempotencyKey))
+    {
+      error = Results.BadRequest(Error(
+          "invalid_image_rollout_idempotency_key",
+          "Idempotency-Key must be 8 to 200 characters of "
+          + "ASCII letters, digits, '-', '_', '.', or ':'."));
+      return false;
+    }
+    return true;
+  }
+
   private static async Task<IResult> GetProfileRolloutAsync(
       string tenantId,
       Guid nodeId,
@@ -627,23 +980,12 @@ public sealed class ImagesCarterModule : ICarterModule
           "invalid_image_rollout_request",
           "A profile-image rollout body is required."));
     }
-    if (!context.Request.Headers.TryGetValue(
-            IdempotencyKeyHeader,
-            out var idempotencyKeyValues) ||
-        idempotencyKeyValues.Count != 1)
+    if (!ReadIdempotencyKey(
+            context,
+            out var idempotencyKey,
+            out var idempotencyError))
     {
-      return Results.BadRequest(Error(
-          "invalid_image_rollout_idempotency_key",
-          "Exactly one Idempotency-Key header is required."));
-    }
-    var idempotencyKey = idempotencyKeyValues[0];
-    if (!RollOutProfileImageOrchestrator.IsValidIdempotencyKey(
-            idempotencyKey))
-    {
-      return Results.BadRequest(Error(
-          "invalid_image_rollout_idempotency_key",
-          "Idempotency-Key must be 8 to 200 characters of "
-          + "ASCII letters, digits, '-', '_', '.', or ':'."));
+      return idempotencyError!;
     }
     var statusLocation =
         $"/api/tenants/{tenantId}/images/profile-rollouts/"
@@ -664,7 +1006,7 @@ public sealed class ImagesCarterModule : ICarterModule
             request.ExpectedRoutingFingerprint ?? string.Empty,
             request.ExpectedDesiredGeneration,
             request.ExpectedDesiredStateHash,
-            idempotencyKey!),
+            idempotencyKey),
         cancellationToken);
     return outcome.Status switch
     {
