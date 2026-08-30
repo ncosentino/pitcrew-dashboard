@@ -14,6 +14,7 @@ internal sealed class FleetPlugin : IServiceCollectionPlugin
   {
     options.Services.TryAddSingleton(TimeProvider.System);
     options.Services.AddHostedService<AlertEvaluationWorker>();
+    options.Services.AddHostedService<ImageRolloutCampaignWorker>();
     options.Services.Configure<JsonOptions>(
         static jsonOptions =>
             jsonOptions.SerializerOptions.TypeInfoResolverChain.Insert(

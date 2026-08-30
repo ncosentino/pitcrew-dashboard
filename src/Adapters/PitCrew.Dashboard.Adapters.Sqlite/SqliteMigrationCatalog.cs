@@ -3578,5 +3578,757 @@ internal static class SqliteMigrationCatalog
                       'image rollout terminal state requires bounded evidence');
               END;
               """),
+        new(
+              30,
+              "frozen-image-rollout-campaigns",
+              """
+              CREATE TABLE image_rollout_campaigns (
+                  campaign_id TEXT PRIMARY KEY
+                      CHECK (length(campaign_id) = 36),
+                  tenant_id TEXT NOT NULL,
+                  kind TEXT NOT NULL
+                      CHECK (kind IN ('forward', 'rollback')),
+                  source_campaign_id TEXT NULL
+                      CHECK (source_campaign_id IS NULL
+                          OR length(source_campaign_id) = 36),
+                  candidate_id TEXT NULL
+                      CHECK (candidate_id IS NULL
+                          OR length(candidate_id) = 36),
+                  recipe_id TEXT NULL
+                      CHECK (recipe_id IS NULL
+                          OR length(recipe_id) BETWEEN 1 AND 100),
+                  target_digest TEXT NULL
+                      CHECK (target_digest IS NULL
+                          OR (length(target_digest) = 71
+                              AND substr(target_digest, 1, 7) = 'sha256:'
+                              AND substr(target_digest, 8)
+                                  NOT GLOB '*[^0-9a-f]*')),
+                  target_platform TEXT NULL
+                      CHECK (target_platform IS NULL
+                          OR target_platform IN (
+                              'linux/amd64',
+                              'linux/arm64')),
+                  target_set_hash TEXT NOT NULL
+                      CHECK (length(target_set_hash) = 64
+                          AND target_set_hash NOT GLOB '*[^0-9a-f]*'),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'draft',
+                          'awaiting-approval',
+                          'running',
+                          'paused',
+                          'complete',
+                          'partial',
+                          'blocked',
+                          'cancelled')),
+                  revision INTEGER NOT NULL DEFAULT 0
+                      CHECK (revision >= 0),
+                  wave_size INTEGER NULL
+                      CHECK (wave_size IS NULL
+                          OR wave_size BETWEEN 1 AND 100),
+                  requested_by_github_user_id TEXT NOT NULL
+                      CHECK (length(requested_by_github_user_id)
+                          BETWEEN 1 AND 64),
+                  requested_at TEXT NOT NULL,
+                  configured_by_github_user_id TEXT NULL
+                      CHECK (configured_by_github_user_id IS NULL
+                          OR length(configured_by_github_user_id)
+                              BETWEEN 1 AND 64),
+                  configured_at TEXT NULL,
+                  paused_at TEXT NULL,
+                  cancelled_at TEXT NULL,
+                  completed_at TEXT NULL,
+                  UNIQUE (tenant_id, campaign_id),
+                  CHECK (
+                      (kind = 'forward'
+                       AND source_campaign_id IS NULL
+                       AND candidate_id IS NOT NULL
+                       AND recipe_id IS NOT NULL
+                       AND target_digest IS NOT NULL
+                       AND target_platform IS NOT NULL)
+                      OR
+                      (kind = 'rollback'
+                       AND source_campaign_id IS NOT NULL
+                       AND candidate_id IS NULL
+                       AND recipe_id IS NULL
+                       AND target_digest IS NULL
+                       AND target_platform IS NULL)),
+                  CHECK (
+                      (configured_by_github_user_id IS NULL
+                       AND configured_at IS NULL
+                       AND wave_size IS NULL)
+                      OR
+                      (configured_by_github_user_id IS NOT NULL
+                       AND configured_at IS NOT NULL
+                       AND wave_size IS NOT NULL)),
+                  CHECK (
+                      status NOT IN (
+                          'awaiting-approval',
+                          'running',
+                          'paused',
+                          'complete',
+                          'partial')
+                      OR configured_at IS NOT NULL),
+                  CHECK (
+                      (status IN (
+                          'complete',
+                          'partial',
+                          'blocked',
+                          'cancelled')
+                       AND completed_at IS NOT NULL)
+                      OR
+                      (status NOT IN (
+                          'complete',
+                          'partial',
+                          'blocked',
+                          'cancelled')
+                       AND completed_at IS NULL)),
+                  CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL)),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (requested_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (configured_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (tenant_id, source_campaign_id)
+                      REFERENCES image_rollout_campaigns (
+                          tenant_id,
+                          campaign_id)
+              );
+
+              CREATE INDEX ix_image_rollout_campaigns_tenant_requested
+                  ON image_rollout_campaigns (
+                      tenant_id,
+                      requested_at DESC,
+                      campaign_id DESC);
+
+              CREATE INDEX ix_image_rollout_campaigns_active
+                  ON image_rollout_campaigns (
+                      status,
+                      requested_at,
+                      tenant_id,
+                      campaign_id)
+                  WHERE status IN (
+                      'draft',
+                      'awaiting-approval',
+                      'running',
+                      'paused');
+
+              CREATE TABLE image_rollout_campaign_targets (
+                  target_id TEXT PRIMARY KEY
+                      CHECK (length(target_id) = 36),
+                  campaign_id TEXT NOT NULL
+                      CHECK (length(campaign_id) = 36),
+                  node_id TEXT NOT NULL
+                      CHECK (length(node_id) = 36),
+                  node_display_name TEXT NOT NULL
+                      CHECK (length(node_display_name) BETWEEN 1 AND 128),
+                  profile_id TEXT NOT NULL
+                      CHECK (length(profile_id) BETWEEN 1 AND 32),
+                  candidate_id TEXT NULL
+                      CHECK (candidate_id IS NULL
+                          OR length(candidate_id) = 36),
+                  recipe_id TEXT NULL
+                      CHECK (recipe_id IS NULL
+                          OR length(recipe_id) BETWEEN 1 AND 100),
+                  target_digest TEXT NULL
+                      CHECK (target_digest IS NULL
+                          OR (length(target_digest) = 71
+                              AND substr(target_digest, 1, 7) = 'sha256:'
+                              AND substr(target_digest, 8)
+                                  NOT GLOB '*[^0-9a-f]*')),
+                  target_platform TEXT NULL
+                      CHECK (target_platform IS NULL
+                          OR target_platform IN (
+                              'linux/amd64',
+                              'linux/arm64')),
+                  expected_current_image_reference TEXT NULL
+                      CHECK (expected_current_image_reference IS NULL
+                          OR length(expected_current_image_reference)
+                              BETWEEN 1 AND 512),
+                  expected_current_image_digest TEXT NULL
+                      CHECK (expected_current_image_digest IS NULL
+                          OR (length(expected_current_image_digest) = 71
+                              AND substr(
+                                  expected_current_image_digest,
+                                  1,
+                                  7) = 'sha256:')),
+                  expected_current_local_image_id TEXT NULL
+                      CHECK (expected_current_local_image_id IS NULL
+                          OR (length(expected_current_local_image_id) = 71
+                              AND substr(
+                                  expected_current_local_image_id,
+                                  1,
+                                  7) = 'sha256:')),
+                  expected_current_worker_revision TEXT NULL
+                      CHECK (expected_current_worker_revision IS NULL
+                          OR length(expected_current_worker_revision) = 64),
+                  expected_static_fingerprint TEXT NULL
+                      CHECK (expected_static_fingerprint IS NULL
+                          OR length(expected_static_fingerprint) = 64),
+                  expected_preserved_configuration_fingerprint TEXT NULL
+                      CHECK (
+                          expected_preserved_configuration_fingerprint IS NULL
+                          OR length(
+                              expected_preserved_configuration_fingerprint)
+                              = 64),
+                  expected_routing_fingerprint TEXT NULL
+                      CHECK (expected_routing_fingerprint IS NULL
+                          OR length(expected_routing_fingerprint) = 64),
+                  expected_desired_generation INTEGER NULL
+                      CHECK (expected_desired_generation IS NULL
+                          OR expected_desired_generation >= 0),
+                  expected_desired_state_hash TEXT NULL
+                      CHECK (expected_desired_state_hash IS NULL
+                          OR length(expected_desired_state_hash) = 64),
+                  exclusion_category TEXT NULL
+                      CHECK (exclusion_category IS NULL
+                          OR exclusion_category IN (
+                              'node-offline',
+                              'node-revoked',
+                              'capability-unavailable',
+                              'stale-observed-state',
+                              'unsupported-schema',
+                              'unsupported-manager',
+                              'unsupported-topology',
+                              'unsupported-architecture',
+                              'recipe-not-allowed',
+                              'registry-not-allowed',
+                              'policy-disabled',
+                              'operation-active',
+                              'already-current',
+                              'insufficient-evidence',
+                              'rollback-authority-unavailable')),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'eligible',
+                          'excluded',
+                          'queued',
+                          'claimed',
+                          'applying',
+                          'rolling',
+                          'complete',
+                          'failed',
+                          'blocked',
+                          'indeterminate',
+                          'cancelled')),
+                  wave_number INTEGER NULL
+                      CHECK (wave_number IS NULL OR wave_number >= 0),
+                  is_canary INTEGER NOT NULL DEFAULT 0
+                      CHECK (is_canary IN (0, 1)),
+                  command_id TEXT NULL
+                      CHECK (command_id IS NULL
+                          OR length(command_id) = 36),
+                  lease_owner TEXT NULL
+                      CHECK (lease_owner IS NULL
+                          OR length(lease_owner) BETWEEN 1 AND 128),
+                  lease_expires_at TEXT NULL,
+                  dispatch_attempts INTEGER NOT NULL DEFAULT 0
+                      CHECK (dispatch_attempts >= 0),
+                  failure_category TEXT NULL
+                      CHECK (failure_category IS NULL
+                          OR failure_category IN (
+                              'not-allowed',
+                              'recipe-not-allowed',
+                              'registry-not-allowed',
+                              'stale-fence',
+                              'expired',
+                              'unsupported',
+                              'unsupported-architecture',
+                              'unsupported-topology',
+                              'operation-active',
+                              'node-not-found',
+                              'idempotency-key-conflict',
+                              'wave-blocked',
+                              'rate-limited',
+                              'timeout',
+                              'process-failure',
+                              'unknown')),
+                  result_message TEXT NULL
+                      CHECK (result_message IS NULL
+                          OR length(result_message) <= 512),
+                  target_worker_revision TEXT NULL
+                      CHECK (target_worker_revision IS NULL
+                          OR length(target_worker_revision) = 64),
+                  manager_convergence_status TEXT NULL
+                      CHECK (manager_convergence_status IS NULL
+                          OR manager_convergence_status IN (
+                              'current',
+                              'rolling',
+                              'degraded')),
+                  current_workers INTEGER NULL
+                      CHECK (current_workers IS NULL
+                          OR current_workers >= 0),
+                  stale_workers INTEGER NULL
+                      CHECK (stale_workers IS NULL
+                          OR stale_workers >= 0),
+                  claimed_at TEXT NULL,
+                  started_at TEXT NULL,
+                  completed_at TEXT NULL,
+                  previous_candidate_id TEXT NULL
+                      CHECK (previous_candidate_id IS NULL
+                          OR length(previous_candidate_id) = 36),
+                  previous_recipe_id TEXT NULL
+                      CHECK (previous_recipe_id IS NULL
+                          OR length(previous_recipe_id) BETWEEN 1 AND 100),
+                  previous_image_reference TEXT NULL
+                      CHECK (previous_image_reference IS NULL
+                          OR length(previous_image_reference)
+                              BETWEEN 1 AND 512),
+                  previous_image_digest TEXT NULL
+                      CHECK (previous_image_digest IS NULL
+                          OR (length(previous_image_digest) = 71
+                              AND substr(previous_image_digest, 1, 7)
+                                  = 'sha256:')),
+                  previous_worker_revision TEXT NULL
+                      CHECK (previous_worker_revision IS NULL
+                          OR length(previous_worker_revision) = 64),
+                  UNIQUE (campaign_id, node_id, profile_id),
+                  CHECK (
+                      (exclusion_category IS NULL
+                       AND candidate_id IS NOT NULL
+                       AND recipe_id IS NOT NULL
+                       AND target_digest IS NOT NULL
+                       AND target_platform IS NOT NULL
+                       AND expected_static_fingerprint IS NOT NULL
+                       AND expected_preserved_configuration_fingerprint
+                           IS NOT NULL
+                       AND expected_routing_fingerprint IS NOT NULL
+                       AND expected_desired_generation IS NOT NULL)
+                      OR
+                      (exclusion_category IS NOT NULL
+                       AND status = 'excluded')),
+                  CHECK (
+                      (lease_owner IS NULL AND lease_expires_at IS NULL)
+                      OR
+                      (lease_owner IS NOT NULL
+                       AND lease_expires_at IS NOT NULL)),
+                  CHECK (
+                      wave_number IS NULL
+                      OR ((wave_number = 0) = (is_canary = 1))),
+                  CHECK (
+                      status NOT IN (
+                          'claimed',
+                          'applying',
+                          'rolling',
+                          'complete',
+                          'failed',
+                          'indeterminate')
+                      OR command_id IS NOT NULL),
+                  CHECK (
+                      status <> 'complete'
+                      OR (target_worker_revision IS NOT NULL
+                          AND manager_convergence_status = 'current'
+                          AND current_workers IS NOT NULL
+                          AND stale_workers = 0)),
+                  CHECK (
+                      (status IN (
+                          'complete',
+                          'failed',
+                          'blocked',
+                          'indeterminate',
+                          'cancelled')
+                       AND completed_at IS NOT NULL)
+                      OR status NOT IN (
+                          'complete',
+                          'failed',
+                          'blocked',
+                          'indeterminate',
+                          'cancelled')),
+                  CHECK (
+                      (status IN ('failed', 'blocked', 'indeterminate')
+                       AND failure_category IS NOT NULL)
+                      OR
+                      (status NOT IN ('failed', 'blocked', 'indeterminate')
+                       AND failure_category IS NULL)),
+                  FOREIGN KEY (campaign_id)
+                      REFERENCES image_rollout_campaigns(campaign_id)
+                      ON DELETE CASCADE
+              );
+
+              CREATE UNIQUE INDEX ix_image_rollout_campaign_targets_command
+                  ON image_rollout_campaign_targets (command_id)
+                  WHERE command_id IS NOT NULL;
+
+              CREATE UNIQUE INDEX ix_image_rollout_campaign_targets_canary
+                  ON image_rollout_campaign_targets (campaign_id)
+                  WHERE is_canary = 1;
+
+              CREATE UNIQUE INDEX ix_image_rollout_campaign_targets_wave_zero
+                  ON image_rollout_campaign_targets (campaign_id)
+                  WHERE wave_number = 0;
+
+              CREATE INDEX ix_image_rollout_campaign_targets_campaign_wave
+                  ON image_rollout_campaign_targets (
+                      campaign_id,
+                      wave_number,
+                      status,
+                      node_id,
+                      profile_id);
+
+              CREATE INDEX ix_image_rollout_campaign_targets_due
+                  ON image_rollout_campaign_targets (
+                      status,
+                      lease_expires_at,
+                      campaign_id,
+                      wave_number,
+                      node_id,
+                      profile_id)
+                  WHERE status = 'queued'
+                    AND command_id IS NULL;
+
+              CREATE INDEX ix_image_rollout_campaign_targets_node_active
+                  ON image_rollout_campaign_targets (
+                      node_id,
+                      status,
+                      campaign_id)
+                  WHERE status IN (
+                      'queued',
+                      'claimed',
+                      'applying',
+                      'rolling');
+
+              CREATE TABLE image_rollout_campaign_waves (
+                  campaign_id TEXT NOT NULL,
+                  wave_number INTEGER NOT NULL
+                      CHECK (wave_number >= 0),
+                  status TEXT NOT NULL
+                      CHECK (status IN (
+                          'pending',
+                          'approved',
+                          'running',
+                          'complete',
+                          'blocked',
+                          'cancelled')),
+                  target_count INTEGER NOT NULL
+                      CHECK (target_count >= 1),
+                  approved_by_github_user_id TEXT NULL
+                      CHECK (approved_by_github_user_id IS NULL
+                          OR length(approved_by_github_user_id)
+                              BETWEEN 1 AND 64),
+                  approved_at TEXT NULL,
+                  completed_at TEXT NULL,
+                  PRIMARY KEY (campaign_id, wave_number),
+                  CHECK (
+                      (approved_by_github_user_id IS NULL
+                       AND approved_at IS NULL)
+                      OR
+                      (approved_by_github_user_id IS NOT NULL
+                       AND approved_at IS NOT NULL)),
+                  CHECK (
+                      status = 'cancelled'
+                      OR ((status = 'pending')
+                          = (approved_at IS NULL))),
+                  CHECK (
+                      (status IN ('complete', 'blocked', 'cancelled')
+                       AND completed_at IS NOT NULL)
+                      OR
+                      (status NOT IN ('complete', 'blocked', 'cancelled')
+                       AND completed_at IS NULL)),
+                  FOREIGN KEY (campaign_id)
+                      REFERENCES image_rollout_campaigns(campaign_id)
+                      ON DELETE CASCADE,
+                  FOREIGN KEY (approved_by_github_user_id)
+                      REFERENCES dashboard_users(github_user_id)
+              );
+
+              CREATE INDEX ix_image_rollout_campaign_waves_pending
+                  ON image_rollout_campaign_waves (
+                      campaign_id,
+                      status,
+                      wave_number);
+
+              CREATE TRIGGER trg_image_rollout_campaign_waves_target_count
+              BEFORE INSERT ON image_rollout_campaign_waves
+              FOR EACH ROW
+              WHEN NEW.target_count <> (
+                  SELECT COUNT(*)
+                  FROM image_rollout_campaign_targets
+                  WHERE campaign_id = NEW.campaign_id
+                    AND wave_number = NEW.wave_number)
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'campaign wave target count must match frozen assignments');
+              END;
+
+              CREATE TABLE image_rollout_campaign_idempotency (
+                  tenant_id TEXT NOT NULL,
+                  actor_github_user_id TEXT NOT NULL
+                      CHECK (length(actor_github_user_id)
+                          BETWEEN 1 AND 64),
+                  idempotency_key TEXT NOT NULL
+                      CHECK (length(idempotency_key) BETWEEN 8 AND 200),
+                  action TEXT NOT NULL
+                      CHECK (action IN (
+                          'create-forward',
+                          'create-rollback',
+                          'configure',
+                          'approve-wave',
+                          'pause',
+                          'resume',
+                          'cancel')),
+                  signature TEXT NOT NULL
+                      CHECK (length(signature) = 64
+                          AND signature NOT GLOB '*[^0-9a-f]*'),
+                  campaign_id TEXT NOT NULL
+                      CHECK (length(campaign_id) = 36),
+                  recorded_at TEXT NOT NULL,
+                  PRIMARY KEY (
+                      tenant_id,
+                      actor_github_user_id,
+                      idempotency_key),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (actor_github_user_id)
+                      REFERENCES dashboard_users(github_user_id),
+                  FOREIGN KEY (campaign_id)
+                      REFERENCES image_rollout_campaigns(campaign_id)
+                      ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_image_rollout_campaign_idempotency_campaign
+                  ON image_rollout_campaign_idempotency (
+                      campaign_id,
+                      recorded_at);
+
+              CREATE TRIGGER trg_image_rollout_campaigns_immutable
+              BEFORE UPDATE ON image_rollout_campaigns
+              FOR EACH ROW
+              WHEN OLD.campaign_id <> NEW.campaign_id
+                OR OLD.tenant_id <> NEW.tenant_id
+                OR OLD.kind <> NEW.kind
+                OR IFNULL(OLD.source_campaign_id, '')
+                    <> IFNULL(NEW.source_campaign_id, '')
+                OR IFNULL(OLD.candidate_id, '')
+                    <> IFNULL(NEW.candidate_id, '')
+                OR IFNULL(OLD.recipe_id, '')
+                    <> IFNULL(NEW.recipe_id, '')
+                OR IFNULL(OLD.target_digest, '')
+                    <> IFNULL(NEW.target_digest, '')
+                OR IFNULL(OLD.target_platform, '')
+                    <> IFNULL(NEW.target_platform, '')
+                OR OLD.target_set_hash <> NEW.target_set_hash
+                OR OLD.requested_by_github_user_id
+                    <> NEW.requested_by_github_user_id
+                OR OLD.requested_at <> NEW.requested_at
+                OR (OLD.wave_size IS NOT NULL
+                    AND OLD.wave_size <> NEW.wave_size)
+                OR (OLD.configured_by_github_user_id IS NOT NULL
+                    AND (OLD.configured_by_github_user_id
+                            <> NEW.configured_by_github_user_id
+                        OR OLD.configured_at <> NEW.configured_at))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign authority is immutable');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_campaigns_transitions
+              BEFORE UPDATE OF status ON image_rollout_campaigns
+              FOR EACH ROW
+              WHEN NOT (
+                  OLD.status = NEW.status
+                  OR (OLD.status = 'draft'
+                      AND NEW.status IN (
+                          'awaiting-approval',
+                          'cancelled'))
+                  OR (OLD.status = 'awaiting-approval'
+                      AND NEW.status IN (
+                          'running',
+                          'paused',
+                          'blocked',
+                          'cancelled'))
+                  OR (OLD.status = 'running'
+                      AND NEW.status IN (
+                          'awaiting-approval',
+                          'paused',
+                          'complete',
+                          'partial',
+                          'blocked',
+                          'cancelled'))
+                  OR (OLD.status = 'paused'
+                      AND NEW.status IN (
+                          'awaiting-approval',
+                          'running',
+                          'complete',
+                          'partial',
+                          'blocked',
+                          'cancelled')))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign transition is not allowed');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_campaign_targets_immutable
+              BEFORE UPDATE ON image_rollout_campaign_targets
+              FOR EACH ROW
+              WHEN OLD.target_id <> NEW.target_id
+                OR OLD.campaign_id <> NEW.campaign_id
+                OR OLD.node_id <> NEW.node_id
+                OR OLD.node_display_name <> NEW.node_display_name
+                OR OLD.profile_id <> NEW.profile_id
+                OR IFNULL(OLD.candidate_id, '')
+                    <> IFNULL(NEW.candidate_id, '')
+                OR IFNULL(OLD.recipe_id, '')
+                    <> IFNULL(NEW.recipe_id, '')
+                OR IFNULL(OLD.target_digest, '')
+                    <> IFNULL(NEW.target_digest, '')
+                OR IFNULL(OLD.target_platform, '')
+                    <> IFNULL(NEW.target_platform, '')
+                OR IFNULL(OLD.expected_current_image_reference, '')
+                    <> IFNULL(NEW.expected_current_image_reference, '')
+                OR IFNULL(OLD.expected_current_image_digest, '')
+                    <> IFNULL(NEW.expected_current_image_digest, '')
+                OR IFNULL(OLD.expected_current_local_image_id, '')
+                    <> IFNULL(NEW.expected_current_local_image_id, '')
+                OR IFNULL(OLD.expected_current_worker_revision, '')
+                    <> IFNULL(NEW.expected_current_worker_revision, '')
+                OR IFNULL(OLD.expected_static_fingerprint, '')
+                    <> IFNULL(NEW.expected_static_fingerprint, '')
+                OR IFNULL(
+                        OLD.expected_preserved_configuration_fingerprint,
+                        '')
+                    <> IFNULL(
+                        NEW.expected_preserved_configuration_fingerprint,
+                        '')
+                OR IFNULL(OLD.expected_routing_fingerprint, '')
+                    <> IFNULL(NEW.expected_routing_fingerprint, '')
+                OR IFNULL(OLD.expected_desired_generation, -1)
+                    <> IFNULL(NEW.expected_desired_generation, -1)
+                OR IFNULL(OLD.expected_desired_state_hash, '')
+                    <> IFNULL(NEW.expected_desired_state_hash, '')
+                OR IFNULL(OLD.exclusion_category, '')
+                    <> IFNULL(NEW.exclusion_category, '')
+                OR (OLD.wave_number IS NOT NULL
+                    AND OLD.wave_number <> NEW.wave_number)
+                OR (OLD.is_canary = 1 AND NEW.is_canary <> 1)
+                OR (OLD.command_id IS NOT NULL
+                    AND OLD.command_id <> NEW.command_id)
+                OR (OLD.previous_candidate_id IS NOT NULL
+                    AND OLD.previous_candidate_id
+                        <> NEW.previous_candidate_id)
+                OR (OLD.previous_recipe_id IS NOT NULL
+                    AND OLD.previous_recipe_id <> NEW.previous_recipe_id)
+                OR (OLD.previous_image_reference IS NOT NULL
+                    AND OLD.previous_image_reference
+                        <> NEW.previous_image_reference)
+                OR (OLD.previous_image_digest IS NOT NULL
+                    AND OLD.previous_image_digest
+                        <> NEW.previous_image_digest)
+                OR (OLD.previous_worker_revision IS NOT NULL
+                    AND OLD.previous_worker_revision
+                        <> NEW.previous_worker_revision)
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign target authority is immutable');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_campaign_targets_transitions
+              BEFORE UPDATE OF status ON image_rollout_campaign_targets
+              FOR EACH ROW
+              WHEN NOT (
+                  OLD.status = NEW.status
+                  OR (OLD.status = 'eligible'
+                      AND NEW.status IN (
+                          'queued',
+                          'blocked',
+                          'cancelled'))
+                  OR (OLD.status = 'queued'
+                      AND NEW.status IN (
+                          'claimed',
+                          'applying',
+                          'rolling',
+                          'complete',
+                          'failed',
+                          'blocked',
+                          'indeterminate',
+                          'cancelled'))
+                  OR (OLD.status = 'claimed'
+                      AND NEW.status IN (
+                          'applying',
+                          'rolling',
+                          'complete',
+                          'failed',
+                          'blocked',
+                          'indeterminate'))
+                  OR (OLD.status = 'applying'
+                      AND NEW.status IN (
+                          'rolling',
+                          'complete',
+                          'failed',
+                          'blocked',
+                          'indeterminate'))
+                  OR (OLD.status = 'rolling'
+                      AND NEW.status = 'complete'))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign target transition is not allowed');
+              END;
+
+              CREATE TRIGGER
+                  trg_image_rollout_campaign_targets_cancel_before_command
+              BEFORE UPDATE OF status ON image_rollout_campaign_targets
+              FOR EACH ROW
+              WHEN NEW.status = 'cancelled'
+                AND OLD.command_id IS NOT NULL
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'campaign targets with commands cannot be cancelled');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_campaign_waves_immutable
+              BEFORE UPDATE ON image_rollout_campaign_waves
+              FOR EACH ROW
+              WHEN OLD.campaign_id <> NEW.campaign_id
+                OR OLD.wave_number <> NEW.wave_number
+                OR OLD.target_count <> NEW.target_count
+                OR (OLD.approved_by_github_user_id IS NOT NULL
+                    AND (OLD.approved_by_github_user_id
+                            <> NEW.approved_by_github_user_id
+                        OR OLD.approved_at <> NEW.approved_at))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign wave authority is immutable');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_campaign_waves_transitions
+              BEFORE UPDATE OF status ON image_rollout_campaign_waves
+              FOR EACH ROW
+              WHEN NOT (
+                  OLD.status = NEW.status
+                  OR (OLD.status = 'pending'
+                      AND NEW.status IN ('approved', 'cancelled'))
+                  OR (OLD.status = 'approved'
+                      AND NEW.status IN (
+                          'running',
+                          'complete',
+                          'blocked',
+                          'cancelled'))
+                  OR (OLD.status = 'running'
+                      AND NEW.status IN (
+                          'complete',
+                          'blocked',
+                          'cancelled')))
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign wave transition is not allowed');
+              END;
+
+              CREATE TRIGGER trg_image_rollout_campaign_idempotency_immutable
+              BEFORE UPDATE ON image_rollout_campaign_idempotency
+              FOR EACH ROW
+              BEGIN
+                  SELECT RAISE(
+                      ABORT,
+                      'image rollout campaign idempotency is immutable');
+              END;
+              """),
     ];
 }

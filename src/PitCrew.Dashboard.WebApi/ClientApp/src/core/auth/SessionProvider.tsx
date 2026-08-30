@@ -36,12 +36,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void loadSession(controller.signal);
-    }, 0);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void loadSession(controller.signal);
+    });
     return () => {
+      active = false;
       controller.abort();
-      window.clearTimeout(timer);
     };
   }, [loadSession]);
 

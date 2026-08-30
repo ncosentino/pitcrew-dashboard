@@ -13,6 +13,8 @@ import {
   buildIncident,
   buildIncidentPage,
   buildImageBuildRequest,
+  buildImageCampaign,
+  buildImageCampaignSummary,
   buildImageCandidate,
   buildImageRecipeRegistration,
   buildProfileImageRolloutControl,
@@ -40,6 +42,8 @@ function buildScenarioSupport(
     imageRecipeRegistrations: [buildImageRecipeRegistration()],
     imageBuildRequests: [buildImageBuildRequest()],
     imageCandidates: [buildImageCandidate()],
+    imageCampaigns: [buildImageCampaignSummary()],
+    imageCampaignDetails: [buildImageCampaign()],
     profileImageRolloutControl: buildProfileImageRolloutControl(),
   };
 }

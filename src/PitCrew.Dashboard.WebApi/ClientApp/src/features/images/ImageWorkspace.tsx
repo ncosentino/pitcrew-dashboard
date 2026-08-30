@@ -21,7 +21,7 @@ export function ImageWorkspaceLandingPage() {
   return <Navigate replace to={`/tenants/${encodeURIComponent(tenantId)}/images/candidates`} />;
 }
 
-/** Owns one bounded polling projection for candidate, request, and recipe tasks. */
+/** Owns shared candidate, request, and recipe evidence above the image task workspace. */
 export default function ImageWorkspace() {
   const { tenantId = '' } = useParams();
   const { session } = useSession();
@@ -75,6 +75,11 @@ export default function ImageWorkspace() {
         label: 'Candidates',
         description: 'Build requests, qualification, and immutable image evidence.',
         path: `${imagesPath}/candidates`,
+      },
+      {
+        label: 'Campaigns',
+        description: 'Frozen targets, canary approvals, waves, and convergence.',
+        path: `${imagesPath}/campaigns`,
       },
       {
         label: 'Recipes',

@@ -49,7 +49,13 @@ export default function ImageCandidatesPage() {
       ),
     [data?.requests],
   );
-  const requestedId = searchParams.get('request');
+  const requestedRequestId = searchParams.get('request');
+  const requestedCandidateId = searchParams.get('candidate');
+  const requestedCandidate =
+    requestedCandidateId === null
+      ? undefined
+      : data?.candidates.find((candidate) => candidate.candidateId === requestedCandidateId);
+  const requestedId = requestedRequestId ?? requestedCandidate?.requestId ?? null;
   const requestedRequest =
     requestedId == null ? undefined : requests.find((request) => request.requestId === requestedId);
   const selectedRequest = requestedId == null ? (requests[0] ?? null) : (requestedRequest ?? null);
@@ -66,10 +72,14 @@ export default function ImageCandidatesPage() {
             registration.registrationId === selectedRequest.registrationId &&
             registration.version === selectedRequest.registrationVersion,
         ) ?? null);
-  const missingSelection = data !== null && requestedId !== null && requestedRequest === undefined;
+  const hasExplicitSelection = requestedRequestId !== null || requestedCandidateId !== null;
+  const missingSelection =
+    data !== null &&
+    ((requestedRequestId !== null && requestedRequest === undefined) ||
+      (requestedCandidateId !== null && requestedCandidate === undefined));
 
   useEffect(() => {
-    if (requestedId !== null || requests[0] === undefined) return;
+    if (hasExplicitSelection || requests[0] === undefined) return;
     setSearchParams(
       (current) => {
         if (current.get('request')) return current;
@@ -79,7 +89,20 @@ export default function ImageCandidatesPage() {
       },
       { replace: true },
     );
-  }, [requestedId, requests, setSearchParams]);
+  }, [hasExplicitSelection, requests, setSearchParams]);
+
+  useEffect(() => {
+    if (requestedRequestId !== null || requestedCandidate === undefined) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('candidate');
+        next.set('request', requestedCandidate.requestId);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [requestedCandidate, requestedRequestId, setSearchParams]);
 
   useEffect(() => {
     if (selectedRequest?.requestId !== pendingFocus.current) return;
@@ -136,8 +159,10 @@ export default function ImageCandidatesPage() {
         <StateBanner tone="caution" role="status">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span>
-              The requested build record is not present in this bounded response. Another record has
-              not been substituted.
+              {requestedCandidateId === null
+                ? 'The requested build record is not present in this bounded response.'
+                : 'The requested candidate record is not present in this bounded response.'}{' '}
+              Another record has not been substituted.
             </span>
             <Button
               type="button"
@@ -148,6 +173,7 @@ export default function ImageCandidatesPage() {
                   (current) => {
                     const next = new URLSearchParams(current);
                     next.delete('request');
+                    next.delete('candidate');
                     return next;
                   },
                   { replace: true },
@@ -178,6 +204,7 @@ export default function ImageCandidatesPage() {
               );
               const selected = request.requestId === selectedRequest?.requestId;
               const next = new URLSearchParams(searchParams);
+              next.delete('candidate');
               next.set('request', request.requestId);
               return (
                 <OperationalRow

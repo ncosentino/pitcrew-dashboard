@@ -968,6 +968,174 @@ public sealed class ImagesHostingTests
   }
 
   [Test]
+  public async Task Campaign_Endpoints_Freeze_Approve_And_Dispatch_One_Profile_Command(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    var now = new DateTimeOffset(
+        2026,
+        9,
+        17,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "GitHub",
+          "test-client",
+          "test-secret",
+          SystemAdministratorGitHubUserId,
+          "Production");
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+      await using var factory = CreateFactory(fakeTime, clientMock.Object);
+      await SeedTenantAccessAsync(factory, cancellationToken);
+      var candidateId = await SeedCandidateAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      var (nodeId, profileId) = await SeedRolloutCapableNodeAsync(
+          factory.Services,
+          now,
+          cancellationToken);
+      using var administratorClient = CreateAuthenticatedClient(
+          factory,
+          AdministratorGitHubUserId);
+      using var viewerClient = CreateAuthenticatedClient(
+          factory,
+          ViewerGitHubUserId);
+      var administratorSession = await DashboardTestHelpers.GetSessionAsync(
+          administratorClient,
+          cancellationToken);
+      var viewerSession = await DashboardTestHelpers.GetSessionAsync(
+          viewerClient,
+          cancellationToken);
+
+      using var viewerCreate = await PostImageMutationAsync(
+          viewerClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/campaigns",
+          viewerSession.AntiforgeryToken,
+          "viewer-campaign-create-1",
+          new CreateImageRolloutCampaignRequest(candidateId),
+          cancellationToken);
+      using var createdResponse = await PostImageMutationAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/campaigns",
+          administratorSession.AntiforgeryToken,
+          "admin-campaign-create-1",
+          new CreateImageRolloutCampaignRequest(candidateId),
+          cancellationToken);
+      var created = await createdResponse.Content
+          .ReadFromJsonAsync<ImageRolloutCampaignResponse>(
+              cancellationToken);
+      var target = created!.Targets.Single();
+      using var invalidConfigurationResponse = await PostImageMutationAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/campaigns/{created.CampaignId:D}/configure",
+          administratorSession.AntiforgeryToken,
+          "admin-campaign-configure-invalid",
+          new ConfigureImageRolloutCampaignRequest(
+              null,
+              ImageRolloutCampaignConfiguration.MaximumWaveSize + 1,
+              created.Revision,
+              created.TargetSetHash),
+          cancellationToken);
+      using var invalidConfigurationBody = JsonDocument.Parse(
+          await invalidConfigurationResponse.Content.ReadAsStringAsync(
+              cancellationToken));
+      using var configuredResponse = await PostImageMutationAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/campaigns/{created.CampaignId:D}/configure",
+          administratorSession.AntiforgeryToken,
+          "admin-campaign-configure-1",
+          new ConfigureImageRolloutCampaignRequest(
+              null,
+              10,
+              created.Revision,
+              created.TargetSetHash),
+          cancellationToken);
+      var configured = await configuredResponse.Content
+          .ReadFromJsonAsync<ImageRolloutCampaignResponse>(
+              cancellationToken);
+      using var approvedResponse = await PostImageMutationAsync(
+          administratorClient,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/campaigns/{created.CampaignId:D}/waves/0/approve",
+          administratorSession.AntiforgeryToken,
+          "admin-campaign-approve-1",
+          new ApproveImageRolloutCampaignWaveRequest(
+              configured!.Revision,
+              configured.TargetSetHash),
+          cancellationToken);
+      var approved = await approvedResponse.Content
+          .ReadFromJsonAsync<ImageRolloutCampaignResponse>(
+              cancellationToken);
+      var processed = await factory.Services
+          .GetRequiredService<IImageRolloutCampaignProcessor>()
+          .ProcessOnceAsync(cancellationToken);
+      using var detailResponse = await administratorClient.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/images/campaigns/{created.CampaignId:D}",
+          cancellationToken);
+      var detail = await detailResponse.Content
+          .ReadFromJsonAsync<ImageRolloutCampaignResponse>(
+              cancellationToken);
+      var profileControl = await factory.Services
+          .GetRequiredService<IImageRolloutCommandStore>()
+          .GetProfileControlOrNullAsync(
+              DashboardTestHelpers.TenantId,
+              nodeId,
+              profileId,
+              120,
+              cancellationToken);
+
+      await Assert.That(viewerCreate.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(createdResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Created);
+      await Assert.That(created.Status).IsEqualTo("draft");
+      await Assert.That(created.Targets).HasSingleItem();
+      await Assert.That(target.NodeId).IsEqualTo(nodeId);
+      await Assert.That(target.ProfileId).IsEqualTo(profileId);
+      await Assert.That(target.ExclusionCategory).IsNull();
+      await Assert.That(invalidConfigurationResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.BadRequest);
+      await Assert.That(
+              invalidConfigurationBody.RootElement
+                  .GetProperty("error")
+                  .GetProperty("code")
+                  .GetString())
+          .IsEqualTo("invalid_image_campaign_configuration");
+      await Assert.That(configuredResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(configured.Status).IsEqualTo("awaiting-approval");
+      await Assert.That(configured.Waves).HasSingleItem();
+      await Assert.That(approvedResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(approved!.Status).IsEqualTo("running");
+      await Assert.That(processed).IsEqualTo(1);
+      await Assert.That(detailResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(detail).IsNotNull();
+      await Assert.That(detail!.Targets[0].CommandId).IsNotNull();
+      await Assert.That(profileControl).IsNotNull();
+      await Assert.That(profileControl!.LatestCommand).IsNotNull();
+      await Assert.That(profileControl.LatestCommand!.CommandId)
+          .IsEqualTo(detail.Targets[0].CommandId);
+      await Assert.That(profileControl.LatestCommand.CandidateId)
+          .IsEqualTo(candidateId);
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Rollout_Endpoints_Enforce_Authentication_Roles_And_Antiforgery(
       CancellationToken cancellationToken)
   {
@@ -1035,7 +1203,7 @@ public sealed class ImagesHostingTests
       using var viewerGet = await viewerClient.GetAsync(
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts/{nodeId:D}/{profileId}",
           cancellationToken);
-      using var viewerPost = await PostRolloutAsync(
+      using var viewerPost = await PostImageMutationAsync(
           viewerClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           viewerSession.AntiforgeryToken,
@@ -1057,7 +1225,7 @@ public sealed class ImagesHostingTests
           missingAntiforgeryRequest,
           cancellationToken);
 
-      using var invalidAntiforgery = await PostRolloutAsync(
+      using var invalidAntiforgery = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           "not-a-real-token",
@@ -1079,7 +1247,7 @@ public sealed class ImagesHostingTests
           missingIdempotencyRequest,
           cancellationToken);
 
-      using var invalidIdempotency = await PostRolloutAsync(
+      using var invalidIdempotency = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1087,7 +1255,7 @@ public sealed class ImagesHostingTests
           CreateRolloutRequest(nodeId, profileId, candidateId),
           cancellationToken);
 
-      using var administratorPost = await PostRolloutAsync(
+      using var administratorPost = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1271,7 +1439,7 @@ public sealed class ImagesHostingTests
           administratorClient,
           cancellationToken);
 
-      using var response = await PostRolloutAsync(
+      using var response = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1340,7 +1508,7 @@ public sealed class ImagesHostingTests
           administratorClient,
           cancellationToken);
 
-      using var initialPost = await PostRolloutAsync(
+      using var initialPost = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1351,7 +1519,7 @@ public sealed class ImagesHostingTests
           .ReadFromJsonAsync<JsonElement>(cancellationToken);
       var initialCommandId = initialBody.GetProperty("commandId").GetGuid();
 
-      using var replayPost = await PostRolloutAsync(
+      using var replayPost = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1361,7 +1529,7 @@ public sealed class ImagesHostingTests
       var replayBody = await replayPost.Content
           .ReadFromJsonAsync<JsonElement>(cancellationToken);
 
-      using var conflictPost = await PostRolloutAsync(
+      using var conflictPost = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1371,7 +1539,7 @@ public sealed class ImagesHostingTests
       var conflictBody = await conflictPost.Content
           .ReadFromJsonAsync<JsonElement>(cancellationToken);
 
-      using var cooldownPost = await PostRolloutAsync(
+      using var cooldownPost = await PostImageMutationAsync(
           administratorClient,
           $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
           administratorSession.AntiforgeryToken,
@@ -1388,7 +1556,7 @@ public sealed class ImagesHostingTests
           limitedStatus != HttpStatusCode.TooManyRequests;
           requestIndex++)
       {
-        using var rateResponse = await PostRolloutAsync(
+        using var rateResponse = await PostImageMutationAsync(
             administratorClient,
             $"/api/tenants/{DashboardTestHelpers.TenantId}/images/profile-rollouts",
             administratorSession.AntiforgeryToken,
@@ -1449,7 +1617,7 @@ public sealed class ImagesHostingTests
 
   private const string RolloutIdempotencyKeyHeader = "Idempotency-Key";
 
-  private static async Task<HttpResponseMessage> PostRolloutAsync(
+  private static async Task<HttpResponseMessage> PostImageMutationAsync(
       HttpClient client,
       string path,
       string antiforgeryToken,
@@ -1531,6 +1699,24 @@ public sealed class ImagesHostingTests
     var nodeId = enrollment.NodeId ??
         throw new InvalidOperationException(
             "Failed to enroll HTTP integration test node.");
+    var transactionFactory =
+        services.GetRequiredService<IFleetStorageTransactionFactory>();
+    await using (var transaction = await transactionFactory.BeginAsync(
+        cancellationToken))
+    {
+      await fleetStore.ApplySyncAsync(
+          transaction,
+          nodeId,
+          "0.14.0",
+          now,
+          [],
+          new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+          new ConnectorCredentialUpdate(
+              ConnectorCredentialUpdateKind.None,
+              string.Empty),
+          cancellationToken);
+      await transaction.CommitAsync(cancellationToken);
+    }
     var capability = new ImageRolloutOperatorCapability(
         [
             new ImageRolloutOperatorProfile(

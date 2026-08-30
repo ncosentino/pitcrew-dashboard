@@ -33,6 +33,10 @@ internal sealed class SqliteFleetStorePlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<IImageRolloutCommandStore>(
         static services =>
             services.GetRequiredService<SqliteImageRolloutCommandStore>());
+    options.Services.AddSingleton<SqliteImageRolloutCampaignStore>();
+    options.Services.AddSingleton<IImageRolloutCampaignStore>(
+        static services =>
+            services.GetRequiredService<SqliteImageRolloutCampaignStore>());
     options.Services.AddSingleton<SqliteFleetHistoryStore>();
     options.Services.AddSingleton<IFleetHistoryStore>(
         static services =>
