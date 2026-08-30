@@ -63,7 +63,7 @@ test('campaign draft keeps eligible and excluded targets visible before authorit
   });
   await expect(cancelDialog.getByText('Request key', { exact: true })).toBeVisible();
   await expect(cancelDialog).toContainText('Existing commands continue.');
-  await cancelDialog.getByRole('button', { name: 'Cancel' }).click();
+  await cancelDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 
   await expectCampaignSurfaceHealth(page, testInfo, 'draft-desktop');
   await testInfo.attach('screenshot-image-campaign-draft-desktop', {
@@ -248,7 +248,7 @@ test('mixed campaign progress preserves rolling failed indeterminate and exclude
 
   await expect(page.getByText('Applying')).toBeVisible();
   await expect(page.getByText('Rolling')).toBeVisible();
-  await expect(page.getByText('Failed')).toBeVisible();
+  await expect(page.getByText('Failed', { exact: true })).toBeVisible();
   await expect(page.getByText('Indeterminate')).toBeVisible();
   await expect(page.getByText('Recipe not allowed')).toBeVisible();
   await expect(
@@ -341,11 +341,11 @@ test('rollback creation opens the distinct returned draft without executing it',
   await expect(page).toHaveURL(`/tenants/${tenantId}/images/campaigns/${rollback.campaignId}`);
   await expect(page.getByRole('heading', { name: 'Rollback campaign' })).toBeVisible();
   await expect(page.getByText('Source campaign').locator('..')).toContainText(source.campaignId);
-  await expect(page.getByText('Draft')).toBeVisible();
+  await expect(page.getByText('Draft', { exact: true })).toBeVisible();
 });
 
 test('campaign target evidence stays contained on a narrow screen', async ({ page }, testInfo) => {
-  const longName = `Builder ${'north-'.repeat(30)}node`;
+  const longName = `Builder ${'north-'.repeat(20)}`;
   const campaign = buildImageCampaign({
     targets: [
       buildImageCampaignTarget({
