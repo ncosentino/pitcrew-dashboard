@@ -380,7 +380,13 @@ test('campaign target evidence stays contained on a narrow screen', async ({ pag
   await setUpPage(page, scenario, 'dark');
   await page.goto(`/tenants/${tenantId}/images/campaigns/${campaign.campaignId}`);
 
-  await expect(page.getByText(longName).first()).toBeVisible();
+  await expect(
+    page
+      .getByRole('list', { name: 'Campaign targets' })
+      .getByRole('listitem')
+      .filter({ hasText: longName })
+      .first(),
+  ).toBeVisible();
   await expectCampaignSurfaceHealth(page, testInfo, 'long-target-narrow');
   await testInfo.attach('screenshot-image-campaign-long-target-narrow', {
     body: await page.screenshot({ fullPage: true }),
