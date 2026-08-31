@@ -110,4 +110,73 @@ internal static class ConnectorTestFactory
           Options.Create(options),
           timeProvider,
           NullLogger<RecoveryCommandExecutor>.Instance);
+
+  public static ImageRolloutProfileResolver CreateImageRolloutResolver(
+      ConnectorOptions options,
+      IHostExecutionEnvironment executionEnvironment,
+      TimeProvider timeProvider) =>
+      CreateImageRolloutResolver(
+          options,
+          CreateOperationGate(options),
+          executionEnvironment,
+          timeProvider);
+
+  public static ImageRolloutProfileResolver CreateImageRolloutResolver(
+      ConnectorOptions options,
+      LocalProfileOperationGate operationGate,
+      IHostExecutionEnvironment executionEnvironment,
+      TimeProvider timeProvider) =>
+      new(
+          CreateStateLocator(options),
+          operationGate,
+          CreateImageRolloutManifestBuilder(options),
+          executionEnvironment,
+          Options.Create(options),
+          timeProvider,
+          NullLogger<ImageRolloutProfileResolver>.Instance);
+
+  public static ImageRolloutLedger CreateImageRolloutLedger(
+      ConnectorOptions options) =>
+      new(
+          Options.Create(options),
+          NullLogger<ImageRolloutLedger>.Instance);
+
+  public static ImageRolloutManifestBuilder CreateImageRolloutManifestBuilder(
+      ConnectorOptions options) =>
+      new(
+          Options.Create(options),
+          NullLogger<ImageRolloutManifestBuilder>.Instance);
+
+  public static ImageRolloutCommandExecutor CreateImageRolloutExecutor(
+      ConnectorOptions options,
+      ISetupProcessRunner processRunner,
+      IHostExecutionEnvironment executionEnvironment,
+      TimeProvider timeProvider) =>
+      CreateImageRolloutExecutor(
+          options,
+          CreateOperationGate(options),
+          processRunner,
+          executionEnvironment,
+          timeProvider);
+
+  public static ImageRolloutCommandExecutor CreateImageRolloutExecutor(
+      ConnectorOptions options,
+      LocalProfileOperationGate operationGate,
+      ISetupProcessRunner processRunner,
+      IHostExecutionEnvironment executionEnvironment,
+      TimeProvider timeProvider) =>
+      new(
+          CreateImageRolloutResolver(
+              options,
+              operationGate,
+              executionEnvironment,
+              timeProvider),
+          CreateImageRolloutLedger(options),
+          CreateImageRolloutManifestBuilder(options),
+          operationGate,
+          processRunner,
+          executionEnvironment,
+          Options.Create(options),
+          timeProvider,
+          NullLogger<ImageRolloutCommandExecutor>.Instance);
 }

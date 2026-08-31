@@ -29,6 +29,12 @@ import {
 } from '../../src/core/fleet/fleetApi';
 import { incidentPageSchema, type IncidentPage } from '../../src/features/fleet/incidentsApi';
 import {
+  profileImageRolloutCommandSchema,
+  profileImageRolloutControlSchema,
+  type ProfileImageRolloutCommand,
+  type ProfileImageRolloutControl,
+} from '../../src/features/fleet/imageRolloutApi';
+import {
   imageBuildRequestSchema,
   imageCandidateSchema,
   imageRecipeRegistrationSchema,
@@ -36,6 +42,16 @@ import {
   type ImageCandidate,
   type ImageRecipeRegistration,
 } from '../../src/features/images/imagesApi';
+import {
+  imageCampaignSchema,
+  imageCampaignSummarySchema,
+  imageCampaignTargetSchema,
+  imageCampaignWaveSchema,
+  type ImageCampaign,
+  type ImageCampaignSummary,
+  type ImageCampaignTarget,
+  type ImageCampaignWave,
+} from '../../src/features/images/imageCampaignApi';
 import {
   diagnosticCredentialCreatedSchema,
   diagnosticCredentialSchema,
@@ -183,6 +199,210 @@ export function buildImageCandidate(overrides: Partial<ImageCandidate> = {}): Im
       { name: 'oci-manifest', status: 'passed' },
       { name: 'builder-cleanup', status: 'passed' },
     ],
+    ...overrides,
+  });
+}
+
+export function buildProfileImageRolloutControl(
+  overrides: Partial<ProfileImageRolloutControl> = {},
+): ProfileImageRolloutControl {
+  return profileImageRolloutControlSchema.parse({
+    nodeId: nodeIds.alpha,
+    profileId: 'build',
+    architecture: 'linux/amd64',
+    currentImageReference: 'ghcr.io/example/runner:current',
+    currentImageDigest: `sha256:${'1'.repeat(64)}`,
+    currentLocalImageId: `sha256:${'2'.repeat(64)}`,
+    currentWorkerRevision: '3'.repeat(64),
+    staticFingerprint: '4'.repeat(64),
+    preservedConfigurationFingerprint: '5'.repeat(64),
+    routingFingerprint: '6'.repeat(64),
+    desiredGeneration: 4,
+    desiredStateHash: 'a'.repeat(64),
+    allowedRecipeIds: ['ubuntu-runner'],
+    rolloutAllowed: true,
+    localSchemaSupported: true,
+    localFailureCategory: null,
+    operationActive: false,
+    observedStateAgeSeconds: 5,
+    observedStateMaximumAgeSeconds: 120,
+    observedStateFresh: true,
+    managerConvergenceStatus: 'current',
+    currentWorkers: 2,
+    staleWorkers: 0,
+    latestCommand: null,
+    recentCommands: [],
+    ...overrides,
+  });
+}
+
+export function buildProfileImageRolloutCommand(
+  overrides: Partial<ProfileImageRolloutCommand> = {},
+): ProfileImageRolloutCommand {
+  return profileImageRolloutCommandSchema.parse({
+    commandId: '70400000-0000-4000-8000-000000000004',
+    candidateId: '70300000-0000-4000-8000-000000000003',
+    recipeId: 'ubuntu-runner',
+    targetDigest: `sha256:${'e'.repeat(64)}`,
+    targetPlatform: 'linux/amd64',
+    previousImageReference: null,
+    previousImageDigest: null,
+    previousWorkerRevision: null,
+    status: 'started',
+    failureCategory: null,
+    requestedByGitHubUserId: '1001',
+    requestedAt: '2026-08-28T12:20:00+00:00',
+    expiresAt: '2026-08-28T12:50:00+00:00',
+    deliveredAt: '2026-08-28T12:20:05+00:00',
+    claimedAt: '2026-08-28T12:20:06+00:00',
+    startedAt: '2026-08-28T12:20:07+00:00',
+    completedAt: null,
+    targetWorkerRevision: null,
+    managerConvergenceStatus: null,
+    currentWorkers: null,
+    staleWorkers: null,
+    lastError: null,
+    resultMessage: null,
+    previousCandidateId: null,
+    previousRecipeId: null,
+    ...overrides,
+  });
+}
+
+export function buildImageCampaignTarget(
+  overrides: Partial<ImageCampaignTarget> = {},
+): ImageCampaignTarget {
+  return imageCampaignTargetSchema.parse({
+    targetId: '71100000-0000-4000-8000-000000000001',
+    nodeId: nodeIds.alpha,
+    nodeDisplayName: 'Alpha',
+    profileId: 'build',
+    candidate: {
+      candidateId: '70300000-0000-4000-8000-000000000003',
+      recipeId: 'ubuntu-runner',
+      targetDigest: `sha256:${'e'.repeat(64)}`,
+      targetPlatform: 'linux/amd64',
+    },
+    expectedCurrentImageReference: 'ghcr.io/example/runner:current',
+    expectedCurrentImageDigest: `sha256:${'1'.repeat(64)}`,
+    expectedCurrentLocalImageId: `sha256:${'2'.repeat(64)}`,
+    expectedCurrentWorkerRevision: '3'.repeat(64),
+    expectedStaticFingerprint: '4'.repeat(64),
+    expectedPreservedConfigurationFingerprint: '5'.repeat(64),
+    expectedRoutingFingerprint: '6'.repeat(64),
+    expectedDesiredGeneration: 4,
+    expectedDesiredStateHash: 'a'.repeat(64),
+    exclusionCategory: null,
+    status: 'eligible',
+    waveNumber: null,
+    isCanary: false,
+    commandId: null,
+    failureCategory: null,
+    resultMessage: null,
+    targetWorkerRevision: null,
+    managerConvergenceStatus: null,
+    currentWorkers: null,
+    staleWorkers: null,
+    claimedAt: null,
+    startedAt: null,
+    completedAt: null,
+    previousCandidateId: null,
+    previousRecipeId: null,
+    previousImageReference: null,
+    previousImageDigest: null,
+    previousWorkerRevision: null,
+    ...overrides,
+  });
+}
+
+export function buildImageCampaignWave(
+  overrides: Partial<ImageCampaignWave> = {},
+): ImageCampaignWave {
+  return imageCampaignWaveSchema.parse({
+    waveNumber: 0,
+    status: 'pending',
+    targetCount: 1,
+    approvedByGitHubUserId: null,
+    approvedAt: null,
+    completedAt: null,
+    ...overrides,
+  });
+}
+
+export function buildImageCampaign(overrides: Partial<ImageCampaign> = {}): ImageCampaign {
+  return imageCampaignSchema.parse({
+    campaignId: '71000000-0000-4000-8000-000000000001',
+    kind: 'forward',
+    sourceCampaignId: null,
+    candidate: {
+      candidateId: '70300000-0000-4000-8000-000000000003',
+      recipeId: 'ubuntu-runner',
+      targetDigest: `sha256:${'e'.repeat(64)}`,
+      targetPlatform: 'linux/amd64',
+    },
+    targetSetHash: 'f'.repeat(64),
+    status: 'draft',
+    revision: 0,
+    waveSize: null,
+    requestedByGitHubUserId: '1001',
+    requestedAt: '2026-08-29T12:00:00+00:00',
+    configuredByGitHubUserId: null,
+    configuredAt: null,
+    pausedAt: null,
+    cancelledAt: null,
+    completedAt: null,
+    targets: [
+      buildImageCampaignTarget(),
+      buildImageCampaignTarget({
+        targetId: '71200000-0000-4000-8000-000000000002',
+        nodeId: nodeIds.bravo,
+        nodeDisplayName: 'Bravo',
+        exclusionCategory: 'node-offline',
+        status: 'excluded',
+        candidate: null,
+        expectedCurrentImageReference: null,
+        expectedCurrentImageDigest: null,
+        expectedCurrentLocalImageId: null,
+        expectedCurrentWorkerRevision: null,
+        expectedStaticFingerprint: null,
+        expectedPreservedConfigurationFingerprint: null,
+        expectedRoutingFingerprint: null,
+        expectedDesiredGeneration: null,
+        expectedDesiredStateHash: null,
+      }),
+    ],
+    waves: [],
+    ...overrides,
+  });
+}
+
+export function buildImageCampaignSummary(
+  overrides: Partial<ImageCampaignSummary> = {},
+): ImageCampaignSummary {
+  return imageCampaignSummarySchema.parse({
+    campaignId: '71000000-0000-4000-8000-000000000001',
+    kind: 'forward',
+    sourceCampaignId: null,
+    candidate: {
+      candidateId: '70300000-0000-4000-8000-000000000003',
+      recipeId: 'ubuntu-runner',
+      targetDigest: `sha256:${'e'.repeat(64)}`,
+      targetPlatform: 'linux/amd64',
+    },
+    targetSetHash: 'f'.repeat(64),
+    status: 'draft',
+    revision: 0,
+    waveSize: null,
+    eligibleTargetCount: 1,
+    excludedTargetCount: 1,
+    completeTargetCount: 0,
+    adverseTargetCount: 0,
+    currentWaveNumber: null,
+    nextWaveNumber: null,
+    requestedByGitHubUserId: '1001',
+    requestedAt: '2026-08-29T12:00:00+00:00',
+    configuredAt: null,
+    completedAt: null,
     ...overrides,
   });
 }

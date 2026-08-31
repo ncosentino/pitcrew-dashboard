@@ -467,12 +467,12 @@ describe('profile detail routes', () => {
       await screen.findByRole('heading', { level: 1, name: 'Profile default overview' }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    const readiness = await screen.findByRole('region', { name: 'Profile readiness' });
-    expect(readiness).toBeVisible();
-    expect(within(readiness).getAllByText('Autoscaling degraded').length).toBeGreaterThan(0);
     expect(
       await screen.findByTestId('profile-overview-maximum-default', {}, { timeout: 5_000 }),
     ).toHaveTextContent('30');
+    const readiness = screen.getByRole('region', { name: 'Profile readiness' });
+    expect(readiness).toBeVisible();
+    expect(within(readiness).getAllByText('Autoscaling degraded').length).toBeGreaterThan(0);
     expect(screen.getByTestId('profile-overview-target-default')).toHaveTextContent('3');
     expect(screen.getByTestId('profile-overview-local-default')).toHaveTextContent('1');
     expect(screen.getByTestId('profile-overview-eligible-default')).toHaveTextContent('1');
@@ -493,8 +493,8 @@ describe('profile detail routes', () => {
       `${profilePath}/capacity`,
     );
     expect(
-      screen.getByRole('link', { name: 'View workers for Worker image rollout' }),
-    ).toHaveAttribute('href', `${profilePath}/workers`);
+      screen.getByRole('link', { name: 'View image for Worker image rollout' }),
+    ).toHaveAttribute('href', `${profilePath}/image`);
     expect(screen.getByRole('link', { name: 'View workers' })).toHaveAttribute(
       'href',
       `${profilePath}/workers`,

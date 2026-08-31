@@ -10,7 +10,12 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 10;
+  public const int Version = 11;
+
+  /// <summary>
+  /// Gets the first protocol version that carries profile-image rollout evidence.
+  /// </summary>
+  public const int ImageRolloutMinimumVersion = 11;
 
   /// <summary>
   /// Gets the oldest connector synchronization protocol accepted by the dashboard.
@@ -530,6 +535,9 @@ public static class ConnectorHealthReplayContract
 /// <param name="RecoveryCommandProgress">Most recent unacknowledged recovery progress report, or <see langword="null"/>.</param>
 /// <param name="RecoveryCommandOutcome">Most recent unacknowledged recovery outcome, or <see langword="null"/>.</param>
 /// <param name="ConnectorHealth">Bounded local connector-health evidence, or <see langword="null"/> when unavailable.</param>
+/// <param name="ImageRolloutOperator">Locally enabled profile-image rollout capability, or <see langword="null"/>. Requires protocol version 11.</param>
+/// <param name="ImageRolloutCommandProgress">Most recent unacknowledged image-rollout progress report, or <see langword="null"/>. Requires protocol version 11.</param>
+/// <param name="ImageRolloutCommandOutcome">Most recent unacknowledged image-rollout outcome, or <see langword="null"/>. Requires protocol version 11.</param>
 public sealed record ConnectorSyncRequest(
     int ProtocolVersion,
     string ConnectorVersion,
@@ -540,7 +548,10 @@ public sealed record ConnectorSyncRequest(
     RecoveryOperatorCapability? RecoveryOperator = null,
     RecoveryCommandProgress? RecoveryCommandProgress = null,
     RecoveryCommandOutcome? RecoveryCommandOutcome = null,
-    ConnectorHealthReplay? ConnectorHealth = null);
+    ConnectorHealthReplay? ConnectorHealth = null,
+    ImageRolloutOperatorCapability? ImageRolloutOperator = null,
+    ImageRolloutCommandProgress? ImageRolloutCommandProgress = null,
+    ImageRolloutCommandOutcome? ImageRolloutCommandOutcome = null);
 
 /// <summary>
 /// Delivers a staged replacement node credential to the connector.
@@ -557,13 +568,15 @@ public sealed record ConnectorCredentialRotation(string Credential);
 /// <param name="CapacityCommand">Capacity command claimed for this connector, or <see langword="null"/>.</param>
 /// <param name="RecoveryCommand">Manager-recovery command claimed for this connector, or <see langword="null"/>.</param>
 /// <param name="ConnectorHealthAcknowledgement">Connector-health event identifiers durably accepted by Dashboard.</param>
+/// <param name="ImageRolloutCommand">Profile-image rollout command claimed for this connector, or <see langword="null"/>. Only issued to connectors declaring protocol version 11 or later.</param>
 public sealed record ConnectorSyncResponse(
     DateTimeOffset AcceptedAt,
     int NextPollSeconds,
     ConnectorCredentialRotation? CredentialRotation,
     SetCapacityCommand? CapacityCommand,
     RecoverManagerCommand? RecoveryCommand = null,
-    ConnectorHealthAcknowledgement? ConnectorHealthAcknowledgement = null);
+    ConnectorHealthAcknowledgement? ConnectorHealthAcknowledgement = null,
+    RollOutProfileImageCommand? ImageRolloutCommand = null);
 
 /// <summary>
 /// Provides source-generated JSON metadata for connector and dashboard protocol messages.
@@ -610,6 +623,11 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(ConnectorHealthReplay))]
 [JsonSerializable(typeof(ConnectorHealthAcknowledgement))]
 [JsonSerializable(typeof(IReadOnlyList<ConnectorHealthReplayEvent>))]
+[JsonSerializable(typeof(ImageRolloutOperatorProfile))]
+[JsonSerializable(typeof(ImageRolloutOperatorCapability))]
+[JsonSerializable(typeof(RollOutProfileImageCommand))]
+[JsonSerializable(typeof(ImageRolloutCommandProgress))]
+[JsonSerializable(typeof(ImageRolloutCommandOutcome))]
 [JsonSerializable(typeof(ConnectorSyncRequest))]
 [JsonSerializable(typeof(ConnectorCredentialRotation))]
 [JsonSerializable(typeof(ConnectorSyncResponse))]

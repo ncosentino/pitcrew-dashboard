@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -104,7 +105,14 @@ describe('authenticated routing', () => {
 
   it('redirects the root to the first authorized tenant and loads the session once', async () => {
     const fetchMock = mockSession(ownerSession);
-    const router = renderRoute('/');
+    const router = createTestRouter(features, ['/']);
+    render(
+      <StrictMode>
+        <SessionProvider>
+          <RouterProvider router={router} />
+        </SessionProvider>
+      </StrictMode>,
+    );
 
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' }),

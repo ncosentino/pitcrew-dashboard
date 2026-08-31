@@ -178,15 +178,25 @@ internal sealed partial class CapacityCommandExecutor(
       "-Profile",
       profile.ProfileId,
       "-CapacityOnly",
-      "-Image",
-      profile.Image,
-      $"-PullImage:${profile.PullImage.ToString().ToLowerInvariant()}",
-      "-Labels",
-      string.Join(',', profile.Labels),
-      "-NamePrefix",
-      profile.NamePrefix,
-      $"-Autoscale:${profile.Autoscale.ToString().ToLowerInvariant()}",
     };
+    // When the current static-profile records an externally supplied manifest
+    // (for example a rollout-generated one under the connector-controlled
+    // rollout state root), reuse it through -ProfilePath so this capacity
+    // change does not resolve back to the repository's original built-in
+    // manifest and undo the rollout's image authority.
+    if (profile.ManifestSourcePath is { Length: > 0 })
+    {
+      arguments.Add("-ProfilePath");
+      arguments.Add(profile.ManifestSourcePath);
+    }
+    arguments.Add("-Image");
+    arguments.Add(profile.Image);
+    arguments.Add($"-PullImage:${profile.PullImage.ToString().ToLowerInvariant()}");
+    arguments.Add("-Labels");
+    arguments.Add(string.Join(',', profile.Labels));
+    arguments.Add("-NamePrefix");
+    arguments.Add(profile.NamePrefix);
+    arguments.Add($"-Autoscale:${profile.Autoscale.ToString().ToLowerInvariant()}");
     if (!string.IsNullOrWhiteSpace(profile.RunnerGroup))
     {
       arguments.Add("-RunnerGroup");

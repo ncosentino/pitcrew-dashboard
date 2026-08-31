@@ -49,8 +49,17 @@ const routes: readonly RouteCase[] = [
     name: 'profile-overview',
     path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build`,
   },
+  {
+    name: 'profile-image-rollout',
+    path: `/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/image`,
+  },
   { name: 'runners', path: `/tenants/${tenantId}/runners` },
   { name: 'image-candidates', path: `/tenants/${tenantId}/images/candidates` },
+  { name: 'image-campaigns', path: `/tenants/${tenantId}/images/campaigns` },
+  {
+    name: 'image-campaign-detail',
+    path: `/tenants/${tenantId}/images/campaigns/71000000-0000-4000-8000-000000000001`,
+  },
   { name: 'image-recipes', path: `/tenants/${tenantId}/images/recipes` },
   { name: 'settings-general', path: `/tenants/${tenantId}/settings/general` },
   { name: 'settings-access', path: `/tenants/${tenantId}/settings/access` },

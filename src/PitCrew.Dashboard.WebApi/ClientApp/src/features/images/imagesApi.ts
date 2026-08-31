@@ -1,6 +1,18 @@
 import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
+export {
+  getImageCandidate,
+  getImageCandidates,
+  imageCandidateListSchema,
+  imageCandidateQualificationSchema,
+  imageCandidateSchema,
+} from '@/core/images/imageCandidatesApi';
+export type {
+  ImageCandidate,
+  ImageCandidateList,
+  ImageCandidateQualification,
+} from '@/core/images/imageCandidatesApi';
 
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
 const positiveDecimalSchema = z.string().regex(/^[1-9][0-9]*$/u);
@@ -72,57 +84,12 @@ export const imageBuildRequestListSchema = z.object({
   truncated: z.boolean(),
 });
 
-export const imageCandidateQualificationSchema = z.object({
-  name: z.enum([
-    'image-build',
-    'buildkit-digest',
-    'registry-digest',
-    'oci-manifest',
-    'builder-cleanup',
-  ]),
-  status: z.enum(['passed', 'failed', 'unavailable']),
-});
-export const imageCandidateSchema = z.object({
-  candidateId: z.string().uuid(),
-  requestId: z.string().uuid(),
-  registrationId: z.string().uuid(),
-  registrationVersion: z.number().int().positive(),
-  outcome: z.enum(['ready', 'failed']),
-  recipeId: z.string().min(1).max(64),
-  sourceRepository: z.string().min(1).max(256),
-  sourceCommit: sha1Schema,
-  githubRunId: positiveDecimalSchema,
-  githubRunApiUrl: z.string().url().nullable(),
-  githubRunUrl: z.string().url().nullable(),
-  artifactId: positiveDecimalSchema,
-  artifactName: z.literal('pitcrew-image-candidate'),
-  artifactDigest: z.string().min(1).max(256),
-  reportHash: z.string().min(1).max(256),
-  imageReference: z.string().min(1).max(2048),
-  digest: z.string().min(1).max(256).nullable(),
-  immutableReference: z.string().min(1).max(2048).nullable(),
-  platform: z.enum(['linux/amd64', 'linux/arm64']),
-  outputMode: z.enum(['registry', 'oci']),
-  failureCategory: z.string().min(1).max(128).nullable(),
-  failureDetail: z.string().min(1).max(512).nullable(),
-  createdAt: offsetDateTimeSchema,
-  storedAt: offsetDateTimeSchema,
-  qualifications: z.array(imageCandidateQualificationSchema),
-});
-export const imageCandidateListSchema = z.object({
-  candidates: z.array(imageCandidateSchema),
-  truncated: z.boolean(),
-});
-
 export type ImageRecipeInput = z.infer<typeof imageRecipeInputSchema>;
 export type ImageRecipeRegistration = z.infer<typeof imageRecipeRegistrationSchema>;
 export type ImageRecipeRegistrationList = z.infer<typeof imageRecipeRegistrationListSchema>;
 export type ImageBuildStatus = z.infer<typeof imageBuildStatusSchema>;
 export type ImageBuildRequest = z.infer<typeof imageBuildRequestSchema>;
 export type ImageBuildRequestList = z.infer<typeof imageBuildRequestListSchema>;
-export type ImageCandidateQualification = z.infer<typeof imageCandidateQualificationSchema>;
-export type ImageCandidate = z.infer<typeof imageCandidateSchema>;
-export type ImageCandidateList = z.infer<typeof imageCandidateListSchema>;
 
 export interface CreateImageRecipeRegistrationInput {
   readonly registrationId: string;
@@ -179,34 +146,6 @@ export async function getImageBuildRequests(
     schema: imageBuildRequestListSchema,
     signal,
   });
-}
-
-/** Lists immutable ready or failed image candidates newest first. */
-export async function getImageCandidates(
-  tenantId: string,
-  signal: AbortSignal,
-): Promise<ImageCandidateList> {
-  return await createClient().request(`${tenantImagesPath(tenantId)}/candidates?limit=100`, {
-    method: 'GET',
-    schema: imageCandidateListSchema,
-    signal,
-  });
-}
-
-/** Loads one immutable image candidate by candidate ID. */
-export async function getImageCandidate(
-  tenantId: string,
-  candidateId: string,
-  signal: AbortSignal,
-): Promise<ImageCandidate> {
-  return await createClient().request(
-    `${tenantImagesPath(tenantId)}/candidates/${encodeURIComponent(candidateId)}`,
-    {
-      method: 'GET',
-      schema: imageCandidateSchema,
-      signal,
-    },
-  );
 }
 
 /** Registers one frozen trusted workflow authority. */

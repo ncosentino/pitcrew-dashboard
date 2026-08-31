@@ -308,7 +308,7 @@ public sealed class SqliteConnectorHealthStoreTests
 
       await Assert.That(reader.GetInt32(0)).IsEqualTo(1);
       await Assert.That(reader.GetInt32(1)).IsEqualTo(2);
-      await Assert.That(reader.GetInt32(2)).IsEqualTo(28);
+      await Assert.That(reader.GetInt32(2)).IsEqualTo(30);
     }
     finally
     {

@@ -1,13 +1,16 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider, type TenantRole } from '@/core/auth';
-import { createTestRouter } from '@/core/routing/createAppRouter';
-import { features } from '@/features.registry';
+import { TenantRouteGuard } from '@/core/routing/guards';
 
 import { imagesManifest } from './manifest';
+import ImageCampaignsPage from './ImageCampaignsPage';
+import ImageCandidatesPage from './ImageCandidatesPage';
+import ImageRecipesPage from './ImageRecipesPage';
+import ImageWorkspace, { ImageWorkspaceLandingPage } from './ImageWorkspace';
 import type { ImageBuildRequest, ImageCandidate, ImageRecipeRegistration } from './imagesApi';
 
 const registrationId = '10000000-0000-4000-8000-000000000001';
@@ -141,10 +144,18 @@ function renderImages(
     buildRequest(),
   ];
   const candidates = overrides.candidates ?? [candidate()];
+  let resolveSessionRequested: (() => void) | null = null;
+  const sessionRequested = new Promise<void>((resolve) => {
+    resolveSessionRequested = resolve;
+  });
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
-    if (url.endsWith('/api/session')) return jsonResponse(session(role));
+    if (url.endsWith('/api/session')) {
+      resolveSessionRequested?.();
+      resolveSessionRequested = null;
+      return jsonResponse(session(role));
+    }
     if (url.includes('/fleet/v1/incidents')) return jsonResponse([]);
     if (url.includes('/images/v1/recipes/registrations')) {
       if (method === 'POST' && url.endsWith('/disable')) {
@@ -166,13 +177,32 @@ function renderImages(
     }
     return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
   });
-  const router = createTestRouter(features, [path]);
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/tenants/:tenantId/images',
+        element: (
+          <TenantRouteGuard minimumRole="viewer">
+            <ImageWorkspace />
+          </TenantRouteGuard>
+        ),
+        children: [
+          { index: true, element: <ImageWorkspaceLandingPage /> },
+          { path: 'candidates', element: <ImageCandidatesPage /> },
+          { path: 'campaigns', element: <ImageCampaignsPage /> },
+          { path: 'campaigns/:campaignId', element: <ImageCampaignsPage /> },
+          { path: 'recipes', element: <ImageRecipesPage /> },
+        ],
+      },
+    ],
+    { initialEntries: [path] },
+  );
   render(
     <SessionProvider>
       <RouterProvider router={router} />
     </SessionProvider>,
   );
-  return { fetchMock, router };
+  return { fetchMock, router, sessionRequested };
 }
 
 describe('runner image workspace', () => {
@@ -193,14 +223,22 @@ describe('runner image workspace', () => {
       },
     ]);
     expect(imagesManifest.routes).toHaveLength(1);
-    expect(imagesManifest.routePresentations).toHaveLength(3);
+    expect(imagesManifest.routePresentations).toHaveLength(5);
   });
 
   it('leads with blocked work and canonicalizes one focused candidate detail', async () => {
-    const { router } = renderImages('/tenants/local/images/candidates');
+    const { router, sessionRequested } = renderImages('/tenants/local/images/candidates');
 
-    expect(await screen.findByRole('heading', { name: 'Image readiness' })).toBeInTheDocument();
-    expect(screen.getByText('Needs attention')).toBeInTheDocument();
+    await act(async () => {
+      await sessionRequested;
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: 'Image readiness' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: 'Image readiness' })).getAllByText(
+        'Needs attention',
+      ),
+    ).not.toHaveLength(0);
     const requestList = await screen.findByRole('list', { name: 'Image build requests' });
     const rows = within(requestList).getAllByRole('listitem');
     expect(rows[0]).toHaveTextContent('artifact-missing');
@@ -253,10 +291,26 @@ describe('runner image workspace', () => {
     expect(await screen.findByText(/Viewer access is read-only/)).toBeInTheDocument();
     expect(screen.queryByText('Request a candidate build')).not.toBeInTheDocument();
     expect(
-      within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', {
-        name: 'Runner images',
+      within(screen.getByRole('navigation', { name: 'Runner image tasks' })).getByRole('link', {
+        name: /Candidates/,
       }),
     ).toBeInTheDocument();
+  });
+
+  it('resolves a candidate deep link to its owning build request', async () => {
+    const { router } = renderImages(`/tenants/local/images/candidates?candidate=${candidateId}`);
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: `ubuntu-runner · ${sourceCommit.slice(0, 12)}`,
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      const search = new URLSearchParams(router.state.location.search);
+      expect(search.get('request')).toBe(readyRequestId);
+      expect(search.has('candidate')).toBe(false);
+    });
   });
 
   it('confirms and submits one exact build request with its stable idempotency key', async () => {

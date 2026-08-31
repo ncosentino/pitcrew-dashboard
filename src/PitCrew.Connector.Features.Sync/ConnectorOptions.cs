@@ -137,6 +137,58 @@ public sealed class ConnectorOptions
   public string RecoveryLedgerPath { get; set; } = string.Empty;
 
   /// <summary>
+  /// Gets or sets whether typed profile-image rollout operations may execute
+  /// on this host.
+  /// </summary>
+  public bool ImageRolloutEnabled { get; set; }
+
+  /// <summary>
+  /// Gets or sets the profile allowlist for profile-image rollout operations.
+  /// </summary>
+  public string[] AllowedImageRolloutProfiles { get; set; } = [];
+
+  /// <summary>
+  /// Gets or sets the closed recipe-to-registry-repository policy. Entries are
+  /// approved recipe identifiers paired with strict registry repositories
+  /// (no scheme, credentials, tag, digest, whitespace, or control characters).
+  /// Modeled as an indexed collection so hyphenated recipe identifiers survive
+  /// Linux systemd environment variable naming, which forbids hyphens in keys.
+  /// </summary>
+  public IList<ImageRolloutRecipePolicyEntry> ImageRolloutRecipes { get; set; } =
+      new List<ImageRolloutRecipePolicyEntry>();
+
+  /// <summary>
+  /// Gets or sets the protected directory holding reconstructed rollout
+  /// manifests and the rollout execution ledger.
+  /// </summary>
+  public string ImageRolloutStatePath { get; set; } = string.Empty;
+
+  /// <summary>
+  /// Gets or sets the maximum duration of one local image rollout invocation.
+  /// </summary>
+  [Range(60, 3600)]
+  public int ImageRolloutCommandTimeoutSeconds { get; set; } = 600;
+
+  /// <summary>
+  /// Gets or sets the longest rollout command lifetime this connector accepts.
+  /// </summary>
+  [Range(60, 86400)]
+  public int ImageRolloutCommandMaximumExpirySeconds { get; set; } = 1800;
+
+  /// <summary>
+  /// Gets or sets the oldest observed state accepted for rollout evidence.
+  /// </summary>
+  [Range(30, 3600)]
+  public int ImageRolloutObservedStateMaximumAgeSeconds { get; set; } = 300;
+
+  /// <summary>
+  /// Gets or sets the maximum reconstructed local manifests retained under
+  /// the rollout state path.
+  /// </summary>
+  [Range(4, 128)]
+  public int ImageRolloutRetainedManifests { get; set; } = 16;
+
+  /// <summary>
   /// Validates relationships between connector polling, heartbeat, and local
   /// operator policy settings.
   /// </summary>
@@ -158,21 +210,76 @@ public sealed class ConnectorOptions
         yield return error;
       }
     }
-    if (!ManagerRecoveryEnabled)
+    if (ManagerRecoveryEnabled)
+    {
+      foreach (var error in ValidateLocalOperationPolicy(
+          "ManagerRecoveryEnabled",
+          "AllowedManagerRecoveryProfiles",
+          AllowedManagerRecoveryProfiles))
+      {
+        yield return error;
+      }
+      if (string.IsNullOrWhiteSpace(RecoveryLedgerPath))
+      {
+        yield return
+            "RecoveryLedgerPath is required when ManagerRecoveryEnabled is true.";
+      }
+    }
+    if (!ImageRolloutEnabled)
     {
       yield break;
     }
     foreach (var error in ValidateLocalOperationPolicy(
-        "ManagerRecoveryEnabled",
-        "AllowedManagerRecoveryProfiles",
-        AllowedManagerRecoveryProfiles))
+        "ImageRolloutEnabled",
+        "AllowedImageRolloutProfiles",
+        AllowedImageRolloutProfiles))
     {
       yield return error;
     }
-    if (string.IsNullOrWhiteSpace(RecoveryLedgerPath))
+    if (string.IsNullOrWhiteSpace(ImageRolloutStatePath))
     {
       yield return
-          "RecoveryLedgerPath is required when ManagerRecoveryEnabled is true.";
+          "ImageRolloutStatePath is required when ImageRolloutEnabled is true.";
+    }
+    else if (!Path.IsPathFullyQualified(ImageRolloutStatePath))
+    {
+      // The rollout state root must never resolve against the connector's
+      // current working directory at process start: a relative or drive-
+      // relative value could be repositioned by the process launcher and
+      // silently redirect ledger/manifest writes to an attacker-influenced
+      // location.
+      yield return
+          "ImageRolloutStatePath must be an absolute path when ImageRolloutEnabled is true.";
+    }
+    if (ImageRolloutRecipes.Count == 0)
+    {
+      yield return
+          "ImageRolloutRecipes must map every allowed recipe when ImageRolloutEnabled is true.";
+    }
+    var seenRecipeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var entry in ImageRolloutRecipes)
+    {
+      if (entry is null ||
+          string.IsNullOrWhiteSpace(entry.RecipeId) ||
+          !ImageRolloutRecipePolicy.IsValidRecipeId(entry.RecipeId))
+      {
+        yield return
+            "ImageRolloutRecipes entries must expose a strict recipe identifier.";
+        yield break;
+      }
+      if (!ImageRolloutRecipePolicy.IsValidRegistryRepository(
+          entry.RegistryRepository))
+      {
+        yield return
+            $"ImageRolloutRecipes entry for recipe '{entry.RecipeId}' must expose a strict registry repository (no scheme, credentials, tag, digest, whitespace, or control characters).";
+        yield break;
+      }
+      if (!seenRecipeIds.Add(entry.RecipeId))
+      {
+        yield return
+            "ImageRolloutRecipes entries must expose case-insensitively unique recipe identifiers.";
+        yield break;
+      }
     }
   }
 

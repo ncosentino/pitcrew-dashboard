@@ -52,9 +52,13 @@ export function ReadinessSummary({
         {items.map((item) => (
           <div className="min-w-0" key={item.label}>
             <dt className="text-xs font-medium text-muted-foreground">{item.label}</dt>
-            <dd className="mt-1 text-sm font-semibold text-foreground">{item.value}</dd>
+            <dd className="mt-1 min-w-0 [overflow-wrap:anywhere] text-sm font-semibold text-foreground">
+              {item.value}
+            </dd>
             {item.detail ? (
-              <dd className="mt-0.5 text-xs text-muted-foreground">{item.detail}</dd>
+              <dd className="mt-0.5 min-w-0 [overflow-wrap:anywhere] text-xs text-muted-foreground">
+                {item.detail}
+              </dd>
             ) : null}
           </div>
         ))}

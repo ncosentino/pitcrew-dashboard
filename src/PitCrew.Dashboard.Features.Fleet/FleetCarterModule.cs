@@ -148,7 +148,10 @@ public sealed class FleetCarterModule : ICarterModule
             request.RecoveryOperator,
             request.RecoveryCommandProgress,
             request.RecoveryCommandOutcome,
-            request.ConnectorHealth),
+            request.ConnectorHealth,
+            request.ImageRolloutOperator,
+            request.ImageRolloutCommandProgress,
+            request.ImageRolloutCommandOutcome),
         cancellationToken);
     return result.Status switch
     {

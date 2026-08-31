@@ -5,6 +5,7 @@ using PitCrew.Dashboard.Features.Access.Abstractions;
 using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Dashboard.Features.Images.Abstractions;
 using PitCrew.Dashboard.Features.Support.Abstractions;
+using PitCrew.Dashboard.Kernel.ImageRollouts;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite;
 
@@ -28,6 +29,14 @@ internal sealed class SqliteFleetStorePlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<IRecoveryCommandStore>(
         static services =>
             services.GetRequiredService<SqliteRecoveryCommandStore>());
+    options.Services.AddSingleton<SqliteImageRolloutCommandStore>();
+    options.Services.AddSingleton<IImageRolloutCommandStore>(
+        static services =>
+            services.GetRequiredService<SqliteImageRolloutCommandStore>());
+    options.Services.AddSingleton<SqliteImageRolloutCampaignStore>();
+    options.Services.AddSingleton<IImageRolloutCampaignStore>(
+        static services =>
+            services.GetRequiredService<SqliteImageRolloutCampaignStore>());
     options.Services.AddSingleton<SqliteFleetHistoryStore>();
     options.Services.AddSingleton<IFleetHistoryStore>(
         static services =>

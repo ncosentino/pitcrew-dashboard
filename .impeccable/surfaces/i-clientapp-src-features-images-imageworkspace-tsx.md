@@ -9,9 +9,9 @@ related_targets: ["src/PitCrew.Dashboard.WebApi/ClientApp/src/features/images/Im
 ## Scope and mode
 
 Runner-image build requests, immutable ready/failed candidates, qualification
-evidence, and trusted recipe registration backed by issue #150. Single-profile
-rollout and fleet campaigns remain future capability-owned surfaces under issues #151
-and #152. Visitor mode: Operate.
+evidence, frozen rollout campaigns, and trusted recipe registration backed by issues
+#150 and #152. Single-profile rollout remains on its owning profile route under issue
+#151. Visitor mode: Operate.
 
 ## Audience and job
 
@@ -24,7 +24,8 @@ dispatch authority.
 
 - Lead with capability/readiness and active exceptions before complete candidate or
   target inventory.
-- Keep stable tasks for candidate activity and lower-frequency recipe administration.
+- Keep stable tasks for candidate activity, frozen rollout campaigns, and
+  lower-frequency recipe administration.
 - Order request rows by blocked/failed state, active work, ready evidence, then
   ordinary history.
 - Open one URL-stable request/candidate or recipe detail. Missing records show
@@ -35,14 +36,18 @@ dispatch authority.
   prohibited effects, idempotency identity, and acknowledgement together.
 - Recipe registration and disablement remain secondary administration with exact
   GitHub identities and preserved audit history.
+- Campaign rows lead blocked, partial, paused, awaiting-approval, and running work
+  before complete history; one focused campaign keeps frozen targets, exclusions,
+  canary/waves, progress, and explicit rollback planning together.
 
 ## Responsive behavior and states
 
 At narrow widths, use readiness, task navigation, scan-first rows, and focused detail.
-Cover empty recipes/requests, requested, dispatching, building, qualifying, ready,
-blocked, failed, refresh failure with retained evidence, missing deep links,
-viewer/administrator authority, bounded 100-record responses, long immutable
-identities, both themes, zoom, forced colors, reduced motion, CJK, emoji, and RTL.
+Cover empty recipes/requests/campaigns, requested, dispatching, building, qualifying,
+ready, campaign draft/approval/running/paused/complete/partial/blocked/cancelled,
+refresh failure with retained evidence, missing deep links, viewer/administrator
+authority, bounded 100-record responses, long immutable identities, both themes,
+zoom, forced colors, reduced motion, CJK, emoji, and RTL.
 
 ## Direction and anti-goals
 
@@ -50,6 +55,7 @@ Direction: qualification board. One exact source commit keeps its identity throu
 the request, GitHub run, artifact, report, digest, and qualification rows. The
 memorable moment is proof without log archaeology: blocked evidence leads, while a
 ready candidate exposes the immutable digest and every qualification in one focused
-record. Avoid generic workflow dashboards, equal-weight status-card walls, raw logs,
-arbitrary dispatch fields, inferred success, rollout controls, and command-shaped
-administration.
+record. Campaigns extend that board with a frozen target ledger and explicit wave
+gates rather than a deployment wizard. Avoid generic workflow dashboards, equal-weight
+status-card walls, raw logs, arbitrary dispatch fields, inferred success, dynamic
+target widening, automatic rollback, and command-shaped administration.

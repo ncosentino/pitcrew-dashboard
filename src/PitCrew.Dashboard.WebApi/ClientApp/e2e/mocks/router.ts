@@ -10,11 +10,16 @@ import type { Page, Route } from '@playwright/test';
 import type { DashboardSession } from '../../src/core/auth/sessionApi';
 import type { FleetResponse } from '../../src/core/fleet/fleetApi';
 import type { IncidentPage } from '../../src/features/fleet/incidentsApi';
+import type { ProfileImageRolloutControl } from '../../src/features/fleet/imageRolloutApi';
 import type {
   ImageBuildRequest,
   ImageCandidate,
   ImageRecipeRegistration,
 } from '../../src/features/images/imagesApi';
+import type {
+  ImageCampaign,
+  ImageCampaignSummary,
+} from '../../src/features/images/imageCampaignApi';
 import type {
   DiagnosticCredential,
   DiagnosticCredentialCreated,
@@ -57,6 +62,11 @@ export interface MockApiOptions {
   readonly imageBuildRequestsTruncated?: boolean;
   readonly imageCandidates?: ReadonlyArray<ImageCandidate>;
   readonly imageCandidatesTruncated?: boolean;
+  readonly imageCampaigns?: ReadonlyArray<ImageCampaignSummary>;
+  readonly imageCampaignDetails?: ReadonlyArray<ImageCampaign>;
+  readonly imageRollbackCampaign?: ImageCampaign;
+  readonly imageCampaignsTruncated?: boolean;
+  readonly profileImageRolloutControl?: ProfileImageRolloutControl;
   /** Controls every write endpoint (revoke/rotate/rename/acknowledge/etc). Defaults to `'success'`. */
   readonly mutationOutcome?: MutationOutcome;
 }
@@ -88,6 +98,8 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
   const mutationOutcome = options.mutationOutcome ?? 'success';
   const fleetOutcome = options.fleetOutcome ?? 'success';
   const sessionOutcome = options.sessionOutcome ?? 'success';
+  const imageCampaigns = [...(options.imageCampaigns ?? [])];
+  const imageCampaignDetails = [...(options.imageCampaignDetails ?? [])];
 
   await page.route('**/api/session', (route) => {
     if (sessionOutcome === 'server-error') {
@@ -153,6 +165,40 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
     /\/api\/tenants\/[^/]+\/fleet\/v1\/nodes\/[^/]+\/profiles\/[^/]+\/manager-recovery$/,
     (route) => mutationResponse(route, mutationOutcome),
   );
+  await page.route(/\/api\/tenants\/[^/]+\/images\/profile-rollouts\/[^/]+\/[^/]+$/, (route) => {
+    const control = options.profileImageRolloutControl;
+    return control
+      ? fulfillJson(route, control)
+      : route.fulfill({
+          status: 404,
+          headers: jsonHeaders,
+          body: errorBody(
+            'image_rollout_profile_not_found',
+            'Profile image rollout is unavailable.',
+          ),
+        });
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/profile-rollouts$/, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    if (mutationOutcome === 'failure') return mutationResponse(route, mutationOutcome);
+    const control = options.profileImageRolloutControl;
+    const requestPath = new URL(route.request().url()).pathname;
+    const statusLocation = control
+      ? `${requestPath}/${control.nodeId}/${control.profileId}`
+      : requestPath;
+    return route.fulfill({
+      status: 202,
+      headers: {
+        ...jsonHeaders,
+        location: statusLocation,
+      },
+      body: JSON.stringify({
+        commandId: '90000000-0000-4000-8000-000000000001',
+        status: 'queued',
+        statusLocation,
+      }),
+    });
+  });
 
   await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/enrollment-codes$/, (route) =>
     mutationResponse(route, mutationOutcome, options.enrollmentCode),
@@ -279,6 +325,109 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
       truncated: options.imageCandidatesTruncated ?? false,
     }),
   );
+
+  await page.route(/\/api\/tenants\/[^/]+\/images\/campaigns\/[^/?]+\/rollback$/, (route) => {
+    const campaign = options.imageRollbackCampaign;
+    if (campaign && !imageCampaignDetails.some((item) => item.campaignId === campaign.campaignId)) {
+      imageCampaignDetails.push(campaign);
+    }
+    return mutationResponse(route, mutationOutcome, campaign);
+  });
+  await page.route(
+    /\/api\/tenants\/[^/]+\/images\/campaigns\/[^/?]+\/waves\/\d+\/approve$/,
+    (route) => {
+      const campaign = imageCampaignDetails[0];
+      return mutationResponse(
+        route,
+        mutationOutcome,
+        campaign
+          ? {
+              ...campaign,
+              status: 'running',
+              revision: campaign.revision + 1,
+              targets: campaign.targets.map((target) =>
+                target.waveNumber === 0 ? { ...target, status: 'queued' } : target,
+              ),
+              waves: campaign.waves.map((wave) =>
+                wave.waveNumber === 0
+                  ? {
+                      ...wave,
+                      status: 'approved',
+                      approvedByGitHubUserId: '1001',
+                      approvedAt: '2026-08-29T12:05:00+00:00',
+                    }
+                  : wave,
+              ),
+            }
+          : undefined,
+      );
+    },
+  );
+  await page.route(
+    /\/api\/tenants\/[^/]+\/images\/campaigns\/[^/?]+\/(pause|resume|cancel)$/,
+    (route) => {
+      const campaign = imageCampaignDetails[0];
+      return mutationResponse(route, mutationOutcome, campaign);
+    },
+  );
+  await page.route(/\/api\/tenants\/[^/]+\/images\/campaigns\/[^/?]+\/configure$/, (route) => {
+    const campaign = imageCampaignDetails[0];
+    return mutationResponse(
+      route,
+      mutationOutcome,
+      campaign
+        ? {
+            ...campaign,
+            status: 'awaiting-approval',
+            revision: campaign.revision + 1,
+            waveSize: 10,
+            configuredByGitHubUserId: '1001',
+            configuredAt: '2026-08-29T12:04:00+00:00',
+            targets: campaign.targets.map((target) =>
+              target.exclusionCategory === null
+                ? { ...target, waveNumber: 0, isCanary: true }
+                : target,
+            ),
+            waves: [
+              {
+                waveNumber: 0,
+                status: 'pending',
+                targetCount: 1,
+                approvedByGitHubUserId: null,
+                approvedAt: null,
+                completedAt: null,
+              },
+            ],
+          }
+        : undefined,
+    );
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/campaigns\/[^/?]+$/, (route) => {
+    const campaignId = route.request().url().split('/').at(-1);
+    const campaign = imageCampaignDetails.find((candidate) => candidate.campaignId === campaignId);
+    return campaign
+      ? fulfillJson(route, campaign)
+      : route.fulfill({
+          status: 404,
+          headers: jsonHeaders,
+          body: errorBody('image_campaign_not_found', 'Image campaign not found.'),
+        });
+  });
+  await page.route(/\/api\/tenants\/[^/]+\/images\/campaigns(\?.*)?$/, (route) => {
+    if (route.request().method() === 'GET') {
+      return fulfillJson(route, {
+        campaigns: imageCampaigns,
+        truncated: options.imageCampaignsTruncated ?? false,
+      });
+    }
+    if (mutationOutcome === 'failure') return mutationResponse(route, mutationOutcome);
+    const campaign = imageCampaignDetails[0];
+    return route.fulfill({
+      status: 201,
+      headers: jsonHeaders,
+      body: JSON.stringify(campaign),
+    });
+  });
 
   await page.route('**/api/tenants', (route) => mutationResponse(route, mutationOutcome));
 }

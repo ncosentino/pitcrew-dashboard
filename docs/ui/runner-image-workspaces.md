@@ -1,6 +1,6 @@
 # Runner image workspace contract
 
-This document owns the cross-cutting UX contract for future runner-image candidate,
+This document owns the cross-cutting UX contract for runner-image candidate,
 single-profile rollout, and fleet campaign surfaces. It does not authorize a
 capability that its owning implementation issue has not delivered.
 

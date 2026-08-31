@@ -17,3 +17,5 @@ and explicit supersession links.
 | [ADR-0010](adr-0010-extensible-support-canary-harness.md) | Accepted | Use a layered Aspire topology with independent source, scaffold, scenario, evidence, and CI adapters. |
 | [ADR-0011](adr-0011-bounded-relay-activity-projection.md) | Accepted | Project bounded, tenant-scoped relay activity into durable Dashboard support identities. |
 | [ADR-0012](adr-0012-bounded-relay-owned-support-session-lifecycle.md) | Accepted | Project authoritative relay dispatch and bounded agent rejection evidence into Dashboard session lifecycle. |
+| [ADR-0013](adr-0013-typed-profile-image-rollout.md) | Accepted | Apply one immutable candidate through a locally constrained, at-most-once typed profile operation. |
+| [ADR-0014](adr-0014-frozen-image-rollout-campaigns.md) | Accepted | Freeze campaign targets and sequence existing typed profile rollouts through explicit canary and wave approvals. |
