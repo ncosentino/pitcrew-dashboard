@@ -104,6 +104,30 @@ describe('IncidentsPage', () => {
     expect(screen.getByText(/showing only the newest incidents/i)).toBeInTheDocument();
   });
 
+  it('offers a support diagnostic request for an unresolved incident with its mode preselected', async () => {
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    const request = await screen.findByTestId(`incident-request-support-${incidentId}`, undefined, {
+      timeout: 5000,
+    });
+
+    expect(request).toHaveAttribute(
+      'href',
+      '/tenants/local/support/run?mode=CapacityMismatch&profileId=default',
+    );
+    expect(
+      screen.getByText(/enrolled separately from connector node identity/i),
+    ).toBeInTheDocument();
+  });
+
   it('hides acknowledged incidents from the default queue and can reveal all active incidents', async () => {
     const acknowledged = {
       ...incident('acknowledged'),

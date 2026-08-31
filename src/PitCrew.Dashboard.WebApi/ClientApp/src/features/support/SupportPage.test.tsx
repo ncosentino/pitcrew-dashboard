@@ -241,6 +241,39 @@ describe('SupportPage', () => {
     expect(screen.getByText(/normal connector status is unavailable/i)).toBeVisible();
   });
 
+  it('preselects a requested diagnostic mode and names its independent identity', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/run?mode=HostPressure&profileId=copilot-cli');
+
+    const mode = await screen.findByRole('combobox', { name: 'Problem to investigate' });
+    expect(mode).toHaveValue('HostPressure');
+    expect(screen.getByTestId('support-run-preselected-mode')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: /Profile ID/ })).toHaveValue('copilot-cli');
+  });
+
+  it('ignores an unsupported requested diagnostic mode without preselection copy', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage('/tenants/local/support/run?mode=NotARealMode');
+
+    const mode = await screen.findByRole('combobox', { name: 'Problem to investigate' });
+    expect(mode).toHaveValue('ConnectorOffline');
+    expect(screen.queryByTestId('support-run-preselected-mode')).not.toBeInTheDocument();
+  });
+
   it('keeps enrollment collapsed until the operator requests it', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : String(input);

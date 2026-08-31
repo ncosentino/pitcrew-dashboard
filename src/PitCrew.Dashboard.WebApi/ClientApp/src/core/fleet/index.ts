@@ -4,10 +4,13 @@ export { currentJobSchema, operationalIncidentSchema } from './fleetApi';
 export { getActiveIncidents, getFleet } from './fleetApi';
 export {
   buildDiagnosticsContext,
+  buildSupportDiagnosticRequestPath,
+  diagnosticModes,
   diagnosticsContextSchema,
+  selectIncidentDiagnosticMode,
   serializeDiagnosticsContext,
 } from './diagnosticsContext';
-export type { DiagnosticsContext } from './diagnosticsContext';
+export type { DiagnosticMode, DiagnosticsContext } from './diagnosticsContext';
 export { describeWorkerUpdate } from './workerUpdate';
 export { describeHostAdmission, summarizeNodeHostAdmission } from './hostAdmission';
 export type { HostAdmissionSummary, NodeHostAdmissionSummary } from './hostAdmission';

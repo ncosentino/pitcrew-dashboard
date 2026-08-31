@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { FleetNode, OperationalIncident } from './fleetApi';
 import { buildDiagnosticsContext, serializeDiagnosticsContext } from './diagnosticsContext';
+import {
+  buildSupportDiagnosticRequestPath,
+  selectIncidentDiagnosticMode,
+} from './diagnosticsContext';
 
 const nodeId = '11111111-1111-4111-8111-111111111111';
 const generatedAt = '2026-08-07T13:00:00+00:00';
@@ -100,6 +104,54 @@ describe('diagnostics context', () => {
     expect(context.dashboard.incident).toBe('sustained-memory-pressure');
     expect(context.unavailableEvidence.map((item) => item.category)).toContain(
       'connector-health-replay',
+    );
+  });
+});
+
+describe('incident diagnostic mode selection', () => {
+  it('maps each incident kind without requiring node enrichment', () => {
+    expect(selectIncidentDiagnosticMode(createIncident('connector-offline', 'x'))).toBe(
+      'ConnectorOffline',
+    );
+    expect(selectIncidentDiagnosticMode(createIncident('capacity-deficit', 'x'))).toBe(
+      'CapacityMismatch',
+    );
+    expect(selectIncidentDiagnosticMode(createIncident('resource-memory-pressure', 'x'))).toBe(
+      'HostPressure',
+    );
+    expect(selectIncidentDiagnosticMode(createIncident('job-not-assigned', 'x'))).toBe(
+      'JobNotAssigned',
+    );
+    expect(selectIncidentDiagnosticMode(createIncident('unmapped-kind', 'x'))).toBe('Full');
+    expect(selectIncidentDiagnosticMode(undefined)).toBe('Full');
+  });
+
+  it('prefers connector-offline evidence when the node is known offline', () => {
+    expect(
+      selectIncidentDiagnosticMode(createIncident('capacity-deficit', 'x'), { isOnline: false }),
+    ).toBe('ConnectorOffline');
+    expect(
+      selectIncidentDiagnosticMode(createIncident('capacity-deficit', 'x'), { isOnline: true }),
+    ).toBe('CapacityMismatch');
+  });
+});
+
+describe('support diagnostic request path', () => {
+  it('carries the mode and encodes tenant identifiers', () => {
+    expect(buildSupportDiagnosticRequestPath('local', 'ConnectorOffline')).toBe(
+      '/tenants/local/support/run?mode=ConnectorOffline',
+    );
+    expect(buildSupportDiagnosticRequestPath('a b/c', 'Full')).toBe(
+      '/tenants/a%20b%2Fc/support/run?mode=Full',
+    );
+  });
+
+  it('includes a profile only when one is supplied', () => {
+    expect(buildSupportDiagnosticRequestPath('local', 'HostPressure', 'copilot-cli')).toBe(
+      '/tenants/local/support/run?mode=HostPressure&profileId=copilot-cli',
+    );
+    expect(buildSupportDiagnosticRequestPath('local', 'HostPressure', null)).toBe(
+      '/tenants/local/support/run?mode=HostPressure',
     );
   });
 });
