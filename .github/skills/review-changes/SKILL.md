@@ -75,6 +75,9 @@ workflows, and delivery metadata before choosing commands.
 
 - Run the smallest offline command that covers the changed behavior.
 - Use focused .NET projects or tests and the frontend's declared package scripts.
+- A focused pass does not supersede a disclosed full-suite failure. For timing-related
+  failures, require a root-cause fix plus repeated evidence under the declared parallel
+  command; do not accept a timeout increase or green rerun as the fix.
 - Run `tests/Test-Guidance.ps1` for guidance, docs-map, ADR, Impeccable, or mirror
   changes.
 - Do not invent a command or tool absent from repository code, docs, manifests, or

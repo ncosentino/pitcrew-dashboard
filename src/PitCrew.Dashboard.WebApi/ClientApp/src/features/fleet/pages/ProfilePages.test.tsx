@@ -467,9 +467,7 @@ describe('profile detail routes', () => {
       await screen.findByRole('heading', { level: 1, name: 'Profile default overview' }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(
-      await screen.findByTestId('profile-overview-maximum-default', {}, { timeout: 5_000 }),
-    ).toHaveTextContent('30');
+    expect(await screen.findByTestId('profile-overview-maximum-default')).toHaveTextContent('30');
     const readiness = screen.getByRole('region', { name: 'Profile readiness' });
     expect(readiness).toBeVisible();
     expect(within(readiness).getAllByText('Autoscaling degraded').length).toBeGreaterThan(0);
@@ -521,9 +519,7 @@ describe('profile detail routes', () => {
       await router.navigate(profileRoute('capacity'));
     });
 
-    expect(
-      await screen.findByTestId('profile-capacity-target-default', {}, { timeout: 5_000 }),
-    ).toHaveTextContent('3');
+    expect(await screen.findByTestId('profile-capacity-target-default')).toHaveTextContent('3');
     expect(screen.getByTestId('profile-autoscaling-error-default')).toHaveTextContent(
       'GitHub queue observation failed.',
     );
@@ -532,9 +528,9 @@ describe('profile detail routes', () => {
     await act(async () => {
       await router.navigate(profileRoute('diagnostics'));
     });
-    expect(
-      await screen.findByTestId('profile-resource-telemetry-default', {}, { timeout: 5_000 }),
-    ).toHaveTextContent('partial');
+    expect(await screen.findByTestId('profile-resource-telemetry-default')).toHaveTextContent(
+      'partial',
+    );
     expect(screen.getByTestId('profile-resource-telemetry-default')).toHaveTextContent('partial');
     expect(screen.getByTestId('profile-resource-host-default')).toHaveTextContent('Unavailable');
     expect(screen.getByTestId('profile-resource-manager-default')).toHaveTextContent(

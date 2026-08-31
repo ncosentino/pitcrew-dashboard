@@ -59,17 +59,18 @@ export function FleetProvider({ tenantId, children }: FleetProviderProps) {
   }, [tenantId]);
 
   useEffect(() => {
-    const initialTimer = window.setTimeout(() => {
-      void refreshNow();
-    }, 0);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void refreshNow();
+    });
     const refreshTimer = window.setInterval(() => {
       void refreshNow();
     }, refreshIntervalMilliseconds);
 
     return () => {
+      active = false;
       controller.current?.abort();
       controller.current = null;
-      window.clearTimeout(initialTimer);
       window.clearInterval(refreshTimer);
     };
   }, [refreshNow, tenantId]);

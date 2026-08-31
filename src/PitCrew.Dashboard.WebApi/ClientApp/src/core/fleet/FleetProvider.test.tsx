@@ -35,7 +35,7 @@ function FleetProbe() {
 
 async function flushInitialLoad() {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
   });
 }
 

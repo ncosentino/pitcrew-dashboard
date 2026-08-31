@@ -791,8 +791,16 @@ describe('runners feature', () => {
   it('keeps rows visible with an explicit stale state after a refresh failure', async () => {
     vi.useFakeTimers();
     let request = 0;
+    let resolveFirstRequest: (() => void) | null = null;
+    const firstRequest = new Promise<void>((resolve) => {
+      resolveFirstRequest = resolve;
+    });
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
       request++;
+      if (request === 1) {
+        resolveFirstRequest?.();
+        resolveFirstRequest = null;
+      }
       return request === 1
         ? Promise.resolve(jsonResponse(standardFleet()))
         : Promise.reject(new Error('temporary outage'));
@@ -806,7 +814,8 @@ describe('runners feature', () => {
     );
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
+      await firstRequest;
+      await Promise.resolve();
     });
     expect(screen.getAllByTestId(/^runner-row-/)).toHaveLength(3);
 
