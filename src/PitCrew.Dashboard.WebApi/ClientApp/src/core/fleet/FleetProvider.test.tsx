@@ -35,7 +35,7 @@ function FleetProbe() {
 
 async function flushInitialLoad() {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
   });
 }
 
@@ -147,6 +147,22 @@ describe('FleetProvider', () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start the initial request after unmounting before its microtask', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const { unmount } = render(
+      <FleetProvider tenantId="local">
+        <FleetProbe />
+      </FleetProvider>,
+    );
+
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('keeps stale data on failure and clears the error after recovery', async () => {
