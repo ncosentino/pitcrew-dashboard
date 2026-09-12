@@ -763,7 +763,7 @@ try {
         Invoke-Installer -LifecycleAction 'FinalizeEnrollment'
     } catch {
         $finalizationRejected = $_.Exception.Message.Contains(
-            'authoritative enrollment-finalization readiness',
+            'rejected finalization readiness with disposition',
             [StringComparison]::Ordinal)
     }
     $settingsAfterFinalization = [IO.File]::ReadAllBytes(
