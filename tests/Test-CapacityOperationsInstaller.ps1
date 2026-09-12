@@ -290,6 +290,14 @@ try {
                 'identity.json',
                 [StringComparison]::Ordinal)
         ) 'The installer does not preserve managed identity and allowlists.'
+        Add-Check (
+            $installerText -match
+            '(?s)if \(\$managedInstallation\)\s*\{\s*Wait-WindowsConnectorSynchronization'
+        ) 'The installer applies synchronization verification outside the managed update path.'
+        Add-Check (
+            $installerText -match
+            '(?s)\$verificationStartedAt = \[DateTimeOffset\]::UtcNow\s*Start-Service'
+        ) 'The installer starts the Windows service before recording the managed verification boundary.'
         if ($null -ne $diagnosticFunction) {
             Invoke-Expression $diagnosticFunction.Extent.Text
             $diagnosticRoot = Join-Path $testRoot 'diagnostic-data'

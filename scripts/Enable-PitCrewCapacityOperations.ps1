@@ -1206,9 +1206,9 @@ try {
             $windowsServiceName,
             '1'
         )
+        $verificationStartedAt = [DateTimeOffset]::UtcNow
         Start-Service -Name $windowsServiceName
         $serviceStarted = $true
-        $verificationStartedAt = [DateTimeOffset]::UtcNow
         Start-Sleep -Seconds 5
         $service = Get-Service -Name $windowsServiceName
         try {
@@ -1222,10 +1222,12 @@ try {
         } finally {
             $service.Dispose()
         }
-        Wait-WindowsConnectorSynchronization `
-            -DataRoot $dataRoot `
-            -StartedAt $verificationStartedAt `
-            -TimeoutSeconds 120
+        if ($managedInstallation) {
+            Wait-WindowsConnectorSynchronization `
+                -DataRoot $dataRoot `
+                -StartedAt $verificationStartedAt `
+                -TimeoutSeconds 120
+        }
     } else {
         $serviceUser = if (-not [string]::IsNullOrWhiteSpace($env:SUDO_USER)) {
             $env:SUDO_USER
