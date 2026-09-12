@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -16,6 +17,62 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class HostingTests
 {
+  [Test]
+  public async Task Protocol_Two_Synchronization_Without_Capacity_Fields_Is_Accepted(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Legacy connector node",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "legacy-connector-node",
+          "Legacy Connector Node",
+          code.Code,
+          cancellationToken);
+      using var request = new HttpRequestMessage(
+          HttpMethod.Post,
+          "/api/connectors/v1/sync")
+      {
+        Content = new StringContent(
+            """
+            {
+              "protocolVersion": 2,
+              "connectorVersion": "0.12.35",
+              "sentAt": "2026-07-24T12:00:00+00:00",
+              "profiles": []
+            }
+            """,
+            System.Text.Encoding.UTF8,
+            "application/json"),
+      };
+      request.Headers.Authorization = new AuthenticationHeaderValue(
+          "Bearer",
+          identity.Credential);
+
+      using var response = await client.SendAsync(request, cancellationToken);
+
+      await Assert.That(response.IsSuccessStatusCode).IsTrue()
+          .Because("legacy protocol-v2 payloads omit capacity fields by contract");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
   [Test]
   public async Task Contract_Nineteen_Admission_Round_Trips_And_Malformed_Evidence_Is_Rejected(
       CancellationToken cancellationToken)

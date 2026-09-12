@@ -77,13 +77,26 @@ Dashboard releases publish self-contained `linux-x64`, `linux-arm64`,
 `win-x64`, and `win-arm64` connector archives plus
 `Enable-PitCrewCapacityOperations.ps1`. The installer:
 
-1. locates the exact running Compose connector;
+1. locates the exact running Compose connector for a fresh installation, or
+   verifies the existing managed Windows service for an update;
 2. downloads and verifies the release-pinned host binary;
-3. stops the connector container;
+3. stops the connector container or managed Windows service;
 4. migrates its identity without displaying it;
 5. installs and starts `pitcrew-connector.service` on Linux or the
    `PitCrewConnector` Windows Service;
-6. restores the original container if service startup fails.
+6. restores the original container or managed service payload if startup or
+   synchronization fails.
+
+When the Windows service is already managed by this installer, the same release
+operation is an in-place update rather than a second installation. It requires
+the requested capacity, recovery, and image-rollout policies to match the
+existing service configuration, leaves the protected identity and data root in
+place, stages and checksum-verifies the new archive, and swaps the service
+payload only while the old service is stopped. A failed service start or
+post-start dashboard synchronization restores the previous payload and service
+state; a partial or unmanaged installation is rejected without changes.
+The installer verifies that the restarted service reaches a healthy
+synchronization state before reporting success.
 
 The operational workflow is one installer invocation, normally driven by the
 PitCrew Copilot operations skill:

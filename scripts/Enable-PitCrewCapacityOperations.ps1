@@ -5,9 +5,9 @@
 
 .DESCRIPTION
     Downloads a release-pinned, self-contained connector, migrates the existing
-    connector identity without displaying it, installs a native systemd or
-    Windows service, and restores the stopped container if host-service startup
-    fails.
+    connector identity without displaying it, installs or updates a managed
+    native systemd or Windows service, and restores the previous service or
+    stopped container if startup or synchronization fails.
 
 .PARAMETER Version
     Dashboard release version without a leading v.
@@ -260,6 +260,7 @@ function Remove-WindowsConnectorService {
     if ($null -eq $service) {
         return
     }
+
     try {
         if ($service.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped) {
             Stop-Service -Name $Name -Force -ErrorAction Stop
@@ -286,6 +287,142 @@ function Remove-WindowsConnectorService {
         }
         Start-Sleep -Milliseconds 250
     }
+}
+
+function Get-ManagedWindowsConnectorSettings {
+    param(
+        [Parameter(Mandatory)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory)]
+        [string]$DataRoot
+    )
+
+    $service = Get-Service `
+        -Name $windowsServiceName `
+        -ErrorAction SilentlyContinue
+    $serviceExists = $null -ne $service
+    if ($null -ne $service) {
+        $service.Dispose()
+    }
+    if ($serviceExists) {
+        $serviceMetadata = Get-CimInstance `
+            -ClassName Win32_Service `
+            -Filter "Name='$windowsServiceName'" `
+            -ErrorAction Stop
+        $expectedExecutable = Join-Path `
+            $InstallRoot `
+            'PitCrew.Connector.App.exe'
+        $servicePathName = if ($null -eq $serviceMetadata) {
+            ''
+        } else {
+            [string]$serviceMetadata.PathName
+        }
+        if ($null -eq $serviceMetadata -or
+            [string]::IsNullOrWhiteSpace($servicePathName) -or
+            $servicePathName.IndexOf(
+                $expectedExecutable,
+                [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw 'The existing Windows service is not managed by the PitCrew connector installer; refusing to modify it.'
+        }
+    }
+    $settingsPath = Join-Path $InstallRoot 'appsettings.json'
+    $identityPath = Join-Path $DataRoot 'identity.json'
+    $installExists = Test-Path -LiteralPath $InstallRoot -PathType Container
+    $dataExists = Test-Path -LiteralPath $DataRoot -PathType Container
+    $settingsExists = Test-Path -LiteralPath $settingsPath -PathType Leaf
+    $identityExists = Test-Path -LiteralPath $identityPath -PathType Leaf
+    $hasArtifacts = $serviceExists -or $installExists -or $dataExists
+    if (-not $hasArtifacts) {
+        return $null
+    }
+    if (-not ($serviceExists -and $installExists -and $dataExists -and
+            $settingsExists -and $identityExists)) {
+        throw 'The existing Windows connector installation is incomplete; refusing to modify it.'
+    }
+    try {
+        return Get-Content `
+            -LiteralPath $settingsPath `
+            -Raw `
+            -Encoding UTF8 |
+            ConvertFrom-Json -Depth 20
+    } catch {
+        throw 'The existing Windows connector configuration is unreadable; refusing to modify it.'
+    }
+}
+
+function Test-EquivalentStringSequence {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$Left,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$Right
+    )
+
+    return (@($Left) -join "`n") -ceq (@($Right) -join "`n")
+}
+
+function Get-ManagedConnectorSetting {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Settings,
+
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter()]
+        [object]$Default = $null
+    )
+
+    $property = $Settings.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $Default
+    }
+    return $property.Value
+}
+
+function Wait-WindowsConnectorSynchronization {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DataRoot,
+
+        [Parameter(Mandatory)]
+        [DateTimeOffset]$StartedAt,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds
+    )
+
+    $healthPath = Join-Path $DataRoot 'health\connector-health.json'
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $healthPath -PathType Leaf) {
+            try {
+                $snapshot = Get-Content `
+                    -LiteralPath $healthPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                $lastSuccess = [DateTimeOffset]::MinValue
+                if ([DateTimeOffset]::TryParse(
+                        [string]$snapshot.lastSuccessAt,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::RoundtripKind,
+                        [ref]$lastSuccess) -and
+                    [string]$snapshot.state -eq 'healthy' -and
+                    $lastSuccess -ge $StartedAt) {
+                    return
+                }
+            } catch {
+                # The connector may be replacing the atomically written snapshot.
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw 'The connector did not complete a healthy dashboard synchronization before the verification timeout.'
 }
 
 function Get-WindowsConnectorFailureDiagnostics {
@@ -704,20 +841,6 @@ foreach ($profile in @($normalizedProfiles + $normalizedRecoveryProfiles + $norm
     }
 }
 
-$global:LASTEXITCODE = 0
-$connectorIds = @(
-    docker ps -q `
-        --filter 'label=com.docker.compose.service=connector' 2>$null |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-)
-if ($LASTEXITCODE -ne 0) {
-    throw 'Docker could not enumerate the existing connector container.'
-}
-if ($connectorIds.Count -ne 1) {
-    throw "Expected exactly one running connector container, found $($connectorIds.Count)."
-}
-$connectorId = [string]$connectorIds[0]
-
 $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 $ridArchitecture = switch ($architecture) {
     'x64' { 'x64' }
@@ -760,6 +883,122 @@ if ($IsWindows) {
 $recoveryLedgerPath = Join-Path $dataRoot 'recovery-ledger'
 $imageRolloutStatePath = if ($EnableImageRollout) { Join-Path $dataRoot 'image-rollout' } else { '' }
 
+$managedInstallation = $false
+$managedSettings = $null
+$previousServiceRunning = $false
+$managedInstallBackup = $null
+$managedInstallSwapped = $false
+$managedServiceWasStopped = $false
+if ($IsWindows) {
+    $managedSettings = Get-ManagedWindowsConnectorSettings `
+        -InstallRoot $installRoot `
+        -DataRoot $dataRoot
+    $managedInstallation = $null -ne $managedSettings
+    if ($managedInstallation) {
+        $managedConnectorSettings = $managedSettings.PitCrew.Connector
+        $existingProfiles = @(
+            (Get-ManagedConnectorSetting `
+                -Settings $managedConnectorSettings `
+                -Name 'AllowedCapacityProfiles' `
+                -Default @()) |
+                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() }
+                Sort-Object -Unique
+        )
+        $existingRecoveryProfiles = @(
+            (Get-ManagedConnectorSetting `
+                -Settings $managedConnectorSettings `
+                -Name 'AllowedManagerRecoveryProfiles' `
+                -Default @()) |
+                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() }
+                Sort-Object -Unique
+        )
+        $existingImageRolloutProfiles = @(
+            (Get-ManagedConnectorSetting `
+                -Settings $managedConnectorSettings `
+                -Name 'AllowedImageRolloutProfiles' `
+                -Default @()) |
+                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() }
+                Sort-Object -Unique
+        )
+        $requestedProfiles = @(
+            $Profiles |
+                ForEach-Object { $_.Trim().ToLowerInvariant() } |
+                Sort-Object -Unique
+        )
+        if (-not (Test-EquivalentStringSequence `
+                -Left $requestedProfiles `
+                -Right $existingProfiles)) {
+            throw 'The requested capacity profile allowlist does not match the managed installation; refusing to change local policy.'
+        }
+        if ($CapacityMaximumCeiling -ne
+            [int](Get-ManagedConnectorSetting `
+                -Settings $managedConnectorSettings `
+                -Name 'CapacityMaximumCeiling') ) {
+            throw 'The requested capacity ceiling does not match the managed installation; refusing to change local policy.'
+        }
+        if ([bool]$EnableManagerRecovery -ne
+            [bool](Get-ManagedConnectorSetting `
+                -Settings $managedConnectorSettings `
+                -Name 'ManagerRecoveryEnabled' `
+                -Default $false) -or
+            -not (Test-EquivalentStringSequence `
+                -Left $normalizedRecoveryProfiles `
+                -Right $existingRecoveryProfiles)) {
+            throw 'The requested manager-recovery policy does not match the managed installation; refusing to change local policy.'
+        }
+        if ([bool]$EnableImageRollout -ne
+            [bool](Get-ManagedConnectorSetting `
+                -Settings $managedConnectorSettings `
+                -Name 'ImageRolloutEnabled' `
+                -Default $false) -or
+            -not (Test-EquivalentStringSequence `
+                -Left $normalizedImageRolloutProfiles `
+                -Right $existingImageRolloutProfiles)) {
+            throw 'The requested image-rollout policy does not match the managed installation; refusing to change local policy.'
+        }
+        $existingService = Get-Service `
+            -Name $windowsServiceName `
+            -ErrorAction Stop
+        try {
+            $previousServiceRunning =
+                $existingService.Status -eq
+                [ServiceProcess.ServiceControllerStatus]::Running
+        } finally {
+            $existingService.Dispose()
+        }
+    }
+}
+
+$connectorId = $null
+if ($managedInstallation) {
+    $global:LASTEXITCODE = 0
+    $runningConnectorIds = @(
+        docker ps -q `
+            --filter 'label=com.docker.compose.service=connector' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Docker could not enumerate the existing connector container.'
+    }
+    if ($runningConnectorIds.Count -gt 0) {
+        throw 'The managed Windows connector cannot be updated while a connector container is running.'
+    }
+} else {
+    $global:LASTEXITCODE = 0
+    $connectorIds = @(
+        docker ps -q `
+            --filter 'label=com.docker.compose.service=connector' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Docker could not enumerate the existing connector container.'
+    }
+    if ($connectorIds.Count -ne 1) {
+        throw "Expected exactly one running connector container, found $($connectorIds.Count)."
+    }
+    $connectorId = [string]$connectorIds[0]
+}
+
 $existingArtifacts = [System.Collections.Generic.List[string]]::new()
 foreach ($path in @($installRoot, $dataRoot, $environmentPath, $servicePath)) {
     if (-not [string]::IsNullOrWhiteSpace($path) -and
@@ -771,12 +1010,12 @@ if ($IsWindows) {
     $existingService = Get-Service `
         -Name $windowsServiceName `
         -ErrorAction SilentlyContinue
-    if ($null -ne $existingService) {
+    if ($null -ne $existingService -and -not $managedInstallation) {
         $existingArtifacts.Add("Windows service $windowsServiceName")
         $existingService.Dispose()
     }
 }
-if ($existingArtifacts.Count -gt 0) {
+if ($existingArtifacts.Count -gt 0 -and -not $managedInstallation) {
     throw "A host connector installation already exists: $($existingArtifacts -join ', ')."
 }
 
@@ -787,6 +1026,8 @@ $previousContainerStopped = $false
 $hostArtifactsCreated = $false
 $windowsServiceCreated = $false
 $linuxServiceConfigured = $false
+$serviceStarted = $false
+$verificationStartedAt = [DateTimeOffset]::UtcNow
 
 New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
 try {
@@ -818,23 +1059,40 @@ try {
         throw "Connector archive '$assetName' did not contain '$executableName'."
     }
 
-    $displayName = [Net.Dns]::GetHostName()
+    $displayName = if ($managedInstallation) {
+        [string]$managedSettings.PitCrew.Connector.DisplayName
+    } else {
+        [Net.Dns]::GetHostName()
+    }
     $identityStagingPath = Join-Path $temporaryRoot 'identity.json'
-    Invoke-Checked -FilePath 'docker' -ArgumentList @(
-        'stop',
-        '--time',
-        '35',
-        $connectorId
-    )
-    $previousContainerStopped = $true
-    Invoke-Checked -FilePath 'docker' -ArgumentList @(
-        'cp',
-        "${connectorId}:/var/lib/pitcrew-connector/identity.json",
-        $identityStagingPath
-    )
-
-    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
+    if (-not $managedInstallation) {
+        Invoke-Checked -FilePath 'docker' -ArgumentList @(
+            'stop',
+            '--time',
+            '35',
+            $connectorId
+        )
+        $previousContainerStopped = $true
+        Invoke-Checked -FilePath 'docker' -ArgumentList @(
+            'cp',
+            "${connectorId}:/var/lib/pitcrew-connector/identity.json",
+            $identityStagingPath
+        )
+        New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
+    } else {
+        Stop-Service -Name $windowsServiceName -Force -ErrorAction Stop
+        $managedServiceWasStopped = $true
+        $managedInstallBackup = Join-Path $temporaryRoot 'previous-install'
+        Move-Item `
+            -LiteralPath $installRoot `
+            -Destination $managedInstallBackup `
+            -Force
+        Copy-Item `
+            -LiteralPath (Join-Path $managedInstallBackup 'appsettings.json') `
+            -Destination (Join-Path $stagedInstall 'appsettings.json') `
+            -Force
+    }
     if ($EnableImageRollout) {
         # Provision the protected rollout state root with the same restrictive
         # ownership/permissions as the dataRoot before the connector starts;
@@ -843,12 +1101,17 @@ try {
         New-Item -ItemType Directory -Path $imageRolloutStatePath -Force |
             Out-Null
     }
-    $hostArtifactsCreated = $true
+    $hostArtifactsCreated = -not $managedInstallation
     if ($IsWindows) {
+        $installAclRoot = if ($managedInstallation) {
+            $stagedInstall
+        } else {
+            $installRoot
+        }
         $windowsAcls = [System.Collections.Generic.List[object]]::new()
-        $windowsAcls.Add(@($installRoot, '/inheritance:r'))
-        $windowsAcls.Add(@($installRoot, '/grant:r', '*S-1-5-18:(OI)(CI)RX'))
-        $windowsAcls.Add(@($installRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'))
+        $windowsAcls.Add(@($installAclRoot, '/inheritance:r'))
+        $windowsAcls.Add(@($installAclRoot, '/grant:r', '*S-1-5-18:(OI)(CI)RX'))
+        $windowsAcls.Add(@($installAclRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'))
         $windowsAcls.Add(@($dataRoot, '/inheritance:r'))
         $windowsAcls.Add(@($dataRoot, '/grant:r', '*S-1-5-18:(OI)(CI)F'))
         $windowsAcls.Add(@($dataRoot, '/grant:r', '*S-1-5-32-544:(OI)(CI)F'))
@@ -867,44 +1130,63 @@ try {
                 Out-Null
         }
     }
-    Copy-Item -Path (Join-Path $stagedInstall '*') -Destination $installRoot -Recurse -Force
-    $identityPath = Join-Path $dataRoot 'identity.json'
-    Copy-Item -LiteralPath $identityStagingPath -Destination $identityPath -Force
+    if ($managedInstallation) {
+        Move-Item `
+            -LiteralPath $stagedInstall `
+            -Destination $installRoot `
+            -Force
+        $managedInstallSwapped = $true
+        $identityPath = Join-Path $dataRoot 'identity.json'
+    } else {
+        Copy-Item -Path (Join-Path $stagedInstall '*') -Destination $installRoot -Recurse -Force
+        $identityPath = Join-Path $dataRoot 'identity.json'
+        Copy-Item -LiteralPath $identityStagingPath -Destination $identityPath -Force
+    }
 
     if ($IsWindows) {
-        Write-WindowsConnectorSettings `
-            -Path (Join-Path $installRoot 'appsettings.json') `
-            -ResolvedDashboardUrl $DashboardUrl `
-            -DisplayName $displayName `
-            -StateRoot $stateRoot `
-            -IdentityPath $identityPath `
-            -ResolvedPitCrewRoot $resolvedPitCrewRoot `
-            -AllowedProfiles $normalizedProfiles `
-            -MaximumCeiling $CapacityMaximumCeiling `
-            -PowerShellExecutable $powerShellExecutable `
-            -ManagerRecoveryEnabled ([bool]$EnableManagerRecovery) `
-            -AllowedRecoveryProfiles $normalizedRecoveryProfiles `
-            -RecoveryTimeoutSeconds $RecoveryCommandTimeoutSeconds `
-            -RecoveryLedgerPath $recoveryLedgerPath `
-            -ImageRolloutEnabled ([bool]$EnableImageRollout) `
-            -AllowedImageRolloutProfiles $normalizedImageRolloutProfiles `
-            -ImageRolloutRecipes ([object[]]$normalizedImageRolloutRecipes.ToArray()) `
-            -ImageRolloutStatePath $imageRolloutStatePath `
-            -ImageRolloutCommandTimeoutSeconds $ImageRolloutCommandTimeoutSeconds `
-            -LogPath (Join-Path $dataRoot 'connector-.log')
+        if (-not $managedInstallation) {
+            Write-WindowsConnectorSettings `
+                -Path (Join-Path $installRoot 'appsettings.json') `
+                -ResolvedDashboardUrl $DashboardUrl `
+                -DisplayName $displayName `
+                -StateRoot $stateRoot `
+                -IdentityPath $identityPath `
+                -ResolvedPitCrewRoot $resolvedPitCrewRoot `
+                -AllowedProfiles $normalizedProfiles `
+                -MaximumCeiling $CapacityMaximumCeiling `
+                -PowerShellExecutable $powerShellExecutable `
+                -ManagerRecoveryEnabled ([bool]$EnableManagerRecovery) `
+                -AllowedRecoveryProfiles $normalizedRecoveryProfiles `
+                -RecoveryTimeoutSeconds $RecoveryCommandTimeoutSeconds `
+                -RecoveryLedgerPath $recoveryLedgerPath `
+                -ImageRolloutEnabled ([bool]$EnableImageRollout) `
+                -AllowedImageRolloutProfiles $normalizedImageRolloutProfiles `
+                -ImageRolloutRecipes ([object[]]$normalizedImageRolloutRecipes.ToArray()) `
+                -ImageRolloutStatePath $imageRolloutStatePath `
+                -ImageRolloutCommandTimeoutSeconds $ImageRolloutCommandTimeoutSeconds `
+                -LogPath (Join-Path $dataRoot 'connector-.log')
+        }
 
         $installedExecutable = Join-Path $installRoot $executableName
         $binaryPathName = '"{0}" --contentRoot "{1}"' -f (
             $installedExecutable,
             $installRoot)
-        New-Service `
-            -Name $windowsServiceName `
-            -BinaryPathName $binaryPathName `
-            -DisplayName $windowsServiceDisplayName `
-            -Description 'Synchronizes PitCrew state and executes locally authorized capacity operations.' `
-            -StartupType Automatic |
-            Out-Null
-        $windowsServiceCreated = $true
+        if (-not $managedInstallation) {
+            New-Service `
+                -Name $windowsServiceName `
+                -BinaryPathName $binaryPathName `
+                -DisplayName $windowsServiceDisplayName `
+                -Description 'Synchronizes PitCrew state and executes locally authorized capacity operations.' `
+                -StartupType Automatic |
+                Out-Null
+            $windowsServiceCreated = $true
+        }
+        Invoke-Checked -FilePath 'sc.exe' -ArgumentList @(
+            'config',
+            $windowsServiceName,
+            'binPath=',
+            $binaryPathName
+        )
         Invoke-Checked -FilePath 'sc.exe' -ArgumentList @(
             'config',
             $windowsServiceName,
@@ -925,6 +1207,8 @@ try {
             '1'
         )
         Start-Service -Name $windowsServiceName
+        $serviceStarted = $true
+        $verificationStartedAt = [DateTimeOffset]::UtcNow
         Start-Sleep -Seconds 5
         $service = Get-Service -Name $windowsServiceName
         try {
@@ -938,6 +1222,10 @@ try {
         } finally {
             $service.Dispose()
         }
+        Wait-WindowsConnectorSynchronization `
+            -DataRoot $dataRoot `
+            -StartedAt $verificationStartedAt `
+            -TimeoutSeconds 120
     } else {
         $serviceUser = if (-not [string]::IsNullOrWhiteSpace($env:SUDO_USER)) {
             $env:SUDO_USER
@@ -1098,6 +1386,43 @@ WantedBy=multi-user.target
     $rollbackFailures = [System.Collections.Generic.List[string]]::new()
     $serviceRemovalSucceeded = $true
 
+    if ($managedInstallation) {
+        try {
+            if ($serviceStarted) {
+                Stop-Service `
+                    -Name $windowsServiceName `
+                    -Force `
+                    -ErrorAction Stop
+            }
+            if ($null -ne $managedInstallBackup -and
+                (Test-Path -LiteralPath $managedInstallBackup -PathType Container)) {
+                if (Test-Path -LiteralPath $installRoot -PathType Container) {
+                    Remove-Item -LiteralPath $installRoot -Recurse -Force
+                }
+                Move-Item `
+                    -LiteralPath $managedInstallBackup `
+                    -Destination $installRoot `
+                    -Force
+                $managedInstallSwapped = $false
+            }
+            if ($managedServiceWasStopped -and $previousServiceRunning) {
+                Start-Service -Name $windowsServiceName
+                $service = Get-Service -Name $windowsServiceName
+                try {
+                    $service.WaitForStatus(
+                        [ServiceProcess.ServiceControllerStatus]::Running,
+                        [TimeSpan]::FromSeconds(30))
+                } finally {
+                    $service.Dispose()
+                }
+            }
+        } catch {
+            $serviceRemovalSucceeded = $false
+            $rollbackFailures.Add(
+                "Managed connector rollback failed: $($_.Exception.Message)")
+        }
+    }
+
     if ($windowsServiceCreated) {
         try {
             Remove-WindowsConnectorService -Name $windowsServiceName
@@ -1122,7 +1447,7 @@ WantedBy=multi-user.target
                 "systemd service cleanup failed: $($_.Exception.Message)")
         }
     }
-    if ($hostArtifactsCreated) {
+    if ($hostArtifactsCreated -and -not $managedInstallation) {
         foreach ($path in @($installRoot, $dataRoot, $environmentPath)) {
             if ([string]::IsNullOrWhiteSpace($path) -or
                 -not (Test-Path -LiteralPath $path)) {
