@@ -901,7 +901,7 @@ if ($IsWindows) {
                 -Settings $managedConnectorSettings `
                 -Name 'AllowedCapacityProfiles' `
                 -Default @()) |
-                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() }
+                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } |
                 Sort-Object -Unique
         )
         $existingRecoveryProfiles = @(
@@ -909,7 +909,7 @@ if ($IsWindows) {
                 -Settings $managedConnectorSettings `
                 -Name 'AllowedManagerRecoveryProfiles' `
                 -Default @()) |
-                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() }
+                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } |
                 Sort-Object -Unique
         )
         $existingImageRolloutProfiles = @(
@@ -917,7 +917,7 @@ if ($IsWindows) {
                 -Settings $managedConnectorSettings `
                 -Name 'AllowedImageRolloutProfiles' `
                 -Default @()) |
-                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() }
+                ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } |
                 Sort-Object -Unique
         )
         $requestedProfiles = @(

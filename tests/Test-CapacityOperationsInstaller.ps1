@@ -32,6 +32,8 @@ if ($IsWindows) {
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $installerPath = Join-Path $repositoryRoot 'scripts' 'Enable-PitCrewCapacityOperations.ps1'
+& (Join-Path $PSScriptRoot 'Test-ManagedConnectorPolicyCanonicalization.ps1') `
+    -InstallerPath $installerPath
 $errors = [System.Collections.Generic.List[string]]::new()
 $checks = 0
 $version = '9.9.9'
