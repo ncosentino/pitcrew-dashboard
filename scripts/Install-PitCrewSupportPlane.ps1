@@ -1854,6 +1854,7 @@ function Wait-AgentIdentityDeletion {
     do {
         Start-Sleep -Milliseconds 250
         if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            $startupFailureDisposition = $null
             try {
                 $status = Get-Content `
                     -LiteralPath $statusPath `
@@ -2184,8 +2185,17 @@ function Wait-AgentFinalizationReady {
                     $null -eq $status.exceptionType) {
                     return
                 }
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'local-identity' -and
+                    [string]$status.disposition -match
+                        '^(active-identity-unavailable|identity-lifecycle-unavailable|enrollment-material-unavailable|pending-identity-unavailable|enrollment-rejected|local-enrollment-commit-failed|legacy-configuration-unavailable)$') {
+                    $startupFailureDisposition = [string]$status.disposition
+                }
             } catch {
                 continue
+            }
+            if ($null -ne $startupFailureDisposition) {
+                throw "The support agent rejected finalization readiness with disposition '$startupFailureDisposition'."
             }
         }
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
