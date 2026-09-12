@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Access.Abstractions;
 using PitCrew.Dashboard.Features.Images.Abstractions;
+using PitCrew.Dashboard.Kernel.ExceptionHandling;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 
@@ -1748,7 +1749,7 @@ public sealed class SqliteImageCandidateStoreTests
                   request.RequestedAt.AddMinutes(1),
                   1,
                   cancellationToken))
-          .Throws<SqliteException>();
+          .Throws<DurableStoreContentionException>();
       await blockingTransaction.RollbackAsync(cancellationToken);
 
       var claimed = await context.Store.ClaimDueBuildRequestsAsync(

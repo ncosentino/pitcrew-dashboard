@@ -3,6 +3,8 @@ using Microsoft.Extensions.Options;
 
 using NexusLabs.Needlr;
 
+using PitCrew.Dashboard.Kernel.ExceptionHandling;
+
 namespace PitCrew.Dashboard.Adapters.Sqlite;
 
 [DoNotAutoRegister]
@@ -27,9 +29,14 @@ internal sealed class SqliteContentionPolicy(
         return await operation(cancellationToken);
       }
       catch (SqliteException exception)
-          when (IsRetryable(exception) &&
-                attempt < _options.Value.ContentionMaximumAttempts)
+          when (IsRetryable(exception))
       {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (attempt >= _options.Value.ContentionMaximumAttempts)
+        {
+          throw new DurableStoreContentionException(exception);
+        }
+
         var delay = TimeSpan.FromMilliseconds(
             _options.Value.ContentionRetryDelayMilliseconds * attempt);
         await Task.Delay(delay, _timeProvider, cancellationToken);

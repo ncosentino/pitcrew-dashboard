@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
+using PitCrew.Dashboard.Kernel.ExceptionHandling;
+
 namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 
 public sealed class SqliteContentionPolicyTests
@@ -41,10 +43,14 @@ public sealed class SqliteContentionPolicyTests
   }
 
   [Test]
+  [Arguments(5)]
+  [Arguments(6)]
   public async Task Retryable_Contention_Stops_At_Maximum_Attempts(
+      int errorCode,
       CancellationToken cancellationToken)
   {
     var attempts = 0;
+    var providerException = new SqliteException("contention", errorCode);
     var policy = new SqliteContentionPolicy(
         Options.Create(new SqliteFleetStoreOptions
         {
@@ -54,16 +60,18 @@ public sealed class SqliteContentionPolicyTests
         }),
         TimeProvider.System);
 
-    await Assert.That(async () =>
+    var exception = await Assert.That(async () =>
             await policy.ExecuteAsync<int>(
                 _ =>
                 {
                   attempts++;
-                  throw new SqliteException("contention", 5);
+                  throw providerException;
                 },
                 cancellationToken))
-        .Throws<SqliteException>();
+        .Throws<DurableStoreContentionException>();
     await Assert.That(attempts).IsEqualTo(3);
+    await Assert.That(exception!.InnerException)
+        .IsEqualTo(providerException);
   }
 
   [Test]
@@ -71,6 +79,7 @@ public sealed class SqliteContentionPolicyTests
       CancellationToken cancellationToken)
   {
     var attempts = 0;
+    var providerException = new SqliteException("constraint", 19);
     var policy = new SqliteContentionPolicy(
         Options.Create(new SqliteFleetStoreOptions
         {
@@ -80,16 +89,17 @@ public sealed class SqliteContentionPolicyTests
         }),
         TimeProvider.System);
 
-    await Assert.That(async () =>
+    var exception = await Assert.That(async () =>
             await policy.ExecuteAsync<int>(
                 _ =>
                 {
                   attempts++;
-                  throw new SqliteException("constraint", 19);
+                  throw providerException;
                 },
                 cancellationToken))
         .Throws<SqliteException>();
     await Assert.That(attempts).IsEqualTo(1);
+    await Assert.That(exception).IsEqualTo(providerException);
   }
 
   [Test]

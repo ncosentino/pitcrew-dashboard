@@ -108,6 +108,11 @@ boundaries. The defaults allow three attempts, a 1.5-second SQLite busy wait per
 attempt, and a 100-millisecond linearly increasing delay between attempts.
 Cancellation stops before the next attempt and interrupts retry delays.
 
+The SQLite adapter exposes exhausted contention as a typed durable-store
+failure. Background image workers contain only that outcome and continue with
+their next scheduled iteration. Unrelated database failures remain fatal so
+schema, constraint, or corruption errors are not mislabeled as lock pressure.
+
 The settings are available under `PitCrew:Sqlite` as
 `BusyTimeoutMilliseconds`, `ContentionMaximumAttempts`, and
 `ContentionRetryDelayMilliseconds`. Keep the total contention budget below

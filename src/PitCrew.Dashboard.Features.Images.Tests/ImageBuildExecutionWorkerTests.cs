@@ -1529,6 +1529,54 @@ public sealed class ImageBuildExecutionWorkerTests
     }
   }
 
+  [Test]
+  public async Task Worker_Does_Not_Contain_NonContention_Database_Failure(
+      CancellationToken cancellationToken)
+  {
+    var databasePath =
+        ImagesFeatureTestEnvironment.CreateDatabasePath("database-failure");
+    var now = new DateTimeOffset(
+        2026,
+        9,
+        12,
+        18,
+        15,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration =
+          new ImagesFeatureTestConfigurationScope(databasePath);
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+
+      await using var factory = CreateFactory(
+          fakeTime,
+          clientMock.Object);
+      using var client = factory.CreateClient();
+      var worker = await GetStoppedWorkerAsync(
+          factory,
+          cancellationToken);
+      await using var connection =
+          new SqliteConnection($"Data Source={databasePath}");
+      await connection.OpenAsync(cancellationToken);
+      await using var command = connection.CreateCommand();
+      command.CommandText = "DROP TABLE image_build_requests;";
+      await command.ExecuteNonQueryAsync(cancellationToken);
+
+      await Assert.That(async () =>
+              await worker.ProcessIterationAsync(cancellationToken))
+          .Throws<SqliteException>();
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
+    }
+    finally
+    {
+      ImagesFeatureTestEnvironment.DeleteDatabase(databasePath);
+    }
+  }
+
   private static ValueTask<ImageBuildExecutionWorker> GetStoppedWorkerAsync(
       WebApplicationFactory<Program> factory,
       CancellationToken cancellationToken)

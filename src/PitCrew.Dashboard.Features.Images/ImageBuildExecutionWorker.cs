@@ -1,5 +1,3 @@
-using System.Data.Common;
-
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,6 +5,7 @@ using Microsoft.Extensions.Options;
 using NexusLabs.Needlr;
 
 using PitCrew.Dashboard.Features.Images.Abstractions;
+using PitCrew.Dashboard.Kernel.ExceptionHandling;
 
 namespace PitCrew.Dashboard.Features.Images;
 
@@ -49,7 +48,7 @@ internal sealed partial class ImageBuildExecutionWorker(
       await ProcessOnceAsync(cancellationToken);
       return true;
     }
-    catch (DbException exception)
+    catch (DurableStoreContentionException exception)
     {
       LogStorageContentionExhausted(exception);
       return false;
