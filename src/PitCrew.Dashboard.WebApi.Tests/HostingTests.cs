@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,113 @@ namespace PitCrew.Dashboard.WebApi.Tests;
 [NotInParallel]
 public sealed class HostingTests
 {
+  [Test]
+  public async Task Contract_Nineteen_Admission_Round_Trips_And_Malformed_Evidence_Is_Rejected(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var code = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
+          client,
+          session.AntiforgeryToken,
+          DashboardTestHelpers.TenantId,
+          "Admission evidence node",
+          cancellationToken);
+      var identity = await DashboardTestHelpers.EnrollAsync(
+          client,
+          "admission-evidence-node",
+          "Admission Evidence Node",
+          code.Code,
+          cancellationToken);
+      var observedState = DashboardTestHelpers.CreateContractNineteenObservedState(
+          "default",
+          "https://github.com/example/project");
+
+      await DashboardTestHelpers.SynchronizeAsync(
+          client,
+          identity.Credential,
+          "19.0.0",
+          observedState,
+          cancellationToken);
+
+      var fleet = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+      var history = await client.GetFromJsonAsync<NodeHistoryResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes/{identity.NodeId:D}/profiles/default/history",
+          cancellationToken);
+      await Assert.That(fleet).IsNotNull();
+      var current = fleet!.Nodes[0].Profiles[0];
+      var accounting = current.HostAdmission?.Accounting ??
+          throw new InvalidOperationException(
+              "Fleet response omitted contract-19 admission accounting.");
+      await Assert.That(accounting.AllocatableUnits).IsEqualTo(0);
+      await Assert.That(accounting.AllocatableWorkers).IsEqualTo(0);
+      await Assert.That(accounting.TheoreticalMaximumUnits).IsEqualTo(10);
+      await Assert.That(accounting.TheoreticalMaximumWorkers).IsEqualTo(5);
+      await Assert.That(accounting.WithholdingReason)
+          .IsEqualTo("budget-exhausted");
+      await Assert.That(history).IsNotNull();
+      var sample = history!.Profiles[0].Samples[0];
+      await Assert.That(sample.HostAdmissionAllocatableUnits).IsEqualTo(0);
+      await Assert.That(sample.HostAdmissionTheoreticalMaximumWorkers)
+          .IsEqualTo(5);
+      await Assert.That(sample.HostAdmissionWithholdingReason)
+          .IsEqualTo("budget-exhausted");
+
+      var newer = observedState with
+      {
+        ObservedAt = observedState.ObservedAt.AddMinutes(1),
+      };
+      var malformedRequest = new ConnectorSyncRequest(
+          PitCrewProtocol.Version,
+          "19.0.1",
+          newer.ObservedAt,
+          [newer],
+          null,
+          null);
+      var payload = JsonNode.Parse(JsonSerializer.Serialize(
+          malformedRequest,
+          PitCrewProtocolJsonContext.Default.ConnectorSyncRequest))?.AsObject() ??
+          throw new InvalidOperationException(
+              "Connector request could not be represented as JSON.");
+      payload["profiles"]![0]!["hostAdmission"]!["accounting"]!
+          .AsObject()
+          .Remove("allocatableWorkers");
+      using var request = new HttpRequestMessage(
+          HttpMethod.Post,
+          "/api/connectors/v1/sync")
+      {
+        Content = JsonContent.Create(payload),
+      };
+      request.Headers.Add("Authorization", $"Bearer {identity.Credential}");
+      using var rejected = await client.SendAsync(request, cancellationToken);
+
+      await Assert.That(rejected.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+      var retained = await client.GetFromJsonAsync<FleetResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/nodes",
+          cancellationToken);
+      await Assert.That(retained).IsNotNull();
+      await Assert.That(retained!.Nodes[0].Profiles[0].ObservedAt)
+          .IsEqualTo(observedState.ObservedAt);
+      await Assert.That(
+              retained.Nodes[0].Profiles[0].HostAdmission?.Accounting?
+                  .WithholdingReason)
+          .IsEqualTo("budget-exhausted");
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
   [Test]
   public async Task Connector_Health_Replay_Round_Trips_Through_Fleet(
       CancellationToken cancellationToken)

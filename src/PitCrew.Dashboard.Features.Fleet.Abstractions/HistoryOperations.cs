@@ -323,6 +323,31 @@ public sealed record ProfileTelemetrySample(
   /// Gets outstanding ungranted units, or <see langword="null"/> when unknown.
   /// </summary>
   public int? HostAdmissionWithheldUnits { get; init; }
+
+  /// <summary>
+  /// Gets the units currently usable by this profile.
+  /// </summary>
+  public int? HostAdmissionAllocatableUnits { get; init; }
+
+  /// <summary>
+  /// Gets the whole workers currently usable by this profile.
+  /// </summary>
+  public int? HostAdmissionAllocatableWorkers { get; init; }
+
+  /// <summary>
+  /// Gets the profile's static theoretical maximum units before shared contention.
+  /// </summary>
+  public int? HostAdmissionTheoreticalMaximumUnits { get; init; }
+
+  /// <summary>
+  /// Gets the profile's static theoretical maximum whole workers before shared contention.
+  /// </summary>
+  public int? HostAdmissionTheoreticalMaximumWorkers { get; init; }
+
+  /// <summary>
+  /// Gets the bounded coordinator-owned reason that admission is currently withheld.
+  /// </summary>
+  public string? HostAdmissionWithholdingReason { get; init; }
 }
 
 /// <summary>

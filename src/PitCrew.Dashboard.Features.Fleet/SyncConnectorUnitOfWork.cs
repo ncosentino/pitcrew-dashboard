@@ -856,7 +856,9 @@ internal sealed partial class SyncConnectorUnitOfWork(
         admission.AvailableUnits is < 0 ||
         admission.AvailableUnits > admission.EffectiveTotalUnits ||
         !IsHostAdmissionToken(admission.HostPolicyFingerprint) ||
-        !IsValidHostAdmissionAccounting(admission.Accounting) ||
+        !IsValidHostAdmissionAccounting(
+            profile.ManagerContractVersion,
+            admission.Accounting) ||
         !IsValidHostAdmissionDecision(admission.LastDecision))
     {
       return false;
@@ -917,6 +919,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
   }
 
   private static bool IsValidHostAdmissionAccounting(
+      int managerContractVersion,
       HostAdmissionAccounting? accounting)
   {
     if (accounting is null)
@@ -924,19 +927,67 @@ internal sealed partial class SyncConnectorUnitOfWork(
       return true;
     }
 
-    return accounting.UnitCost > 0 &&
-        accounting.ReservedUnits >= 0 &&
-        IsHostAdmissionToken(accounting.ProfilePolicyFingerprint) &&
-        accounting.ActiveUnits >= 0 &&
-        accounting.ProvisionalUnits >= 0 &&
-        accounting.HeldUnits ==
-            accounting.ActiveUnits + accounting.ProvisionalUnits &&
-        accounting.BorrowedUnits ==
-            Math.Max(accounting.HeldUnits - accounting.ReservedUnits, 0) &&
-        (accounting.PendingUnits is null &&
-         accounting.WithheldUnits is null ||
-         accounting.PendingUnits is >= 0 &&
-         accounting.WithheldUnits == accounting.PendingUnits);
+    if (accounting.UnitCost <= 0 ||
+        accounting.ReservedUnits < 0 ||
+        !IsHostAdmissionToken(accounting.ProfilePolicyFingerprint) ||
+        accounting.ActiveUnits < 0 ||
+        accounting.ProvisionalUnits < 0 ||
+        accounting.HeldUnits !=
+            accounting.ActiveUnits + accounting.ProvisionalUnits ||
+        accounting.BorrowedUnits !=
+            Math.Max(accounting.HeldUnits - accounting.ReservedUnits, 0) ||
+        !(accounting.PendingUnits is null &&
+          accounting.WithheldUnits is null ||
+          accounting.PendingUnits is >= 0 &&
+          accounting.WithheldUnits == accounting.PendingUnits))
+    {
+      return false;
+    }
+
+    if (managerContractVersion < 19)
+    {
+      return accounting.AllocatableUnits is null &&
+          accounting.AllocatableWorkers is null &&
+          accounting.TheoreticalMaximumUnits is null &&
+          accounting.TheoreticalMaximumWorkers is null &&
+          accounting.WithholdingReason is null;
+    }
+    if (!accounting.HasCompleteContractNineteenEvidence)
+    {
+      return false;
+    }
+
+    var allUnavailable = accounting.AllocatableUnits is null &&
+        accounting.AllocatableWorkers is null &&
+        accounting.TheoreticalMaximumUnits is null &&
+        accounting.TheoreticalMaximumWorkers is null &&
+        accounting.WithholdingReason is null;
+    if (allUnavailable)
+    {
+      return true;
+    }
+    if (accounting.AllocatableUnits is not { } allocatableUnits ||
+        accounting.AllocatableWorkers is not { } allocatableWorkers ||
+        accounting.TheoreticalMaximumUnits is not { } theoreticalUnits ||
+        accounting.TheoreticalMaximumWorkers is not { } theoreticalWorkers ||
+        allocatableUnits < 0 ||
+        allocatableWorkers < 0 ||
+        theoreticalUnits < 0 ||
+        theoreticalWorkers < 0 ||
+        allocatableWorkers != allocatableUnits / accounting.UnitCost ||
+        theoreticalWorkers != theoreticalUnits / accounting.UnitCost ||
+        allocatableUnits > theoreticalUnits ||
+        accounting.WithholdingReason is not null and not (
+            "budget-exhausted" or
+            "protected-reservation" or
+            "fair-share-contention" or
+            "adoption-pending"))
+    {
+      return false;
+    }
+
+    return accounting.WithholdingReason is null ||
+        allocatableUnits == 0 && allocatableWorkers == 0;
   }
 
   private static bool IsValidHostAdmissionDecision(

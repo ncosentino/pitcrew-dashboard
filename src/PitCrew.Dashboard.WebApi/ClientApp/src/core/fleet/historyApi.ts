@@ -76,6 +76,19 @@ const telemetrySampleSchema = z.object({
   hostAdmissionBorrowedUnits: z.number().int().nonnegative().nullable().default(null),
   hostAdmissionPendingUnits: z.number().int().nonnegative().nullable().default(null),
   hostAdmissionWithheldUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionAllocatableUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionAllocatableWorkers: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionTheoreticalMaximumUnits: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionTheoreticalMaximumWorkers: z.number().int().nonnegative().nullable().default(null),
+  hostAdmissionWithholdingReason: z
+    .enum([
+      'budget-exhausted',
+      'protected-reservation',
+      'fair-share-contention',
+      'adoption-pending',
+    ])
+    .nullable()
+    .default(null),
   workerCpuCores: z.number().nonnegative().nullable(),
   workerMemoryBytes: z.number().int().nonnegative().nullable(),
   workerPids: z.number().int().nonnegative().nullable(),

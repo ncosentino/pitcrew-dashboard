@@ -375,11 +375,24 @@ internal sealed partial class ObservedStateReader(
     {
       return false;
     }
+    JsonElement hostAdmission = default;
     if (contractVersion >= 18 &&
         (!root.TryGetProperty(
             "hostAdmission",
-            out var hostAdmission) ||
+            out hostAdmission) ||
          hostAdmission.ValueKind != JsonValueKind.Object))
+    {
+      return false;
+    }
+    if (contractVersion >= 19 &&
+        hostAdmission.TryGetProperty("accounting", out var accounting) &&
+        accounting.ValueKind != JsonValueKind.Null &&
+        (accounting.ValueKind != JsonValueKind.Object ||
+         !accounting.TryGetProperty("allocatableUnits", out _) ||
+         !accounting.TryGetProperty("allocatableWorkers", out _) ||
+         !accounting.TryGetProperty("theoreticalMaximumUnits", out _) ||
+         !accounting.TryGetProperty("theoreticalMaximumWorkers", out _) ||
+         !accounting.TryGetProperty("withholdingReason", out _)))
     {
       return false;
     }

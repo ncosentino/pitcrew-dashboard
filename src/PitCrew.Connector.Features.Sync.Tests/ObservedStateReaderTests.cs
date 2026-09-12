@@ -206,6 +206,7 @@ public sealed class ObservedStateReaderTests
   [Arguments("missing-host-admission")]
   [Arguments("null-host-admission")]
   [Arguments("incomplete-host-admission")]
+  [Arguments("incomplete-contract-nineteen-accounting")]
   public async Task ReadAsync_Rejects_Incomplete_Or_Invalid_Additive_Objects(
       string scenario,
       CancellationToken cancellationToken)
@@ -273,6 +274,19 @@ public sealed class ObservedStateReaderTests
           payload["slots"]![0]!["currentJob"] = null;
           payload["hostAdmission"] = ConnectorTestData.CreateHostAdmissionPayload();
           payload["hostAdmission"]!.AsObject().Remove("availableUnits");
+          break;
+        case "incomplete-contract-nineteen-accounting":
+          payload["managerContractVersion"] = 19;
+          payload["slots"]![0]!["runnerNameHash"] = new string('a', 64);
+          payload["slots"]![0]!["currentJob"] = null;
+          payload["hostAdmission"] = ConnectorTestData.CreateHostAdmissionPayload();
+          var accounting = payload["hostAdmission"]!["accounting"]!.AsObject();
+          accounting["allocatableUnits"] = 4;
+          accounting["allocatableWorkers"] = 2;
+          accounting["theoreticalMaximumUnits"] = 10;
+          accounting["theoreticalMaximumWorkers"] = 5;
+          accounting["withholdingReason"] = null;
+          accounting.Remove("allocatableWorkers");
           break;
         default:
           throw new ArgumentOutOfRangeException(

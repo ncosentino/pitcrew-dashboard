@@ -781,6 +781,119 @@ public sealed class ProtocolCompatibilityTests
   }
 
   [Test]
+  public async Task Contract_Eighteen_Accounting_Preserves_Named_Construction_And_Deconstruction()
+  {
+    var accounting = new HostAdmissionAccounting(
+        UnitCost: 2,
+        ReservedUnits: 4,
+        Borrowable: true,
+        ProfilePolicyFingerprint: new string('b', 64),
+        ActiveUnits: 2,
+        ProvisionalUnits: 1,
+        HeldUnits: 3,
+        BorrowedUnits: 0,
+        PendingUnits: 4,
+        WithheldUnits: 2);
+    var (
+        unitCost,
+        reservedUnits,
+        borrowable,
+        profilePolicyFingerprint,
+        activeUnits,
+        provisionalUnits,
+        heldUnits,
+        borrowedUnits,
+        pendingUnits,
+        withheldUnits) = accounting;
+
+    await Assert.That((
+        unitCost,
+        reservedUnits,
+        borrowable,
+        profilePolicyFingerprint,
+        activeUnits,
+        provisionalUnits,
+        heldUnits,
+        borrowedUnits,
+        pendingUnits,
+        withheldUnits)).IsEqualTo((
+            accounting.UnitCost,
+            accounting.ReservedUnits,
+            accounting.Borrowable,
+            accounting.ProfilePolicyFingerprint,
+            accounting.ActiveUnits,
+            accounting.ProvisionalUnits,
+            accounting.HeldUnits,
+            accounting.BorrowedUnits,
+            accounting.PendingUnits,
+            accounting.WithheldUnits));
+  }
+
+  [Test]
+  public async Task Contract_Nineteen_Host_Admission_Round_Trips_Explicit_Fields()
+  {
+    var baseline = ConnectorTestData.CreateObservedState(
+        "admission-capacity",
+        new DateTimeOffset(
+            2026,
+            9,
+            11,
+            20,
+            0,
+            0,
+            TimeSpan.Zero));
+    var profile = baseline with
+    {
+      ManagerContractVersion = 19,
+      HostAdmission = new HostAdmissionState(
+          "available",
+          "primary",
+          4,
+          51,
+          12,
+          2,
+          10,
+          6,
+          new string('a', 64),
+          new HostAdmissionAccounting(
+              2,
+              4,
+              false,
+              new string('b', 64),
+              2,
+              0,
+              2,
+              0,
+              4,
+              4,
+              4,
+              2,
+              10,
+              5,
+              null),
+          null),
+    };
+    var json = JsonSerializer.Serialize(
+        profile,
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+    var roundTripped = JsonSerializer.Deserialize(
+        json,
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(roundTripped).IsNotNull();
+    var accounting = roundTripped!.HostAdmission!.Accounting!;
+    await Assert.That(accounting).IsEqualTo(profile.HostAdmission!.Accounting);
+    await Assert.That(accounting.HasCompleteContractNineteenEvidence)
+        .IsTrue()
+        .Because("all five contract 19 properties survived serialization");
+    await Assert.That(accounting.AllocatableUnits).IsEqualTo(4);
+    await Assert.That(accounting.AllocatableWorkers).IsEqualTo(2);
+    await Assert.That(accounting.TheoreticalMaximumUnits).IsEqualTo(10);
+    await Assert.That(accounting.TheoreticalMaximumWorkers).IsEqualTo(5);
+    await Assert.That(accounting.WithholdingReason).IsNull();
+  }
+
+  [Test]
   public async Task Contract_Eighteen_Host_Admission_Round_Trips()
   {
     var profile = ConnectorTestData.CreateObservedState(

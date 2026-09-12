@@ -1445,7 +1445,7 @@ public sealed class SqliteFleetStoreTests
   }
 
   [Test]
-  public async Task Contract_Eighteen_Host_Admission_Round_Trips(
+  public async Task Contract_Nineteen_Host_Admission_Round_Trips(
       CancellationToken cancellationToken)
   {
     var databasePath = Path.Combine(
@@ -1485,7 +1485,12 @@ public sealed class SqliteFleetStoreTests
               5,
               1,
               4,
-              4),
+              4,
+              0,
+              0,
+              10,
+              5,
+              "fair-share-contention"),
           new HostAdmissionDecision(
               42,
               "acquire",
@@ -1494,7 +1499,7 @@ public sealed class SqliteFleetStoreTests
               1_754_719_500_000_000_000));
       var profile = new ManagerObservedState(
           SchemaVersion: 1,
-          ManagerContractVersion: 18,
+          ManagerContractVersion: 19,
           ProfileId: "default",
           ManagerInstanceId: "manager-instance",
           ManagerStatus: "running",

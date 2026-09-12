@@ -26,6 +26,11 @@ const availableAdmission: HostAdmissionState = {
     borrowedUnits: 1,
     pendingUnits: 4,
     withheldUnits: 4,
+    allocatableUnits: null,
+    allocatableWorkers: null,
+    theoreticalMaximumUnits: null,
+    theoreticalMaximumWorkers: null,
+    withholdingReason: null,
   },
   lastDecision: {
     sequence: 42,

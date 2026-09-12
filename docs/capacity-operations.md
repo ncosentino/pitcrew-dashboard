@@ -31,6 +31,30 @@ and from GitHub demand:
 - disabled, unavailable, and restart-stale evidence remains explicit. Missing
   values render as unavailable, never as zero or healthy.
 
+Manager contract 19 adds profile-scoped admission explainability without changing
+those contract-18 meanings:
+
+- `allocatableUnits` and `allocatableWorkers` report what this profile can use now;
+- `theoreticalMaximumUnits` and `theoreticalMaximumWorkers` report the static profile
+  ceiling before current shared-budget contention; and
+- `withholdingReason` is either unavailable or one bounded coordinator-owned code:
+  `budget-exhausted`, `protected-reservation`, `fair-share-contention`, or
+  `adoption-pending`.
+
+The four capacity values are published together or remain explicitly unavailable.
+Worker counts are whole-unit divisions by the profile unit cost. A withholding reason
+is valid only when allocatable units and workers are both measured zero. Contract-18
+observations omit this authority and Dashboard returns the additive values as
+unavailable rather than inferring them from host availability, reservations, resource
+activity, or configured worker maxima.
+
+Connector synchronization protocol 11 remains the compatibility boundary for this
+additive manager payload. The existing profile projection already carries
+version-gated manager evidence, so advancing the connector protocol would not add a
+new connector capability or command semantic. Contract-19 readers require every
+additive property explicitly when profile accounting is present; malformed evidence
+is rejected while the last valid projection remains stored.
+
 The dashboard exposes no host-admission mutation. Admission policy remains
 operator-owned PitCrew configuration, while Dashboard and its connector remain
 read-only consumers of credential-free manager evidence.

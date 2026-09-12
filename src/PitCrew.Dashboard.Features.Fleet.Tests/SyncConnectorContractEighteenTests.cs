@@ -121,7 +121,7 @@ public sealed class SyncConnectorContractEighteenTests
     })).IsFalse();
   }
 
-  private static ManagerObservedState CreateProfile()
+  internal static ManagerObservedState CreateProfile()
   {
     var baseline = SyncConnectorContractSixteenTests.CreateProfile();
     return baseline with
