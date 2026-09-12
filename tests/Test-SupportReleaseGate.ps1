@@ -743,8 +743,8 @@ $containerPublisher = Get-Content `
     ) `
     -Raw
 Add-Check (
-    $supportPublisher -match 'actions/upload-artifact@v6' -and
-    $supportPublisher -notmatch 'actions/upload-artifact@v5' -and
+    $supportPublisher -match 'actions/upload-artifact@v7' -and
+    $supportPublisher -notmatch 'actions/upload-artifact@v6' -and
     $supportPublisher -match
         'Test-PublishedReleaseAssets\.ps1'
 ) 'Support publication does not use supported artifacts and verify published digests.'
