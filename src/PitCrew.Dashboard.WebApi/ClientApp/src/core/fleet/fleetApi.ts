@@ -465,6 +465,18 @@ const hostAdmissionAccountingSchema = z
     borrowedUnits: z.number().int().nonnegative(),
     pendingUnits: z.number().int().nonnegative().nullable(),
     withheldUnits: z.number().int().nonnegative().nullable(),
+    allocatableUnits: z.number().int().nonnegative().nullable(),
+    allocatableWorkers: z.number().int().nonnegative().nullable(),
+    theoreticalMaximumUnits: z.number().int().nonnegative().nullable(),
+    theoreticalMaximumWorkers: z.number().int().nonnegative().nullable(),
+    withholdingReason: z
+      .enum([
+        'budget-exhausted',
+        'protected-reservation',
+        'fair-share-contention',
+        'adoption-pending',
+      ])
+      .nullable(),
   })
   .superRefine((accounting, context) => {
     if (accounting.heldUnits !== accounting.activeUnits + accounting.provisionalUnits) {
@@ -489,6 +501,61 @@ const hostAdmissionAccountingSchema = z
         code: 'custom',
         message: 'Pending and withheld units are available together and must match.',
         path: ['withheldUnits'],
+      });
+    }
+    const {
+      allocatableUnits,
+      allocatableWorkers,
+      theoreticalMaximumUnits,
+      theoreticalMaximumWorkers,
+    } = accounting;
+    if (
+      allocatableUnits == null &&
+      allocatableWorkers == null &&
+      theoreticalMaximumUnits == null &&
+      theoreticalMaximumWorkers == null
+    ) {
+      if (accounting.withholdingReason != null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Unavailable profile capacity cannot carry a withholding reason.',
+          path: ['withholdingReason'],
+        });
+      }
+      return;
+    }
+    if (
+      allocatableUnits == null ||
+      allocatableWorkers == null ||
+      theoreticalMaximumUnits == null ||
+      theoreticalMaximumWorkers == null
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Profile-usable capacity values are available together.',
+        path: ['allocatableUnits'],
+      });
+      return;
+    }
+    if (
+      allocatableWorkers !== Math.floor(allocatableUnits / accounting.unitCost) ||
+      theoreticalMaximumWorkers !== Math.floor(theoreticalMaximumUnits / accounting.unitCost) ||
+      allocatableUnits > theoreticalMaximumUnits
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Profile capacity must be consistent with unit cost and its theoretical maximum.',
+        path: ['allocatableWorkers'],
+      });
+    }
+    if (
+      accounting.withholdingReason != null &&
+      (accounting.allocatableUnits !== 0 || accounting.allocatableWorkers !== 0)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A withholding reason requires zero allocatable capacity.',
+        path: ['withholdingReason'],
       });
     }
   });
@@ -929,6 +996,22 @@ export const managerObservedStateSchema = z
         code: 'custom',
         message: 'Manager contract 18 requires explicit host-admission evidence.',
         path: ['hostAdmission'],
+      });
+    }
+    const admissionCapacity = profile.hostAdmission?.accounting;
+    if (
+      profile.managerContractVersion < 19 &&
+      admissionCapacity != null &&
+      (admissionCapacity.allocatableUnits != null ||
+        admissionCapacity.allocatableWorkers != null ||
+        admissionCapacity.theoreticalMaximumUnits != null ||
+        admissionCapacity.theoreticalMaximumWorkers != null ||
+        admissionCapacity.withholdingReason != null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Profile-usable admission capacity requires manager contract 19.',
+        path: ['hostAdmission', 'accounting'],
       });
     }
 

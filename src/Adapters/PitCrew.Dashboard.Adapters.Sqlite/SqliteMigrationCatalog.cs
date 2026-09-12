@@ -4330,5 +4330,38 @@ internal static class SqliteMigrationCatalog
                       'image rollout campaign idempotency is immutable');
               END;
               """),
+        new(
+              31,
+              "manager-contract-19-admission-history",
+              """
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_allocatable_units INTEGER NULL
+                      CHECK (host_admission_allocatable_units IS NULL
+                          OR host_admission_allocatable_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_allocatable_workers INTEGER NULL
+                      CHECK (host_admission_allocatable_workers IS NULL
+                          OR host_admission_allocatable_workers >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_theoretical_maximum_units INTEGER NULL
+                      CHECK (host_admission_theoretical_maximum_units IS NULL
+                          OR host_admission_theoretical_maximum_units >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_theoretical_maximum_workers INTEGER NULL
+                      CHECK (host_admission_theoretical_maximum_workers IS NULL
+                          OR host_admission_theoretical_maximum_workers >= 0);
+
+              ALTER TABLE profile_telemetry_samples
+                  ADD COLUMN host_admission_withholding_reason TEXT NULL
+                      CHECK (host_admission_withholding_reason IS NULL
+                          OR host_admission_withholding_reason IN (
+                              'budget-exhausted',
+                              'protected-reservation',
+                              'fair-share-contention',
+                              'adoption-pending'));
+              """),
     ];
 }

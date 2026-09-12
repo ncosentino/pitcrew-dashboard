@@ -124,7 +124,12 @@ public sealed class SqliteFleetHistoryStoreTests
               7,
               2,
               6,
-              6),
+              6,
+              0,
+              0,
+              10,
+              5,
+              "protected-reservation"),
           new HostAdmissionDecision(
               43,
               "acquire",
@@ -133,7 +138,7 @@ public sealed class SqliteFleetHistoryStoreTests
               1_754_719_500_000_000_000));
       var profile = CreateProfile(Origin) with
       {
-        ManagerContractVersion = 18,
+        ManagerContractVersion = 19,
         HostAdmission = hostAdmission,
       };
 
@@ -169,6 +174,14 @@ public sealed class SqliteFleetHistoryStoreTests
       await Assert.That(sample.HostAdmissionBorrowedUnits).IsEqualTo(2);
       await Assert.That(sample.HostAdmissionPendingUnits).IsEqualTo(6);
       await Assert.That(sample.HostAdmissionWithheldUnits).IsEqualTo(6);
+      await Assert.That(sample.HostAdmissionAllocatableUnits).IsEqualTo(0);
+      await Assert.That(sample.HostAdmissionAllocatableWorkers).IsEqualTo(0);
+      await Assert.That(sample.HostAdmissionTheoreticalMaximumUnits)
+          .IsEqualTo(10);
+      await Assert.That(sample.HostAdmissionTheoreticalMaximumWorkers)
+          .IsEqualTo(5);
+      await Assert.That(sample.HostAdmissionWithholdingReason)
+          .IsEqualTo("protected-reservation");
 
       var hourly = await ReadProfileHistoryAsync(
           store,

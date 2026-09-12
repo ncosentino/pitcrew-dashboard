@@ -728,6 +728,16 @@ internal sealed partial class SqliteFleetHistoryStore
             row.OptionalInt32("host_admission_pending_units"),
         HostAdmissionWithheldUnits =
             row.OptionalInt32("host_admission_withheld_units"),
+        HostAdmissionAllocatableUnits =
+            row.OptionalInt32("host_admission_allocatable_units"),
+        HostAdmissionAllocatableWorkers =
+            row.OptionalInt32("host_admission_allocatable_workers"),
+        HostAdmissionTheoreticalMaximumUnits =
+            row.OptionalInt32("host_admission_theoretical_maximum_units"),
+        HostAdmissionTheoreticalMaximumWorkers =
+            row.OptionalInt32("host_admission_theoretical_maximum_workers"),
+        HostAdmissionWithholdingReason =
+            row.OptionalString("host_admission_withholding_reason"),
       });
     }
 
@@ -1808,6 +1818,16 @@ internal sealed partial class SqliteFleetHistoryStore
       HostAdmissionBorrowedUnits = hostAdmissionAccounting?.BorrowedUnits,
       HostAdmissionPendingUnits = hostAdmissionAccounting?.PendingUnits,
       HostAdmissionWithheldUnits = hostAdmissionAccounting?.WithheldUnits,
+      HostAdmissionAllocatableUnits =
+          hostAdmissionAccounting?.AllocatableUnits,
+      HostAdmissionAllocatableWorkers =
+          hostAdmissionAccounting?.AllocatableWorkers,
+      HostAdmissionTheoreticalMaximumUnits =
+          hostAdmissionAccounting?.TheoreticalMaximumUnits,
+      HostAdmissionTheoreticalMaximumWorkers =
+          hostAdmissionAccounting?.TheoreticalMaximumWorkers,
+      HostAdmissionWithholdingReason =
+          hostAdmissionAccounting?.WithholdingReason,
     };
   }
 
@@ -1905,6 +1925,11 @@ internal sealed partial class SqliteFleetHistoryStore
     public int? HostAdmissionBorrowedUnits { get; init; }
     public int? HostAdmissionPendingUnits { get; init; }
     public int? HostAdmissionWithheldUnits { get; init; }
+    public int? HostAdmissionAllocatableUnits { get; init; }
+    public int? HostAdmissionAllocatableWorkers { get; init; }
+    public int? HostAdmissionTheoreticalMaximumUnits { get; init; }
+    public int? HostAdmissionTheoreticalMaximumWorkers { get; init; }
+    public string? HostAdmissionWithholdingReason { get; init; }
   }
 
   private sealed record JournalPage(

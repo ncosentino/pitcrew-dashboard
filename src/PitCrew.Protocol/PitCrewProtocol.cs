@@ -143,7 +143,7 @@ public sealed record ManagerWorkerUpdateState(
 /// <param name="CapacityEvidence">Manager contract 12 fixed or per-target capacity-deficit evidence when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Update">Worker-image convergence evidence when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Host">Manager contract 13 sanitized node hardware inventory when reported.</param>
-/// <param name="HostAdmission">Manager contract 18 host-local admission evidence when reported.</param>
+/// <param name="HostAdmission">Manager contract 18 host-local admission evidence, including contract 19 profile-usable capacity when reported.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,

@@ -504,6 +504,69 @@ internal static class DashboardTestHelpers
     };
   }
 
+  /// <summary>
+  /// Creates sanitized complete manager contract 19 admission evidence.
+  /// </summary>
+  public static ManagerObservedState CreateContractNineteenObservedState(
+      string profileId,
+      string repository)
+  {
+    var baseline = CreateContractFourteenObservedState(profileId, repository);
+    var telemetry = baseline.ResourceTelemetry ??
+        throw new InvalidOperationException(
+            "The contract-14 fixture must include resource telemetry.");
+    return baseline with
+    {
+      ManagerContractVersion = 19,
+      ResourceTelemetry = telemetry with
+      {
+        HostPressure = new HostPressureTelemetry(
+            "unavailable",
+            "docker-host",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null),
+      },
+      HostAdmission = new HostAdmissionState(
+          "available",
+          "primary",
+          4,
+          51,
+          12,
+          2,
+          10,
+          6,
+          new string('c', 64),
+          new HostAdmissionAccounting(
+              2,
+              4,
+              false,
+              new string('d', 64),
+              2,
+              0,
+              2,
+              0,
+              4,
+              4,
+              0,
+              0,
+              10,
+              5,
+              "budget-exhausted"),
+          null),
+    };
+  }
+
   public static string CreateDatabasePath() =>
       CreatePath(
           Path.Combine(

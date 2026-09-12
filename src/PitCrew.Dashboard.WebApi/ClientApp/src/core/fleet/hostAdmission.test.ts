@@ -19,6 +19,11 @@ const availableAccounting: HostAdmissionAccounting = {
   borrowedUnits: 1,
   pendingUnits: 4,
   withheldUnits: 4,
+  allocatableUnits: null,
+  allocatableWorkers: null,
+  theoreticalMaximumUnits: null,
+  theoreticalMaximumWorkers: null,
+  withholdingReason: null,
 };
 const availableAdmission: HostAdmissionState = {
   status: 'available',
@@ -225,6 +230,62 @@ describe('summarizeNodeHostAdmission', () => {
 
     it('keeps manager contract 17 readable without host admission', () => {
       expect(managerObservedStateSchema.safeParse(contractProfile(17)).success).toBe(true);
+    });
+
+    it('parses complete contract 19 capacity and rejects malformed values', () => {
+      const accounting = {
+        ...availableAccounting,
+        allocatableUnits: 0,
+        allocatableWorkers: 0,
+        theoreticalMaximumUnits: 10,
+        theoreticalMaximumWorkers: 5,
+        withholdingReason: 'budget-exhausted' as const,
+      };
+      const complete = contractProfile(19, {
+        ...availableAdmission,
+        accounting,
+      });
+
+      expect(managerObservedStateSchema.safeParse(complete).success).toBe(true);
+      expect(
+        managerObservedStateSchema.safeParse(
+          contractProfile(19, {
+            ...availableAdmission,
+            accounting: {
+              ...accounting,
+              allocatableWorkers: 1,
+            },
+          }),
+        ).success,
+      ).toBe(false);
+      expect(
+        managerObservedStateSchema.safeParse(
+          contractProfile(19, {
+            ...availableAdmission,
+            accounting: {
+              ...accounting,
+              withholdingReason: 'unsafe/path',
+            },
+          }),
+        ).success,
+      ).toBe(false);
+    });
+
+    it('keeps contract 18 profile-usable capacity unavailable', () => {
+      expect(
+        managerObservedStateSchema.safeParse(
+          contractProfile(18, {
+            ...availableAdmission,
+            accounting: {
+              ...availableAccounting,
+              allocatableUnits: 4,
+              allocatableWorkers: 2,
+              theoreticalMaximumUnits: 10,
+              theoreticalMaximumWorkers: 5,
+            },
+          }),
+        ).success,
+      ).toBe(false);
     });
 
     it('accepts adopt decisions and rejects unknown commands', () => {

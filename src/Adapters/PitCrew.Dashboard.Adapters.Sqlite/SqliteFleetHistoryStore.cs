@@ -87,6 +87,11 @@ internal sealed partial class SqliteFleetHistoryStore(
       host_admission_borrowed_units,
       host_admission_pending_units,
       host_admission_withheld_units,
+      host_admission_allocatable_units,
+      host_admission_allocatable_workers,
+      host_admission_theoretical_maximum_units,
+      host_admission_theoretical_maximum_workers,
+      host_admission_withholding_reason,
       worker_cpu_cores,
       worker_memory_bytes,
       worker_pids,
@@ -613,6 +618,11 @@ internal sealed partial class SqliteFleetHistoryStore(
             $hostAdmissionBorrowedUnits,
             $hostAdmissionPendingUnits,
             $hostAdmissionWithheldUnits,
+            $hostAdmissionAllocatableUnits,
+            $hostAdmissionAllocatableWorkers,
+            $hostAdmissionTheoreticalMaximumUnits,
+            $hostAdmissionTheoreticalMaximumWorkers,
+            $hostAdmissionWithholdingReason,
             $workerCpuCores,
             $workerMemoryBytes,
             $workerPids,
@@ -801,6 +811,26 @@ internal sealed partial class SqliteFleetHistoryStore(
         command,
         "$hostAdmissionWithheldUnits",
         sample.HostAdmissionWithheldUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionAllocatableUnits",
+        sample.HostAdmissionAllocatableUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionAllocatableWorkers",
+        sample.HostAdmissionAllocatableWorkers);
+    AddNullable(
+        command,
+        "$hostAdmissionTheoreticalMaximumUnits",
+        sample.HostAdmissionTheoreticalMaximumUnits);
+    AddNullable(
+        command,
+        "$hostAdmissionTheoreticalMaximumWorkers",
+        sample.HostAdmissionTheoreticalMaximumWorkers);
+    AddNullable(
+        command,
+        "$hostAdmissionWithholdingReason",
+        sample.HostAdmissionWithholdingReason);
     AddNullable(command, "$workerCpuCores", sample.WorkerCpuCores);
     AddNullable(command, "$workerMemoryBytes", sample.WorkerMemoryBytes);
     AddNullable(command, "$workerPids", sample.WorkerPids);
