@@ -763,7 +763,7 @@ try {
         Invoke-Installer -LifecycleAction 'FinalizeEnrollment'
     } catch {
         $finalizationRejected = $_.Exception.Message.Contains(
-            'active-identity-unavailable',
+            'authoritative enrollment-finalization readiness',
             [StringComparison]::Ordinal)
     }
     $settingsAfterFinalization = [IO.File]::ReadAllBytes(
@@ -795,7 +795,7 @@ try {
         [string]$failureRecord.phase -ceq
             'enrollment-finalization' -and
         [string]$failureRecord.operation -ceq
-            'run-finalization-request' -and
+        'wait-finalization-readiness' -and
         [string]$failureRecord.rollbackStatus -ceq 'succeeded'
     ) (
         'Failed enrollment finalization did not restore settings, services, and ' +

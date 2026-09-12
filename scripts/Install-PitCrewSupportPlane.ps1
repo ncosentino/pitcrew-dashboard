@@ -2246,10 +2246,6 @@ function Invoke-FinalizeEnrollment {
         }
     }
 
-    Set-InstallerFailureContext `
-        -Phase 'enrollment-finalization' `
-        -Operation 'wait-finalization-readiness'
-    Wait-AgentFinalizationReady -Paths $Paths
     $settingsSnapshot = Get-AgentSettingsSecuritySnapshot -Paths $Paths
     $brokerIdentity = Get-SupportBrokerRuntimeIdentity
     $statusPath = Get-AgentStartupStatusPath -Paths $Paths
@@ -2264,6 +2260,10 @@ function Invoke-FinalizeEnrollment {
     $failurePhase = ''
     $failureOperation = ''
     try {
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'wait-finalization-readiness'
+        Wait-AgentFinalizationReady -Paths $Paths
         Set-InstallerFailureContext `
             -Phase 'enrollment-finalization' `
             -Operation 'stop-support-agent'
