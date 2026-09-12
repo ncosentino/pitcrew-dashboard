@@ -108,6 +108,7 @@ public sealed class SupportAgentSettingsFinalizerTests
     var backupPath = Path.Combine(
         root,
         SupportAgentSettingsFinalizer.BackupFileName);
+    var originalAttributes = FileAttributes.Normal;
     var original = """
         {
           "PitCrewSupport": {
@@ -124,6 +125,12 @@ public sealed class SupportAgentSettingsFinalizerTests
     try
     {
       await File.WriteAllBytesAsync(settingsPath, original);
+      originalAttributes = File.GetAttributes(settingsPath);
+      if (OperatingSystem.IsWindows())
+      {
+        originalAttributes = FileAttributes.Archive;
+        File.SetAttributes(settingsPath, originalAttributes);
+      }
 
       var finalized =
           SupportAgentSettingsFinalizer.FinalizeWithBackup(root);
@@ -138,6 +145,10 @@ public sealed class SupportAgentSettingsFinalizerTests
           .IsEqualTo(SupportEnrollmentRollbackStatus.Succeeded);
       await Assert.That(restored).IsEquivalentTo(original);
       await Assert.That(File.Exists(backupPath)).IsFalse();
+      var finalAttributes = File.GetAttributes(settingsPath);
+      await Assert.That(finalAttributes)
+          .IsEqualTo(originalAttributes)
+          .Because("Windows finalization must preserve the existing settings file metadata");
     }
     finally
     {

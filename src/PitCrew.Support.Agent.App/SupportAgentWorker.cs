@@ -52,6 +52,7 @@ internal sealed partial class SupportAgentWorker(
       do
       {
         phase = "relay-poll";
+        var readinessJustReached = false;
         try
         {
           await using var operationLock =
@@ -90,11 +91,8 @@ internal sealed partial class SupportAgentWorker(
           }
           if (!firstPollAccepted)
           {
-            _startupStatus.Write(
-                phase,
-                "accepted",
-                exceptionType: null);
             firstPollAccepted = true;
+            readinessJustReached = true;
           }
           phase = "running";
         }
@@ -133,6 +131,14 @@ internal sealed partial class SupportAgentWorker(
         catch (System.Text.Json.JsonException)
         {
           LogRelayResponseInvalid(_logger);
+        }
+        if (readinessJustReached)
+        {
+          _startupStatus.Write(
+              "relay-poll",
+              "accepted",
+              exceptionType: null,
+              finalizationReady: true);
         }
       }
       while (await timer.WaitForNextTickAsync(stoppingToken));
