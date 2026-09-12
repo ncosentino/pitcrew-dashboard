@@ -47,6 +47,7 @@ function statusClasses(status: string): string {
     case 'stale':
     case 'retry-scheduled':
     case 'rolling':
+    case 'withheld':
       return 'bg-status-caution text-status-caution-foreground';
     case 'backoff':
     case 'disconnected':

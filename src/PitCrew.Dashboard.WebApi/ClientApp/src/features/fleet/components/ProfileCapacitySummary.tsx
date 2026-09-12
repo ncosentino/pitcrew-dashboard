@@ -7,6 +7,7 @@ import { formatSeconds, formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
+import { cn } from '@/lib/utils';
 
 function formatScaleDownCountdown(value: string | null): string {
   if (value === null) return 'Not scheduled';
@@ -21,11 +22,12 @@ interface CapacityMetricProps {
   readonly label: string;
   readonly value: ReactNode;
   readonly testId: string;
+  readonly className?: string;
 }
 
-function CapacityMetric({ label, value, testId }: CapacityMetricProps) {
+function CapacityMetric({ label, value, testId, className }: CapacityMetricProps) {
   return (
-    <div className="bg-background px-3 py-2.5">
+    <div className={cn('bg-background px-3 py-2.5', className)}>
       <dt className="text-xs text-muted-foreground uppercase">{label}</dt>
       <dd className="mt-1 text-xl font-semibold tabular-nums" data-testid={testId}>
         {value}
@@ -292,6 +294,7 @@ export function ProfileCapacitySummary({
             testId={`profile-capacity-eligible-${profile.profileId}`}
           />
           <CapacityMetric
+            className="col-span-2 sm:col-span-1"
             label="Draining"
             value={profile.drainingSlots}
             testId={`profile-capacity-draining-${profile.profileId}`}

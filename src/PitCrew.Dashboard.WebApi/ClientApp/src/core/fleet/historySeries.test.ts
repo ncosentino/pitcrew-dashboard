@@ -428,6 +428,11 @@ describe('buildHostAdmissionChanges', () => {
             hostAdmissionBorrowedUnits: 3,
             hostAdmissionPendingUnits: 2,
             hostAdmissionWithheldUnits: 2,
+            hostAdmissionAllocatableUnits: 0,
+            hostAdmissionAllocatableWorkers: 0,
+            hostAdmissionTheoreticalMaximumUnits: 10,
+            hostAdmissionTheoreticalMaximumWorkers: 5,
+            hostAdmissionWithholdingReason: 'fair-share-contention',
           }),
         ],
       }),
@@ -438,6 +443,11 @@ describe('buildHostAdmissionChanges', () => {
       status: 'available',
       withheldUnits: 2,
       borrowedUnits: 3,
+      allocatableUnits: 0,
+      allocatableWorkers: 0,
+      theoreticalMaximumUnits: 10,
+      theoreticalMaximumWorkers: 5,
+      withholdingReason: 'fair-share-contention',
     });
     expect(changes[1]).toMatchObject({
       status: 'degraded',

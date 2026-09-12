@@ -1,3 +1,4 @@
+import type { HostAdmissionAccounting } from './fleetApi';
 import type {
   HistoryIncompletenessFloor,
   ProfileHistory,
@@ -59,6 +60,11 @@ export interface HostAdmissionHistoryChange {
   readonly borrowedUnits: number | null;
   readonly pendingUnits: number | null;
   readonly withheldUnits: number | null;
+  readonly allocatableUnits: number | null;
+  readonly allocatableWorkers: number | null;
+  readonly theoreticalMaximumUnits: number | null;
+  readonly theoreticalMaximumWorkers: number | null;
+  readonly withholdingReason: HostAdmissionAccounting['withholdingReason'];
 }
 
 /** Explicit availability of one rendered history range. */
@@ -562,6 +568,11 @@ export function buildHostAdmissionChanges(
       borrowedUnits: sample.hostAdmissionBorrowedUnits,
       pendingUnits: sample.hostAdmissionPendingUnits,
       withheldUnits: sample.hostAdmissionWithheldUnits,
+      allocatableUnits: sample.hostAdmissionAllocatableUnits,
+      allocatableWorkers: sample.hostAdmissionAllocatableWorkers,
+      theoreticalMaximumUnits: sample.hostAdmissionTheoreticalMaximumUnits,
+      theoreticalMaximumWorkers: sample.hostAdmissionTheoreticalMaximumWorkers,
+      withholdingReason: sample.hostAdmissionWithholdingReason,
     };
     const signature = JSON.stringify(change, (key, value) =>
       key === 'observedAt' ? undefined : value,

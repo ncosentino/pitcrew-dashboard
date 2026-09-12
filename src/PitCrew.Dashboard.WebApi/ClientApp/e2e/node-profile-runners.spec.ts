@@ -90,6 +90,31 @@ test('profile detail renders an EntityHeader for the profile', async ({ page }) 
   await expect(page.getByRole('button', { name: 'Copy build profile ID' })).toBeVisible();
 });
 
+for (const evidenceCase of [
+  { name: 'wide dark', viewport: viewports.wide, theme: 'dark' as const },
+  { name: 'mobile light', viewport: viewports.mobile, theme: 'light' as const },
+]) {
+  test(`profile capacity distinguishes allocation scopes in ${evidenceCase.name}`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(evidenceCase.viewport);
+    await setUpPage(page, healthyScenario(), evidenceCase.theme);
+    await page.goto(`/tenants/${tenantId}/nodes/${nodeIds.alpha}/profiles/build/capacity`);
+
+    const admission = page.getByTestId('profile-host-admission-build');
+    await expect(admission.getByRole('heading', { name: 'Profile usable now' })).toBeVisible();
+    await expect(admission.getByRole('heading', { name: 'Shared host pool now' })).toBeVisible();
+    await expect(admission.getByRole('heading', { name: 'Upper bounds' })).toBeVisible();
+    await expect(admission.getByText('2 workers', { exact: true })).toBeVisible();
+    await expect(admission.getByText('4 units', { exact: true })).toBeVisible();
+    await expect(admission.getByText('6 units', { exact: true })).toBeVisible();
+    await expect(admission.getByText('Configured active-worker cap')).toBeVisible();
+    await expect(admission).toContainText('not guaranteed demand or physical host capacity');
+
+    await expectSurfaceHealth(page, testInfo, `profile-capacity-${evidenceCase.name}`);
+  });
+}
+
 test('runners page shows filter chips and result count', async ({ page }) => {
   await setUpPage(page, healthyScenario(), 'light');
   await page.goto(`/tenants/${tenantId}/runners`);

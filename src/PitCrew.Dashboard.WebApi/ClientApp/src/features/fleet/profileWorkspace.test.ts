@@ -114,6 +114,52 @@ describe('profile workspace evidence summaries', () => {
     },
   );
 
+  it('routes coordinator withholding evidence to the capacity workspace', () => {
+    const summary = summarizeProfileAttention(
+      profile({
+        managerContractVersion: 19,
+        hostAdmission: {
+          status: 'available',
+          namespace: 'primary',
+          epoch: 3,
+          decisionSequence: 42,
+          capacityUnits: 12,
+          safetyMarginUnits: 2,
+          effectiveTotalUnits: 10,
+          availableUnits: 4,
+          hostPolicyFingerprint: 'host-policy',
+          accounting: {
+            unitCost: 2,
+            reservedUnits: 4,
+            borrowable: false,
+            profilePolicyFingerprint: 'profile-policy',
+            activeUnits: 5,
+            provisionalUnits: 0,
+            heldUnits: 5,
+            borrowedUnits: 1,
+            pendingUnits: 4,
+            withheldUnits: 4,
+            allocatableUnits: 0,
+            allocatableWorkers: 0,
+            theoreticalMaximumUnits: 10,
+            theoreticalMaximumWorkers: 5,
+            withholdingReason: 'protected-reservation',
+          },
+          lastDecision: null,
+        },
+      }),
+      [],
+    );
+
+    expect(summary).toMatchObject({
+      label: 'Profile admission withheld',
+      description: expect.stringContaining('not borrowable by this profile'),
+      tone: 'caution',
+      task: 'capacity',
+      rank: 4,
+    });
+  });
+
   it('prioritizes explicit degraded evidence and names its owning task', () => {
     const summary = summarizeProfileAttention(
       profile({

@@ -52,6 +52,11 @@ function profile(profileId: string, observedAt: string) {
         hostAdmissionBorrowedUnits: 1,
         hostAdmissionPendingUnits: 4,
         hostAdmissionWithheldUnits: 4,
+        hostAdmissionAllocatableUnits: 0,
+        hostAdmissionAllocatableWorkers: 0,
+        hostAdmissionTheoreticalMaximumUnits: 10,
+        hostAdmissionTheoreticalMaximumWorkers: 5,
+        hostAdmissionWithholdingReason: 'protected-reservation',
         workerCpuCores: 1.5,
         workerMemoryBytes: 2147483648,
         workerPids: 64,
@@ -349,6 +354,9 @@ describe('FleetHistoryPanel', () => {
     const admission = screen.getByTestId('history-host-admission-default');
     expect(admission).toHaveTextContent('available');
     expect(admission).toHaveTextContent('Protected');
+    expect(admission).toHaveTextContent('0 workers / 0 units');
+    expect(admission).toHaveTextContent('5 workers / 10 units');
+    expect(admission).toHaveTextContent('Protected reservation');
     expect(admission).toHaveTextContent('4');
     expect(screen.getByTestId('history').tagName).toBe('SECTION');
     expect(screen.queryByTestId('history-disclosure-default')).not.toBeInTheDocument();
