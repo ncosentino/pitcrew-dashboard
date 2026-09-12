@@ -2186,7 +2186,7 @@ function Wait-AgentFinalizationReady {
                     return
                 }
                 if ($status.schemaVersion -eq 1 -and
-                    $status.phase -ceq 'local-identity' -and
+                    $status.phase -cne 'relay-poll' -and
                     [string]$status.disposition -match
                         '^(active-identity-unavailable|identity-lifecycle-unavailable|enrollment-material-unavailable|pending-identity-unavailable|enrollment-rejected|local-enrollment-commit-failed|legacy-configuration-unavailable)$') {
                     $startupFailureDisposition = [string]$status.disposition
