@@ -101,8 +101,9 @@ internal sealed class SqliteFleetTransaction : IFleetStorageTransaction
     _connection = await connectionFactory.OpenAsync(cancellationToken);
     try
     {
-      _transaction = (SqliteTransaction)
-          await _connection.BeginTransactionAsync(cancellationToken);
+      _transaction = await connectionFactory.BeginWriteTransactionAsync(
+          _connection,
+          cancellationToken);
     }
     catch
     {

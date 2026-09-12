@@ -3,9 +3,27 @@ using Microsoft.Extensions.Options;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite;
 
-internal sealed class SqliteConnectionFactory(
-    IOptions<SqliteFleetStoreOptions> _options)
+internal sealed class SqliteConnectionFactory
 {
+  private readonly IOptions<SqliteFleetStoreOptions> _options;
+  private readonly SqliteContentionPolicy _contentionPolicy;
+
+  public SqliteConnectionFactory(
+      IOptions<SqliteFleetStoreOptions> options)
+      : this(options, TimeProvider.System)
+  {
+  }
+
+  public SqliteConnectionFactory(
+      IOptions<SqliteFleetStoreOptions> options,
+      TimeProvider timeProvider)
+  {
+    _options = options;
+    _contentionPolicy = new SqliteContentionPolicy(
+        options,
+        timeProvider);
+  }
+
   public async Task<SqliteConnection> OpenAsync(
       CancellationToken cancellationToken)
   {
@@ -27,12 +45,24 @@ internal sealed class SqliteConnectionFactory(
     var connection = new SqliteConnection(connectionString);
     await connection.OpenAsync(cancellationToken);
     await using var command = connection.CreateCommand();
-    command.CommandText =
-        """
-            PRAGMA foreign_keys = ON;
-            PRAGMA busy_timeout = 5000;
-            """;
+    command.CommandText = FormattableString.Invariant(
+        $"""
+         PRAGMA foreign_keys = ON;
+         PRAGMA busy_timeout = {_options.Value.BusyTimeoutMilliseconds};
+         """);
     await command.ExecuteNonQueryAsync(cancellationToken);
     return connection;
   }
+
+  public async Task<SqliteTransaction> BeginWriteTransactionAsync(
+      SqliteConnection connection,
+      CancellationToken cancellationToken) =>
+      await _contentionPolicy.ExecuteAsync(
+          _ => Task.FromResult(connection.BeginTransaction(deferred: false)),
+          cancellationToken);
+
+  public async Task ExecuteWithContentionRetryAsync(
+      Func<CancellationToken, Task> operation,
+      CancellationToken cancellationToken) =>
+      await _contentionPolicy.ExecuteAsync(operation, cancellationToken);
 }

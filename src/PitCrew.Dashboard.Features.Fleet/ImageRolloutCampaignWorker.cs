@@ -1,4 +1,7 @@
+using System.Data.Common;
+
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NexusLabs.Needlr;
 
@@ -7,10 +10,11 @@ using PitCrew.Dashboard.Kernel.ImageRollouts;
 namespace PitCrew.Dashboard.Features.Fleet;
 
 [DoNotAutoRegister]
-internal sealed class ImageRolloutCampaignWorker(
+internal sealed partial class ImageRolloutCampaignWorker(
     IImageRolloutCampaignProcessor _processor,
     IOptions<ImageRolloutCampaignOptions> _options,
-    TimeProvider _timeProvider) : BackgroundService
+    TimeProvider _timeProvider,
+    ILogger<ImageRolloutCampaignWorker> _logger) : BackgroundService
 {
   protected override async Task ExecuteAsync(
       CancellationToken stoppingToken)
@@ -22,7 +26,14 @@ internal sealed class ImageRolloutCampaignWorker(
     {
       do
       {
-        await _processor.ProcessOnceAsync(stoppingToken);
+        try
+        {
+          await _processor.ProcessOnceAsync(stoppingToken);
+        }
+        catch (DbException exception)
+        {
+          LogStorageFailure(exception);
+        }
       }
       while (await timer.WaitForNextTickAsync(stoppingToken));
     }
@@ -31,4 +42,9 @@ internal sealed class ImageRolloutCampaignWorker(
     }
   }
 
+  [LoggerMessage(
+      EventId = 1,
+      Level = LogLevel.Warning,
+      Message = "Image rollout processing could not access durable state and will retry.")]
+  private partial void LogStorageFailure(Exception exception);
 }

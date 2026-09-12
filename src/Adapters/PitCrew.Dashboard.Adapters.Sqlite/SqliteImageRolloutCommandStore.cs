@@ -31,8 +31,10 @@ internal sealed class SqliteImageRolloutCommandStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
 
     // Repeat the replay lookup inside the transaction to close the race
     // between the pre-candidate probe and command insertion.
@@ -594,8 +596,10 @@ internal sealed class SqliteImageRolloutCommandStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
 
     await using (var capabilityCommand = connection.CreateCommand())
     {

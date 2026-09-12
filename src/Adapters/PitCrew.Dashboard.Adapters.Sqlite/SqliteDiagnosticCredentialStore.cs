@@ -20,8 +20,10 @@ internal sealed class SqliteDiagnosticCredentialStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var status = await InsertAsync(
         connection,
         transaction,
@@ -170,8 +172,10 @@ internal sealed class SqliteDiagnosticCredentialStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var current = await GetActiveOrNullAsync(
         connection,
         transaction,
