@@ -2160,6 +2160,38 @@ function Wait-AgentAcceptedPoll {
     throw 'The support agent did not confirm a second accepted relay poll.'
 }
 
+function Wait-AgentFinalizationReady {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [int]$TimeoutSeconds = 45
+    )
+
+    $statusPath = Get-AgentStartupStatusPath -Paths $Paths
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 250
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'relay-poll' -and
+                    $status.disposition -ceq 'accepted' -and
+                    $status.finalizationReady -eq $true -and
+                    $null -eq $status.exceptionType) {
+                    return
+                }
+            } catch {
+                continue
+            }
+        }
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    throw 'The support agent did not confirm authoritative enrollment-finalization readiness.'
+}
+
 function Remove-AgentFinalizationFile {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -2204,6 +2236,10 @@ function Invoke-FinalizeEnrollment {
         }
     }
 
+    Set-InstallerFailureContext `
+        -Phase 'enrollment-finalization' `
+        -Operation 'wait-finalization-readiness'
+    Wait-AgentFinalizationReady -Paths $Paths
     $settingsSnapshot = Get-AgentSettingsSecuritySnapshot -Paths $Paths
     $brokerIdentity = Get-SupportBrokerRuntimeIdentity
     $statusPath = Get-AgentStartupStatusPath -Paths $Paths

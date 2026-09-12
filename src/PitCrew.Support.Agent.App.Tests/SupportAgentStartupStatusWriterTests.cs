@@ -46,8 +46,23 @@ public sealed class SupportAgentStartupStatusWriterTests
           .IsEqualTo(nameof(InvalidOperationException));
       await Assert.That(status.GetProperty("occurredAt").GetDateTimeOffset())
           .IsEqualTo(occurredAt);
+      await Assert.That(status.GetProperty("finalizationReady").GetBoolean())
+          .IsFalse();
       await Assert.That(json).DoesNotContain("Message");
       await Assert.That(json).DoesNotContain("StackTrace");
+
+      writer.Write(
+          "relay-poll",
+          "accepted",
+          exceptionType: null,
+          finalizationReady: true);
+      using var readyDocument = JsonDocument.Parse(
+          await File.ReadAllTextAsync(path));
+      await Assert.That(
+              readyDocument.RootElement
+                  .GetProperty("finalizationReady")
+                  .GetBoolean())
+          .IsTrue();
 
       writer.Clear();
 

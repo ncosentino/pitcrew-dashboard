@@ -5,4 +5,5 @@ internal sealed record SupportAgentStartupStatus(
     string Phase,
     string Disposition,
     string? ExceptionType,
-    DateTimeOffset OccurredAt);
+    DateTimeOffset OccurredAt,
+    bool FinalizationReady);

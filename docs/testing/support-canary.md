@@ -34,8 +34,10 @@ rather than replacing the collector with a lookalike.
 The Windows-installed profile runs only on a disposable standard
 GitHub-hosted Windows runner. It packages the exact candidate source, installs
 the agent and broker under separate Windows service identities, finalizes
-enrollment, performs a managed baseline-to-candidate update, and exercises the
-same registered scenario with a bounded backlog of valid atomic evidence
+enrollment only after the running agent reports its bounded authoritative
+finalization-readiness marker following an accepted poll, performs a managed
+baseline-to-candidate update, and exercises the same registered scenario with a
+bounded backlog of valid atomic evidence
 temporaries. It verifies the named-pipe/firewall/service boundary and removes
 the complete installation. The PitCrew fixture removes inherited broad evidence
 read access, so the candidate broker must enumerate through its exact restricted
@@ -43,6 +45,9 @@ service-SID grant rather than a normal-token fallback. The candidate broker must
 publish a broker-owned
 `ready` startup preflight under its restricted service SID before the scenario
 can run, and installer verification waits for bounded preflight convergence.
+Malformed or unavailable agent settings remain terminal `settings-invalid`
+finalization outcomes; the readiness marker is not a retry or a substitute for
+settings validation.
 The shared scaffold includes one desired target with no observed slot, so every
 topology must complete collection without strict-mode property projection.
 It does not run on self-hosted capacity or a live PitCrew node.
