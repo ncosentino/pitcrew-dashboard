@@ -1,10 +1,9 @@
-using System.Data.Common;
-
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NexusLabs.Needlr;
 
+using PitCrew.Dashboard.Kernel.ExceptionHandling;
 using PitCrew.Dashboard.Kernel.ImageRollouts;
 
 namespace PitCrew.Dashboard.Features.Fleet;
@@ -26,19 +25,28 @@ internal sealed partial class ImageRolloutCampaignWorker(
     {
       do
       {
-        try
-        {
-          await _processor.ProcessOnceAsync(stoppingToken);
-        }
-        catch (DbException exception)
-        {
-          LogStorageFailure(exception);
-        }
+        await ProcessIterationAsync(stoppingToken);
       }
       while (await timer.WaitForNextTickAsync(stoppingToken));
     }
     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
     {
+    }
+  }
+
+  internal async Task<bool> ProcessIterationAsync(
+      CancellationToken cancellationToken)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    try
+    {
+      await _processor.ProcessOnceAsync(cancellationToken);
+      return true;
+    }
+    catch (DurableStoreContentionException exception)
+    {
+      LogStorageFailure(exception);
+      return false;
     }
   }
 

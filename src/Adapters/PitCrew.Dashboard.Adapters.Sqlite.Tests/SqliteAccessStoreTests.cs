@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Access.Abstractions;
+using PitCrew.Dashboard.Kernel.ExceptionHandling;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 
@@ -216,7 +217,7 @@ public sealed class SqliteAccessStoreTests
                   viewer,
                   now,
                   cancellationToken))
-          .Throws<SqliteException>();
+          .Throws<DurableStoreContentionException>();
       await blockingTransaction.RollbackAsync(cancellationToken);
 
       await store.UpsertUserAsync(viewer, now, cancellationToken);

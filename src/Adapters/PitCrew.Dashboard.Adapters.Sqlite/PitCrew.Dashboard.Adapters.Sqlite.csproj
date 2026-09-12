@@ -20,9 +20,16 @@
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Fleet.Abstractions\PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Images.Abstractions\PitCrew.Dashboard.Features.Images.Abstractions.csproj" />
     <ProjectReference Include="..\..\PitCrew.Dashboard.Features.Support.Abstractions\PitCrew.Dashboard.Features.Support.Abstractions.csproj" />
+    <ProjectReference Include="..\..\PitCrew.Dashboard.Kernel.ExceptionHandling\PitCrew.Dashboard.Kernel.ExceptionHandling.csproj" />
     <ProjectReference Include="..\..\PitCrew.Dashboard.Kernel.ImageRollouts\PitCrew.Dashboard.Kernel.ImageRollouts.csproj" />
     <ProjectReference Include="..\..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
     <ProjectReference Include="..\..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>PitCrew.Dashboard.Features.Fleet.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
 </Project>
