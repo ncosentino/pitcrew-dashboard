@@ -797,7 +797,14 @@ try {
         [string]$failureRecord.operation -ceq
         'wait-finalization-readiness' -and
         [string]$failureRecord.rollbackStatus -ceq 'succeeded'
-    ) 'Failed enrollment finalization did not restore settings, services, and bounded evidence.'
+    ) (
+        'Failed enrollment finalization did not restore settings, services, and ' +
+        "bounded evidence (rejected=$finalizationRejected, " +
+        "settingsUnchanged=$([Convert]::ToHexString($settingsAfterFinalization) -ceq [Convert]::ToHexString($settingsBeforeFinalization)), " +
+        "brokerUnchanged=$($brokerProcessAfterFinalization -eq $brokerProcessBeforeFinalization), " +
+        "action=$([string]$failureRecord.action), phase=$([string]$failureRecord.phase), " +
+        "operation=$([string]$failureRecord.operation), rollback=$([string]$failureRecord.rollbackStatus))."
+    )
     Invoke-Installer -LifecycleAction 'Verify'
 
     if ($IsWindows) {
