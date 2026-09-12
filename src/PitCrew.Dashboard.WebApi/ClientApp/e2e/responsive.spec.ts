@@ -17,7 +17,6 @@ function activeWorkloadScenario() {
   const profile = buildProfile('build');
   const source = profile.slots[0];
   const activeProfile = buildProfile('build', {
-    managerContractVersion: 15,
     slots: [
       {
         ...source,

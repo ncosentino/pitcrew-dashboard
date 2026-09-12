@@ -128,7 +128,6 @@ export function degradedNodeScenario(): MockApiOptions {
 export function pressureScenario(): MockApiOptions {
   const baseline = buildProfile('build');
   const pressureProfile = buildProfile('build', {
-    managerContractVersion: 16,
     slots: baseline.slots.map((slot) => ({ ...slot, currentJob: null })),
     resourceTelemetry: {
       sampledAt: '2026-07-19T18:30:00+00:00',
@@ -202,7 +201,6 @@ export function pressureScenario(): MockApiOptions {
 export function activeJobScenario(): MockApiOptions {
   const baseline = buildProfile('build');
   const activeProfile = buildProfile('build', {
-    managerContractVersion: 15,
     slots: [
       {
         ...baseline.slots[0],

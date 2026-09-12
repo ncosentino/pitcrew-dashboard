@@ -277,7 +277,6 @@ test('runner job and identity evidence remains contained at 320px', async ({ pag
   const slotKey = `slot-${'s'.repeat(120)}`;
   const repository = `https://github.com/example/${'r'.repeat(100)}`;
   const profile = buildProfile(profileId, {
-    managerContractVersion: 15,
     desiredSlots: 1,
     configuredSlots: 1,
     activeSlots: 1,
