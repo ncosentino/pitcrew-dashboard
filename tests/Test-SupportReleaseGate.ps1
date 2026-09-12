@@ -11,7 +11,7 @@ $modulePath = Join-Path (
 ) 'scripts' 'release' 'SupportReleaseGate.psm1'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.10.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.11.json'
 $prepareWorkflowPath = Join-Path (
     $repositoryRoot
 ) '.github' 'workflows' 'prepare-release.yml'

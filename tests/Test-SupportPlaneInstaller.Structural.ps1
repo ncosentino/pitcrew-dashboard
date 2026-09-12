@@ -17,7 +17,7 @@ $networkProbePath = Join-Path (
 ) 'tests' 'PitCrew.Support.NetworkProbe.App' 'Program.cs'
 $policyPath = Join-Path (
     $repositoryRoot
-) 'assets' 'support-plane' 'support-evidence-policy-v0.10.10.json'
+) 'assets' 'support-plane' 'support-evidence-policy-v0.10.11.json'
 $connectorHealthJournalPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Connector.Features.Sync' 'ConnectorHealthJournal.cs'
@@ -1338,8 +1338,8 @@ $policy = Get-Content `
     ConvertFrom-Json -Depth 10
 Add-Check (
     $policy.schemaVersion -eq 3 -and
-    $policy.pitCrewVersion -eq '0.10.10'
-) 'The evidence ACL policy is not pinned to PitCrew v0.10.10 contract v3.'
+    $policy.pitCrewVersion -eq '0.10.11'
+) 'The evidence ACL policy is not pinned to PitCrew v0.10.11 contract v3.'
 Add-Check (
     $policy.maximumPersistentDirectoryEntries -eq 32 -and
     $policy.maximumTransientDirectoryEntries -eq 256 -and
@@ -1349,8 +1349,8 @@ Add-Check (
 ) 'The evidence directory entry budgets are not bounded and exact.'
 Add-Check (
     $policy.pitCrewCommit -eq
-        '85dc9abfa75d6c7f596279637c3b5736931b3575'
-) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.10 collector commit.'
+        '95a92ca4cec1360d9e4384ac4887d37c6b5e7022'
+) 'The evidence ACL policy is not pinned to the verified PitCrew v0.10.11 collector commit.'
 Add-Check (
     $policy.collectorSha256 -eq
         '898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf' -and

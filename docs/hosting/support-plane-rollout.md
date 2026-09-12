@@ -11,12 +11,12 @@ The current release pair is:
 
 | Surface | Required release | Verified identity |
 | --- | --- | --- |
-| PitCrew node and diagnostics client | `v0.10.10` | commit `85dc9abfa75d6c7f596279637c3b5736931b3575` |
-| Dashboard, support relay, agent, broker, and installer | `v0.12.32` | exact commit referenced by the published tag |
-| Support evidence policy | schema 3 | `support-evidence-policy-v0.10.10.json` |
+| PitCrew node and diagnostics client | `v0.10.11` | commit `95a92ca4cec1360d9e4384ac4887d37c6b5e7022` |
+| Dashboard, support relay, agent, broker, and installer | `v0.12.35` | exact commit referenced by the published tag |
+| Support evidence policy | schema 3 | `support-evidence-policy-v0.10.11.json` |
 | Diagnostics collector | UTF-8/LF SHA-256 | `898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf` |
 
-The raw `v0.10.10` collector release asset has SHA-256
+The raw `v0.10.11` collector release asset has SHA-256
 `01e2f500a7f86e1903df50ce029d768dac5f3b3ccc1b8dd038a8ef966079c405`.
 The installer normalizes UTF-8 line endings to LF before enforcing the policy
 hash, so Windows and Linux checkouts produce the same contract identity.
@@ -30,7 +30,7 @@ versions.
 
 Complete this phase before accessing either host.
 
-1. Resolve the full commit referenced by Dashboard tag `v0.12.32`.
+1. Resolve the full commit referenced by Dashboard tag `v0.12.35`.
 2. Dispatch the read-only `Verify published release` workflow with that tag and
    commit:
 
@@ -45,8 +45,8 @@ Complete this phase before accessing either host.
 3. Require all five jobs to pass: release identity, the complete asset
    inventory, and Dashboard, connector, and support-relay image
    index/provenance verification.
-4. Verify PitCrew tag `v0.10.10` resolves to
-   `85dc9abfa75d6c7f596279637c3b5736931b3575`.
+4. Verify PitCrew tag `v0.10.11` resolves to
+   `95a92ca4cec1360d9e4384ac4887d37c6b5e7022`.
 5. Require the PitCrew release to contain the collector, broker-access policy,
    broker-access schema, and all three SHA-256 sidecars. Reject a missing,
    duplicate, or mismatched asset.
@@ -75,7 +75,7 @@ Hosted preflight:
 Node preflight:
 
 - require a clean PitCrew deployment checkout or other supported release
-  installation at `v0.10.10`;
+  installation at `v0.10.11`;
 - resolve each selected profile from local configuration, not a server-supplied
   path;
 - require fresh `support-evidence` projections for every selected profile;
@@ -116,7 +116,7 @@ scoped services with standalone containers.
 
 ### 2. PitCrew node
 
-After PitCrew `v0.10.10` is verified, download the `v0.12.32` installer archive
+After PitCrew `v0.10.11` is verified, download the `v0.12.35` installer archive
 and sidecar for the node's exact RID. Extract the package and run only its
 bundled installer.
 

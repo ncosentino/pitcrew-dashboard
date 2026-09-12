@@ -374,12 +374,12 @@ installations that overlap its fixed service names or product roots.
   `/var/lib/pitcrew-support-broker`; versioned binaries use separate roots below
   `/opt`.
 
-## Exact PitCrew v0.10.10 evidence ACL
+## Exact PitCrew v0.10.11 evidence ACL
 
 The package-owned
-`support-evidence-policy-v0.10.10.json` is the shared runtime, installer, and test
-contract, verified against PitCrew v0.10.10 commit
-`85dc9abfa75d6c7f596279637c3b5736931b3575` and collector
+`support-evidence-policy-v0.10.11.json` is the shared runtime, installer, and test
+contract, verified against PitCrew v0.10.11 commit
+`95a92ca4cec1360d9e4384ac4887d37c6b5e7022` and collector
 SHA-256
 `898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf`.
 Installer and runtime canonicalize UTF-8 line endings to LF before hashing, so
@@ -617,7 +617,7 @@ Support agent, broker, and relay remain separate .NET projects. The deterministi
 packaging script publishes their self-contained archives plus a platform-tagged
 installer archive and SHA-256 sidecars for `linux-x64`, `linux-arm64`,
 `win-x64`, and `win-arm64` by default. The installer archive contains the
-lifecycle script, agent configuration example, and pinned PitCrew v0.10.10
+lifecycle script, agent configuration example, and pinned PitCrew v0.10.11
 evidence policy.
 
 Hosted Windows and Linux lifecycle jobs establish a public `example.com:443`
