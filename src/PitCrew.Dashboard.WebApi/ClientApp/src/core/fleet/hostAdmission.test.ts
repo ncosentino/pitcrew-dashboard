@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeHostAdmission, summarizeNodeHostAdmission } from './hostAdmission';
+import {
+  describeHostAdmission,
+  describeHostAdmissionWithholding,
+  summarizeNodeHostAdmission,
+} from './hostAdmission';
 import {
   type HostAdmissionAccounting,
   type HostAdmissionState,
@@ -183,6 +187,36 @@ describe('describeHostAdmission', () => {
         lastDecision: null,
       }),
     ).toMatchObject({ status: 'disabled', label: 'Not configured' });
+  });
+});
+
+describe('describeHostAdmissionWithholding', () => {
+  it.each([
+    [
+      'budget-exhausted',
+      'Host budget exhausted',
+      'remaining effective host budget cannot fit another worker',
+    ],
+    [
+      'protected-reservation',
+      'Protected reservation',
+      'reserved and are not borrowable by this profile',
+    ],
+    ['fair-share-contention', 'Fair-share contention', "preserve another contender's opportunity"],
+    ['adoption-pending', 'Worker adoption pending', 'fencing new admission'],
+  ] as const)(
+    'explains %s without exposing coordinator internals',
+    (reason, label, description) => {
+      expect(describeHostAdmissionWithholding(reason)).toMatchObject({
+        reason,
+        label,
+        description: expect.stringContaining(description),
+      });
+    },
+  );
+
+  it('keeps an absent reason absent', () => {
+    expect(describeHostAdmissionWithholding(null)).toBeNull();
   });
 });
 

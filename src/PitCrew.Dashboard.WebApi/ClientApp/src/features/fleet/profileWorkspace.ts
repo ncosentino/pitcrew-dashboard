@@ -1,5 +1,6 @@
 import {
   describeHostAdmission,
+  describeHostAdmissionWithholding,
   describeSubsystemHealth,
   summarizeManagerOperations,
   type ManagerObservedState,
@@ -232,7 +233,20 @@ export function summarizeProfileAttention(
   }
 
   const hostAdmission = describeHostAdmission(profile.hostAdmission);
-  if (hostAdmission.status === 'unavailable') {
+  const withholding = describeHostAdmissionWithholding(
+    profile.hostAdmission?.accounting?.withholdingReason ?? null,
+  );
+  if (withholding) {
+    candidates.push(
+      attention(
+        'Profile admission withheld',
+        `${withholding.label}. ${withholding.description}`,
+        'caution',
+        'capacity',
+        4,
+      ),
+    );
+  } else if (hostAdmission.status === 'unavailable') {
     candidates.push(
       attention('Host admission unavailable', hostAdmission.description, 'caution', 'capacity', 6),
     );

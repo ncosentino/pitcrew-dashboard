@@ -12,8 +12,16 @@ export {
 } from './diagnosticsContext';
 export type { DiagnosticMode, DiagnosticsContext } from './diagnosticsContext';
 export { describeWorkerUpdate } from './workerUpdate';
-export { describeHostAdmission, summarizeNodeHostAdmission } from './hostAdmission';
-export type { HostAdmissionSummary, NodeHostAdmissionSummary } from './hostAdmission';
+export {
+  describeHostAdmission,
+  describeHostAdmissionWithholding,
+  summarizeNodeHostAdmission,
+} from './hostAdmission';
+export type {
+  HostAdmissionSummary,
+  HostAdmissionWithholdingSummary,
+  NodeHostAdmissionSummary,
+} from './hostAdmission';
 export {
   describeExitEvidence,
   describeResourcePolicy,

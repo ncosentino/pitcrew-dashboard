@@ -1,4 +1,10 @@
-import { type HostAdmissionState, type ManagerObservedState } from './fleetApi';
+import {
+  type HostAdmissionAccounting,
+  type HostAdmissionState,
+  type ManagerObservedState,
+} from './fleetApi';
+
+type WithholdingReason = NonNullable<HostAdmissionAccounting['withholdingReason']>;
 
 export interface HostAdmissionSummary {
   readonly status: 'disabled' | 'available' | 'degraded' | 'unavailable';
@@ -11,6 +17,44 @@ export interface NodeHostAdmissionSummary {
   readonly configuredProfiles: number;
   readonly borrowedUnits: number | null;
   readonly withheldUnits: number | null;
+}
+
+export interface HostAdmissionWithholdingSummary {
+  readonly reason: WithholdingReason;
+  readonly label: string;
+  readonly description: string;
+}
+
+const withholdingSummaries: Record<
+  WithholdingReason,
+  Omit<HostAdmissionWithholdingSummary, 'reason'>
+> = {
+  'budget-exhausted': {
+    label: 'Host budget exhausted',
+    description: 'The remaining effective host budget cannot fit another worker for this profile.',
+  },
+  'protected-reservation': {
+    label: 'Protected reservation',
+    description:
+      'Otherwise-free units are reserved and are not borrowable by this profile under the current policy.',
+  },
+  'fair-share-contention': {
+    label: 'Fair-share contention',
+    description:
+      "Shared units currently preserve another contender's opportunity under the coordinator's fair-share policy.",
+  },
+  'adoption-pending': {
+    label: 'Worker adoption pending',
+    description: 'Existing-worker recovery is fencing new admission until adoption completes.',
+  },
+};
+
+/** Explains a bounded coordinator-owned withholding reason without inferring a cause. */
+export function describeHostAdmissionWithholding(
+  reason: HostAdmissionAccounting['withholdingReason'],
+): HostAdmissionWithholdingSummary | null {
+  if (reason == null) return null;
+  return { reason, ...withholdingSummaries[reason] };
 }
 
 /** Describes current host-admission evidence without treating missing values as zero. */

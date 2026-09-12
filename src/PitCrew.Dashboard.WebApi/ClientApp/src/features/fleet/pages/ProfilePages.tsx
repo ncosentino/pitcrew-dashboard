@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button';
 import { useSession } from '@/core/auth';
 import {
   buildDiagnosticsContext,
+  describeHostAdmission,
+  describeHostAdmissionWithholding,
   describeSubsystemHealth,
   describeWorkerUpdate,
   serializeDiagnosticsContext,
   summarizeManagerOperations,
-  describeHostAdmission,
   buildSupportDiagnosticRequestPath,
   selectIncidentDiagnosticMode,
   useFleet,
@@ -390,6 +391,9 @@ export function ProfileOverviewPage() {
     ? `Sampled ${formatTime(profile.resourceTelemetry.sampledAt)}.`
     : 'No resource sample was reported.';
   const hostAdmission = describeHostAdmission(profile.hostAdmission);
+  const admissionWithholding = describeHostAdmissionWithholding(
+    profile.hostAdmission?.accounting?.withholdingReason ?? null,
+  );
   const healthSignals = [
     {
       label: 'Docker operations',
@@ -414,8 +418,10 @@ export function ProfileOverviewPage() {
     },
     {
       label: 'Host admission',
-      description: hostAdmission.description,
-      status: hostAdmission.status,
+      description: admissionWithholding
+        ? `${admissionWithholding.label}. ${admissionWithholding.description}`
+        : hostAdmission.description,
+      status: admissionWithholding ? 'withheld' : hostAdmission.status,
       task: 'capacity',
       testId: `profile-overview-host-admission-${profile.profileId}`,
     },
@@ -606,9 +612,16 @@ function summarizeHealthSignals(
     return { label: 'Critical evidence', tone: 'critical', task: critical.task };
   }
   const caution = signals.find((signal) =>
-    ['partial', 'rolling', 'unknown', 'unavailable', 'stale', 'starting', 'truncated'].includes(
-      signal.status,
-    ),
+    [
+      'partial',
+      'rolling',
+      'unknown',
+      'unavailable',
+      'stale',
+      'starting',
+      'truncated',
+      'withheld',
+    ].includes(signal.status),
   );
   if (caution) {
     return { label: 'Evidence needs attention', tone: 'caution', task: caution.task };

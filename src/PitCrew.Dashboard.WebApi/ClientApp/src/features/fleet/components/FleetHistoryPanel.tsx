@@ -9,6 +9,7 @@ import {
   describeHistoryAvailability,
   describeHistoryJournal,
   describeIncompletenessFloor,
+  describeHostAdmissionWithholding,
   describeManagerEvent,
   describeSubsystemHealthEvidence,
   describeWorkerUpdateEvidence,
@@ -35,6 +36,11 @@ interface FleetHistoryPanelProps {
 
 const scrollRegionClasses =
   'max-h-64 overflow-auto rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600';
+
+function formatCapacityPair(workers: number | null, units: number | null): string {
+  if (workers === null || units === null) return 'Unavailable';
+  return `${formatCounter(workers)} ${workers === 1 ? 'worker' : 'workers'} / ${formatCounter(units)} ${units === 1 ? 'unit' : 'units'}`;
+}
 
 /**
  * Renders one availability verdict as a badge, an explicit label, and its description.
@@ -164,8 +170,9 @@ function ProfileHistorySections({
         </div>
         {resolution === 'hourly' ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
-            Host-admission status and reservation policy are categorical evidence and are not
-            synthesized into hourly extrema. Select raw resolution to inspect retained changes.
+            Host-admission status, profile-usable capacity, reservation policy, and withholding
+            reasons are retained as raw observations and are not synthesized into hourly extrema.
+            Select raw resolution to inspect retained changes.
           </p>
         ) : hostAdmissionChanges.length === 0 ? (
           <p className="rounded border border-dashed px-3 py-3 text-xs text-muted-foreground">
@@ -190,7 +197,10 @@ function ProfileHistorySections({
                 <tr>
                   <th scope="col">Observed at</th>
                   <th scope="col">State</th>
-                  <th scope="col">Available</th>
+                  <th scope="col">Host available</th>
+                  <th scope="col">Profile usable</th>
+                  <th scope="col">Theoretical maximum</th>
+                  <th scope="col">Withholding reason</th>
                   <th scope="col">Held</th>
                   <th scope="col">Reserved</th>
                   <th scope="col">Borrowed</th>
@@ -209,6 +219,19 @@ function ProfileHistorySections({
                       <StatusBadge status={change.status} />
                     </td>
                     <td>{formatCounter(change.availableUnits)}</td>
+                    <td className="whitespace-nowrap tabular-nums">
+                      {formatCapacityPair(change.allocatableWorkers, change.allocatableUnits)}
+                    </td>
+                    <td className="whitespace-nowrap tabular-nums">
+                      {formatCapacityPair(
+                        change.theoreticalMaximumWorkers,
+                        change.theoreticalMaximumUnits,
+                      )}
+                    </td>
+                    <td>
+                      {describeHostAdmissionWithholding(change.withholdingReason)?.label ??
+                        (change.allocatableWorkers == null ? 'Unavailable' : 'None reported')}
+                    </td>
                     <td>{formatCounter(change.heldUnits)}</td>
                     <td>{formatCounter(change.reservedUnits)}</td>
                     <td>{formatCounter(change.borrowedUnits)}</td>
