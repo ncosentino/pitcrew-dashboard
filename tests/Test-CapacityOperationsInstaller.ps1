@@ -259,6 +259,45 @@ try {
             $parseErrors.Count -eq 0 -and
             $null -ne $diagnosticFunction
         ) 'The bounded Windows service diagnostic helper is missing or invalid.'
+        $installerText = Get-Content `
+            -LiteralPath $installerPath `
+            -Raw `
+            -Encoding UTF8
+        Add-Check (
+            $installerText.Contains(
+                'Get-ManagedWindowsConnectorSettings',
+                [StringComparison]::Ordinal) -and
+            $installerText.Contains(
+                'managedInstallSwapped',
+                [StringComparison]::Ordinal) -and
+            $installerText.Contains(
+                'Wait-WindowsConnectorSynchronization',
+                [StringComparison]::Ordinal)
+        ) 'The installer does not contain the managed Windows update lifecycle.'
+        Add-Check (
+            $installerText.Contains(
+                "'binPath='",
+                [StringComparison]::Ordinal) -and
+            $installerText.Contains(
+                'Move-Item',
+                [StringComparison]::Ordinal)
+        ) 'The installer does not atomically replace the managed service payload.'
+        Add-Check (
+            $installerText.Contains(
+                'refusing to change local policy',
+                [StringComparison]::Ordinal) -and
+            $installerText.Contains(
+                'identity.json',
+                [StringComparison]::Ordinal)
+        ) 'The installer does not preserve managed identity and allowlists.'
+        Add-Check (
+            $installerText -match
+            '(?s)if \(\$managedInstallation\)\s*\{\s*Wait-WindowsConnectorSynchronization'
+        ) 'The installer applies synchronization verification outside the managed update path.'
+        Add-Check (
+            $installerText -match
+            '(?s)\$verificationStartedAt = \[DateTimeOffset\]::UtcNow\s*Start-Service'
+        ) 'The installer starts the Windows service before recording the managed verification boundary.'
         if ($null -ne $diagnosticFunction) {
             Invoke-Expression $diagnosticFunction.Extent.Text
             $diagnosticRoot = Join-Path $testRoot 'diagnostic-data'
