@@ -16,43 +16,48 @@ internal sealed class SqliteAccessStore(
       DateTimeOffset observedAt,
       CancellationToken cancellationToken)
   {
-    await using var connection = await _connectionFactory.OpenAsync(
+    await _connectionFactory.ExecuteWithContentionRetryAsync(
+        async token =>
+        {
+          await using var connection = await _connectionFactory.OpenAsync(
+              token);
+          await using var command = connection.CreateCommand();
+          command.CommandText =
+              """
+              INSERT INTO dashboard_users (
+                  github_user_id,
+                  github_login,
+                  display_name,
+                  avatar_url,
+                  first_seen_at,
+                  last_seen_at)
+              VALUES (
+                  $githubUserId,
+                  $githubLogin,
+                  $displayName,
+                  $avatarUrl,
+                  $observedAt,
+                  $observedAt)
+              ON CONFLICT (github_user_id) DO UPDATE SET
+                  github_login = excluded.github_login,
+                  display_name = excluded.display_name,
+                  avatar_url = excluded.avatar_url,
+                  last_seen_at = excluded.last_seen_at
+              WHERE dashboard_users.github_login <> excluded.github_login
+                 OR dashboard_users.display_name <> excluded.display_name
+                 OR dashboard_users.avatar_url IS NOT excluded.avatar_url
+                 OR dashboard_users.last_seen_at < $refreshBefore;
+              """;
+          AddUserParameters(command, user);
+          command.Parameters.AddWithValue(
+              "$observedAt",
+              FormatTimestamp(observedAt));
+          command.Parameters.AddWithValue(
+              "$refreshBefore",
+              FormatTimestamp(observedAt.AddMinutes(-15)));
+          await command.ExecuteNonQueryAsync(token);
+        },
         cancellationToken);
-    await using var command = connection.CreateCommand();
-    command.CommandText =
-        """
-        INSERT INTO dashboard_users (
-            github_user_id,
-            github_login,
-            display_name,
-            avatar_url,
-            first_seen_at,
-            last_seen_at)
-        VALUES (
-            $githubUserId,
-            $githubLogin,
-            $displayName,
-            $avatarUrl,
-            $observedAt,
-            $observedAt)
-        ON CONFLICT (github_user_id) DO UPDATE SET
-            github_login = excluded.github_login,
-            display_name = excluded.display_name,
-            avatar_url = excluded.avatar_url,
-            last_seen_at = excluded.last_seen_at
-        WHERE dashboard_users.github_login <> excluded.github_login
-           OR dashboard_users.display_name <> excluded.display_name
-           OR dashboard_users.avatar_url IS NOT excluded.avatar_url
-           OR dashboard_users.last_seen_at < $refreshBefore;
-        """;
-    AddUserParameters(command, user);
-    command.Parameters.AddWithValue(
-        "$observedAt",
-        FormatTimestamp(observedAt));
-    command.Parameters.AddWithValue(
-        "$refreshBefore",
-        FormatTimestamp(observedAt.AddMinutes(-15)));
-    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   public async Task<DashboardSession> GetSessionAsync(
@@ -149,8 +154,10 @@ internal sealed class SqliteAccessStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     await using var tenantCommand = connection.CreateCommand();
     tenantCommand.Transaction = transaction;
     tenantCommand.CommandText =
@@ -241,8 +248,10 @@ internal sealed class SqliteAccessStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
 
     await using (var userCommand = connection.CreateCommand())
     {
@@ -417,8 +426,10 @@ internal sealed class SqliteAccessStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var state = await ReadMembershipMutationStateAsync(
         connection,
         transaction,
@@ -480,8 +491,10 @@ internal sealed class SqliteAccessStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var state = await ReadMembershipMutationStateAsync(
         connection,
         transaction,

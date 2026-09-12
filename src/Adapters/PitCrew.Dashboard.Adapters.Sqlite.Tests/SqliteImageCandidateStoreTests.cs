@@ -1708,11 +1708,80 @@ public sealed class SqliteImageCandidateStoreTests
     }
   }
 
-  private static async Task<ImageCandidateTestContext> CreateContextAsync(
-      string databasePath,
+  [Test]
+  public async Task Contended_Claim_Rolls_Back_And_Remains_Idempotently_Claimable(
       CancellationToken cancellationToken)
   {
-    var factory = CreateFactory(databasePath);
+    var databasePath = CreateDatabasePath("claim-contention");
+    try
+    {
+      var factory = CreateFactory(
+          databasePath,
+          busyTimeoutMilliseconds: 1,
+          contentionMaximumAttempts: 2,
+          contentionRetryDelayMilliseconds: 0);
+      var context = await CreateContextAsync(
+          databasePath,
+          cancellationToken,
+          factory);
+      var recipe = CreateRecipe(
+          context.Now,
+          context.Owner.GitHubUserId);
+      await context.Store.CreateRecipeVersionAsync(
+          recipe,
+          cancellationToken);
+      var request = CreateRequest(
+          recipe,
+          context.Now.AddMinutes(1));
+      await context.Store.CreateBuildRequestAsync(
+          request,
+          cancellationToken);
+      await using var blockingConnection =
+          await factory.OpenAsync(cancellationToken);
+      await using var blockingTransaction =
+          blockingConnection.BeginTransaction(deferred: false);
+
+      await Assert.That(async () =>
+              await context.Store.ClaimDueBuildRequestsAsync(
+                  "worker-a",
+                  request.RequestedAt,
+                  request.RequestedAt.AddMinutes(1),
+                  1,
+                  cancellationToken))
+          .Throws<SqliteException>();
+      await blockingTransaction.RollbackAsync(cancellationToken);
+
+      var claimed = await context.Store.ClaimDueBuildRequestsAsync(
+          "worker-a",
+          request.RequestedAt,
+          request.RequestedAt.AddMinutes(1),
+          1,
+          cancellationToken);
+      var duplicate = await context.Store.ClaimDueBuildRequestsAsync(
+          "worker-b",
+          request.RequestedAt,
+          request.RequestedAt.AddMinutes(1),
+          1,
+          cancellationToken);
+
+      await Assert.That(claimed).HasSingleItem();
+      await Assert.That(claimed[0].Request.RequestId)
+          .IsEqualTo(request.RequestId);
+      await Assert.That(duplicate).IsEmpty();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  private static async Task<ImageCandidateTestContext> CreateContextAsync(
+      string databasePath,
+      CancellationToken cancellationToken,
+      SqliteConnectionFactory? factory = null)
+  {
+    factory ??= CreateFactory(databasePath);
     await new SqliteMigrationRunner(factory).ApplyAsync(cancellationToken);
     var accessStore = new SqliteAccessStore(factory);
     var now = DateTimeOffset.Parse(
@@ -1930,10 +1999,18 @@ public sealed class SqliteImageCandidateStoreTests
             ImageCandidateQualificationStatus.Passed),
       ];
 
-  private static SqliteConnectionFactory CreateFactory(string databasePath) =>
+  private static SqliteConnectionFactory CreateFactory(
+      string databasePath,
+      int busyTimeoutMilliseconds = 1_500,
+      int contentionMaximumAttempts = 3,
+      int contentionRetryDelayMilliseconds = 100) =>
       new(Options.Create(new SqliteFleetStoreOptions
       {
         DatabasePath = databasePath,
+        BusyTimeoutMilliseconds = busyTimeoutMilliseconds,
+        ContentionMaximumAttempts = contentionMaximumAttempts,
+        ContentionRetryDelayMilliseconds =
+            contentionRetryDelayMilliseconds,
       }));
 
   private static string CreateDatabasePath(string scope) =>

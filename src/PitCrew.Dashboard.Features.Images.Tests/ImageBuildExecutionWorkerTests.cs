@@ -3,6 +3,7 @@ using System.Text;
 using System.Globalization;
 
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -1466,6 +1467,61 @@ public sealed class ImageBuildExecutionWorkerTests
           "tenant-a",
           requestId,
           cancellationToken))!;
+    }
+    finally
+    {
+      ImagesFeatureTestEnvironment.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Worker_Continues_After_Durable_State_Contention_Is_Exhausted(
+      CancellationToken cancellationToken)
+  {
+    var databasePath =
+        ImagesFeatureTestEnvironment.CreateDatabasePath("contention-loop");
+    var now = new DateTimeOffset(
+        2026,
+        9,
+        12,
+        18,
+        0,
+        0,
+        TimeSpan.Zero);
+    try
+    {
+      using var configuration = new ImagesFeatureTestConfigurationScope(
+          databasePath,
+          busyTimeoutMilliseconds: 1,
+          contentionMaximumAttempts: 1,
+          contentionRetryDelayMilliseconds: 0);
+      var fakeTime = new FakeTimeProvider(now);
+      var mocks = new MockRepository(MockBehavior.Strict);
+      var clientMock = mocks.Create<IGitHubImageWorkflowClient>();
+
+      await using var factory = CreateFactory(
+          fakeTime,
+          clientMock.Object);
+      using var client = factory.CreateClient();
+      var worker = await GetStoppedWorkerAsync(
+          factory,
+          cancellationToken);
+      await using var blockingConnection =
+          new SqliteConnection($"Data Source={databasePath}");
+      await blockingConnection.OpenAsync(cancellationToken);
+      await using var blockingTransaction =
+          blockingConnection.BeginTransaction(deferred: false);
+
+      var contended = await worker.ProcessIterationAsync(cancellationToken);
+      await blockingTransaction.RollbackAsync(cancellationToken);
+      var recovered = await worker.ProcessIterationAsync(cancellationToken);
+
+      await Assert.That(contended).IsFalse()
+          .Because("exhausted durable-state contention is reported");
+      await Assert.That(recovered).IsTrue()
+          .Because("the next background iteration must continue");
+      mocks.VerifyAll();
+      clientMock.VerifyNoOtherCalls();
     }
     finally
     {

@@ -22,8 +22,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
 
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var action = plan.Kind == ImageRolloutCampaignKind.Forward
         ? "create-forward"
         : "create-rollback";
@@ -166,8 +168,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var replay = await ResolveIdempotencyAsync(
         connection,
         transaction,
@@ -325,8 +329,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var replay = await ResolveIdempotencyAsync(
         connection,
         transaction,
@@ -472,8 +478,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var replay = await ResolveIdempotencyAsync(
         connection,
         transaction,
@@ -601,8 +609,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var replay = await ResolveIdempotencyAsync(
         connection,
         transaction,
@@ -838,8 +848,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
         -observedStateMaximumAgeSeconds);
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
     command.CommandText =
@@ -1140,8 +1152,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
 
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var candidates = new List<DispatchCandidate>();
     await using (var command = connection.CreateCommand())
     {
@@ -1388,8 +1402,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
         : MapQueueFailureMessage(result.Status);
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
     command.CommandText =
@@ -1502,8 +1518,10 @@ internal sealed class SqliteImageRolloutCampaignStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var replay = await ResolveIdempotencyAsync(
         connection,
         transaction,

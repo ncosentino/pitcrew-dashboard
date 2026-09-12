@@ -1,3 +1,5 @@
+using System.Data.Common;
+
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,12 +31,28 @@ internal sealed partial class ImageBuildExecutionWorker(
     {
       do
       {
-        await ProcessOnceAsync(stoppingToken);
+        await ProcessIterationAsync(stoppingToken);
       }
       while (await timer.WaitForNextTickAsync(stoppingToken));
     }
     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
     {
+    }
+  }
+
+  internal async Task<bool> ProcessIterationAsync(
+      CancellationToken cancellationToken)
+  {
+    cancellationToken.ThrowIfCancellationRequested();
+    try
+    {
+      await ProcessOnceAsync(cancellationToken);
+      return true;
+    }
+    catch (DbException exception)
+    {
+      LogStorageContentionExhausted(exception);
+      return false;
     }
   }
 
@@ -1024,6 +1042,12 @@ internal sealed partial class ImageBuildExecutionWorker(
       Level = LogLevel.Debug,
       Message = "Processed {RequestCount} trusted image build requests.")]
   private partial void LogProcessedBatch(int requestCount);
+
+  [LoggerMessage(
+      EventId = 2,
+      Level = LogLevel.Warning,
+      Message = "Image build processing could not access durable state and will retry.")]
+  private partial void LogStorageContentionExhausted(Exception exception);
 
   private sealed record DispatchAuthorityValidation(
       bool Valid,

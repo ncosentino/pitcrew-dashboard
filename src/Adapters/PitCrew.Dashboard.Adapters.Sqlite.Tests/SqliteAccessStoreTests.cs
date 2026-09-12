@@ -161,6 +161,79 @@ public sealed class SqliteAccessStoreTests
       DashboardTestCleanup.DeleteDatabase(databasePath);
     }
   }
+
+  [Test]
+  public async Task Contended_User_Upsert_Exhausts_Then_Replays_Idempotently(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-access-contention-{Guid.NewGuid():N}.db");
+    try
+    {
+      var connectionFactory = new SqliteConnectionFactory(
+          Options.Create(new SqliteFleetStoreOptions
+          {
+            DatabasePath = databasePath,
+            BusyTimeoutMilliseconds = 1,
+            ContentionMaximumAttempts = 2,
+            ContentionRetryDelayMilliseconds = 0,
+          }));
+      await new SqliteMigrationRunner(connectionFactory).ApplyAsync(
+          cancellationToken);
+      var store = new SqliteAccessStore(connectionFactory);
+      var now = new DateTimeOffset(
+          2026,
+          9,
+          12,
+          18,
+          30,
+          0,
+          TimeSpan.Zero);
+      var owner = new DashboardUser(
+          "1",
+          "owner",
+          "Owner",
+          null);
+      var viewer = new DashboardUser(
+          "2",
+          "viewer",
+          "Viewer",
+          null);
+      await store.EnsureTenantOwnerAsync(
+          "tenant",
+          "Tenant",
+          owner,
+          now,
+          cancellationToken);
+      await using var blockingConnection =
+          await connectionFactory.OpenAsync(cancellationToken);
+      await using var blockingTransaction =
+          blockingConnection.BeginTransaction(deferred: false);
+
+      await Assert.That(async () =>
+              await store.UpsertUserAsync(
+                  viewer,
+                  now,
+                  cancellationToken))
+          .Throws<SqliteException>();
+      await blockingTransaction.RollbackAsync(cancellationToken);
+
+      await store.UpsertUserAsync(viewer, now, cancellationToken);
+      await store.UpsertUserAsync(viewer, now, cancellationToken);
+      var available = await store.GetAvailableUsersAsync(
+          "tenant",
+          cancellationToken);
+
+      await Assert.That(available).HasSingleItem();
+      await Assert.That(available[0]).IsEqualTo(viewer);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
 }
 
 internal static class DashboardTestCleanup

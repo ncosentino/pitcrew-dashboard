@@ -729,8 +729,10 @@ internal sealed class SqliteImageCandidateStore(
 
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var requestIds = new List<Guid>();
     await using (var select = connection.CreateCommand())
     {
@@ -1305,8 +1307,10 @@ internal sealed class SqliteImageCandidateStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var existing = await GetRequestOrNullAsync(
         connection,
         transaction,
@@ -1431,8 +1435,10 @@ internal sealed class SqliteImageCandidateStore(
 
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var request = await GetRequestOrNullAsync(
         connection,
         transaction,
@@ -1527,8 +1533,10 @@ internal sealed class SqliteImageCandidateStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
     command.CommandText =

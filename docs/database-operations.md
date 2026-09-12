@@ -99,3 +99,18 @@ Startup reapplies any migrations newer than the restored backup.
   tunnel-secret, or runtime state.
 - Treat the dashboard volume as sensitive because it also contains
   data-protection keys used to decrypt authentication cookies.
+
+## Write contention
+
+The single-replica dashboard acquires SQLite write transactions eagerly and
+retries only `SQLITE_BUSY` and `SQLITE_LOCKED` failures at retry-safe storage
+boundaries. The defaults allow three attempts, a 1.5-second SQLite busy wait per
+attempt, and a 100-millisecond linearly increasing delay between attempts.
+Cancellation stops before the next attempt and interrupts retry delays.
+
+The settings are available under `PitCrew:Sqlite` as
+`BusyTimeoutMilliseconds`, `ContentionMaximumAttempts`, and
+`ContentionRetryDelayMilliseconds`. Keep the total contention budget below
+upstream request timeouts. Increasing it can hide sustained write pressure
+rather than resolving it; horizontal dashboard replicas still require a
+client/server database adapter instead of a larger retry budget.

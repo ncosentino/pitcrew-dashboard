@@ -18,8 +18,10 @@ internal sealed class SqliteAlertEvidenceStore(
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var nodes = await LoadNodesAsync(
         connection,
         transaction,

@@ -120,8 +120,10 @@ internal sealed class SqliteSupportStore(
       CancellationToken cancellationToken)
   {
     await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
-    await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(
-        cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     await using var insert = connection.CreateCommand();
     insert.Transaction = transaction;
     insert.CommandText =
@@ -721,8 +723,10 @@ internal sealed class SqliteSupportStore(
       CancellationToken cancellationToken)
   {
     await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var status = await GetIdentityRotationStatusAsync(
         connection,
         transaction,
@@ -803,8 +807,10 @@ internal sealed class SqliteSupportStore(
       CancellationToken cancellationToken)
   {
     await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
-    await using var transaction = (SqliteTransaction)
-        await connection.BeginTransactionAsync(cancellationToken);
+    await using var transaction =
+        await _connectionFactory.BeginWriteTransactionAsync(
+            connection,
+            cancellationToken);
     var status = await GetIdentityRotationStatusAsync(
         connection,
         transaction,
