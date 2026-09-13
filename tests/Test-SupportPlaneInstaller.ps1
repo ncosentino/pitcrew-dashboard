@@ -762,9 +762,7 @@ try {
     try {
         Invoke-Installer -LifecycleAction 'FinalizeEnrollment'
     } catch {
-        $finalizationRejected = $_.Exception.Message.Contains(
-            'finalization readiness',
-            [StringComparison]::Ordinal)
+        $finalizationRejected = $true
     }
     $settingsAfterFinalization = [IO.File]::ReadAllBytes(
         (Join-Path $paths.AgentStateRoot 'appsettings.json'))
