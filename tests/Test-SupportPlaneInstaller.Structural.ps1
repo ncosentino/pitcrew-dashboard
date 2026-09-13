@@ -33,6 +33,9 @@ $windowsInstalledCanaryPath = Join-Path (
 $enrollmentFinalizationWorkerPath = Join-Path (
     $repositoryRoot
 ) 'src' 'PitCrew.Support.Agent.App' 'SupportEnrollmentFinalizationRequestWorker.cs'
+$settingsFinalizerPath = Join-Path (
+    $repositoryRoot
+) 'src' 'PitCrew.Support.Agent.App' 'SupportAgentSettingsFinalizer.cs'
 $brokerRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Broker.App'
 $agentRoot = Join-Path $repositoryRoot 'src' 'PitCrew.Support.Agent.App'
 $brokerProjectPath = Join-Path $brokerRoot 'PitCrew.Support.Broker.App.csproj'
@@ -52,6 +55,9 @@ $windowsInstalledCanary = Get-Content `
     -Raw
 $enrollmentFinalizationWorker = Get-Content `
     -LiteralPath $enrollmentFinalizationWorkerPath `
+    -Raw
+$settingsFinalizer = Get-Content `
+    -LiteralPath $settingsFinalizerPath `
     -Raw
 
 function Add-Check {
@@ -724,6 +730,9 @@ Add-Check (
         "Stop-SupportAgentOnly",
         [StringComparison]::Ordinal) -and
     $invokeFinalizeEnrollmentText.Contains(
+        "Wait-AgentFinalizationReady",
+        [StringComparison]::Ordinal) -and
+    $invokeFinalizeEnrollmentText.Contains(
         "Wait-AgentAcceptedPoll",
         [StringComparison]::Ordinal) -and
     $invokeFinalizeEnrollmentText.Contains(
@@ -753,6 +762,14 @@ Add-Check (
         '"enrollment-finalization"',
         [StringComparison]::Ordinal)
 ) 'The support agent does not own the fixed enrollment-finalization request and rollback protocol.'
+Add-Check (
+    $settingsFinalizer.Contains(
+        'WriteExistingFile',
+        [StringComparison]::Ordinal) -and
+    -not $settingsFinalizer.Contains(
+        'File.Replace',
+        [StringComparison]::Ordinal)
+) 'Windows enrollment finalization must preserve the existing settings file instead of replacing it.'
 Add-Check (
     $installer.Contains(
         '[System.IO.UnixFileMode]::UserRead',

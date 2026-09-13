@@ -19,7 +19,8 @@ internal sealed partial class SupportAgentStartupStatusWriter(
   public void Write(
       string phase,
       string disposition,
-      Type? exceptionType)
+      Type? exceptionType,
+      bool finalizationReady = false)
   {
     var path = GetPath();
     var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
@@ -30,7 +31,8 @@ internal sealed partial class SupportAgentStartupStatusWriter(
           phase,
           disposition,
           exceptionType?.Name,
-          _timeProvider.GetUtcNow());
+          _timeProvider.GetUtcNow(),
+          finalizationReady);
       File.WriteAllText(
           temporaryPath,
           JsonSerializer.Serialize(

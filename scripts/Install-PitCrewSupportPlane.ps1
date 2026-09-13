@@ -1854,6 +1854,7 @@ function Wait-AgentIdentityDeletion {
     do {
         Start-Sleep -Milliseconds 250
         if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            $startupFailureDisposition = $null
             try {
                 $status = Get-Content `
                     -LiteralPath $statusPath `
@@ -2160,6 +2161,47 @@ function Wait-AgentAcceptedPoll {
     throw 'The support agent did not confirm a second accepted relay poll.'
 }
 
+function Wait-AgentFinalizationReady {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [int]$TimeoutSeconds = 45
+    )
+
+    $statusPath = Get-AgentStartupStatusPath -Paths $Paths
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 250
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content `
+                    -LiteralPath $statusPath `
+                    -Raw `
+                    -Encoding UTF8 |
+                    ConvertFrom-Json
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'relay-poll' -and
+                    $status.disposition -ceq 'accepted' -and
+                    $status.finalizationReady -eq $true -and
+                    $null -eq $status.exceptionType) {
+                    return
+                }
+                if ($status.schemaVersion -eq 1 -and
+                    $status.phase -ceq 'local-identity' -and
+                    [string]$status.disposition -match
+                        '^(active-identity-unavailable|identity-lifecycle-unavailable|enrollment-material-unavailable|pending-identity-unavailable|enrollment-rejected|local-enrollment-commit-failed|legacy-configuration-unavailable)$') {
+                    $startupFailureDisposition = [string]$status.disposition
+                }
+            } catch {
+                continue
+            }
+            if ($null -ne $startupFailureDisposition) {
+                throw "The support agent rejected finalization readiness with disposition '$startupFailureDisposition'."
+            }
+        }
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    throw 'The support agent did not confirm authoritative enrollment-finalization readiness.'
+}
+
 function Remove-AgentFinalizationFile {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -2218,6 +2260,10 @@ function Invoke-FinalizeEnrollment {
     $failurePhase = ''
     $failureOperation = ''
     try {
+        Set-InstallerFailureContext `
+            -Phase 'enrollment-finalization' `
+            -Operation 'wait-finalization-readiness'
+        Wait-AgentFinalizationReady -Paths $Paths
         Set-InstallerFailureContext `
             -Phase 'enrollment-finalization' `
             -Operation 'stop-support-agent'

@@ -69,11 +69,10 @@ internal static class SupportAgentSettingsFinalizer
       }
       if (OperatingSystem.IsWindows())
       {
-        File.Replace(
-            backupPath,
+        WriteExistingFile(
             settingsPath,
-            destinationBackupFileName: null,
-            ignoreMetadataErrors: false);
+            File.ReadAllBytes(backupPath));
+        File.Delete(backupPath);
       }
       else
       {
@@ -222,11 +221,10 @@ internal static class SupportAgentSettingsFinalizer
       }
       if (OperatingSystem.IsWindows())
       {
-        File.Replace(
-            temporaryPath,
+        WriteExistingFile(
             settingsPath,
-            destinationBackupFileName: null,
-            ignoreMetadataErrors: false);
+            File.ReadAllBytes(temporaryPath));
+        File.Delete(temporaryPath);
       }
       else
       {
@@ -256,6 +254,22 @@ internal static class SupportAgentSettingsFinalizer
         File.Delete(temporaryPath);
       }
     }
+  }
+
+  private static void WriteExistingFile(
+      string path,
+      byte[] content)
+  {
+    using var stream = new FileStream(
+        path,
+        FileMode.Open,
+        FileAccess.Write,
+        FileShare.ReadWrite | FileShare.Delete,
+        bufferSize: 4096,
+        options: FileOptions.WriteThrough);
+    stream.SetLength(0);
+    stream.Write(content);
+    stream.Flush(flushToDisk: true);
   }
 
   private static JsonObject? GetObjectPropertyOrNull(
