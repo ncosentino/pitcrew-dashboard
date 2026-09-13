@@ -239,7 +239,17 @@ function Get-CSharpCoverage {
 
                 $coveredConditions = 0
                 $totalConditions = 0
-                $reportedPercent = 0.0
+                $reportedPercent = [decimal]0
+                $percentText = $match.Groups['percent'].Value
+                $decimalPoint = $percentText.IndexOf(
+                    '.',
+                    [StringComparison]::Ordinal
+                )
+                $decimalPlaces = if ($decimalPoint -lt 0) {
+                    0
+                } else {
+                    $percentText.Length - $decimalPoint - 1
+                }
                 if (
                     -not [int]::TryParse(
                         $match.Groups['covered'].Value,
@@ -249,12 +259,13 @@ function Get-CSharpCoverage {
                         $match.Groups['total'].Value,
                         [ref]$totalConditions
                     ) -or
-                    -not [double]::TryParse(
-                        $match.Groups['percent'].Value,
+                    -not [decimal]::TryParse(
+                        $percentText,
                         [Globalization.NumberStyles]::AllowDecimalPoint,
                         [Globalization.CultureInfo]::InvariantCulture,
                         [ref]$reportedPercent
                     ) -or
+                    $decimalPlaces -gt 28 -or
                     $totalConditions -le 0 -or
                     $coveredConditions -lt 0 -or
                     $coveredConditions -gt $totalConditions
@@ -265,13 +276,18 @@ function Get-CSharpCoverage {
                     )
                 }
 
-                $calculatedPercent = Get-Percentage `
-                    -Covered $coveredConditions `
-                    -Total $totalConditions
-                if ([Math]::Abs($reportedPercent - $calculatedPercent) -gt 0.01) {
+                $calculatedPercent =
+                    ([decimal]100 * $coveredConditions) / $totalConditions
+                $expectedPercent = [Math]::Round(
+                    $calculatedPercent,
+                    $decimalPlaces,
+                    [MidpointRounding]::AwayFromZero
+                )
+                if ($reportedPercent -ne $expectedPercent) {
                     throw (
                         "Cobertura report '$CoberturaPath' has inconsistent condition coverage " +
-                        "for '$lineKey'."
+                        "for '$lineKey': reported $percentText%, expected $expectedPercent% " +
+                        "from $coveredConditions/$totalConditions conditions."
                     )
                 }
 

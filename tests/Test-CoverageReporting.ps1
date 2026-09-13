@@ -193,6 +193,39 @@ try {
     ) 'Duplicate C# line hit union changed when class order was reversed.'
     Set-Content -LiteralPath $coberturaPath -Value $validCobertura -Encoding utf8
 
+    foreach ($roundedCondition in @(
+            @{
+                Value = '67% (4/6)'
+                ExpectedBranchPercent = '75.00%'
+            }
+            @{
+                Value = '83% (5/6)'
+                ExpectedBranchPercent = '87.50%'
+            }
+            @{
+                Value = '17% (1/6)'
+                ExpectedBranchPercent = '37.50%'
+            }
+        )) {
+        $roundedCobertura = $validCobertura.Replace(
+            '50% (1/2)',
+            $roundedCondition.Value,
+            [StringComparison]::Ordinal
+        )
+        Set-Content -LiteralPath $coberturaPath -Value $roundedCobertura -Encoding utf8
+        $roundedReport = New-CoverageReport `
+            -CoberturaPath $coberturaPath `
+            -FrontendSummaryPath $frontendPath `
+            -ChangedFilesPath $changedFilesPath `
+            -RepositoryRoot $repositoryRoot `
+            -RunUrl 'https://github.com/ncosentino/pitcrew-dashboard/actions/runs/123'
+        Add-Check (
+            $roundedReport -match
+                "\| C# \| 66\.67% \| $([regex]::Escape($roundedCondition.ExpectedBranchPercent)) \|"
+        ) "ReportGenerator-rounded condition coverage '$($roundedCondition.Value)' was rejected."
+    }
+    Set-Content -LiteralPath $coberturaPath -Value $validCobertura -Encoding utf8
+
     Add-RejectionCheck 'Missing changed-file data' {
         New-CoverageReport `
             -CoberturaPath $coberturaPath `
@@ -270,6 +303,58 @@ try {
     )
     Set-Content -LiteralPath $coberturaPath -Value $inconsistentConditionCoverage -Encoding utf8
     Add-RejectionCheck 'Inconsistent C# condition coverage' {
+        New-CoverageReport `
+            -CoberturaPath $coberturaPath `
+            -FrontendSummaryPath $frontendPath `
+            -ChangedFilesPath $changedFilesPath `
+            -RepositoryRoot $repositoryRoot `
+            -RunUrl 'https://github.com/ncosentino/pitcrew-dashboard/actions/runs/123'
+    }
+
+    foreach ($inconsistentCondition in @(
+            '66% (4/6)'
+            '82% (5/6)'
+            '16% (1/6)'
+            '12% (1/8)'
+        )) {
+        $boundaryCobertura = $validCobertura.Replace(
+            '50% (1/2)',
+            $inconsistentCondition,
+            [StringComparison]::Ordinal
+        )
+        Set-Content -LiteralPath $coberturaPath -Value $boundaryCobertura -Encoding utf8
+        Add-RejectionCheck "Rounded boundary condition coverage $inconsistentCondition" {
+            New-CoverageReport `
+                -CoberturaPath $coberturaPath `
+                -FrontendSummaryPath $frontendPath `
+                -ChangedFilesPath $changedFilesPath `
+                -RepositoryRoot $repositoryRoot `
+                -RunUrl 'https://github.com/ncosentino/pitcrew-dashboard/actions/runs/123'
+        }
+    }
+
+    $impossibleConditionCoverage = $validCobertura.Replace(
+        'condition-coverage="50% (1/2)"',
+        'condition-coverage="150% (3/2)"',
+        [StringComparison]::Ordinal
+    )
+    Set-Content -LiteralPath $coberturaPath -Value $impossibleConditionCoverage -Encoding utf8
+    Add-RejectionCheck 'Impossible C# condition counts' {
+        New-CoverageReport `
+            -CoberturaPath $coberturaPath `
+            -FrontendSummaryPath $frontendPath `
+            -ChangedFilesPath $changedFilesPath `
+            -RepositoryRoot $repositoryRoot `
+            -RunUrl 'https://github.com/ncosentino/pitcrew-dashboard/actions/runs/123'
+    }
+
+    $conflictingConditionTotals = $validCobertura.Replace(
+        '<line number="10" hits="0" branch="true" condition-coverage="100% (2/2)" />',
+        '<line number="10" hits="0" branch="true" condition-coverage="67% (2/3)" />',
+        [StringComparison]::Ordinal
+    )
+    Set-Content -LiteralPath $coberturaPath -Value $conflictingConditionTotals -Encoding utf8
+    Add-RejectionCheck 'Conflicting C# condition totals' {
         New-CoverageReport `
             -CoberturaPath $coberturaPath `
             -FrontendSummaryPath $frontendPath `
