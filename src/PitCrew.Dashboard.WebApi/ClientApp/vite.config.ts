@@ -19,6 +19,23 @@ export default defineConfig({
     setupFiles: './src/setupTests.ts',
     css: true,
     maxWorkers: 2,
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: 'coverage',
+      reporter: ['json', 'json-summary'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.spec.{ts,tsx}',
+        'src/**/*.d.ts',
+        'src/setupTests.ts',
+        'src/**/generated/**',
+        'src/**/*.generated.{ts,tsx}',
+      ],
+      thresholds: {
+        perFile: true,
+      },
+    },
     // Playwright owns e2e/**; Vitest's own suite must never pick up its
     // browser specs (they run under a different test runner/global API).
     exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],

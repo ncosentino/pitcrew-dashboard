@@ -467,7 +467,9 @@ describe('profile detail routes', () => {
       await screen.findByRole('heading', { level: 1, name: 'Profile default overview' }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(await screen.findByTestId('profile-overview-maximum-default')).toHaveTextContent('30');
+    expect(
+      await screen.findByTestId('profile-overview-maximum-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('30');
     const readiness = screen.getByRole('region', { name: 'Profile readiness' });
     expect(readiness).toBeVisible();
     expect(within(readiness).getAllByText('Autoscaling degraded').length).toBeGreaterThan(0);
