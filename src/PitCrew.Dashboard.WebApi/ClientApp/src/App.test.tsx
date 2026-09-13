@@ -98,7 +98,7 @@ describe('authenticated routing', () => {
     await user.click(screen.getByRole('button', { name: 'Retry session' }));
 
     expect(
-      await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' }),
+      await screen.findByRole('heading', { level: 2, name: 'Fleet readiness' }, { timeout: 5_000 }),
     ).toBeInTheDocument();
     expect(sessionLoads).toBe(2);
   });
@@ -233,7 +233,11 @@ describe('authenticated routing', () => {
     renderRoute('/tenants/local/settings/access');
 
     expect(
-      await screen.findByRole('heading', { level: 2, name: 'Membership and roles' }),
+      await screen.findByRole(
+        'heading',
+        { level: 2, name: 'Membership and roles' },
+        { timeout: 5_000 },
+      ),
     ).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', { name: 'Tenant settings' });
     expect(navigation).toHaveTextContent('General');

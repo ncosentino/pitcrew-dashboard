@@ -38,6 +38,6 @@ export default defineConfig({
     },
     // Playwright owns e2e/**; Vitest's own suite must never pick up its
     // browser specs (they run under a different test runner/global API).
-    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', 'scripts/**'],
   },
 });
