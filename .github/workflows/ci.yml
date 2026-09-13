@@ -20,11 +20,6 @@ on:
         default: '2'
         type: choice
         options: ['1', '2', '3', '4']
-      upload_coverage:
-        description: 'Upload code coverage as artifact'
-        required: false
-        default: false
-        type: boolean
       validation_scope:
         description: 'Validation scope for this branch dispatch'
         required: false
@@ -155,6 +150,10 @@ jobs:
       - name: Validate path-aware scope resolution
         shell: pwsh
         run: ./tests/Test-ValidationScope.ps1
+
+      - name: Validate coverage reporting contract
+        shell: pwsh
+        run: ./tests/Test-CoverageReporting.ps1
 
   # Frontend quality gate — runs the bundled SPA's OWN complete pipeline (build +
   # lint + format:check + tsc + tests) in its own Node toolchain, exactly as the
@@ -533,15 +532,6 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Upload coverage
-        uses: actions/upload-artifact@v7
-        if: inputs.upload_coverage && always()
-        with:
-          name: coverage-batch-${{ matrix.batch }}
-          path: ./TestResults/**/coverage.cobertura.xml
-          retention-days: 7
-          if-no-files-found: ignore
-
       - name: Upload timing data
         uses: actions/upload-artifact@v7
         if: always()
@@ -763,11 +753,262 @@ jobs:
               -NetworkProbePublishRoot "$env:RUNNER_TEMP/support-network-probe" `
               -AllowMachineChanges
 
+  coverage:
+    name: Coverage
+    needs: validation-plan
+    if: needs.validation-plan.outputs.scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      report: ${{ steps.report.outputs.markdown }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/PitCrew.Dashboard.WebApi/ClientApp/package-lock.json
+
+      - name: Capture changed files
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          $files = @()
+          if ($env:EVENT_NAME -ceq 'pull_request') {
+              if ([string]::IsNullOrWhiteSpace($env:PR_BASE_SHA)) {
+                  throw 'Pull-request changed-file data is missing the base SHA.'
+              }
+              $files = @(git diff --name-only "$($env:PR_BASE_SHA)...HEAD")
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Could not resolve pull-request changed files (exit $LASTEXITCODE)."
+              }
+          } elseif (
+              $env:EVENT_NAME -ceq 'push' -and
+              -not [string]::IsNullOrWhiteSpace($env:PUSH_BEFORE) -and
+              $env:PUSH_BEFORE -cne '0000000000000000000000000000000000000000'
+          ) {
+              $files = @(git diff --name-only "$($env:PUSH_BEFORE)..HEAD")
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Could not resolve push changed files (exit $LASTEXITCODE)."
+              }
+          }
+
+          ConvertTo-Json -InputObject @($files) |
+              Set-Content -LiteralPath changed-files.json -Encoding utf8
+
+      - name: Measure C# coverage
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+          ./tests/Test-CoverageMerge.ps1
+
+          dotnet build --configuration Release
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+          $projects = @(
+              Get-ChildItem -LiteralPath src -Recurse -File -Filter '*.Tests.csproj' |
+                  Sort-Object FullName
+          )
+          if ($projects.Count -eq 0) {
+              throw 'No C# test projects were discovered for coverage.'
+          }
+          if ($projects.Count -ne 11) {
+              throw "Expected 11 C# test projects, found $($projects.Count)."
+          }
+
+          $coverageRoot = Join-Path $env:RUNNER_TEMP 'coverage/dotnet'
+          New-Item -ItemType Directory -Path $coverageRoot -Force | Out-Null
+          $coberturaFiles = [Collections.Generic.HashSet[string]]::new(
+              [StringComparer]::OrdinalIgnoreCase)
+          $mergeFiles = [Collections.Generic.HashSet[string]]::new(
+              [StringComparer]::OrdinalIgnoreCase)
+          foreach ($project in $projects) {
+              $projectName = [IO.Path]::GetFileNameWithoutExtension($project.Name)
+              $relativeProject = [IO.Path]::GetRelativePath(
+                  $PWD.Path,
+                  $project.FullName
+              ).Replace('\', '/')
+              $pathHash = [Convert]::ToHexString(
+                  [Security.Cryptography.SHA256]::HashData(
+                      [Text.Encoding]::UTF8.GetBytes($relativeProject)
+                  )
+              ).Substring(0, 12).ToLowerInvariant()
+              $filePrefix = "$projectName-$pathHash"
+              $resultsDirectory = Join-Path $coverageRoot $filePrefix
+              New-Item -ItemType Directory -Path $resultsDirectory -Force | Out-Null
+
+              dotnet test `
+                  --project $project.FullName `
+                  --configuration Release `
+                  --no-build `
+                  --results-directory $resultsDirectory `
+                  -- `
+                  --coverlet `
+                  --coverlet-output-format cobertura `
+                  --coverlet-output-format opencover `
+                  --coverlet-file-prefix $filePrefix `
+                  --coverlet-include '[PitCrew.*]*' `
+                  --coverlet-exclude '[*.Tests]*' `
+                  --coverlet-exclude-by-attribute GeneratedCodeAttribute `
+                  --coverlet-exclude-by-attribute CompilerGeneratedAttribute `
+                  --coverlet-exclude-by-file '**/*.g.cs' `
+                  --coverlet-exclude-by-file '**/*.generated.cs' `
+                  --coverlet-exclude-by-file '**/obj/**' `
+                  --coverlet-exclude-assemblies-without-sources MissingAll
+              if ($LASTEXITCODE -ne 0) {
+                  exit $LASTEXITCODE
+              }
+
+              $projectReports = @(
+                  Get-ChildItem `
+                      -LiteralPath $resultsDirectory `
+                      -Recurse `
+                      -File `
+                      -Filter "$filePrefix.coverage.cobertura.*.xml"
+              )
+              $projectMergeReports = @(
+                  Get-ChildItem `
+                      -LiteralPath $resultsDirectory `
+                      -Recurse `
+                      -File `
+                      -Filter "$filePrefix.coverage.opencover.*.xml"
+              )
+              if ($projectReports.Count -ne 1 -or $projectMergeReports.Count -ne 1) {
+                  throw (
+                      "Expected one Cobertura and OpenCover report for '$relativeProject', found " +
+                      "$($projectReports.Count) and $($projectMergeReports.Count)."
+                  )
+              }
+              if (-not $coberturaFiles.Add($projectReports[0].FullName)) {
+                  throw "Duplicate coverage report '$($projectReports[0].FullName)'."
+              }
+              if (-not $mergeFiles.Add($projectMergeReports[0].FullName)) {
+                  throw "Duplicate merge report '$($projectMergeReports[0].FullName)'."
+              }
+          }
+
+          if (
+              $coberturaFiles.Count -ne $projects.Count -or
+              $mergeFiles.Count -ne $projects.Count
+          ) {
+              throw (
+                  "Expected $($projects.Count) Cobertura and OpenCover reports, found " +
+                  "$($coberturaFiles.Count) and $($mergeFiles.Count)."
+              )
+          }
+
+          $mergeDirectory = Join-Path $coverageRoot 'merged'
+          New-Item -ItemType Directory -Path $mergeDirectory -Force | Out-Null
+          $reportPaths = @($mergeFiles | Sort-Object)
+          $reportsArgument = $reportPaths -join ';'
+          dotnet tool run reportgenerator -- `
+              "-reports:$reportsArgument" `
+              "-targetdir:$mergeDirectory" `
+              '-reporttypes:Cobertura' `
+              '-verbosity:Off'
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+
+          $generatedCobertura = Join-Path $mergeDirectory 'Cobertura.xml'
+          $mergedCobertura = Join-Path $coverageRoot 'merged.cobertura.xml'
+          if (-not (Test-Path -LiteralPath $generatedCobertura -PathType Leaf)) {
+              throw "ReportGenerator output '$generatedCobertura' was not created."
+          }
+          Move-Item -LiteralPath $generatedCobertura -Destination $mergedCobertura
+
+      - name: Measure frontend coverage
+        working-directory: src/PitCrew.Dashboard.WebApi/ClientApp
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test:coverage
+
+      - name: Generate coverage report
+        id: report
+        shell: pwsh
+        env:
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          Import-Module ./scripts/coverage/CoverageReport.psm1 -Force
+          $cobertura = Join-Path `
+              $env:RUNNER_TEMP `
+              'coverage/dotnet/merged.cobertura.xml'
+          $report = New-CoverageReport `
+              -CoberturaPath $cobertura `
+              -FrontendSummaryPath (
+                  'src/PitCrew.Dashboard.WebApi/ClientApp/coverage/coverage-summary.json'
+              ) `
+              -ChangedFilesPath changed-files.json `
+              -RepositoryRoot $PWD.Path `
+              -RunUrl $env:RUN_URL
+
+          Set-Content -LiteralPath coverage-summary.md -Value $report -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $report -Encoding utf8
+
+          $delimiter = "COVERAGE_$([guid]::NewGuid().ToString('N'))"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "markdown<<$delimiter"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value $report
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value $delimiter
+
+  coverage-comment:
+    name: Coverage PR comment
+    needs: [validation-plan, coverage]
+    if: >-
+      needs.validation-plan.outputs.scope == 'full' &&
+      needs.coverage.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/coverage
+          persist-credentials: false
+
+      - name: Upsert coverage comment
+        shell: pwsh
+        env:
+          COVERAGE_REPORT: ${{ needs.coverage.outputs.report }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:COVERAGE_REPORT)) {
+              throw 'Coverage report output is missing.'
+          }
+          ./scripts/coverage/Publish-CoverageComment.ps1 `
+              -Report $env:COVERAGE_REPORT `
+              -Repository $env:REPOSITORY `
+              -PullRequestNumber ([int]$env:PR_NUMBER) `
+              -Token $env:GH_TOKEN
+
   ci:
     name: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'Draft CI' || 'CI' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validation-plan, guidance, frontend, build, test, support-package, linux-installer, windows-installer]
+    needs: [validation-plan, guidance, frontend, build, test, support-package, linux-installer, windows-installer, coverage, coverage-comment]
     if: always()
     steps:
       - name: Check validation results
@@ -781,6 +1022,10 @@ jobs:
           SUPPORT_PACKAGE_RESULT: ${{ needs.support-package.result }}
           LINUX_INSTALLER_RESULT: ${{ needs.linux-installer.result }}
           WINDOWS_INSTALLER_RESULT: ${{ needs.windows-installer.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+          COVERAGE_COMMENT_RESULT: ${{ needs.coverage-comment.result }}
+          EVENT_NAME: ${{ github.event_name }}
+          IS_SAME_REPOSITORY_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           if [ "$PLAN_RESULT" != "success" ]; then
             echo "::error::Validation planning failed."
@@ -794,7 +1039,9 @@ jobs:
             "$TEST_RESULT" \
             "$SUPPORT_PACKAGE_RESULT" \
             "$LINUX_INSTALLER_RESULT" \
-            "$WINDOWS_INSTALLER_RESULT"; do
+            "$WINDOWS_INSTALLER_RESULT" \
+            "$COVERAGE_RESULT" \
+            "$COVERAGE_COMMENT_RESULT"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
               echo "::error::A validation job failed or was cancelled."
               exit 1
@@ -808,8 +1055,21 @@ jobs:
                  [ "$TEST_RESULT" != "success" ] ||
                  [ "$SUPPORT_PACKAGE_RESULT" != "success" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "success" ] ||
-                 [ "$WINDOWS_INSTALLER_RESULT" != "success" ]; then
+                 [ "$WINDOWS_INSTALLER_RESULT" != "success" ] ||
+                 [ "$COVERAGE_RESULT" != "success" ]; then
                 echo "::error::Full validation did not complete successfully."
+                exit 1
+              fi
+              if [ "$EVENT_NAME" = "pull_request" ] &&
+                 [ "$IS_SAME_REPOSITORY_PR" = "true" ] &&
+                 [ "$COVERAGE_COMMENT_RESULT" != "success" ]; then
+                echo "::error::Same-repository coverage comment publication did not succeed."
+                exit 1
+              fi
+              if { [ "$EVENT_NAME" != "pull_request" ] ||
+                   [ "$IS_SAME_REPOSITORY_PR" != "true" ]; } &&
+                 [ "$COVERAGE_COMMENT_RESULT" != "skipped" ]; then
+                echo "::error::Coverage comment publication ran outside a same-repository pull request."
                 exit 1
               fi
               ;;
@@ -819,7 +1079,9 @@ jobs:
                  [ "$TEST_RESULT" != "skipped" ] ||
                  [ "$SUPPORT_PACKAGE_RESULT" != "skipped" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
-                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
+                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ] ||
+                 [ "$COVERAGE_RESULT" != "skipped" ] ||
+                 [ "$COVERAGE_COMMENT_RESULT" != "skipped" ]; then
                 echo "::error::Draft subset validation did not complete as planned."
                 exit 1
               fi
@@ -830,7 +1092,9 @@ jobs:
                  [ "$TEST_RESULT" != "skipped" ] ||
                  [ "$SUPPORT_PACKAGE_RESULT" != "skipped" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
-                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
+                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ] ||
+                 [ "$COVERAGE_RESULT" != "skipped" ] ||
+                 [ "$COVERAGE_COMMENT_RESULT" != "skipped" ]; then
                 echo "::error::Ready-only draft validation ran unexpected jobs."
                 exit 1
               fi
@@ -845,7 +1109,9 @@ jobs:
                  [ "$TEST_RESULT" != "skipped" ] ||
                  [ "$SUPPORT_PACKAGE_RESULT" != "skipped" ] ||
                  [ "$LINUX_INSTALLER_RESULT" != "skipped" ] ||
-                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ]; then
+                 [ "$WINDOWS_INSTALLER_RESULT" != "skipped" ] ||
+                 [ "$COVERAGE_RESULT" != "skipped" ] ||
+                 [ "$COVERAGE_COMMENT_RESULT" != "skipped" ]; then
                 echo "::error::Guidance-only validation ran unexpected expensive jobs."
                 exit 1
               fi
