@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ManagerObservedState } from '@/core/fleet';
+import { operationalIncidentSchema, type ManagerObservedState } from '@/core/fleet';
 
 import {
   summarizeNodeWorkload,
@@ -109,7 +109,7 @@ describe('profile workspace evidence summaries', () => {
         label: `Manager ${managerStatus}`,
         tone: 'caution',
         task: 'diagnostics',
-        rank: 2,
+        rank: 3,
       });
     },
   );
@@ -178,9 +178,83 @@ describe('profile workspace evidence summaries', () => {
 
     expect(summary).toMatchObject({
       label: 'Worker rollout degraded',
-      tone: 'critical',
+      tone: 'caution',
       task: 'workers',
-      rank: 0,
+      rank: 2,
+    });
+    expect(summary.category).toBe('confirmed-problem');
+  });
+
+  it('separates active changes from evidence gaps', () => {
+    const activeChange = summarizeProfileAttention(
+      profile({
+        update: {
+          status: 'rolling',
+          targetImage: null,
+          targetImageId: null,
+          targetRevision: 'c'.repeat(64),
+          currentWorkers: 1,
+          staleWorkers: 1,
+          lastError: null,
+        },
+      }),
+      [],
+    );
+    const evidenceGap = summarizeProfileAttention(
+      profile({
+        resourceTelemetry: {
+          sampledAt: '2026-08-27T12:00:00+00:00',
+          status: 'partial',
+          host: null,
+          manager: null,
+        },
+      }),
+      [],
+    );
+
+    expect(activeChange.category).toBe('active-change');
+    expect(activeChange.categories).toContain('active-change');
+    expect(evidenceGap.category).toBe('evidence-gap');
+    expect(evidenceGap.categories).toContain('evidence-gap');
+  });
+
+  it('keeps ended monitoring in retained history instead of classifying it as an evidence gap', () => {
+    const incident = operationalIncidentSchema.parse({
+      incidentId: 'd6235ec4-2a15-4f91-a9e0-811152869a54',
+      nodeId: 'a6235ec4-2a15-4f91-a9e0-811152869a51',
+      profileId: 'build',
+      kind: 'manager-health',
+      severity: 'warning',
+      status: 'triggered',
+      title: 'Manager report ended',
+      summary: 'Monitoring ended after the reporting window closed.',
+      reason: 'monitoring-ended',
+      evidence: null,
+      link: '/tenants/local/incidents/d6235ec4-2a15-4f91-a9e0-811152869a54',
+      firstObservedAt: '2026-08-27T11:00:00+00:00',
+      triggeredAt: '2026-08-27T11:00:00+00:00',
+      lastObservedAt: '2026-08-27T12:00:00+00:00',
+      acknowledgedAt: null,
+      acknowledgedByGitHubUserId: null,
+      resolvedAt: null,
+      conditionState: 'monitoring-ended',
+      operatorState: 'unowned',
+      currentSeverity: null,
+    });
+
+    const summary = summarizeProfileAttention(profile(), [incident]);
+
+    expect(summary.categories).toContain('retained');
+  });
+
+  it('treats a confirmed manager stop as caution action rather than critical severity', () => {
+    const summary = summarizeProfileAttention(profile({ managerStatus: 'stopped' }), []);
+
+    expect(summary).toMatchObject({
+      label: 'Manager stopped',
+      tone: 'caution',
+      category: 'confirmed-problem',
+      rank: 2,
     });
   });
 });

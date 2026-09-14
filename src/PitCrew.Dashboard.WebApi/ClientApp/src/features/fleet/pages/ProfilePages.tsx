@@ -255,7 +255,14 @@ export function ProfileDetailLayout() {
               Download preflight context
             </Button>
             <StatusBadge
-              status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
+              status={
+                node.isRevoked
+                  ? 'Enrollment revoked'
+                  : node.isOnline
+                    ? 'Connector reporting'
+                    : 'Connector not reporting'
+              }
+              tone={node.isRevoked ? 'neutral' : node.isOnline ? 'positive' : 'neutral'}
             />
             <StatusBadge status={profile.managerStatus} />
             <StatusBadge status={profile.desiredStateStatus} />
@@ -692,8 +699,9 @@ export function ProfileCapacityPage() {
     <section className="grid gap-4">
       {!node.isOnline || node.isRevoked ? (
         <StateBanner data-testid="profile-node-unavailable" tone="caution">
-          Capacity changes are unavailable while this node is{' '}
-          {node.isRevoked ? 'revoked' : 'offline'}.
+          {node.isRevoked
+            ? 'Capacity changes are unavailable because this node enrollment is revoked.'
+            : 'Capacity changes are unavailable because connector reporting is unavailable.'}
         </StateBanner>
       ) : null}
       <MutationMessage

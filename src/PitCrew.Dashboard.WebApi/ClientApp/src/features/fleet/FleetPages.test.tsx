@@ -352,7 +352,10 @@ describe('fleet overview and node detail', () => {
     expect(within(readiness).getByText('Nodes requiring action').parentElement).toHaveTextContent(
       '0',
     );
+    expect(readiness).toHaveTextContent('Active changes');
+    expect(within(readiness).getByText('Active changes').parentElement).toHaveTextContent('1');
     expect(readiness).toHaveTextContent('Evidence gaps');
+    expect(within(readiness).getByText('Evidence gaps').parentElement).toHaveTextContent('2');
     expect(within(row).getByRole('link', { name: 'Alpha' })).toHaveAttribute(
       'href',
       `/tenants/local/nodes/${alphaId}`,
@@ -700,6 +703,75 @@ describe('fleet overview and node detail', () => {
     expect(attentionLabel.parentElement).toHaveTextContent('0');
   });
 
+  it('counts a confirmed profile failure as action instead of an evidence gap', async () => {
+    const response = fleetResponse();
+    const alpha = response.nodes.find((node) => node.nodeId === alphaId);
+    if (alpha == null) throw new Error('Alpha is required.');
+    alpha.profiles = [
+      profileResponse({
+        resourceTelemetry: null,
+        update: null,
+        capacityEvidence: {
+          fixed: null,
+          targets: [],
+        },
+        autoscaling: {
+          mode: 'scale-set',
+          status: 'degraded',
+          minimumIdleSlots: 1,
+          maximumSlots: 30,
+          targetSlots: 3,
+          assignedJobs: 3,
+          runningJobs: 2,
+          availableJobs: 1,
+          idleRunners: 1,
+          busyRunners: 2,
+          scaleDownDelaySeconds: 300,
+          scaleSetCount: 1,
+          scaleDownAt: null,
+          lastError: 'GitHub queue observation failed.',
+          maximumActiveWorkers: 2,
+          targets: [
+            {
+              key: 'repository-owner/name',
+              repository: 'repository-owner/name',
+              maximumSlots: 30,
+              targetSlots: 3,
+              localActiveWorkers: 3,
+              localIdleWorkers: 1,
+              localBusyWorkers: 2,
+              localDrainingWorkers: 0,
+              statistics: null,
+            },
+          ],
+        },
+      }),
+    ];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <RouterProvider router={createTestRouter(features, ['/tenants/local/fleet'])} />
+      </SessionProvider>,
+    );
+
+    const readiness = await screen.findByRole('region', { name: 'Fleet readiness' });
+    expect(await within(readiness).findByText('Profile action required')).toHaveAttribute(
+      'data-status-tone',
+      'caution',
+    );
+    expect(within(readiness).getByText('Nodes requiring action').parentElement).toHaveTextContent(
+      '1',
+    );
+    expect(
+      within(screen.getByTestId(`fleet-node-${alphaId}`)).getByText('Autoscaling degraded'),
+    ).toHaveAttribute('data-status-tone', 'caution');
+  });
+
   it('filters and sorts deterministically and persists density', async () => {
     const user = userEvent.setup();
     renderRoute('/tenants/local/fleet');
@@ -717,6 +789,7 @@ describe('fleet overview and node detail', () => {
     ]);
 
     await user.selectOptions(screen.getByLabelText('Status'), 'offline');
+    expect(screen.getByRole('option', { name: 'Connector not reporting' })).toBeInTheDocument();
     expect(screen.getByTestId(`fleet-node-${bravoId}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`fleet-node-${alphaId}`)).not.toBeInTheDocument();
 
@@ -995,13 +1068,14 @@ describe('fleet overview and node detail', () => {
     );
     const user = userEvent.setup();
 
-    const input = await screen.findByLabelText('Server display name');
+    const input = await screen.findByLabelText('Node display name');
     await user.clear(input);
     await user.type(input, 'Renamed Alpha');
-    await user.click(screen.getByRole('button', { name: 'Rename server' }));
+    await user.click(screen.getByRole('button', { name: 'Rename node' }));
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Renamed Alpha' }),
     ).toBeInTheDocument();
+    expect(screen.getByText('Node name updated.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Rotate credential' }));
     await waitFor(() => expect(screen.getByText('rotation requested')).toBeInTheDocument());
@@ -1033,7 +1107,7 @@ describe('fleet overview and node detail', () => {
     });
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Alpha' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Server display name')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Node display name')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Rotate credential' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Administration' })).not.toBeInTheDocument();

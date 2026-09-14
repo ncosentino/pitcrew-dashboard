@@ -581,6 +581,7 @@ describe('profile detail routes', () => {
     );
 
     const warning = await screen.findByTestId('profile-node-offline', {}, { timeout: 5_000 });
+    expect(screen.getByText('Connector not reporting')).toBeInTheDocument();
     expect(warning).toHaveTextContent('Every profile, capacity, worker, resource');
     expect(warning).toHaveTextContent('last-known evidence observed');
     expect(screen.getByTestId(`prepare-diagnostics-${nodeId}-default`)).toBeInTheDocument();
@@ -729,7 +730,7 @@ describe('profile detail routes', () => {
   });
 
   it.each([
-    ['offline', { isOnline: false }, 'offline'],
+    ['connector reporting unavailable', { isOnline: false }, 'connector reporting is unavailable'],
     ['revoked', { isRevoked: true }, 'revoked'],
   ])('disables capacity changes for %s nodes', async (_name, nodeOverrides, status) => {
     renderProfile(fleetResponse([nodeResponse(nodeOverrides)]), 'owner', profileRoute('capacity'));

@@ -777,9 +777,9 @@ export function NodeAdministrationPage() {
         ) : null}
         <DisplayNameEditor
           value={node.displayName}
-          label="Server display name"
-          submitLabel="Rename server"
-          successMessage="Server name updated."
+          label="Node display name"
+          submitLabel="Rename node"
+          successMessage="Node name updated."
           onSave={async (displayName) => {
             await renameNode(tenantId, node.nodeId, displayName, antiforgeryToken);
             await refreshNow();

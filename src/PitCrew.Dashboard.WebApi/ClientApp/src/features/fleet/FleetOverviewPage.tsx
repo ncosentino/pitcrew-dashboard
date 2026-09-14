@@ -311,17 +311,24 @@ export default function FleetOverviewPage() {
     (incident) => incident.currentSeverity === 'warning',
   ).length;
   const conditionCounts = countIncidentConditions(activeIncidents);
-  const onlineNodes = fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
+  const reportingNodes =
+    fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
   const actionableProblemNodes =
+    fleet?.nodes.filter(
+      (node) =>
+        (incidentsByNode.get(node.nodeId) ?? []).some(isActionableIncident) ||
+        profileAttentionByNode.get(node.nodeId)?.summary.categories.includes('confirmed-problem'),
+    ).length ?? 0;
+  const activeChangeNodes =
     fleet?.nodes.filter((node) =>
-      (incidentsByNode.get(node.nodeId) ?? []).some(isActionableIncident),
+      profileAttentionByNode.get(node.nodeId)?.summary.categories.includes('active-change'),
     ).length ?? 0;
   const evidenceGapNodes =
     fleet?.nodes.filter(
       (node) =>
         getNodeStatus(node) === 'offline' ||
         nodeHasDegradedConnector(node) ||
-        profileAttentionByNode.has(node.nodeId),
+        profileAttentionByNode.get(node.nodeId)?.summary.categories.includes('evidence-gap'),
     ).length ?? 0;
 
   const changeDensity = (nextDensity: FleetDensity) => {
@@ -355,11 +362,15 @@ export default function FleetOverviewPage() {
                     ? 'Critical action required'
                     : actionableWarning > 0
                       ? 'Action required'
-                      : evidenceGapNodes > 0
-                        ? 'Evidence gaps'
-                        : incidentTotal > 0
-                          ? 'Open records'
-                          : 'No reported exception'
+                      : actionableProblemNodes > 0
+                        ? 'Profile action required'
+                        : activeChangeNodes > 0
+                          ? 'Changes in progress'
+                          : evidenceGapNodes > 0
+                            ? 'Evidence gaps'
+                            : incidentTotal > 0
+                              ? 'Open records'
+                              : 'No reported exception'
             }
             tone={
               !fleet
@@ -370,9 +381,9 @@ export default function FleetOverviewPage() {
                   ? 'neutral'
                   : actionableCritical > 0
                     ? 'critical'
-                    : actionableWarning > 0 || evidenceGapNodes > 0
+                    : actionableWarning > 0 || actionableProblemNodes > 0 || activeChangeNodes > 0
                       ? 'caution'
-                      : incidentTotal > 0
+                      : evidenceGapNodes > 0 || incidentTotal > 0
                         ? 'neutral'
                         : 'positive'
             }
@@ -389,7 +400,7 @@ export default function FleetOverviewPage() {
           {
             label: 'Nodes reporting',
             value: fleet
-              ? `${onlineNodes} of ${fleet.nodes.length}`
+              ? `${reportingNodes} of ${fleet.nodes.length}`
               : error
                 ? 'Unavailable'
                 : 'Loading…',
@@ -398,7 +409,17 @@ export default function FleetOverviewPage() {
           {
             label: 'Nodes requiring action',
             value: fleet ? actionableProblemNodes : error ? 'Unavailable' : 'Loading…',
-            detail: 'At least one confirmed unowned incident',
+            detail: 'Confirmed unowned incident or current profile exception',
+          },
+          {
+            label: 'Active changes',
+            value: fleet ? activeChangeNodes : error ? 'Unavailable' : 'Loading…',
+            detail: 'Manager lifecycle or worker rollout is changing',
+          },
+          {
+            label: 'Evidence gaps',
+            value: fleet ? evidenceGapNodes : error ? 'Unavailable' : 'Loading…',
+            detail: 'Connector reporting or profile evidence is unavailable, stale, or partial',
           },
           {
             label: 'Open incident records',
@@ -448,7 +469,7 @@ export default function FleetOverviewPage() {
           <div>
             <dt className="font-medium">Last known</dt>
             <dd className="text-muted-foreground">
-              Retained evidence from before a node went offline.
+              Retained evidence from before its connector stopped reporting.
             </dd>
           </div>
           <div>
@@ -503,8 +524,8 @@ export default function FleetOverviewPage() {
                 }}
               >
                 <option value="all">All states</option>
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
+                <option value="online">Connector reporting</option>
+                <option value="offline">Connector not reporting</option>
                 <option value="revoked">Revoked</option>
               </select>
             </FormField>
@@ -689,11 +710,16 @@ function nodeAttentionRank(
   const actionableIncidents = incidents.filter(isActionableIncident);
   if (actionableIncidents.some((incident) => incident.currentSeverity === 'critical')) return 0;
   if (actionableIncidents.some((incident) => incident.currentSeverity === 'warning')) return 1;
-  if (profileAttention?.summary.tone === 'critical') return 2;
-  if (nodeHasDegradedConnector(node)) return 3;
-  if (profileAttention) return 4;
+  if (profileAttention?.summary.categories.includes('confirmed-problem')) return 2;
+  if (profileAttention?.summary.categories.includes('active-change')) return 3;
+  if (
+    nodeHasDegradedConnector(node) ||
+    profileAttention?.summary.categories.includes('evidence-gap')
+  ) {
+    return 4;
+  }
   if (getNodeStatus(node) === 'offline') return 5;
-  if (incidents.length > 0) return 6;
+  if (profileAttention || incidents.length > 0) return 6;
   if (getNodeStatus(node) === 'online') return 7;
   return 8;
 }
