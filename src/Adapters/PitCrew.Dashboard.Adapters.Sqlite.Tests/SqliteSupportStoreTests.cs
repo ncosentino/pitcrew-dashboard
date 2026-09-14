@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 using Microsoft.Data.Sqlite;
@@ -7,12 +8,134 @@ using Microsoft.Extensions.Options;
 
 using PitCrew.Dashboard.Features.Access.Abstractions;
 using PitCrew.Dashboard.Features.Support.Abstractions;
+using PitCrew.Dashboard.Trust.Scenarios;
 using PitCrew.Support.Protocol;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 
 public sealed class SqliteSupportStoreTests
 {
+  [Test]
+  public async Task Fleet_Trust_Result_Survives_Fresh_Exact_Tenant_Session_Read(
+      CancellationToken cancellationToken)
+  {
+    var scenario = FleetTrustScenarioCorpus.Load().SupportDiagnostics.Single(
+        candidate => candidate.Id == "leave-return-exact-result");
+    var result = scenario.Result ?? throw new InvalidOperationException(
+        "The leave/return scenario requires result content.");
+    var expectedDigest = ResultDigest(
+        result.ReportJson,
+        result.Markdown);
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-support-trust-{Guid.NewGuid():N}.db");
+    try
+    {
+      var options = Options.Create(new SqliteFleetStoreOptions
+      {
+        DatabasePath = databasePath,
+      });
+      var factory = new SqliteConnectionFactory(options);
+      await new SqliteMigrationRunner(factory).ApplyAsync(cancellationToken);
+      var accessStore = new SqliteAccessStore(factory);
+      var supportStore = new SqliteSupportStore(factory);
+      var owner = new DashboardUser("1", "owner", "Owner", null);
+      const string tenantId = "tenant-scenario";
+      var nodeId = Guid.Parse(
+          "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          CultureInfo.InvariantCulture);
+      var keys = SupportKeyFactory.CreateNodeKeys();
+      var identity = new SupportIdentity(
+          tenantId,
+          nodeId,
+          "Scenario node",
+          keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+          keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
+          owner.GitHubUserId,
+          scenario.Clocks.SourceObservedAt,
+          null,
+          null,
+          null,
+          null,
+          1);
+      await accessStore.EnsureTenantOwnerAsync(
+          tenantId,
+          "Scenario tenant",
+          owner,
+          scenario.Clocks.SourceObservedAt,
+          cancellationToken);
+      var identityStatus = await supportStore.CreateIdentityAsync(
+          new SupportIdentityWrite(
+              identity,
+              "transport-hash",
+              "enrollment-hash",
+              scenario.Clocks.ResponseGeneratedAt),
+          cancellationToken);
+      var session = CreateSession(
+          tenantId,
+          nodeId,
+          scenario.Clocks.SourceObservedAt,
+          scenario.SessionId,
+          scenario.DiagnosticMode,
+          scenario.ProfileId);
+      var sessionStatus = await supportStore.CreateSessionAsync(
+          session,
+          identity.NodeSigningPublicKeySpki,
+          identity.NodeEncryptionPublicKeySpki,
+          cancellationToken);
+      var completionStatus = await supportStore.CompleteSessionAsync(
+          tenantId,
+          scenario.SessionId,
+          JsonSerializer.Serialize(session.RequestEnvelope),
+          result.ReportJson,
+          result.Markdown,
+          JsonSerializer.Serialize(new SupportResultAttestation(
+              keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+              "payload",
+              "signature",
+              SupportEnvelopeCryptography.SignatureAlgorithm)),
+          scenario.Clocks.DashboardReceivedAt,
+          cancellationToken);
+      var firstRead = await supportStore.GetSessionOrNullAsync(
+          tenantId,
+          scenario.SessionId,
+          cancellationToken);
+
+      var returnedStore = new SqliteSupportStore(
+          new SqliteConnectionFactory(options));
+      var returnedRead = await returnedStore.GetSessionOrNullAsync(
+          tenantId,
+          scenario.SessionId,
+          cancellationToken);
+      var wrongTenantRead = await returnedStore.GetSessionOrNullAsync(
+          "other-tenant",
+          scenario.SessionId,
+          cancellationToken);
+
+      await Assert.That(identityStatus)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(sessionStatus)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(completionStatus)
+          .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(firstRead).IsNotNull();
+      await Assert.That(returnedRead).IsNotNull();
+      await Assert.That(returnedRead!.TenantId).IsEqualTo(tenantId);
+      await Assert.That(returnedRead.SessionId)
+          .IsEqualTo(scenario.SessionId);
+      await Assert.That(ResultDigest(firstRead!))
+          .IsEqualTo(expectedDigest);
+      await Assert.That(ResultDigest(returnedRead))
+          .IsEqualTo(expectedDigest);
+      await Assert.That(wrongTenantRead).IsNull();
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
   [Test]
   public async Task Support_Identity_Is_Tenant_Isolated_And_Revocation_Blocks_Sessions(
       CancellationToken cancellationToken)
@@ -404,7 +527,10 @@ public sealed class SqliteSupportStoreTests
   private static SupportDiagnosticSession CreateSession(
       string tenantId,
       Guid nodeId,
-      DateTimeOffset requestedAt)
+      DateTimeOffset requestedAt,
+      Guid? sessionId = null,
+      string diagnosticMode = SupportDiagnosticModes.Full,
+      string? profileId = null)
   {
     var dashboardKeys = SupportKeyFactory.CreateDashboardKeys();
     var nodeKeys = SupportKeyFactory.CreateNodeKeys();
@@ -416,11 +542,11 @@ public sealed class SqliteSupportStoreTests
         "support-plane-v1",
         tenantId,
         nodeId,
-        Guid.NewGuid(),
+        sessionId ?? Guid.NewGuid(),
         SupportCapability.DiagnosticsSnapshotV1,
         1,
-        SupportDiagnosticModes.Full,
-        null,
+        diagnosticMode,
+        profileId,
         "support-package",
         requestedAt,
         requestedAt.AddMinutes(10),
@@ -436,8 +562,8 @@ public sealed class SqliteSupportStoreTests
         tenantId,
         request.SessionId,
         nodeId,
-        SupportDiagnosticModes.Full,
-        null,
+        diagnosticMode,
+        profileId,
         request.PackageId,
         SupportCapability.DiagnosticsSnapshotV1,
         Convert.ToHexString(SHA256.HashData(requestPayload)).ToLowerInvariant(),
@@ -455,5 +581,26 @@ public sealed class SqliteSupportStoreTests
         null,
         null,
         null);
+  }
+
+  private static string ResultDigest(SupportDiagnosticSession session)
+  {
+    var report = session.Report?.GetRawText()
+        ?? throw new InvalidOperationException(
+            "A completed scenario session must contain a report.");
+    var markdown = session.Markdown
+        ?? throw new InvalidOperationException(
+            "A completed scenario session must contain markdown.");
+    return ResultDigest(report, markdown);
+  }
+
+  private static string ResultDigest(
+      string reportJson,
+      string markdown)
+  {
+    var content = string.Concat(reportJson, "\n", markdown);
+    return Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(content)))
+        .ToLowerInvariant();
   }
 }

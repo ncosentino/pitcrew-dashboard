@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource
+        Include="..\..\test-assets\fleet-trust\fleet-trust-scenarios.v1.json"
+        LogicalName="PitCrew.Dashboard.Trust.Scenarios.fleet-trust-scenarios.v1.json" />
+  </ItemGroup>
+
+</Project>

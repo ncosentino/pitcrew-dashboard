@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PitCrew.Dashboard.Adapters.Sqlite\PitCrew.Dashboard.Adapters.Sqlite.csproj" />
+    <ProjectReference Include="..\..\PitCrew.Dashboard.Trust.Scenarios\PitCrew.Dashboard.Trust.Scenarios.csproj" />
   </ItemGroup>
 
 </Project>

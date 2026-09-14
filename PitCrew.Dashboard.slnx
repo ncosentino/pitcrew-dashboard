@@ -59,4 +59,8 @@
     <Project Path="src/PitCrew.Dashboard.Kernel.ImageRollouts/PitCrew.Dashboard.Kernel.ImageRollouts.csproj" />
     <Project Path="src/PitCrew.Dashboard.Kernel.SecurityHeaders/PitCrew.Dashboard.Kernel.SecurityHeaders.csproj" />
   </Folder>
+  <Folder Name="/src/Testing/">
+    <Project Path="src/PitCrew.Dashboard.Trust.Scenarios.Tests/PitCrew.Dashboard.Trust.Scenarios.Tests.csproj" />
+    <Project Path="src/PitCrew.Dashboard.Trust.Scenarios/PitCrew.Dashboard.Trust.Scenarios.csproj" />
+  </Folder>
 </Solution>

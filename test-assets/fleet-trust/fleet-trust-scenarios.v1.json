@@ -1,0 +1,540 @@
+{
+  "schemaVersion": 1,
+  "currentBehavior": [
+    "Connector reporting is based on Dashboard-accepted synchronization time, not manager observation time.",
+    "Reporting loss emits connector-offline and suppresses profile diagnoses; retained manager and workload evidence does not become current or prove recovery.",
+    "Fresh connector contact does not refresh an older manager source-observed timestamp.",
+    "Current incident identity preserves one stable candidate key per persistent condition episode; no multi-condition grouping is applied.",
+    "Incident pages expose visible records and truncation but do not expose an authoritative total.",
+    "Completed support results remain stored and an exact tenant-scoped session read returns the same verified result after navigation."
+  ],
+  "fleetEvidence": [
+    {
+      "id": "reporting-current-manager",
+      "description": "Connector contact and manager evidence are independently current.",
+      "connectorReporting": "current",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T00:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T00:00:02+00:00",
+        "evaluatedAt": "2026-08-20T00:00:10+00:00",
+        "responseGeneratedAt": "2026-08-20T00:00:11+00:00"
+      },
+      "claims": [
+        {
+          "name": "connector-contact",
+          "state": "authoritative",
+          "authority": "dashboard-accepted-sync",
+          "freshness": "current",
+          "value": "current",
+          "sourceObservedAt": "2026-08-20T00:00:01+00:00",
+          "dashboardReceivedAt": "2026-08-20T00:00:02+00:00"
+        },
+        {
+          "name": "manager-observation",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "current",
+          "value": "running",
+          "sourceObservedAt": "2026-08-20T00:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T00:00:02+00:00"
+        },
+        {
+          "name": "workload-evidence",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "current",
+          "value": "measured-zero",
+          "sourceObservedAt": "2026-08-20T00:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T00:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "current-evidence",
+      "trueResolutionProven": false
+    },
+    {
+      "id": "reporting-loss-retained-evidence",
+      "description": "Connector reporting is lost while prior manager and workload evidence remains retained.",
+      "connectorReporting": "lost",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T01:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T01:00:02+00:00",
+        "evaluatedAt": "2026-08-20T01:10:00+00:00",
+        "responseGeneratedAt": "2026-08-20T01:10:01+00:00"
+      },
+      "claims": [
+        {
+          "name": "connector-contact",
+          "state": "unavailable",
+          "authority": "dashboard-accepted-sync",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": null,
+          "dashboardReceivedAt": "2026-08-20T01:00:02+00:00"
+        },
+        {
+          "name": "manager-observation",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "retained",
+          "value": "running",
+          "sourceObservedAt": "2026-08-20T01:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T01:00:02+00:00"
+        },
+        {
+          "name": "workload-evidence",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "retained",
+          "value": "active-one",
+          "sourceObservedAt": "2026-08-20T01:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T01:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "reporting-loss",
+      "trueResolutionProven": false
+    },
+    {
+      "id": "fresh-contact-stale-manager",
+      "description": "Connector contact is fresh while manager observations remain old.",
+      "connectorReporting": "current",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T02:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T02:00:02+00:00",
+        "evaluatedAt": "2026-08-20T02:10:00+00:00",
+        "responseGeneratedAt": "2026-08-20T02:10:01+00:00"
+      },
+      "claims": [
+        {
+          "name": "connector-contact",
+          "state": "authoritative",
+          "authority": "dashboard-accepted-sync",
+          "freshness": "current",
+          "value": "current",
+          "sourceObservedAt": "2026-08-20T02:09:58+00:00",
+          "dashboardReceivedAt": "2026-08-20T02:09:59+00:00"
+        },
+        {
+          "name": "manager-observation",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "stale",
+          "value": "running",
+          "sourceObservedAt": "2026-08-20T02:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T02:00:02+00:00"
+        },
+        {
+          "name": "workload-evidence",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "stale",
+          "value": "active-one",
+          "sourceObservedAt": "2026-08-20T02:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T02:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "stale-manager-evidence",
+      "trueResolutionProven": false
+    },
+    {
+      "id": "identity-mismatch",
+      "description": "Payload identity disagrees with the credential-derived connector identity.",
+      "connectorReporting": "current",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T03:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T03:00:01+00:00",
+        "evaluatedAt": "2026-08-20T03:00:02+00:00",
+        "responseGeneratedAt": "2026-08-20T03:00:03+00:00"
+      },
+      "claims": [
+        {
+          "name": "connector-identity",
+          "state": "authoritative",
+          "authority": "credential-derived",
+          "freshness": "current",
+          "value": "mismatch",
+          "sourceObservedAt": "2026-08-20T03:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T03:00:01+00:00"
+        },
+        {
+          "name": "payload-identity",
+          "state": "unavailable",
+          "authority": "not-authoritative",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": "2026-08-20T03:00:00+00:00",
+          "dashboardReceivedAt": null
+        }
+      ],
+      "expectedInterpretation": "identity-mismatch",
+      "trueResolutionProven": false
+    },
+    {
+      "id": "true-resolution",
+      "description": "Fresh source evidence explicitly proves the prior condition cleared.",
+      "connectorReporting": "current",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T04:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T04:00:01+00:00",
+        "evaluatedAt": "2026-08-20T04:00:02+00:00",
+        "responseGeneratedAt": "2026-08-20T04:00:03+00:00"
+      },
+      "claims": [
+        {
+          "name": "connector-contact",
+          "state": "authoritative",
+          "authority": "dashboard-accepted-sync",
+          "freshness": "current",
+          "value": "current",
+          "sourceObservedAt": "2026-08-20T04:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T04:00:01+00:00"
+        },
+        {
+          "name": "condition-state",
+          "state": "authoritative",
+          "authority": "manager",
+          "freshness": "current",
+          "value": "cleared",
+          "sourceObservedAt": "2026-08-20T04:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T04:00:01+00:00"
+        }
+      ],
+      "expectedInterpretation": "true-resolution",
+      "trueResolutionProven": true
+    }
+  ],
+  "incidentCardinalities": [
+    {
+      "id": "incidents-0",
+      "incidentCount": 0,
+      "queryLimit": 200,
+      "expectedVisibleCount": 0,
+      "expectedTruncated": false,
+      "authoritativeTotalAvailable": false
+    },
+    {
+      "id": "incidents-1",
+      "incidentCount": 1,
+      "queryLimit": 200,
+      "expectedVisibleCount": 1,
+      "expectedTruncated": false,
+      "authoritativeTotalAvailable": false
+    },
+    {
+      "id": "incidents-62",
+      "incidentCount": 62,
+      "queryLimit": 200,
+      "expectedVisibleCount": 62,
+      "expectedTruncated": false,
+      "authoritativeTotalAvailable": false
+    },
+    {
+      "id": "incidents-200",
+      "incidentCount": 200,
+      "queryLimit": 200,
+      "expectedVisibleCount": 200,
+      "expectedTruncated": false,
+      "authoritativeTotalAvailable": false
+    },
+    {
+      "id": "incidents-over-200",
+      "incidentCount": 201,
+      "queryLimit": 200,
+      "expectedVisibleCount": 200,
+      "expectedTruncated": true,
+      "authoritativeTotalAvailable": false
+    }
+  ],
+  "conditionDecomposition": [
+    {
+      "id": "repeated-persistent-condition",
+      "signals": [
+        {
+          "signalId": "signal-001",
+          "conditionKey": "condition-persistent",
+          "observedAt": "2026-08-20T05:00:00+00:00",
+          "evaluatedAt": "2026-08-20T05:00:01+00:00",
+          "truth": "true"
+        },
+        {
+          "signalId": "signal-002",
+          "conditionKey": "condition-persistent",
+          "observedAt": "2026-08-20T05:01:00+00:00",
+          "evaluatedAt": "2026-08-20T05:01:01+00:00",
+          "truth": "true"
+        },
+        {
+          "signalId": "signal-003",
+          "conditionKey": "condition-persistent",
+          "observedAt": "2026-08-20T05:02:00+00:00",
+          "evaluatedAt": "2026-08-20T05:02:01+00:00",
+          "truth": "unknown"
+        }
+      ],
+      "expectedConditionCount": 1,
+      "expectedIncidentCount": 1
+    },
+    {
+      "id": "independent-conditions",
+      "signals": [
+        {
+          "signalId": "signal-101",
+          "conditionKey": "condition-connector-reporting",
+          "observedAt": "2026-08-20T06:00:00+00:00",
+          "evaluatedAt": "2026-08-20T06:00:01+00:00",
+          "truth": "true"
+        },
+        {
+          "signalId": "signal-102",
+          "conditionKey": "condition-manager-stale",
+          "observedAt": "2026-08-20T06:00:00+00:00",
+          "evaluatedAt": "2026-08-20T06:00:01+00:00",
+          "truth": "true"
+        },
+        {
+          "signalId": "signal-103",
+          "conditionKey": "condition-workload-pressure",
+          "observedAt": "2026-08-20T06:00:00+00:00",
+          "evaluatedAt": "2026-08-20T06:00:01+00:00",
+          "truth": "true"
+        }
+      ],
+      "expectedConditionCount": 3,
+      "expectedIncidentCount": 3
+    }
+  ],
+  "supportDiagnostics": [
+    {
+      "id": "explicit-profile-success",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+      "diagnosticMode": "ConnectorOffline",
+      "profileId": "default",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T07:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T07:00:02+00:00",
+        "evaluatedAt": "2026-08-20T07:00:03+00:00",
+        "responseGeneratedAt": "2026-08-20T07:00:04+00:00"
+      },
+      "outcome": "completed",
+      "rejectionDisposition": null,
+      "failureStage": "none",
+      "returnContext": "not-applicable",
+      "claims": [
+        {
+          "name": "diagnostic-report",
+          "state": "authoritative",
+          "authority": "verified-node-result",
+          "freshness": "current",
+          "value": "profile-default",
+          "sourceObservedAt": "2026-08-20T07:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T07:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "explicit-profile-success",
+      "result": {
+        "reportJson": "{\"schemaVersion\":1,\"profile\":\"default\",\"verifiedMeasurements\":[],\"unavailableEvidence\":[]}",
+        "markdown": "# Diagnostics\n\nProfile `default` evidence was collected."
+      }
+    },
+    {
+      "id": "omitted-profile-ambiguity",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2",
+      "diagnosticMode": "ConnectorOffline",
+      "profileId": null,
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T08:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T08:00:02+00:00",
+        "evaluatedAt": "2026-08-20T08:00:03+00:00",
+        "responseGeneratedAt": "2026-08-20T08:00:04+00:00"
+      },
+      "outcome": "completed",
+      "rejectionDisposition": null,
+      "failureStage": "none",
+      "returnContext": "not-applicable",
+      "claims": [
+        {
+          "name": "diagnostic-report",
+          "state": "partial",
+          "authority": "verified-node-result",
+          "freshness": "partial",
+          "value": "profile-selected-locally",
+          "sourceObservedAt": "2026-08-20T08:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T08:00:02+00:00"
+        },
+        {
+          "name": "requested-profile",
+          "state": "unavailable",
+          "authority": "dashboard-request",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": null,
+          "dashboardReceivedAt": "2026-08-20T08:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "omitted-profile-ambiguous",
+      "result": {
+        "reportJson": "{\"schemaVersion\":1,\"profile\":\"default\",\"verifiedMeasurements\":[],\"unavailableEvidence\":[\"requested-profile\"]}",
+        "markdown": "# Diagnostics\n\nA local profile was selected because the request omitted one."
+      }
+    },
+    {
+      "id": "policy-rejection",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3",
+      "diagnosticMode": "Full",
+      "profileId": "default",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T09:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T09:00:01+00:00",
+        "evaluatedAt": "2026-08-20T09:00:02+00:00",
+        "responseGeneratedAt": "2026-08-20T09:00:03+00:00"
+      },
+      "outcome": "rejected",
+      "rejectionDisposition": "broker-evidence-access-denied",
+      "failureStage": "local-broker",
+      "returnContext": "not-applicable",
+      "claims": [
+        {
+          "name": "diagnostic-report",
+          "state": "unavailable",
+          "authority": "local-broker-policy",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": "2026-08-20T09:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T09:00:01+00:00"
+        }
+      ],
+      "expectedInterpretation": "policy-rejection",
+      "result": null
+    },
+    {
+      "id": "timeout",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4",
+      "diagnosticMode": "HostPressure",
+      "profileId": "default",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T10:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T10:02:00+00:00",
+        "evaluatedAt": "2026-08-20T10:02:01+00:00",
+        "responseGeneratedAt": "2026-08-20T10:02:02+00:00"
+      },
+      "outcome": "timed-out",
+      "rejectionDisposition": "broker-timeout",
+      "failureStage": "local-broker",
+      "returnContext": "not-applicable",
+      "claims": [
+        {
+          "name": "diagnostic-report",
+          "state": "unavailable",
+          "authority": "local-broker",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": "2026-08-20T10:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T10:02:00+00:00"
+        }
+      ],
+      "expectedInterpretation": "timeout",
+      "result": null
+    },
+    {
+      "id": "partial-evidence",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa5",
+      "diagnosticMode": "Full",
+      "profileId": "default",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T11:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T11:00:02+00:00",
+        "evaluatedAt": "2026-08-20T11:00:03+00:00",
+        "responseGeneratedAt": "2026-08-20T11:00:04+00:00"
+      },
+      "outcome": "partial",
+      "rejectionDisposition": null,
+      "failureStage": "none",
+      "returnContext": "not-applicable",
+      "claims": [
+        {
+          "name": "manager-state",
+          "state": "partial",
+          "authority": "verified-node-result",
+          "freshness": "partial",
+          "value": "metadata-only",
+          "sourceObservedAt": "2026-08-20T11:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T11:00:02+00:00"
+        },
+        {
+          "name": "workload-evidence",
+          "state": "unavailable",
+          "authority": "verified-node-result",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": null,
+          "dashboardReceivedAt": "2026-08-20T11:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "partial-evidence",
+      "result": {
+        "reportJson": "{\"schemaVersion\":1,\"profile\":\"default\",\"verifiedMeasurements\":[\"manager-metadata\"],\"unavailableEvidence\":[\"workload\"]}",
+        "markdown": "# Diagnostics\n\nManager metadata is partial; workload evidence is unavailable."
+      }
+    },
+    {
+      "id": "invalid-diagnostic-scope",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa6",
+      "diagnosticMode": "JobNotAssigned",
+      "profileId": "restricted",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T12:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T12:00:01+00:00",
+        "evaluatedAt": "2026-08-20T12:00:02+00:00",
+        "responseGeneratedAt": "2026-08-20T12:00:03+00:00"
+      },
+      "outcome": "forbidden",
+      "rejectionDisposition": "diagnostic-scope-forbidden",
+      "failureStage": "dashboard-authorization",
+      "returnContext": "not-applicable",
+      "claims": [
+        {
+          "name": "diagnostic-report",
+          "state": "unavailable",
+          "authority": "dashboard-authorization",
+          "freshness": "unavailable",
+          "value": null,
+          "sourceObservedAt": "2026-08-20T12:00:00+00:00",
+          "dashboardReceivedAt": null
+        }
+      ],
+      "expectedInterpretation": "invalid-diagnostic-scope",
+      "result": null
+    },
+    {
+      "id": "leave-return-exact-result",
+      "sessionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa7",
+      "diagnosticMode": "CapacityMismatch",
+      "profileId": "default",
+      "clocks": {
+        "sourceObservedAt": "2026-08-20T13:00:00+00:00",
+        "dashboardReceivedAt": "2026-08-20T13:00:02+00:00",
+        "evaluatedAt": "2026-08-20T13:00:03+00:00",
+        "responseGeneratedAt": "2026-08-20T13:05:00+00:00"
+      },
+      "outcome": "completed",
+      "rejectionDisposition": null,
+      "failureStage": "none",
+      "returnContext": "fresh-tenant-session-read",
+      "claims": [
+        {
+          "name": "diagnostic-report",
+          "state": "authoritative",
+          "authority": "verified-node-result",
+          "freshness": "current",
+          "value": "stored-exact-result",
+          "sourceObservedAt": "2026-08-20T13:00:00+00:00",
+          "dashboardReceivedAt": "2026-08-20T13:00:02+00:00"
+        }
+      ],
+      "expectedInterpretation": "exact-result-retrieval",
+      "result": {
+        "reportJson": "{\"schemaVersion\":1,\"profile\":\"default\",\"verifiedMeasurements\":[\"capacity\"],\"unavailableEvidence\":[]}",
+        "markdown": "# Diagnostics\n\nStored capacity evidence remains exact after navigation."
+      }
+    }
+  ]
+}
