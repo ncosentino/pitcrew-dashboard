@@ -20,3 +20,4 @@ and explicit supersession links.
 | [ADR-0013](adr-0013-typed-profile-image-rollout.md) | Accepted | Apply one immutable candidate through a locally constrained, at-most-once typed profile operation. |
 | [ADR-0014](adr-0014-frozen-image-rollout-campaigns.md) | Accepted | Freeze campaign targets and sequence existing typed profile rollouts through explicit canary and wave approvals. |
 | [ADR-0015](adr-0015-claim-level-evidence-authority-and-freshness.md) | Accepted | Attach authority, clocks, freshness, coverage, and retention to individual evidence claims. |
+| [ADR-0016](adr-0016-actionable-incident-operating-model.md) | Accepted | Separate evidence, tri-state conditions, linked episodes, and deterministically grouped human-owned incidents. |

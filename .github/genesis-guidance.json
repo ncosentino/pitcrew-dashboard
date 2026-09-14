@@ -383,6 +383,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0016-actionable-incident-operating-model.md",
+        "title": "ADR-0016: Actionable incident operating model",
+        "section": "Architecture decisions",
+        "order": 116,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",
