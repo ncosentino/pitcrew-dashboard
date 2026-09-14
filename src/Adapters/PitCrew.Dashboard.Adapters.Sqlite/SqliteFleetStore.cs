@@ -247,18 +247,15 @@ internal sealed class SqliteFleetStore(
         reader.GetBoolean(3));
   }
 
-  public async Task ApplySyncAsync(
+  public async Task<FleetSyncApplyResult> ApplySyncAsync(
       IFleetStorageTransaction storageTransaction,
       Guid nodeId,
       string connectorVersion,
       DateTimeOffset receivedAt,
-      IReadOnlyList<ManagerObservedState> profiles,
-      IReadOnlySet<string> acceptedProfileIds,
       ConnectorCredentialUpdate credentialUpdate,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      ConnectorProfileInventory? profileInventory = null)
   {
-    ArgumentNullException.ThrowIfNull(profiles);
-    ArgumentNullException.ThrowIfNull(acceptedProfileIds);
     var enlisted = SqliteFleetTransaction.Resolve(storageTransaction);
     var connection = enlisted.Connection;
     var transaction = enlisted.Transaction;
@@ -320,6 +317,64 @@ internal sealed class SqliteFleetStore(
       }
     }
 
+    var profileInventoryAccepted = profileInventory is null;
+    if (profileInventory is not null)
+    {
+      await using var inventoryCommand = connection.CreateCommand();
+      inventoryCommand.Transaction = transaction;
+      inventoryCommand.CommandText =
+          """
+          UPDATE nodes
+          SET profile_inventory_coverage = $coverage,
+              profile_inventory_observed_at = $observedAt,
+              profile_inventory_reason = $reason,
+              profile_inventory_received_at = $receivedAt
+          WHERE node_id = $nodeId
+            AND revoked_at IS NULL
+            AND (
+              profile_inventory_observed_at IS NULL
+              OR julianday($observedAt) > julianday(profile_inventory_observed_at))
+          RETURNING 1;
+          """;
+      inventoryCommand.Parameters.AddWithValue(
+          "$coverage",
+          profileInventory.Coverage);
+      inventoryCommand.Parameters.AddWithValue(
+          "$observedAt",
+          profileInventory.ObservedAt.ToString(
+              "O",
+              CultureInfo.InvariantCulture));
+      inventoryCommand.Parameters.AddWithValue(
+          "$reason",
+          (object?)profileInventory.UnavailableReason ?? DBNull.Value);
+      inventoryCommand.Parameters.AddWithValue(
+          "$receivedAt",
+          receivedAt.ToString("O", CultureInfo.InvariantCulture));
+      inventoryCommand.Parameters.AddWithValue(
+          "$nodeId",
+          nodeId.ToString("D"));
+      profileInventoryAccepted =
+          await inventoryCommand.ExecuteScalarAsync(cancellationToken) is not null;
+    }
+
+    return new FleetSyncApplyResult(profileInventoryAccepted);
+  }
+
+  public async Task ApplyProfilesAsync(
+      IFleetStorageTransaction storageTransaction,
+      Guid nodeId,
+      DateTimeOffset receivedAt,
+      IReadOnlyList<ManagerObservedState> profiles,
+      IReadOnlySet<string> acceptedProfileIds,
+      ConnectorProfileInventory? profileInventory,
+      CancellationToken cancellationToken)
+  {
+    ArgumentNullException.ThrowIfNull(profiles);
+    ArgumentNullException.ThrowIfNull(acceptedProfileIds);
+    var enlisted = SqliteFleetTransaction.Resolve(storageTransaction);
+    var connection = enlisted.Connection;
+    var transaction = enlisted.Transaction;
+
     await using var profileCommand = connection.CreateCommand();
     profileCommand.Transaction = transaction;
     var sql = new System.Text.StringBuilder();
@@ -330,11 +385,18 @@ internal sealed class SqliteFleetStore(
         "$nodeId",
         nodeId.ToString("D"));
 
-    if (profiles.Count == 0)
+    var completeInventory = profileInventory is null ||
+        string.Equals(
+            profileInventory.Coverage,
+            "complete",
+            StringComparison.Ordinal);
+    if (completeInventory && profiles.Count == 0)
     {
       sql.AppendLine("DELETE FROM profiles WHERE node_id = $nodeId;");
     }
-    else if (acceptedProfileIds.Count > 0)
+    else if (completeInventory &&
+        (profileInventory is not null ||
+         acceptedProfileIds.Count > 0))
     {
       var profileParameters = new string[profiles.Count];
       for (var index = 0; index < profiles.Count; index++)
@@ -369,17 +431,20 @@ internal sealed class SqliteFleetStore(
               profile_id,
               payload_hash,
               payload_json,
-              observed_at)
+              observed_at,
+              received_at)
           VALUES (
               $nodeId,
               $profileId{index},
               $payloadHash{index},
               $payloadJson{index},
-              $observedAt{index})
+              $observedAt{index},
+              $receivedAt)
           ON CONFLICT (node_id, profile_id) DO UPDATE SET
               payload_hash = excluded.payload_hash,
               payload_json = excluded.payload_json,
-              observed_at = excluded.observed_at
+              observed_at = excluded.observed_at,
+              received_at = excluded.received_at
           WHERE profiles.payload_hash <> excluded.payload_hash;
           """);
       profileCommand.Parameters.AddWithValue(
@@ -478,7 +543,12 @@ internal sealed class SqliteFleetStore(
                 ch.last_recovered_outage_started_at,
                 ch.last_recovered_at,
                 ch.last_recovered_failure_category,
-                ch.received_at
+                ch.received_at,
+                p.received_at AS profile_received_at,
+                n.profile_inventory_coverage,
+                n.profile_inventory_observed_at,
+                n.profile_inventory_reason,
+                n.profile_inventory_received_at
             FROM nodes AS n
             LEFT JOIN profiles AS p ON p.node_id = n.node_id
             LEFT JOIN node_hardware_current AS h
@@ -497,6 +567,8 @@ internal sealed class SqliteFleetStore(
 
     var nodes = new List<FleetNode>();
     var profilesByNode = new Dictionary<Guid, List<ManagerObservedState>>();
+    var profileEvidenceByNode =
+        new Dictionary<Guid, List<FleetProfileEvidence>>();
     var nodeRows = new Dictionary<Guid, NodeRow>();
     await using var reader = await command.ExecuteReaderAsync(cancellationToken);
     while (await reader.ReadAsync(cancellationToken))
@@ -506,6 +578,9 @@ internal sealed class SqliteFleetStore(
           CultureInfo.InvariantCulture);
       if (!nodeRows.ContainsKey(nodeId))
       {
+        var row = new SqliteRowReader(reader);
+        var inventoryCoverage =
+            row.OptionalString("profile_inventory_coverage");
         nodeRows[nodeId] = new NodeRow(
             reader.GetString(1),
             reader.GetString(2),
@@ -526,8 +601,16 @@ internal sealed class SqliteFleetStore(
                 cancellationToken),
             ReadConnectorHealthOrNull(
                 reader,
-                nodeId));
+                nodeId),
+            inventoryCoverage is null
+                ? null
+                : new ConnectorProfileInventory(
+                    inventoryCoverage,
+                    row.Time("profile_inventory_observed_at"),
+                    row.OptionalString("profile_inventory_reason")),
+            row.OptionalTime("profile_inventory_received_at"));
         profilesByNode[nodeId] = [];
+        profileEvidenceByNode[nodeId] = [];
       }
 
       if (!await reader.IsDBNullAsync(7, cancellationToken))
@@ -541,6 +624,12 @@ internal sealed class SqliteFleetStore(
               $"Stored profile projection for node '{nodeId}' could not be deserialized.");
         }
         profilesByNode[nodeId].Add(profile);
+        var row = new SqliteRowReader(reader);
+        profileEvidenceByNode[nodeId].Add(
+            new FleetProfileEvidence(
+                profile.ProfileId,
+                row.OptionalTime("profile_received_at"),
+                []));
       }
     }
 
@@ -565,6 +654,9 @@ internal sealed class SqliteFleetStore(
       {
         Hardware = row.Hardware,
         ConnectorHealth = row.ConnectorHealth,
+        ProfileInventory = row.ProfileInventory,
+        ProfileInventoryReceivedAt = row.ProfileInventoryReceivedAt,
+        ProfileEvidence = profileEvidenceByNode[pair.Key],
       });
     }
 
@@ -690,7 +782,9 @@ internal sealed class SqliteFleetStore(
       bool IsRevoked,
       bool CredentialRotationRequested,
       HostHardwareInventory? Hardware,
-      ConnectorHealthNodeCurrent? ConnectorHealth);
+      ConnectorHealthNodeCurrent? ConnectorHealth,
+      ConnectorProfileInventory? ProfileInventory,
+      DateTimeOffset? ProfileInventoryReceivedAt);
 
   private static ConnectorHealthNodeCurrent?
       ReadConnectorHealthOrNull(

@@ -69,7 +69,18 @@ internal sealed class SqliteImageRolloutCommandStore(
       capabilityCommand.Transaction = transaction;
       capabilityCommand.CommandText =
           """
-          SELECT image_rollout_capability_json, image_rollout_capability_at
+          SELECT CASE
+              WHEN profile_inventory_coverage IS NULL
+                OR (
+                  profile_inventory_coverage = 'complete'
+                  AND image_rollout_capability_at IS NOT NULL
+                  AND profile_inventory_received_at IS NOT NULL
+                  AND julianday(image_rollout_capability_at)
+                    >= julianday(profile_inventory_received_at))
+              THEN image_rollout_capability_json
+              ELSE NULL
+          END,
+          image_rollout_capability_at
           FROM nodes
           WHERE tenant_id = $tenantId
             AND node_id = $nodeId
@@ -592,7 +603,8 @@ internal sealed class SqliteImageRolloutCommandStore(
       ImageRolloutCommandOutcome? outcome,
       DateTimeOffset receivedAt,
       DateTimeOffset redeliverBefore,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      bool applyCapability = true)
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
@@ -601,8 +613,9 @@ internal sealed class SqliteImageRolloutCommandStore(
             connection,
             cancellationToken);
 
-    await using (var capabilityCommand = connection.CreateCommand())
+    if (applyCapability)
     {
+      await using var capabilityCommand = connection.CreateCommand();
       capabilityCommand.Transaction = transaction;
       capabilityCommand.CommandText =
           """
@@ -657,6 +670,17 @@ internal sealed class SqliteImageRolloutCommandStore(
         receivedAt,
         cancellationToken);
 
+    if (!applyCapability)
+    {
+      await SqliteProfileOperationSlot.ReleaseCompletedAsync(
+          connection,
+          transaction,
+          nodeId,
+          cancellationToken);
+      await transaction.CommitAsync(cancellationToken);
+      return null;
+    }
+
     var offered = await OfferAsync(
         connection,
         transaction,
@@ -698,7 +722,14 @@ internal sealed class SqliteImageRolloutCommandStore(
           WHERE tenant_id = $tenantId
             AND revoked_at IS NULL
             AND image_rollout_capability_json IS NOT NULL
-            AND image_rollout_capability_at IS NOT NULL;
+            AND image_rollout_capability_at IS NOT NULL
+            AND (
+              profile_inventory_coverage IS NULL
+              OR (
+                profile_inventory_coverage = 'complete'
+                AND profile_inventory_received_at IS NOT NULL
+                AND julianday(image_rollout_capability_at)
+                  >= julianday(profile_inventory_received_at)));
           """;
       capabilityCommand.Parameters.AddWithValue("$tenantId", tenantId);
       await using var reader = await capabilityCommand.ExecuteReaderAsync(
@@ -771,7 +802,14 @@ internal sealed class SqliteImageRolloutCommandStore(
             AND node_id = $nodeId
             AND revoked_at IS NULL
             AND image_rollout_capability_json IS NOT NULL
-            AND image_rollout_capability_at IS NOT NULL;
+            AND image_rollout_capability_at IS NOT NULL
+            AND (
+              profile_inventory_coverage IS NULL
+              OR (
+                profile_inventory_coverage = 'complete'
+                AND profile_inventory_received_at IS NOT NULL
+                AND julianday(image_rollout_capability_at)
+                  >= julianday(profile_inventory_received_at)));
           """;
       capabilityCommand.Parameters.AddWithValue("$tenantId", tenantId);
       capabilityCommand.Parameters.AddWithValue(

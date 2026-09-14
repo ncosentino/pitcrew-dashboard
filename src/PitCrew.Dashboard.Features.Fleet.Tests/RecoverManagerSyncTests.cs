@@ -235,6 +235,217 @@ public sealed class RecoverManagerSyncTests
   }
 
   [Test]
+  [Arguments(-1)]
+  [Arguments(0)]
+  public async Task Rejected_Complete_Inventory_Only_Applies_Claim_Independent_Effects(
+      int inventoryObservedOffsetMinutes)
+  {
+    var fleetStore = _mocks.Create<IFleetStore>();
+    var historyStore = _mocks.Create<IFleetHistoryStore>();
+    var connectorHealthStore = _mocks.Create<IConnectorHealthStore>();
+    var transactionFactory = _mocks.Create<IFleetStorageTransactionFactory>();
+    var transaction = _mocks.Create<IFleetStorageTransaction>();
+    var capacityStore = _mocks.Create<ICapacityCommandStore>();
+    var recoveryStore = _mocks.Create<IRecoveryCommandStore>();
+    var imageRolloutStore = _mocks.Create<IImageRolloutCommandStore>();
+    var nodeId = Guid.NewGuid();
+    var capacityOutcome = new CapacityCommandOutcome(
+        Guid.NewGuid(),
+        "succeeded",
+        "Capacity maximum was acknowledged.",
+        8,
+        Now);
+    var recoveryOutcome = new RecoveryCommandOutcome(
+        Guid.NewGuid(),
+        "failed",
+        "process-failure",
+        "Recovery process exited with a failure.",
+        "manager-instance",
+        "manager-instance",
+        Now);
+    var imageOutcome = new ImageRolloutCommandOutcome(
+        Guid.NewGuid(),
+        "failed",
+        "process-failure",
+        "Rollout process exited with a failure.",
+        "sha256:0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        null,
+        "degraded",
+        null,
+        null,
+        "exit 1",
+        Now);
+    var capacityCapability = new CapacityOperatorCapability(
+        [new CapacityOperatorProfile("default", 99, 1, 1)]);
+    var imageCapability = new ImageRolloutOperatorCapability(
+        [
+            new ImageRolloutOperatorProfile(
+                "default",
+                "linux/amd64",
+                "ghcr.io/example/runner:main",
+                "sha256:0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+                $"sha256:{new string('1', 64)}",
+                new string('2', 64),
+                new string('3', 64),
+                new string('4', 64),
+                new string('5', 64),
+                99,
+                new string('6', 64),
+                ["copilot-cli"],
+                true,
+                true,
+                null,
+                false,
+                30,
+                600,
+                1800,
+                "current",
+                1,
+                0),
+        ]);
+    var connectorHealth = CreateConnectorHealthReplay();
+
+    fleetStore
+        .Setup(store => store.ResolveNodeOrNullAsync(
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()))
+        .ReturnsAsync(new ConnectorNodeIdentity(
+            nodeId,
+            "tenant",
+            ConnectorCredentialSlot.Current,
+            false));
+    fleetStore
+        .Setup(store => store.ApplySyncAsync(
+            transaction.Object,
+            nodeId,
+            "2.0.0",
+            Now,
+            It.Is<ConnectorCredentialUpdate>(update =>
+                update.Kind == ConnectorCredentialUpdateKind.None),
+            It.IsAny<CancellationToken>(),
+            It.Is<ConnectorProfileInventory>(inventory =>
+                inventory.Coverage == "complete" &&
+                inventory.ObservedAt ==
+                    Now.AddMinutes(inventoryObservedOffsetMinutes))))
+        .ReturnsAsync(new FleetSyncApplyResult(false));
+    connectorHealthStore
+        .Setup(store => store.ApplyAsync(
+            transaction.Object,
+            nodeId,
+            connectorHealth,
+            Now,
+            It.Is<ConnectorHealthRetentionPolicy>(policy =>
+                policy.MaximumEventsPerNode > 0),
+            It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
+    capacityStore
+        .Setup(store => store.ApplyConnectorSyncAsync(
+            nodeId,
+            capacityCapability,
+            capacityOutcome,
+            Now,
+            It.Is<DateTimeOffset>(value => value < Now),
+            It.IsAny<CancellationToken>(),
+            false))
+        .ReturnsAsync((SetCapacityCommand?)null);
+    recoveryStore
+        .Setup(store => store.ApplyConnectorSyncAsync(
+            nodeId,
+            It.Is<RecoveryOperatorCapability>(capability =>
+                capability.Profiles.Count == 1 &&
+                capability.Profiles[0].DesiredGeneration == 4),
+            null,
+            recoveryOutcome,
+            Now,
+            It.Is<DateTimeOffset>(value => value < Now),
+            It.IsAny<CancellationToken>(),
+            false))
+        .ReturnsAsync((RecoverManagerCommand?)null);
+    imageRolloutStore
+        .Setup(store => store.ApplyConnectorSyncAsync(
+            nodeId,
+            imageCapability,
+            null,
+            imageOutcome,
+            Now,
+            It.Is<DateTimeOffset>(value => value < Now),
+            It.IsAny<CancellationToken>(),
+            false))
+        .ReturnsAsync((RollOutProfileImageCommand?)null);
+    transaction
+        .Setup(scope => scope.CommitAsync(It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
+    transaction
+        .Setup(scope => scope.DisposeAsync())
+        .Returns(ValueTask.CompletedTask);
+    transactionFactory
+        .Setup(factory => factory.BeginAsync(It.IsAny<CancellationToken>()))
+        .ReturnsAsync(transaction.Object);
+    var unitOfWork = new SyncConnectorUnitOfWork(
+        fleetStore.Object,
+        historyStore.Object,
+        connectorHealthStore.Object,
+        transactionFactory.Object,
+        capacityStore.Object,
+        recoveryStore.Object,
+        imageRolloutStore.Object,
+        new ConnectorCredentialService(),
+        Options.Create(new FleetDashboardOptions()),
+        new FixedTimeProvider(Now));
+
+    var result = await unitOfWork.SynchronizeAsync(
+        "credential",
+        new ConnectorSynchronizationInput(
+            12,
+            "2.0.0",
+            Now,
+            [],
+            capacityCapability,
+            capacityOutcome,
+            CreateCapability(),
+            null,
+            recoveryOutcome,
+            connectorHealth,
+            imageCapability,
+            null,
+            imageOutcome,
+            new ConnectorProfileInventory(
+                "complete",
+                Now.AddMinutes(inventoryObservedOffsetMinutes),
+                null)),
+        CancellationToken.None);
+
+    await Assert.That(result.Status).IsEqualTo(ConnectorSyncStatus.Accepted);
+    await Assert.That(result.Response!.ConnectorHealthAcknowledgement)
+        .IsNotNull();
+    historyStore.VerifyNoOtherCalls();
+    fleetStore.Verify(
+        store => store.ApplyProfilesAsync(
+            transaction.Object,
+            nodeId,
+            Now,
+            It.Is<IReadOnlyList<ManagerObservedState>>(
+                profiles => profiles.Count == 0),
+            It.Is<IReadOnlySet<string>>(accepted => accepted.Count == 0),
+            It.Is<ConnectorProfileInventory?>(inventory =>
+                inventory != null &&
+                inventory.Coverage == "complete"),
+            It.IsAny<CancellationToken>()),
+        Times.Never);
+    fleetStore.Verify(
+        store => store.ApplyHostHardwareAsync(
+            transaction.Object,
+            nodeId,
+            It.Is<IReadOnlyList<ManagerObservedState>>(
+                profiles => profiles.Count == 0),
+            It.Is<IReadOnlyCollection<string>>(
+                profileIds => profileIds.Count == 0),
+            Now,
+            It.IsAny<CancellationToken>()),
+        Times.Never);
+  }
+
+  [Test]
   public async Task Recovery_Contract_Validation_Bounds_Evidence_And_Fences()
   {
     await Assert.That(
@@ -347,14 +558,10 @@ public sealed class RecoverManagerSyncTests
             It.Is<Guid>(nodeId => nodeId != Guid.Empty),
             "2.0.0",
             It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
-            It.Is<IReadOnlyList<ManagerObservedState>>(
-                profiles => profiles.Count == 0),
-            It.Is<IReadOnlySet<string>>(
-                accepted => accepted.Count == 0),
             It.Is<ConnectorCredentialUpdate>(update =>
                 update.Kind == ConnectorCredentialUpdateKind.None),
             It.IsAny<CancellationToken>()))
-        .Returns(Task.CompletedTask);
+        .ReturnsAsync(new FleetSyncApplyResult(true));
     var capacityStore = _mocks.Create<ICapacityCommandStore>();
     capacityStore
         .Setup(store => store.ApplyConnectorSyncAsync(
@@ -384,6 +591,18 @@ public sealed class RecoverManagerSyncTests
             It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
             It.Is<HistoryRetentionPolicy>(
                 retention => retention.MaximumSamplesPerProfile > 0),
+            It.IsAny<CancellationToken>()))
+        .Returns(Task.CompletedTask);
+    fleetStore
+        .Setup(store => store.ApplyProfilesAsync(
+            It.IsNotNull<IFleetStorageTransaction>(),
+            It.Is<Guid>(nodeId => nodeId != Guid.Empty),
+            It.Is<DateTimeOffset>(receivedAt => receivedAt == Now),
+            It.Is<IReadOnlyList<ManagerObservedState>>(
+                profiles => profiles.Count == 0),
+            It.Is<IReadOnlySet<string>>(
+                accepted => accepted.Count == 0),
+            null,
             It.IsAny<CancellationToken>()))
         .Returns(Task.CompletedTask);
     fleetStore

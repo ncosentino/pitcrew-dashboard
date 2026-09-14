@@ -14,6 +14,523 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 public sealed class SqliteFleetStoreTests
 {
   [Test]
+  public async Task Incomplete_Empty_Profile_Inventory_Preserves_Last_Known_Profile(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-profile-inventory-{Guid.NewGuid():N}.db");
+    try
+    {
+      var observedAt = new DateTimeOffset(
+          2026,
+          8,
+          20,
+          1,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, store, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              observedAt,
+              cancellationToken);
+      var profile = new ManagerObservedState(
+          1,
+          5,
+          "default",
+          "manager-instance",
+          "running",
+          observedAt,
+          "repo",
+          1,
+          null,
+          "accepted",
+          0,
+          0,
+          0,
+          [],
+          null,
+          0,
+          null);
+      var credentialUpdate = new ConnectorCredentialUpdate(
+          ConnectorCredentialUpdateKind.None,
+          string.Empty);
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          observedAt,
+          [profile],
+          credentialUpdate,
+          cancellationToken);
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          observedAt.AddMinutes(10),
+          [],
+          credentialUpdate,
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "unavailable",
+              observedAt.AddMinutes(10),
+              "state-root-missing"));
+
+      var fleet = await store.GetFleetAsync(
+          "tenant",
+          observedAt.AddMinutes(10),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(fleet.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem()
+          .Because("an incomplete empty inventory cannot prove profile removal");
+      await Assert.That(fleet.Nodes[0].Profiles[0].ProfileId)
+          .IsEqualTo("default");
+      await Assert.That(fleet.Nodes[0].ProfileInventory?.Coverage)
+          .IsEqualTo("unavailable");
+      await Assert.That(fleet.Nodes[0].ProfileInventoryReceivedAt)
+          .IsEqualTo(observedAt.AddMinutes(10));
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          observedAt.AddMinutes(11),
+          [],
+          credentialUpdate,
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "unavailable",
+              observedAt.AddMinutes(5),
+              "state-root-missing"));
+      var afterOlderInventory = await store.GetFleetAsync(
+          "tenant",
+          observedAt.AddMinutes(11),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(
+          afterOlderInventory.Nodes[0].ProfileInventory?.ObservedAt)
+          .IsEqualTo(observedAt.AddMinutes(10))
+          .Because("a delayed sync cannot regress inventory authority time");
+      await Assert.That(
+          afterOlderInventory.Nodes[0].ProfileInventoryReceivedAt)
+          .IsEqualTo(observedAt.AddMinutes(10))
+          .Because("a delayed sync cannot refresh retained inventory evidence");
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          observedAt.AddMinutes(11),
+          [],
+          credentialUpdate,
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "complete",
+              observedAt.AddMinutes(11),
+              null));
+      var measuredEmptyFleet = await store.GetFleetAsync(
+          "tenant",
+          observedAt.AddMinutes(11),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(measuredEmptyFleet.Nodes).HasSingleItem();
+      await Assert.That(measuredEmptyFleet.Nodes[0].Profiles).IsEmpty()
+          .Because("a complete measured-empty inventory proves profile removal");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Delayed_Complete_Inventory_Replay_Cannot_Mutate_Newer_Profiles(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-profile-inventory-replay-{Guid.NewGuid():N}.db");
+    try
+    {
+      var firstObservedAt = new DateTimeOffset(
+          2026,
+          8,
+          20,
+          1,
+          0,
+          0,
+          TimeSpan.Zero);
+      var secondObservedAt = firstObservedAt.AddMinutes(1);
+      var (connectionFactory, store, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              firstObservedAt,
+              cancellationToken);
+      var credentialUpdate = new ConnectorCredentialUpdate(
+          ConnectorCredentialUpdateKind.None,
+          string.Empty);
+      var newerProfileA = CreateProfile(
+          "profile-a",
+          "manager-a-new",
+          secondObservedAt) with
+      {
+        Host = new ObservedHost(CreateHardware(
+            secondObservedAt,
+            new string('b', 64),
+            "newer-processor")),
+      };
+      var newerProfileB = CreateProfile(
+          "profile-b",
+          "manager-b",
+          secondObservedAt);
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          secondObservedAt,
+          [newerProfileA, newerProfileB],
+          credentialUpdate,
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "complete",
+              secondObservedAt,
+              null));
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          secondObservedAt.AddMinutes(1),
+          [CreateProfile(
+              "profile-a",
+              "manager-a-old",
+              firstObservedAt) with
+          {
+            Host = new ObservedHost(CreateHardware(
+                firstObservedAt,
+                new string('a', 64),
+                "older-processor")),
+          }],
+          credentialUpdate,
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "complete",
+              firstObservedAt,
+              null));
+
+      var fleet = await store.GetFleetAsync(
+          "tenant",
+          secondObservedAt.AddMinutes(1),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(fleet.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles.Count).IsEqualTo(2)
+          .Because("a rejected delayed inventory cannot delete profiles from newer authority");
+      await Assert.That(
+          fleet.Nodes[0].Profiles
+              .Single(profile => profile.ProfileId == "profile-a")
+              .ManagerInstanceId)
+          .IsEqualTo("manager-a-new");
+      await Assert.That(
+          fleet.Nodes[0].Profiles
+              .Single(profile => profile.ProfileId == "profile-b")
+              .ManagerInstanceId)
+          .IsEqualTo("manager-b");
+      await Assert.That(fleet.Nodes[0].ProfileInventory?.ObservedAt)
+          .IsEqualTo(secondObservedAt);
+      await Assert.That(fleet.Nodes[0].ProfileInventoryReceivedAt)
+          .IsEqualTo(secondObservedAt);
+      await Assert.That(fleet.Nodes[0].Hardware?.InventoryHash)
+          .IsEqualTo(new string('b', 64));
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          secondObservedAt.AddMinutes(2),
+          [],
+          credentialUpdate,
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "complete",
+              secondObservedAt,
+              null));
+      var afterEqualMeasuredEmpty = await store.GetFleetAsync(
+          "tenant",
+          secondObservedAt.AddMinutes(2),
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(afterEqualMeasuredEmpty.Nodes[0].Profiles.Count)
+          .IsEqualTo(2)
+          .Because("an equal inventory replay cannot become a new measured-empty authority");
+      await Assert.That(
+          afterEqualMeasuredEmpty.Nodes[0].Hardware?.InventoryHash)
+          .IsEqualTo(new string('b', 64));
+      await Assert.That(
+          afterEqualMeasuredEmpty.Nodes[0].ProfileInventoryReceivedAt)
+          .IsEqualTo(secondObservedAt);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Incomplete_Inventory_Cannot_Authorize_Stale_Capacity_Operations(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-incomplete-operation-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          8,
+          20,
+          2,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, fleetStore, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken);
+      var capacityStore =
+          new SqliteCapacityCommandStore(connectionFactory);
+      var capability = new CapacityOperatorCapability(
+          [
+            new CapacityOperatorProfile(
+                "default",
+                7,
+                30,
+                50),
+          ]);
+
+      await capacityStore.ApplyConnectorSyncAsync(
+          nodeId,
+          capability,
+          null,
+          now,
+          now.AddMinutes(-1),
+          cancellationToken);
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          fleetStore,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          now.AddMinutes(1),
+          [],
+          new ConnectorCredentialUpdate(
+              ConnectorCredentialUpdateKind.None,
+              string.Empty),
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "unavailable",
+              now.AddMinutes(1),
+              "state-root-missing"));
+
+      var incompleteResult = await capacityStore.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          31,
+          "1",
+          now.AddMinutes(1),
+          now.AddMinutes(10),
+          DateTimeOffset.MinValue,
+          cancellationToken);
+
+      await Assert.That(incompleteResult.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Unsupported)
+          .Because("fresh connector contact cannot authorize from stale profile evidence");
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          fleetStore,
+          connectionFactory,
+          nodeId,
+          "2.0.0",
+          now.AddMinutes(2),
+          [],
+          new ConnectorCredentialUpdate(
+              ConnectorCredentialUpdateKind.None,
+              string.Empty),
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "complete",
+              now.AddMinutes(2),
+              null));
+      var staleCapabilityResult = await capacityStore.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          31,
+          "1",
+          now.AddMinutes(2),
+          now.AddMinutes(10),
+          DateTimeOffset.MinValue,
+          cancellationToken);
+
+      await Assert.That(staleCapabilityResult.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Unsupported)
+          .Because("complete inventory does not refresh an older operation capability");
+
+      await capacityStore.ApplyConnectorSyncAsync(
+          nodeId,
+          capability,
+          null,
+          now.AddMinutes(2),
+          now.AddMinutes(1),
+          cancellationToken);
+      var currentResult = await capacityStore.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          31,
+          "1",
+          now.AddMinutes(2),
+          now.AddMinutes(10),
+          DateTimeOffset.MinValue,
+          cancellationToken);
+
+      await Assert.That(currentResult.Status)
+          .IsEqualTo(CapacityCommandQueueStatus.Queued);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Rejected_Inventory_Preserves_Capacity_Authority_While_Applying_Scoped_Outcome(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-replay-{Guid.NewGuid():N}.db");
+    try
+    {
+      var now = new DateTimeOffset(
+          2026,
+          8,
+          20,
+          3,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              now,
+              cancellationToken);
+      var store = new SqliteCapacityCommandStore(connectionFactory);
+      var acceptedCapability = new CapacityOperatorCapability(
+          [new CapacityOperatorProfile("default", 7, 30, 50)]);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          acceptedCapability,
+          null,
+          now,
+          now.AddMinutes(-2),
+          cancellationToken);
+      var queued = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          40,
+          "1",
+          now.AddSeconds(1),
+          now.AddMinutes(10),
+          DateTimeOffset.MinValue,
+          cancellationToken);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          acceptedCapability,
+          null,
+          now.AddSeconds(2),
+          now.AddMinutes(-2),
+          cancellationToken);
+      var before = await StoredNodeCapabilityProbe.ReadAsync(
+          connectionFactory,
+          nodeId,
+          "capacity",
+          cancellationToken);
+      var outcome = new CapacityCommandOutcome(
+          queued.CommandId!.Value,
+          "succeeded",
+          "Capacity maximum was acknowledged.",
+          8,
+          now.AddSeconds(3));
+      var replayedCapability = new CapacityOperatorCapability(
+          [new CapacityOperatorProfile("default", 99, 1, 1)]);
+
+      await store.ApplyConnectorSyncAsync(
+          Guid.NewGuid(),
+          replayedCapability,
+          outcome,
+          now.AddMinutes(10),
+          now.AddMinutes(8),
+          cancellationToken,
+          applyCapability: false);
+      var afterForeignOutcome = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+      await Assert.That(
+          afterForeignOutcome[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("delivered");
+
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          replayedCapability,
+          outcome,
+          now.AddMinutes(10),
+          now.AddMinutes(8),
+          cancellationToken,
+          applyCapability: false);
+      var after = await StoredNodeCapabilityProbe.ReadAsync(
+          connectionFactory,
+          nodeId,
+          "capacity",
+          cancellationToken);
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          cancellationToken);
+
+      await Assert.That(after).IsEqualTo(before);
+      await Assert.That(controls[0].Profiles[0].CurrentMaximum)
+          .IsEqualTo(30);
+      await Assert.That(controls[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("succeeded");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Capacity_Command_Queues_Delivers_And_Completes_Idempotently(
       CancellationToken cancellationToken)
   {
@@ -61,6 +578,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddMilliseconds(500),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(unsupportedPause.Status)
           .IsEqualTo(CapacityCommandQueueStatus.InvalidMaximum);
@@ -73,6 +591,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(1),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(queued.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued);
@@ -86,6 +605,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(2),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(conflict.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Conflict);
@@ -131,6 +651,73 @@ public sealed class SqliteFleetStoreTests
       await Assert.That(
               controls[0].Profiles[0].LatestCommand!.Status)
           .IsEqualTo("succeeded");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  [Arguments(0, CapacityCommandQueueStatus.Queued)]
+  [Arguments(-120, CapacityCommandQueueStatus.Queued)]
+  [Arguments(-121, CapacityCommandQueueStatus.Unsupported)]
+  public async Task Capacity_Command_Requires_Absolute_Capability_Freshness(
+      int capabilityAgeSeconds,
+      CapacityCommandQueueStatus expectedStatus,
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-capacity-freshness-{Guid.NewGuid():N}.db");
+    try
+    {
+      var requestedAt = new DateTimeOffset(
+          2026,
+          8,
+          20,
+          2,
+          0,
+          0,
+          TimeSpan.Zero);
+      var capabilityAt = requestedAt.AddSeconds(capabilityAgeSeconds);
+      var (connectionFactory, _, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              capabilityAt,
+              cancellationToken);
+      var store = new SqliteCapacityCommandStore(connectionFactory);
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          new CapacityOperatorCapability(
+              [
+                new CapacityOperatorProfile(
+                    "default",
+                    7,
+                    30,
+                    50),
+              ]),
+          null,
+          capabilityAt,
+          capabilityAt.AddMinutes(-2),
+          cancellationToken);
+
+      var result = await store.QueueAsync(
+          "tenant",
+          nodeId,
+          "default",
+          40,
+          "1",
+          requestedAt,
+          requestedAt.AddMinutes(10),
+          requestedAt.AddSeconds(-120),
+          cancellationToken);
+
+      await Assert.That(result.Status).IsEqualTo(expectedStatus);
+      await Assert.That(result.CommandId is not null)
+          .IsEqualTo(expectedStatus == CapacityCommandQueueStatus.Queued)
+          .Because("only current or exactly-boundary capacity evidence may authorize a command");
     }
     finally
     {
@@ -187,6 +774,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(1),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(pause.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued);
@@ -247,6 +835,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddMinutes(5),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken,
           Guid.NewGuid());
       await Assert.That(staleResume.Status)
@@ -260,6 +849,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddMinutes(6),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(resume.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued);
@@ -353,6 +943,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(1),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await store.ApplyConnectorSyncAsync(
           nodeId,
@@ -407,6 +998,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(5),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken,
           pause.CommandId);
       await Assert.That(staleResume.Status)
@@ -420,6 +1012,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(6),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(explicitMaximum.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued);
@@ -478,6 +1071,7 @@ public sealed class SqliteFleetStoreTests
           "1",
           now.AddSeconds(1),
           now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await store.ApplyConnectorSyncAsync(
           nodeId,
@@ -1628,6 +2222,51 @@ public sealed class SqliteFleetStoreTests
             "Enrollment did not return a node ID.");
     return (connectionFactory, store, nodeId);
   }
+
+  private static ManagerObservedState CreateProfile(
+      string profileId,
+      string managerInstanceId,
+      DateTimeOffset observedAt) =>
+      new(
+          1,
+          5,
+          profileId,
+          managerInstanceId,
+          "running",
+          observedAt,
+          "repo",
+          1,
+          null,
+          "accepted",
+          0,
+          0,
+          0,
+          [],
+          null,
+          0,
+          null);
+
+  private static HostHardwareInventory CreateHardware(
+      DateTimeOffset observedAt,
+      string hash,
+      string processorModel) =>
+      new(
+          "current",
+          observedAt,
+          observedAt,
+          hash,
+          processorModel,
+          "amd64",
+          10,
+          20,
+          null,
+          null,
+          34359738368,
+          "Docker Desktop",
+          "6.12.34",
+          "28.3.3",
+          "overlayfs",
+          "extfs");
 
   private static async Task CreateVersionThreeDatabaseAsync(
       SqliteConnectionFactory connectionFactory,

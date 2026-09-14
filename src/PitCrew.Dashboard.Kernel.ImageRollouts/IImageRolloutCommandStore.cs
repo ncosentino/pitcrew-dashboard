@@ -66,6 +66,15 @@ public interface IImageRolloutCommandStore
   /// Applies connector capability, progress, and outcome state, then offers
   /// at most one queued command.
   /// </summary>
+  /// <param name="nodeId">Authenticated node identifier.</param>
+  /// <param name="capability">Current local capability, including ignored replay payloads.</param>
+  /// <param name="progress">Durable claim or start report, or <see langword="null"/>.</param>
+  /// <param name="outcome">Terminal command outcome, or <see langword="null"/>.</param>
+  /// <param name="receivedAt">Dashboard time when synchronization was accepted.</param>
+  /// <param name="redeliverBefore">Unclaimed offers older than this time may be offered again.</param>
+  /// <param name="cancellationToken">Token that cancels synchronization.</param>
+  /// <param name="applyCapability">Whether the capability belongs to an accepted complete inventory.</param>
+  /// <returns>A command offered for execution, or <see langword="null"/>.</returns>
   Task<RollOutProfileImageCommand?> ApplyConnectorSyncAsync(
       Guid nodeId,
       ImageRolloutOperatorCapability? capability,
@@ -73,7 +82,8 @@ public interface IImageRolloutCommandStore
       ImageRolloutCommandOutcome? outcome,
       DateTimeOffset receivedAt,
       DateTimeOffset redeliverBefore,
-      CancellationToken cancellationToken);
+      CancellationToken cancellationToken,
+      bool applyCapability = true);
 
   /// <summary>
   /// Loads bounded rollout controls for one tenant, newest history first.

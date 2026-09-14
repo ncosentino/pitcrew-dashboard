@@ -30,6 +30,7 @@ internal sealed class SupportRelayResultIngestor(
     {
       return session;
     }
+    var receivedAt = _timeProvider.GetUtcNow();
     if (resultJson.Length > 4_194_304)
     {
       return session;
@@ -135,6 +136,7 @@ internal sealed class SupportRelayResultIngestor(
     {
       return session;
     }
+    var verifiedAt = _timeProvider.GetUtcNow();
     _ = await _supportStore.CompleteSessionAsync(
         session.TenantId,
         session.SessionId,
@@ -142,8 +144,10 @@ internal sealed class SupportRelayResultIngestor(
         reportJson,
         payload.Markdown,
         JsonSerializer.Serialize(attestation, _jsonOptions),
-        _timeProvider.GetUtcNow(),
-        cancellationToken);
+        verifiedAt,
+        cancellationToken,
+        receivedAt,
+        verifiedAt);
     return await _supportStore.GetSessionOrNullAsync(
         session.TenantId,
         session.SessionId,

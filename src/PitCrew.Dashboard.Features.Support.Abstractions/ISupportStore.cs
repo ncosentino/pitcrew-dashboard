@@ -33,6 +33,8 @@ public interface ISupportStore
   /// <param name="now">Current time used for expiry comparison.</param>
   /// <param name="limit">Maximum rows deleted in one call.</param>
   /// <param name="cancellationToken">Token that cancels the mutation.</param>
+  /// <param name="receivedAt">Dashboard receipt time for the relay result envelope.</param>
+  /// <param name="verifiedAt">Dashboard verification time for the accepted result.</param>
   Task PurgeExpiredEnrollmentsAsync(
       DateTimeOffset now,
       int limit,
@@ -362,5 +364,7 @@ public interface ISupportStore
       string markdown,
       string attestationJson,
       DateTimeOffset completedAt,
-      CancellationToken cancellationToken);
+      CancellationToken cancellationToken,
+      DateTimeOffset? receivedAt = null,
+      DateTimeOffset? verifiedAt = null);
 }

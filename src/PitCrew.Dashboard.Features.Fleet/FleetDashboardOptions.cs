@@ -135,6 +135,12 @@ public sealed class FleetDashboardOptions
   public int CapacityCommandRedeliverySeconds { get; set; } = 120;
 
   /// <summary>
+  /// Gets or sets the oldest connector capacity capability accepted when queueing.
+  /// </summary>
+  [Range(10, 3600)]
+  public int CapacityCapabilityFreshnessSeconds { get; set; } = 120;
+
+  /// <summary>
   /// Gets or sets how long a queued manager-recovery command remains deliverable.
   /// </summary>
   [Range(1, 1440)]
@@ -451,6 +457,11 @@ public sealed class FleetDashboardOptions
     {
       yield return
           "MaximumAlertIncidentsPerQuery cannot exceed MaximumResolvedAlertIncidentsPerTenant.";
+    }
+    if (CapacityCapabilityFreshnessSeconds < ConnectorPollSeconds * 2)
+    {
+      yield return
+          "CapacityCapabilityFreshnessSeconds must be at least twice ConnectorPollSeconds.";
     }
     if (RecoveryCapabilityFreshnessSeconds < ConnectorPollSeconds * 2)
     {

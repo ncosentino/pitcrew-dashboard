@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { operationalIncidentSchema } from './fleetApi';
+import {
+  evidenceClaimSchema,
+  managerObservedStateSchema,
+  operationalIncidentSchema,
+} from './fleetApi';
 
 const legacyIncident = {
   incidentId: '22222222-2222-4222-8222-222222222222',
@@ -89,5 +93,76 @@ describe('operationalIncidentSchema legacy compatibility', () => {
     expect(parsed.transition).toBe('recurrence');
     expect(parsed.previousHistoryState).toBe('history-expired');
     expect(parsed.suppressionReason).toBe('maintenance');
+  });
+});
+
+describe('evidenceClaimSchema', () => {
+  it('preserves measured zero and independent clocks', () => {
+    const parsed = evidenceClaimSchema.parse({
+      name: 'workload-evidence',
+      authority: 'pitcrew-manager',
+      source: 'workload',
+      sourceIdentity: 'manager-instance',
+      sourceObservedAt: '2026-08-20T02:00:00+00:00',
+      dashboardReceivedAt: '2026-08-20T02:00:02+00:00',
+      evaluatedAt: '2026-08-20T02:10:00+00:00',
+      verifiedAt: null,
+      responseGeneratedAt: '2026-08-20T02:10:01+00:00',
+      freshnessBoundary: '2026-08-20T02:01:00+00:00',
+      coverage: 'complete',
+      retention: 'live',
+      freshness: 'stale',
+      value: '0',
+      unavailableReason: null,
+    });
+
+    expect(parsed.value).toBe('0');
+    expect(parsed.sourceObservedAt).not.toBe(parsed.dashboardReceivedAt);
+    expect(parsed.dashboardReceivedAt).not.toBe(parsed.evaluatedAt);
+    expect(parsed.freshness).toBe('stale');
+  });
+});
+
+describe('managerObservedStateSchema contract 21', () => {
+  it('rejects a source observation under the wrong source family', () => {
+    const sourceObservation = {
+      authority: 'pitcrew-manager',
+      source: 'local-runtime',
+      sourceIdentity: 'manager-instance',
+      observedAt: '2026-08-20T02:00:00+00:00',
+      coverage: 'complete',
+      retention: 'live',
+      reason: null,
+    } as const;
+
+    const result = managerObservedStateSchema.safeParse({
+      schemaVersion: 1,
+      managerContractVersion: 21,
+      profileId: 'default',
+      managerInstanceId: 'manager-instance',
+      managerStatus: 'running',
+      observedAt: '2026-08-20T02:00:00+00:00',
+      scope: 'repository',
+      generation: 1,
+      desiredStateHash: null,
+      desiredStateStatus: 'accepted',
+      desiredSlots: 0,
+      activeSlots: 0,
+      eligibleSlots: 0,
+      drainingSlots: 0,
+      slots: [],
+      sourceObservations: {
+        localRuntime: sourceObservation,
+        githubScaleSet: { ...sourceObservation, source: 'github-scale-set' },
+        resourceTelemetry: { ...sourceObservation, source: 'resource-telemetry' },
+        hostHardware: { ...sourceObservation, source: 'host-hardware' },
+        hostAdmission: { ...sourceObservation, source: 'host-admission' },
+        subsystemHealth: { ...sourceObservation, source: 'subsystem-health' },
+        capacity: { ...sourceObservation, source: 'capacity' },
+        workload: sourceObservation,
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 });

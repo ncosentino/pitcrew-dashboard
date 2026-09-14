@@ -36,7 +36,8 @@ internal sealed record ConnectorSynchronizationInput(
     ConnectorHealthReplay? ConnectorHealth = null,
     ImageRolloutOperatorCapability? ImageRolloutOperator = null,
     ImageRolloutCommandProgress? ImageRolloutCommandProgress = null,
-    ImageRolloutCommandOutcome? ImageRolloutCommandOutcome = null);
+    ImageRolloutCommandOutcome? ImageRolloutCommandOutcome = null,
+    ConnectorProfileInventory? ProfileInventory = null);
 
 internal interface ISyncConnectorUnitOfWork
 {
@@ -100,6 +101,16 @@ internal sealed partial class SyncConnectorUnitOfWork(
           "A connector cannot synchronize more than 256 profiles.",
           null);
     }
+    if (!IsValidProfileInventory(
+        input.ProtocolVersion,
+        input.ProfileInventory,
+        input.Profiles.Count))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Profile inventory does not satisfy the connector protocol contract.",
+          null);
+    }
 
     var profileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     foreach (var profile in input.Profiles)
@@ -125,7 +136,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
     {
       return new ConnectorSyncResult(
           ConnectorSyncStatus.Invalid,
-          "Manager contract 14 requires connector protocol version 7.",
+          "One or more manager contracts require a newer connector protocol version.",
           null);
     }
     if (input.ProtocolVersion < 3 &&
@@ -174,6 +185,15 @@ internal sealed partial class SyncConnectorUnitOfWork(
           null);
     }
     var acceptedAt = _timeProvider.GetUtcNow();
+    if (input.ProfileInventory?.ObservedAt >
+        acceptedAt.AddSeconds(
+            _options.Value.HistoryClockSkewToleranceSeconds))
+    {
+      return new ConnectorSyncResult(
+          ConnectorSyncStatus.Invalid,
+          "Profile inventory observation time exceeds the accepted clock-skew tolerance.",
+          null);
+    }
     if (input.ProtocolVersion < 10 &&
         input.ConnectorHealth is not null)
     {
@@ -237,22 +257,34 @@ internal sealed partial class SyncConnectorUnitOfWork(
         await _transactionFactory.BeginAsync(cancellationToken);
     var historyPolicy =
         FleetHistoryPolicy.CreateAppendPolicy(_options.Value);
-    var acceptedProfileIds = await _fleetHistoryStore.AppendAsync(
-        storageTransaction,
-        identity.NodeId,
-        input.Profiles,
-        acceptedAt,
-        historyPolicy,
-        cancellationToken);
-    await _fleetStore.ApplySyncAsync(
+    var fleetApplyResult = await _fleetStore.ApplySyncAsync(
         storageTransaction,
         identity.NodeId,
         input.ConnectorVersion,
         acceptedAt,
-        input.Profiles,
-        acceptedProfileIds,
         credentialUpdate,
-        cancellationToken);
+        cancellationToken,
+        input.ProfileInventory);
+    IReadOnlySet<string> acceptedProfileIds =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    if (fleetApplyResult.ProfileInventoryAccepted)
+    {
+      acceptedProfileIds = await _fleetHistoryStore.AppendAsync(
+          storageTransaction,
+          identity.NodeId,
+          input.Profiles,
+          acceptedAt,
+          historyPolicy,
+          cancellationToken);
+      await _fleetStore.ApplyProfilesAsync(
+          storageTransaction,
+          identity.NodeId,
+          acceptedAt,
+          input.Profiles,
+          acceptedProfileIds,
+          input.ProfileInventory,
+          cancellationToken);
+    }
     if (input.ConnectorHealth is not null)
     {
       await _connectorHealthStore.ApplyAsync(
@@ -266,15 +298,21 @@ internal sealed partial class SyncConnectorUnitOfWork(
               _options.Value.MaximumConnectorHealthEventsPerNode),
           cancellationToken);
     }
+    var completeProfileInventory =
+        fleetApplyResult.ProfileInventoryAccepted &&
+        (input.ProfileInventory is null ||
+         input.ProfileInventory.Coverage == "complete");
     IReadOnlyList<ManagerObservedState>? hardwareProfiles =
-        input.Profiles.Count == 0
-            ? []
-            : acceptedProfileIds.Count == 0
-                ? null
-                : input.Profiles
-                    .Where(profile =>
-                        acceptedProfileIds.Contains(profile.ProfileId))
-                    .ToArray();
+        !completeProfileInventory
+            ? null
+            : input.Profiles.Count == 0
+                ? []
+                : acceptedProfileIds.Count == 0
+                    ? null
+                    : input.Profiles
+                        .Where(profile =>
+                            acceptedProfileIds.Contains(profile.ProfileId))
+                        .ToArray();
     if (hardwareProfiles is not null)
     {
       await _fleetStore.ApplyHostHardwareAsync(
@@ -305,7 +343,8 @@ internal sealed partial class SyncConnectorUnitOfWork(
           acceptedAt.Subtract(
               TimeSpan.FromSeconds(
                   _options.Value.CapacityCommandRedeliverySeconds)),
-          cancellationToken);
+          cancellationToken,
+          applyCapability: completeProfileInventory);
     }
     RecoverManagerCommand? recoveryCommand = null;
     if (input.ProtocolVersion >= 4)
@@ -319,7 +358,8 @@ internal sealed partial class SyncConnectorUnitOfWork(
           acceptedAt.Subtract(
               TimeSpan.FromSeconds(
                   _options.Value.RecoveryCommandRedeliverySeconds)),
-          cancellationToken);
+          cancellationToken,
+          applyCapability: completeProfileInventory);
     }
     RollOutProfileImageCommand? imageRolloutCommand = null;
     if (input.ProtocolVersion >= PitCrewProtocol.ImageRolloutMinimumVersion)
@@ -333,7 +373,8 @@ internal sealed partial class SyncConnectorUnitOfWork(
           acceptedAt.Subtract(
               TimeSpan.FromSeconds(
                   _options.Value.ImageRolloutCommandRedeliverySeconds)),
-          cancellationToken);
+          cancellationToken,
+          applyCapability: completeProfileInventory);
     }
     return new ConnectorSyncResult(
         ConnectorSyncStatus.Accepted,
@@ -730,6 +771,7 @@ internal sealed partial class SyncConnectorUnitOfWork(
         !IsValidWorkerUpdate(profile) ||
         !IsValidHostHardware(profile) ||
         !IsValidHostAdmission(profile) ||
+        !IsValidSourceObservations(profile) ||
         !IsValidAutoscaling(profile) ||
         !IsValidResourceTelemetry(profile) ||
         profile.ActiveSlots != profile.Slots.Count(slot => slot.ProcessRunning) ||
@@ -1043,10 +1085,146 @@ internal sealed partial class SyncConnectorUnitOfWork(
       profiles.All(profile =>
           profile.ManagerContractVersion switch
           {
+            >= 21 => protocolVersion >= 12,
             >= 15 => protocolVersion >= 8,
             >= 14 => protocolVersion >= 7,
             _ => true,
           });
+
+  internal static bool IsValidProfileInventory(
+      int protocolVersion,
+      ConnectorProfileInventory? inventory,
+      int profileCount)
+  {
+    if (protocolVersion < 12)
+    {
+      return inventory is null;
+    }
+    if (inventory is null ||
+        inventory.ObservedAt == default ||
+        inventory.Coverage is not (
+            "complete" or
+            "partial" or
+            "unavailable"))
+    {
+      return false;
+    }
+    return inventory.Coverage switch
+    {
+      "complete" => inventory.UnavailableReason is null,
+      "partial" => profileCount > 0 &&
+          inventory.UnavailableReason is not null &&
+          IsLowerKebabCode(inventory.UnavailableReason, 128),
+      _ => profileCount == 0 &&
+          inventory.UnavailableReason is not null &&
+          IsLowerKebabCode(inventory.UnavailableReason, 128),
+    };
+  }
+
+  private static bool IsValidSourceObservations(
+      ManagerObservedState profile)
+  {
+    if (profile.SourceObservations is null)
+    {
+      return profile.ManagerContractVersion < 21;
+    }
+    if (profile.ManagerContractVersion < 21)
+    {
+      return false;
+    }
+
+    var observations = profile.SourceObservations;
+    return IsValidSourceObservation(
+            observations.LocalRuntime,
+            "local-runtime",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.GitHubScaleSet,
+            "github-scale-set",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.ResourceTelemetry,
+            "resource-telemetry",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.HostHardware,
+            "host-hardware",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.HostAdmission,
+            "host-admission",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.SubsystemHealth,
+            "subsystem-health",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.Capacity,
+            "capacity",
+            profile.ManagerInstanceId,
+            profile.ObservedAt) &&
+        IsValidSourceObservation(
+            observations.Workload,
+            "workload",
+            profile.ManagerInstanceId,
+            profile.ObservedAt);
+  }
+
+  private static bool IsValidSourceObservation(
+      ManagerSourceObservation observation,
+      string expectedSource,
+      string expectedIdentity,
+      DateTimeOffset publishedAt)
+  {
+    if (observation is null ||
+        !string.Equals(
+            observation.Authority,
+            "pitcrew-manager",
+            StringComparison.Ordinal) ||
+        !string.Equals(
+            observation.Source,
+            expectedSource,
+            StringComparison.Ordinal) ||
+        !string.Equals(
+            observation.SourceIdentity,
+            expectedIdentity,
+            StringComparison.Ordinal) ||
+        observation.ObservedAt > publishedAt ||
+        observation.Coverage is not (
+            "complete" or
+            "partial" or
+            "unavailable") ||
+        observation.Retention is not ("live" or "last-known"))
+    {
+      return false;
+    }
+
+    return observation.Coverage switch
+    {
+      "complete" when observation.Retention == "live" =>
+          observation.ObservedAt is not null &&
+          observation.Reason is null,
+      "complete" =>
+          observation.ObservedAt is not null &&
+          observation.Reason == "stale",
+      "partial" =>
+          observation.ObservedAt is not null &&
+          observation.Reason == "source-partial",
+      _ =>
+          observation.ObservedAt is null &&
+          observation.Retention == "live" &&
+          observation.Reason is (
+              "not-observed" or
+              "source-unavailable" or
+              "unsupported"),
+    };
+  }
 
   private static bool IsValidHostHardware(
       ManagerObservedState profile)

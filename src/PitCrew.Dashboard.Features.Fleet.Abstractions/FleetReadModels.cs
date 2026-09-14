@@ -38,6 +38,26 @@ public sealed record FleetNode(
   /// Gets the latest retrospectively replayed connector-health snapshot when available.
   /// </summary>
   public ConnectorHealthNodeCurrent? ConnectorHealth { get; init; }
+
+  /// <summary>
+  /// Gets connector profile-inventory acquisition metadata when supported.
+  /// </summary>
+  public ConnectorProfileInventory? ProfileInventory { get; init; }
+
+  /// <summary>
+  /// Gets the Dashboard receipt time for the current inventory acquisition metadata.
+  /// </summary>
+  public DateTimeOffset? ProfileInventoryReceivedAt { get; init; }
+
+  /// <summary>
+  /// Gets claim-level evidence about connector reporting and inventory acquisition.
+  /// </summary>
+  public IReadOnlyList<EvidenceClaim> EvidenceClaims { get; init; } = [];
+
+  /// <summary>
+  /// Gets claim-level evidence for each retained manager profile.
+  /// </summary>
+  public IReadOnlyList<FleetProfileEvidence> ProfileEvidence { get; init; } = [];
 }
 
 /// <summary>

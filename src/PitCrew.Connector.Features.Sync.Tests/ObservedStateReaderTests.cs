@@ -19,7 +19,6 @@ public sealed class ObservedStateReaderTests
     {
       var profileDirectory = Directory.CreateDirectory(
           Path.Combine(root, "default"));
-      Directory.CreateDirectory(Path.Combine(root, "legacy-profile"));
       var observedStatePath = Path.Combine(
           profileDirectory.FullName,
           "observed-state.json");
@@ -109,11 +108,16 @@ public sealed class ObservedStateReaderTests
           "{",
           cancellationToken);
       var retained = await reader.ReadAsync(cancellationToken);
-      await Assert.That(retained.IsComplete).IsTrue();
+      await Assert.That(retained.IsComplete).IsFalse();
       await Assert.That(retained.AggregateHash)
-          .IsEqualTo(initial.AggregateHash);
+          .IsNotEqualTo(initial.AggregateHash);
       await Assert.That(retained.Profiles[0])
           .IsEqualTo(initial.Profiles[0]);
+      await Assert.That(retained.Inventory?.Coverage)
+          .IsEqualTo("partial");
+      await Assert.That(retained.Inventory?.UnavailableReason)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateInvalid);
 
       Directory.Delete(profileDirectory.FullName, true);
       var removed = await reader.ReadAsync(cancellationToken);
@@ -121,6 +125,73 @@ public sealed class ObservedStateReaderTests
       await Assert.That(removed.Profiles).IsEmpty();
       await Assert.That(removed.AggregateHash)
           .IsNotEqualTo(initial.AggregateHash);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
+  public async Task ReadAsync_Missing_Profile_State_After_Restart_Is_Unavailable(
+      CancellationToken cancellationToken)
+  {
+    var root = CreateTemporaryDirectory();
+    try
+    {
+      var profileDirectory = Directory.CreateDirectory(
+          Path.Combine(root, "default"));
+      var observedStatePath = Path.Combine(
+          profileDirectory.FullName,
+          "observed-state.json");
+      var observedState = ConnectorTestData.CreateObservedState(
+          "default",
+          new DateTimeOffset(
+              2026,
+              8,
+              20,
+              2,
+              0,
+              0,
+              TimeSpan.Zero));
+      await File.WriteAllTextAsync(
+          observedStatePath,
+          JsonSerializer.Serialize(
+              observedState,
+              PitCrewProtocolJsonContext.Default.ManagerObservedState),
+          cancellationToken);
+      var options = Options.Create(
+          ConnectorTestData.CreateOptions(
+              root,
+              Path.Combine(root, "identity.json")));
+      var initialReader = new ObservedStateReader(
+          options,
+          NullLogger<ObservedStateReader>.Instance);
+
+      var initial = await initialReader.ReadAsync(cancellationToken);
+      await Assert.That(initial.IsComplete).IsTrue();
+      await Assert.That(initial.Profiles).HasSingleItem();
+
+      var restartedReader = new ObservedStateReader(
+          options,
+          NullLogger<ObservedStateReader>.Instance);
+      File.Delete(observedStatePath);
+
+      var missing = await restartedReader.ReadAsync(cancellationToken);
+
+      await Assert.That(missing.IsComplete).IsFalse()
+          .Because("an expected profile without observed state is not a complete inventory");
+      await Assert.That(missing.Profiles).IsEmpty();
+      await Assert.That(missing.Failure?.Category)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateUnreadable);
+      await Assert.That(missing.Failure?.Detail)
+          .IsEqualTo("Profile observed state could not be read.");
+      await Assert.That(missing.Inventory?.Coverage)
+          .IsEqualTo("unavailable");
+      await Assert.That(missing.Inventory?.UnavailableReason)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateUnreadable);
     }
     finally
     {
@@ -207,6 +278,7 @@ public sealed class ObservedStateReaderTests
   [Arguments("null-host-admission")]
   [Arguments("incomplete-host-admission")]
   [Arguments("incomplete-contract-nineteen-accounting")]
+  [Arguments("incomplete-contract-twenty-one-sources")]
   public async Task ReadAsync_Rejects_Incomplete_Or_Invalid_Additive_Objects(
       string scenario,
       CancellationToken cancellationToken)
@@ -287,6 +359,33 @@ public sealed class ObservedStateReaderTests
           accounting["theoreticalMaximumWorkers"] = 5;
           accounting["withholdingReason"] = null;
           accounting.Remove("allocatableWorkers");
+          break;
+        case "incomplete-contract-twenty-one-sources":
+          payload["managerContractVersion"] = 21;
+          var sourceObservations = new JsonObject();
+          foreach (var source in new[]
+          {
+            "localRuntime",
+            "githubScaleSet",
+            "resourceTelemetry",
+            "hostHardware",
+            "hostAdmission",
+            "subsystemHealth",
+            "capacity",
+          })
+          {
+            sourceObservations[source] = new JsonObject
+            {
+              ["authority"] = "pitcrew-manager",
+              ["source"] = "local-runtime",
+              ["sourceIdentity"] = observedState.ManagerInstanceId,
+              ["observedAt"] = observedState.ObservedAt,
+              ["coverage"] = "complete",
+              ["retention"] = "live",
+              ["reason"] = null,
+            };
+          }
+          payload["sourceObservations"] = sourceObservations;
           break;
         default:
           throw new ArgumentOutOfRangeException(
@@ -393,6 +492,12 @@ public sealed class ObservedStateReaderTests
         .IsEqualTo("PitCrew state root is unavailable.");
     await Assert.That(result.Failure.Detail)
         .DoesNotContain(root);
+    await Assert.That(result.Inventory).IsNotNull();
+    await Assert.That(result.Inventory!.Coverage)
+        .IsEqualTo("unavailable");
+    await Assert.That(result.Inventory.UnavailableReason)
+        .IsEqualTo(
+            ConnectorHealthFailureCategories.StateRootMissing);
   }
 
   [Test]
@@ -427,6 +532,12 @@ public sealed class ObservedStateReaderTests
               ConnectorHealthFailureCategories.ProfileStateUnreadable);
       await Assert.That(result.Failure.ProfileId)
           .IsEqualTo("default");
+      await Assert.That(result.Inventory).IsNotNull();
+      await Assert.That(result.Inventory!.Coverage)
+          .IsEqualTo("unavailable");
+      await Assert.That(result.Inventory.UnavailableReason)
+          .IsEqualTo(
+              ConnectorHealthFailureCategories.ProfileStateUnreadable);
     }
     finally
     {

@@ -115,6 +115,7 @@ public interface ICapacityCommandStore
   /// <param name="requestedByGitHubUserId">Administrator that requested the command.</param>
   /// <param name="requestedAt">Dashboard time when the command was requested.</param>
   /// <param name="expiresAt">Time after which delivery is rejected.</param>
+  /// <param name="capabilityObservedAfter">Capability older than this time is treated as stale.</param>
   /// <param name="cancellationToken">Token that cancels queueing.</param>
   /// <param name="resumeCommandId">Acknowledged pause command to resume, when applicable.</param>
   /// <returns>The queue result.</returns>
@@ -126,6 +127,7 @@ public interface ICapacityCommandStore
       string requestedByGitHubUserId,
       DateTimeOffset requestedAt,
       DateTimeOffset expiresAt,
+      DateTimeOffset capabilityObservedAfter,
       CancellationToken cancellationToken,
       Guid? resumeCommandId = null);
 
@@ -138,6 +140,7 @@ public interface ICapacityCommandStore
   /// <param name="receivedAt">Dashboard time when synchronization was accepted.</param>
   /// <param name="redeliverBefore">Delivered commands older than this time may be claimed again.</param>
   /// <param name="cancellationToken">Token that cancels synchronization.</param>
+  /// <param name="applyCapability">Whether the capability belongs to an accepted complete inventory.</param>
   /// <returns>A command claimed for delivery, or <see langword="null"/>.</returns>
   Task<SetCapacityCommand?> ApplyConnectorSyncAsync(
       Guid nodeId,
@@ -145,7 +148,8 @@ public interface ICapacityCommandStore
       CapacityCommandOutcome? outcome,
       DateTimeOffset receivedAt,
       DateTimeOffset redeliverBefore,
-      CancellationToken cancellationToken);
+      CancellationToken cancellationToken,
+      bool applyCapability = true);
 
   /// <summary>
   /// Loads connector-advertised controls and command state for one tenant.

@@ -1201,7 +1201,9 @@ internal sealed class SqliteSupportStore(
       string markdown,
       string attestationJson,
       DateTimeOffset completedAt,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      DateTimeOffset? receivedAt = null,
+      DateTimeOffset? verifiedAt = null)
   {
     await using var connection = await _connectionFactory.OpenAsync(cancellationToken);
     await using var command = connection.CreateCommand();
@@ -1210,6 +1212,8 @@ internal sealed class SqliteSupportStore(
         UPDATE support_sessions
         SET status = 'completed',
             completed_at = $completedAt,
+            result_received_at = $receivedAt,
+            result_verified_at = $verifiedAt,
             result_envelope_json = $result,
             report_json = $reportJson,
             markdown = $markdown,
@@ -1221,6 +1225,16 @@ internal sealed class SqliteSupportStore(
     command.Parameters.AddWithValue("$tenantId", tenantId);
     command.Parameters.AddWithValue("$sessionId", sessionId.ToString("D"));
     command.Parameters.AddWithValue("$completedAt", Format(completedAt));
+    command.Parameters.AddWithValue(
+        "$receivedAt",
+        receivedAt is null
+            ? DBNull.Value
+            : Format(receivedAt.Value));
+    command.Parameters.AddWithValue(
+        "$verifiedAt",
+        verifiedAt is null
+            ? DBNull.Value
+            : Format(verifiedAt.Value));
     command.Parameters.AddWithValue("$result", result);
     command.Parameters.AddWithValue("$reportJson", reportJson);
     command.Parameters.AddWithValue("$markdown", markdown);
@@ -1253,7 +1267,9 @@ internal sealed class SqliteSupportStore(
           s.result_envelope_json,
           s.report_json,
           s.markdown,
-          s.attestation_json
+          s.attestation_json,
+          s.result_received_at,
+          s.result_verified_at
       FROM support_sessions AS s
       """;
 
@@ -1551,7 +1567,11 @@ internal sealed class SqliteSupportStore(
             : JsonSerializer.Deserialize<SupportEnvelope>(reader.GetString(17), SupportJsonOptions),
         report,
         reader.IsDBNull(19) ? null : reader.GetString(19),
-        attestation);
+        attestation)
+    {
+      ResultReceivedAt = ReadNullableDate(reader, 21),
+      ResultVerifiedAt = ReadNullableDate(reader, 22),
+    };
   }
 
   private static JsonSerializerOptions SupportJsonOptions { get; } = new(JsonSerializerDefaults.Web);

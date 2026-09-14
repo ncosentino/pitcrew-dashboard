@@ -1709,8 +1709,6 @@ public sealed class ImagesHostingTests
           nodeId,
           "0.14.0",
           now,
-          [],
-          new HashSet<string>(StringComparer.OrdinalIgnoreCase),
           new ConnectorCredentialUpdate(
               ConnectorCredentialUpdateKind.None,
               string.Empty),

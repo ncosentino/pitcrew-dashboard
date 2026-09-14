@@ -50,6 +50,92 @@ public sealed class SqliteImageRolloutCommandStoreTests
   private const string RecipeId = "copilot-cli";
 
   [Test]
+  public async Task Rejected_Inventory_Preserves_Rollout_Authority_While_Applying_Scoped_Outcome(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteImageRolloutCommandStore(connectionFactory);
+      await SynchronizeAsync(store, nodeId, Now, cancellationToken);
+      var queued = await QueueAsync(store, nodeId, Now, cancellationToken);
+      await SynchronizeAsync(
+          store,
+          nodeId,
+          Now.AddSeconds(1),
+          cancellationToken);
+      var before = await StoredNodeCapabilityProbe.ReadAsync(
+          connectionFactory,
+          nodeId,
+          "image-rollout",
+          cancellationToken);
+      var outcome = new ImageRolloutCommandOutcome(
+          queued.CommandId!.Value,
+          "failed",
+          "process-failure",
+          "Rollout process exited with a failure.",
+          TargetDigest,
+          null,
+          "degraded",
+          null,
+          null,
+          "exit 1",
+          Now.AddSeconds(2));
+      var replayedCapability = CreateLegacyCapability();
+
+      await store.ApplyConnectorSyncAsync(
+          Guid.NewGuid(),
+          replayedCapability,
+          null,
+          outcome,
+          Now.AddMinutes(10),
+          Now.AddMinutes(8),
+          cancellationToken,
+          applyCapability: false);
+      var afterForeignOutcome = await store.GetControlsAsync(
+          "tenant",
+          120,
+          cancellationToken);
+      await Assert.That(
+          afterForeignOutcome[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("queued");
+
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          replayedCapability,
+          null,
+          outcome,
+          Now.AddMinutes(10),
+          Now.AddMinutes(8),
+          cancellationToken,
+          applyCapability: false);
+      var after = await StoredNodeCapabilityProbe.ReadAsync(
+          connectionFactory,
+          nodeId,
+          "image-rollout",
+          cancellationToken);
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          120,
+          cancellationToken);
+
+      await Assert.That(after).IsEqualTo(before);
+      await Assert.That(controls[0].Profiles[0].CurrentImageDigest)
+          .IsEqualTo(CreateCapability().Profiles[0].CurrentImageDigest);
+      await Assert.That(controls[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("failed");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Rollout_Command_Is_Delivered_Once_And_Progresses_To_Success(
       CancellationToken cancellationToken)
   {
@@ -309,6 +395,7 @@ public sealed class SqliteImageRolloutCommandStoreTests
           "1",
           Now.AddSeconds(1),
           Now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(blockedCapacity.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Conflict);
@@ -349,6 +436,7 @@ public sealed class SqliteImageRolloutCommandStoreTests
           "1",
           Now.AddSeconds(160),
           Now.AddMinutes(20),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(allowedCapacity.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued)

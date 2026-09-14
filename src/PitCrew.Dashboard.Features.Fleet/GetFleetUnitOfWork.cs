@@ -57,21 +57,32 @@ internal sealed class GetFleetUnitOfWork(
     return fleet with
     {
       Nodes = fleet.Nodes
-          .Select(node => node with
-          {
-            CapacityControls = controls.TryGetValue(
-                node.NodeId,
-                out var nodeControls)
-                ? nodeControls.Profiles
-                : [],
-            RecoveryControls = recoveryControls.TryGetValue(
-                node.NodeId,
-                out var nodeRecoveryControls)
-                ? nodeRecoveryControls.Profiles
-                : [],
-          })
+          .Select(node => FleetEvidenceProjector.ProjectNode(
+              node with
+              {
+                CapacityControls = controls.TryGetValue(
+                    node.NodeId,
+                    out var nodeControls)
+                    ? nodeControls.Profiles
+                    : [],
+                RecoveryControls = recoveryControls.TryGetValue(
+                    node.NodeId,
+                    out var nodeRecoveryControls)
+                    ? nodeRecoveryControls.Profiles
+                    : [],
+              },
+              generatedAt,
+              TimeSpan.FromSeconds(
+                  _options.Value.NodeOfflineAfterSeconds),
+              TimeSpan.FromSeconds(
+                  _options.Value.AlertManagerStaleAfterSeconds)))
           .ToArray(),
-      ActiveIncidents = incidents.Incidents,
+      ActiveIncidents = incidents.Incidents
+          .Select(incident =>
+              FleetEvidenceProjector.ProjectIncident(
+                  incident,
+                  generatedAt))
+          .ToArray(),
       ActiveIncidentTotal = incidents.TotalCount,
       ActiveCriticalIncidentTotal = incidents.CriticalCount,
       ActiveIncidentsTruncated = incidents.Truncated,

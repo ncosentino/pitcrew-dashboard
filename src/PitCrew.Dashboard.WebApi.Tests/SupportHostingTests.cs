@@ -696,6 +696,19 @@ public sealed class SupportHostingTests
           .IsEqualTo(HttpStatusCode.Accepted);
       await Assert.That(created.Status).IsEqualTo("Queued");
       await Assert.That(created.DispatchedAt).IsNull();
+      await Assert.That(created.EvidenceClaims.Select(
+          claim => claim.Name))
+          .IsEquivalentTo([
+              "diagnostic-authorization",
+              "diagnostic-transport",
+              "diagnostic-result",
+          ]);
+      await Assert.That(created.EvidenceClaims.Single(
+          claim => claim.Name == "diagnostic-transport").Coverage)
+          .IsEqualTo("unavailable");
+      await Assert.That(created.EvidenceClaims.Single(
+          claim => claim.Name == "diagnostic-result").Coverage)
+          .IsEqualTo("unavailable");
       await Assert.That(dispatchedResponse.StatusCode)
           .IsEqualTo(HttpStatusCode.OK);
       await Assert.That(dispatched.Status)
@@ -709,6 +722,14 @@ public sealed class SupportHostingTests
       await Assert.That(rejected.DispatchedAt)
           .IsEqualTo(dispatchedAt);
       await Assert.That(rejected.RejectionDisposition)
+          .IsEqualTo(
+              SupportRequestRejectionDispositions
+                  .UnsupportedCapability);
+      await Assert.That(rejected.EvidenceClaims.Single(
+          claim => claim.Name == "diagnostic-transport").Coverage)
+          .IsEqualTo("complete");
+      await Assert.That(rejected.EvidenceClaims.Single(
+          claim => claim.Name == "diagnostic-result").UnavailableReason)
           .IsEqualTo(
               SupportRequestRejectionDispositions
                   .UnsupportedCapability);

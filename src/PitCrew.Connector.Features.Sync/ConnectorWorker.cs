@@ -112,18 +112,20 @@ internal sealed partial class ConnectorWorker(
               stoppingToken);
           LogIncompleteObservation(nextDelay);
         }
-        else
         {
           var now = _timeProvider.GetUtcNow();
-          var capacityOperator =
-              await _capacityCommandExecutor.ReadCapabilityAsync(
-                  stoppingToken);
-          var recoveryOperator =
-              await _recoveryCommandExecutor.ReadCapabilityAsync(
-                  stoppingToken);
-          var imageRolloutOperator =
-              await _imageRolloutCommandExecutor.ReadCapabilityAsync(
-                  stoppingToken);
+          var capacityOperator = observedState.IsComplete
+              ? await _capacityCommandExecutor.ReadCapabilityAsync(
+                  stoppingToken)
+              : null;
+          var recoveryOperator = observedState.IsComplete
+              ? await _recoveryCommandExecutor.ReadCapabilityAsync(
+                  stoppingToken)
+              : null;
+          var imageRolloutOperator = observedState.IsComplete
+              ? await _imageRolloutCommandExecutor.ReadCapabilityAsync(
+                  stoppingToken)
+              : null;
           var healthReplay =
               await _healthReplayStore.ReadPendingAsync(
                   stoppingToken);
@@ -173,7 +175,16 @@ internal sealed partial class ConnectorWorker(
                     healthReplay.Replay,
                     imageRolloutOperator,
                     pendingImageRolloutProgress,
-                    pendingImageRolloutOutcome),
+                    pendingImageRolloutOutcome,
+                    observedState.Inventory ??
+                        new ConnectorProfileInventory(
+                            observedState.IsComplete
+                                ? "complete"
+                                : observedState.Profiles.Count == 0
+                                    ? "unavailable"
+                                    : "partial",
+                            now,
+                            observedState.Failure?.Category)),
                 stoppingToken);
             pendingCapacityOutcome = null;
             pendingRecoveryProgress = null;
@@ -199,7 +210,6 @@ internal sealed partial class ConnectorWorker(
                   acknowledgedEventIds,
                   stoppingToken);
             }
-            consecutiveFailures = 0;
             lastSentHash = observedState.AggregateHash;
             lastSentAt = now;
             successfulPollDelay = TimeSpan.FromSeconds(
@@ -207,7 +217,11 @@ internal sealed partial class ConnectorWorker(
                     response.NextPollSeconds,
                     5,
                     3600));
-            nextDelay = successfulPollDelay;
+            if (observedState.IsComplete)
+            {
+              consecutiveFailures = 0;
+              nextDelay = successfulPollDelay;
+            }
             if (response.CapacityCommand is not null)
             {
               pendingCapacityOutcome =
@@ -245,17 +259,22 @@ internal sealed partial class ConnectorWorker(
             LogSynchronized(
                 observedState.Profiles.Count,
                 nextDelay);
-            await _healthJournal.RecordSynchronizationSucceededAsync(
-                _timeProvider.GetUtcNow(),
-                stoppingToken);
-            if (replayedActiveOutage)
+            if (observedState.IsComplete)
+            {
+              await _healthJournal.RecordSynchronizationSucceededAsync(
+                  _timeProvider.GetUtcNow(),
+                  stoppingToken);
+            }
+            if (ShouldScheduleImmediateHealthReplay(
+                observedState.IsComplete,
+                replayedActiveOutage))
             {
               lastSentHash = string.Empty;
               lastSentAt = DateTimeOffset.MinValue;
               nextDelay = TimeSpan.Zero;
             }
           }
-          else
+          else if (observedState.IsComplete)
           {
             consecutiveFailures = 0;
             nextDelay = successfulPollDelay;
@@ -558,6 +577,12 @@ internal sealed partial class ConnectorWorker(
             exponentialSeconds,
             _options.Value.MaximumBackoffSeconds));
   }
+
+  internal static bool ShouldScheduleImmediateHealthReplay(
+      bool observationIsComplete,
+      bool replayedActiveOutage) =>
+      observationIsComplete &&
+      replayedActiveOutage;
 
   internal static ConnectorHealthFailure ClassifyHttpFailure(
       HttpRequestException exception,

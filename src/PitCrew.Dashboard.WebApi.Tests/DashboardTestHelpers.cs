@@ -171,7 +171,9 @@ internal static class DashboardTestHelpers
         connectorVersion,
         observedState,
         cancellationToken);
-    response.EnsureSuccessStatusCode();
+    await EnsureSynchronizationSucceededAsync(
+        response,
+        cancellationToken);
     return await response.Content.ReadFromJsonAsync<
         ConnectorSyncResponse>(
             cancellationToken) ??
@@ -196,7 +198,9 @@ internal static class DashboardTestHelpers
         capability,
         outcome,
         cancellationToken);
-    response.EnsureSuccessStatusCode();
+    await EnsureSynchronizationSucceededAsync(
+        response,
+        cancellationToken);
     return await response.Content.ReadFromJsonAsync<
         ConnectorSyncResponse>(
             cancellationToken) ??
@@ -224,7 +228,9 @@ internal static class DashboardTestHelpers
         null,
         connectorHealth,
         cancellationToken);
-    response.EnsureSuccessStatusCode();
+    await EnsureSynchronizationSucceededAsync(
+        response,
+        cancellationToken);
     return await response.Content.ReadFromJsonAsync<
         ConnectorSyncResponse>(
             cancellationToken) ??
@@ -271,7 +277,9 @@ internal static class DashboardTestHelpers
         recoveryOutcome,
         null,
         cancellationToken);
-    response.EnsureSuccessStatusCode();
+    await EnsureSynchronizationSucceededAsync(
+        response,
+        cancellationToken);
     return await response.Content.ReadFromJsonAsync<
         ConnectorSyncResponse>(
             cancellationToken) ??
@@ -329,7 +337,14 @@ internal static class DashboardTestHelpers
             recoveryCapability,
             recoveryProgress,
             recoveryOutcome,
-            connectorHealth)),
+            connectorHealth,
+            null,
+            null,
+            null,
+            new ConnectorProfileInventory(
+                "complete",
+                observedState.ObservedAt,
+                null))),
     };
     synchronization.Headers.Authorization =
         new AuthenticationHeaderValue(
@@ -338,6 +353,20 @@ internal static class DashboardTestHelpers
     return await client.SendAsync(
         synchronization,
         cancellationToken);
+  }
+
+  private static async Task EnsureSynchronizationSucceededAsync(
+      HttpResponseMessage response,
+      CancellationToken cancellationToken)
+  {
+    if (response.IsSuccessStatusCode)
+    {
+      return;
+    }
+    var error = await response.Content.ReadAsStringAsync(
+        cancellationToken);
+    throw new InvalidOperationException(
+        $"Synchronization returned {(int)response.StatusCode}: {error}");
   }
 
   public static async Task<HttpResponseMessage> PostAuthenticatedAsync(

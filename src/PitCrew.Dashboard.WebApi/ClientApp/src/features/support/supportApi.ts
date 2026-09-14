@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { HttpClient } from '@/core/api/httpClient';
+import { evidenceClaimSchema } from '@/core/fleet/fleetApi';
 
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
 
@@ -70,6 +71,7 @@ export const supportSessionSchema = z.object({
   dispatchedAt: offsetDateTimeSchema.nullable(),
   rejectionDisposition: supportRejectionDispositionSchema.nullable(),
   result: supportResultSchema.nullable(),
+  evidenceClaims: z.array(evidenceClaimSchema).optional(),
 });
 export const supportSessionsSchema = z.array(supportSessionSchema);
 export const createdSupportEnrollmentSchema = z.object({

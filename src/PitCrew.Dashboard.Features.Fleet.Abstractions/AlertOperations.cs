@@ -457,6 +457,11 @@ public sealed record AlertIncident(
   /// Gets the suppression expiry, when present.
   /// </summary>
   public DateTimeOffset? SuppressedUntil { get; init; }
+
+  /// <summary>
+  /// Gets claim-level condition and ownership evidence for this incident.
+  /// </summary>
+  public IReadOnlyList<EvidenceClaim> EvidenceClaims { get; init; } = [];
 }
 
 /// <summary>
