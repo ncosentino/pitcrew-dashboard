@@ -8,7 +8,7 @@ using PitCrew.Dashboard.Features.Fleet.Abstractions;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 
-public sealed class SqliteAlertIncidentStoreTests
+public sealed partial class SqliteAlertIncidentStoreTests
 {
   private static readonly DateTimeOffset Origin = new(
       2026,

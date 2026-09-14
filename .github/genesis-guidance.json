@@ -271,6 +271,13 @@
         "owner": "testing"
       },
       {
+        "path": "docs/testing/fleet-trust-scenarios.md",
+        "title": "Fleet trust scenario corpus",
+        "section": "Development",
+        "order": 458,
+        "owner": "repository"
+      },
+      {
         "path": "docs/ui/settings-composition.md",
         "title": "Settings navigation and form composition",
         "section": "Development",

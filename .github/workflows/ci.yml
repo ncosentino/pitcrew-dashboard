@@ -830,8 +830,8 @@ jobs:
           if ($projects.Count -eq 0) {
               throw 'No C# test projects were discovered for coverage.'
           }
-          if ($projects.Count -ne 11) {
-              throw "Expected 11 C# test projects, found $($projects.Count)."
+          if ($projects.Count -ne 12) {
+              throw "Expected 12 C# test projects, found $($projects.Count)."
           }
 
           $coverageRoot = Join-Path $env:RUNNER_TEMP 'coverage/dotnet'

@@ -805,11 +805,11 @@ try {
         $workflow -match 'Test-CoverageReporting\.ps1'
     ) 'Full CI does not run the coverage reporter/upsert contract tests.'
     Add-Check (
-        $workflow -match '\$projects\.Count -ne 11' -and
+        $workflow -match '\$projects\.Count -ne 12' -and
         $workflow -match '--results-directory \$resultsDirectory' -and
         $workflow -match '--coverlet-file-prefix \$filePrefix' -and
         $workflow -match '\$projectReports\.Count -ne 1'
-    ) 'C# coverage does not verify one unique result for all 11 test projects.'
+    ) 'C# coverage does not verify one unique result for all 12 test projects.'
     Add-Check (
         $workflow -match '--coverlet-output-format cobertura' -and
         $workflow -match '--coverlet-output-format opencover' -and
