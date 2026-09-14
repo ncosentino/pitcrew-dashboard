@@ -19,12 +19,14 @@ internal sealed class UnacknowledgeAlertUnitOfWork(
     var user = _userAccessor.GetOrNull(principal);
     return user is null
         ? Task.FromResult<AlertUnacknowledgeStatus?>(null)
-        : ExecuteAsync();
+        : ExecuteAsync(user.GitHubUserId);
 
-    async Task<AlertUnacknowledgeStatus?> ExecuteAsync() =>
+    async Task<AlertUnacknowledgeStatus?> ExecuteAsync(
+        string githubUserId) =>
         await _incidentStore.UnacknowledgeAsync(
             tenantId,
             incidentId,
+            githubUserId,
             _timeProvider.GetUtcNow(),
             cancellationToken);
   }

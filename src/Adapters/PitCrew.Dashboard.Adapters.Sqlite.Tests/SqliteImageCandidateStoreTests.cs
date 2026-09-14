@@ -76,7 +76,7 @@ public sealed class SqliteImageCandidateStoreTests
           10,
           cancellationToken);
 
-      await Assert.That(migrationVersion).IsEqualTo(31);
+      await Assert.That(migrationVersion).IsEqualTo(32);
       await Assert.That(created)
           .IsEqualTo(ImageCandidateMutationResult.Succeeded);
       await Assert.That(exactReplay)
@@ -242,7 +242,7 @@ public sealed class SqliteImageCandidateStoreTests
       await Assert.That(priorChecksums.Keys.Max()).IsEqualTo(24);
       await Assert.That(priorChecksums[23])
           .IsEqualTo(OriginMainMigration23Checksum);
-      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(31);
+      await Assert.That(afterChecksums.Keys.Max()).IsEqualTo(32);
       await Assert.That(afterChecksums[25])
           .IsEqualTo(SqliteMigrationCatalog.All
               .Single(static migration => migration.Version == 25).Checksum);

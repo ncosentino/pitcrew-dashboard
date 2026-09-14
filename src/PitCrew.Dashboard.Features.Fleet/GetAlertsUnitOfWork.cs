@@ -43,14 +43,22 @@ internal sealed class GetAlertsUnitOfWork(
           $"The incident limit must be between 1 and {maximum}.");
     }
 
+    var cursor = AlertIncidentCursor.ParseOrNull(input.Cursor);
+    if (!string.IsNullOrWhiteSpace(input.Cursor) &&
+        cursor is null)
+    {
+      return Invalid("The incident cursor is invalid.");
+    }
+
     var now = _timeProvider.GetUtcNow();
     return new AlertQueryResult(
         AlertQueryStatus.Succeeded,
         null,
-        await _incidentStore.GetAsync(
+        await _incidentStore.GetPageAsync(
             tenantId,
             filter.Value,
             limit,
+            cursor,
             now,
             cancellationToken));
   }

@@ -1,7 +1,7 @@
 export { FleetProvider } from './FleetProvider';
 export { useFleet } from './useFleet';
 export { currentJobSchema, operationalIncidentSchema } from './fleetApi';
-export { getActiveIncidents, getFleet } from './fleetApi';
+export { getActiveIncidentPage, getFleet } from './fleetApi';
 export {
   buildDiagnosticsContext,
   buildSupportDiagnosticRequestPath,

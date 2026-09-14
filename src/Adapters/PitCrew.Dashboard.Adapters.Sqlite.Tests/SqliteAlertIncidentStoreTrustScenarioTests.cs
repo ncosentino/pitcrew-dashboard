@@ -60,7 +60,8 @@ public sealed partial class SqliteAlertIncidentStoreTests
       await Assert.That(page.Incidents.Count).IsEqualTo(queryLimit);
       await Assert.That(page.Truncated).IsTrue()
           .Because("one independently keyed incident is outside the bounded page");
-      await Assert.That(totalProperties).IsEmpty();
+      await Assert.That(totalProperties).Contains("TotalCount");
+      await Assert.That(page.TotalCount).IsEqualTo(sourceCount);
     }
     finally
     {

@@ -1195,33 +1195,79 @@ export const fleetNodeSchema = z
     }
   });
 
-export const operationalIncidentSchema = z.object({
-  incidentId: z.string().uuid(),
-  nodeId: z.string().uuid(),
-  profileId: z.string().min(1).max(128).nullable(),
-  kind: z.string().min(1).max(64),
-  severity: z.enum(['warning', 'critical']),
-  status: z.enum(['triggered', 'acknowledged', 'resolved']),
-  title: z.string().min(1).max(160),
-  summary: z.string().min(1).max(512),
-  reason: z.string().min(1).max(128),
-  evidence: z.string().max(512).nullable(),
-  link: z.string().min(1).max(2048),
-  firstObservedAt: offsetDateTimeSchema,
-  triggeredAt: offsetDateTimeSchema,
-  lastObservedAt: offsetDateTimeSchema,
-  acknowledgedAt: offsetDateTimeSchema.nullable(),
-  acknowledgedByGitHubUserId: z.string().min(1).nullable(),
-  resolvedAt: offsetDateTimeSchema.nullable(),
-});
+export const operationalIncidentSchema = z
+  .object({
+    incidentId: z.string().uuid(),
+    nodeId: z.string().uuid(),
+    profileId: z.string().min(1).max(128).nullable(),
+    kind: z.string().min(1).max(64),
+    severity: z.enum(['warning', 'critical']),
+    status: z.enum(['triggered', 'acknowledged', 'resolved']),
+    title: z.string().min(1).max(160),
+    summary: z.string().min(1).max(512),
+    reason: z.string().min(1).max(128),
+    evidence: z.string().max(512).nullable(),
+    link: z.string().min(1).max(2048),
+    firstObservedAt: offsetDateTimeSchema,
+    triggeredAt: offsetDateTimeSchema,
+    lastObservedAt: offsetDateTimeSchema,
+    acknowledgedAt: offsetDateTimeSchema.nullable(),
+    acknowledgedByGitHubUserId: z.string().min(1).nullable(),
+    resolvedAt: offsetDateTimeSchema.nullable(),
+    sourceObservedAt: offsetDateTimeSchema.nullable().default(null),
+    dashboardReceivedAt: offsetDateTimeSchema.nullable().default(null),
+    evaluatedAt: offsetDateTimeSchema.nullable().default(null),
+    resolutionEvidence: z.enum(['fresh', 'legacy-unverified']).nullable().default(null),
+    conditionState: z
+      .enum([
+        'confirmed',
+        'waiting-for-evidence',
+        'monitoring-ended',
+        'resolved',
+        'legacy-unverified',
+      ])
+      .optional(),
+    operatorState: z.enum(['unowned', 'acknowledged']).optional(),
+    currentSeverity: z.enum(['warning', 'critical']).nullable().optional(),
+    lastConfirmedSeverity: z.enum(['warning', 'critical']).optional(),
+    peakSeverity: z.enum(['warning', 'critical']).optional(),
+    revision: z.number().int().positive().optional(),
+  })
+  .transform((incident) => {
+    const conditionState =
+      incident.conditionState ??
+      (incident.status === 'resolved' ? 'legacy-unverified' : 'confirmed');
+    return {
+      ...incident,
+      conditionState,
+      operatorState:
+        incident.operatorState ?? (incident.status === 'acknowledged' ? 'acknowledged' : 'unowned'),
+      currentSeverity:
+        incident.currentSeverity === undefined
+          ? conditionState === 'confirmed'
+            ? incident.severity
+            : null
+          : incident.currentSeverity,
+      lastConfirmedSeverity: incident.lastConfirmedSeverity ?? incident.severity,
+      peakSeverity: incident.peakSeverity ?? incident.severity,
+      revision: incident.revision ?? 1,
+    };
+  });
 
 export const fleetResponseSchema = z.object({
   generatedAt: offsetDateTimeSchema,
   nodes: z.array(fleetNodeSchema),
   activeIncidents: z.array(operationalIncidentSchema).default([]),
+  activeIncidentTotal: z.number().int().nonnegative().optional(),
+  activeCriticalIncidentTotal: z.number().int().nonnegative().optional(),
+  activeIncidentsTruncated: z.boolean().optional(),
 });
 export const activeIncidentPageSchema = z.object({
   incidents: z.array(operationalIncidentSchema),
+  totalCount: z.number().int().nonnegative().optional(),
+  criticalCount: z.number().int().nonnegative().optional(),
+  warningCount: z.number().int().nonnegative().optional(),
+  truncated: z.boolean(),
 });
 
 /** Credential-free lifecycle state for one manager slot. */
@@ -1298,11 +1344,11 @@ export async function getFleet(tenantId: string, signal: AbortSignal): Promise<F
 }
 
 /** Loads active incidents for shell-level severity navigation. */
-export async function getActiveIncidents(
+export async function getActiveIncidentPage(
   tenantId: string,
   signal: AbortSignal,
-): Promise<ReadonlyArray<OperationalIncident>> {
-  const page = await createClient().request(
+): Promise<z.infer<typeof activeIncidentPageSchema>> {
+  return await createClient().request(
     `/api/tenants/${encodeURIComponent(tenantId)}/fleet/v1/incidents?status=active`,
     {
       method: 'GET',
@@ -1310,5 +1356,4 @@ export async function getActiveIncidents(
       signal,
     },
   );
-  return page.incidents;
 }

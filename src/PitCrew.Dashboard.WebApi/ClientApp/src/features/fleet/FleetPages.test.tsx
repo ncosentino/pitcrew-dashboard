@@ -182,6 +182,10 @@ function hostAdmissionResponse(overrides: Readonly<Record<string, unknown>> = {}
 function fleetResponse() {
   return {
     generatedAt: '2026-07-19T18:30:05+00:00',
+    activeIncidents: [],
+    activeIncidentTotal: 0,
+    activeCriticalIncidentTotal: 0,
+    activeIncidentsTruncated: false,
     nodes: [
       {
         nodeId: charlieId,
@@ -497,6 +501,8 @@ describe('fleet overview and node detail', () => {
   it('orders active incidents ahead of ordinary node state by default', async () => {
     const response = {
       ...fleetResponse(),
+      activeIncidentTotal: 1,
+      activeCriticalIncidentTotal: 1,
       activeIncidents: [
         {
           incidentId: 'd6235ec4-2a15-4f91-a9e0-811152869a54',
@@ -553,7 +559,60 @@ describe('fleet overview and node detail', () => {
     expect(screen.getByRole('region', { name: 'Fleet readiness' })).toHaveTextContent(
       'Critical incidents',
     );
+    expect(
+      screen.getByLabelText('1 active incident; highest severity critical'),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Sort by')).toHaveValue('attention');
+  });
+
+  it('qualifies visible severity counts when the fleet incident projection is truncated', async () => {
+    const response = {
+      ...fleetResponse(),
+      activeIncidentTotal: 3,
+      activeCriticalIncidentTotal: 1,
+      activeIncidentsTruncated: true,
+      activeIncidents: [
+        {
+          incidentId: 'e6235ec4-2a15-4f91-a9e0-811152869a55',
+          nodeId: alphaId,
+          profileId: 'build',
+          kind: 'capacity-deficit',
+          severity: 'warning' as const,
+          status: 'triggered' as const,
+          title: 'Visible warning from bounded fleet slice',
+          summary: 'Only one warning is present in the returned fleet slice.',
+          reason: 'eligibility-deficit',
+          evidence: 'eligibleWorkers=1 targetSlots=2',
+          link: `/tenants/local/nodes/${alphaId}/profiles/build/capacity`,
+          firstObservedAt: '2026-07-19T18:00:00+00:00',
+          triggeredAt: '2026-07-19T18:10:00+00:00',
+          lastObservedAt: '2026-07-19T18:30:00+00:00',
+          acknowledgedAt: null,
+          acknowledgedByGitHubUserId: null,
+          resolvedAt: null,
+        },
+      ],
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) return jsonResponse(response);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    render(
+      <SessionProvider>
+        <RouterProvider router={createTestRouter(features, ['/tenants/local/fleet'])} />
+      </SessionProvider>,
+    );
+
+    const summary = await screen.findByTestId('fleet-active-incidents');
+    expect(within(summary).getByText('3 active incidents', { exact: true })).toBeInTheDocument();
+    expect(within(summary).getByText('1 critical', { exact: true })).toBeInTheDocument();
+    expect(within(summary).getByText('1 warning shown', { exact: true })).toBeInTheDocument();
+    expect(within(summary).queryByText('1 warning', { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Fleet readiness' })).toHaveTextContent(
+      '1 critical · remaining severity breakdown unavailable',
+    );
   });
 
   it('treats current degraded connector evidence as node attention', async () => {

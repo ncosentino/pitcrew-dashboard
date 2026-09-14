@@ -47,6 +47,34 @@ public sealed class AlertRuleEvaluatorTests
   }
 
   [Test]
+  public async Task Revoked_Node_Suppresses_Existing_Node_And_Profile_Conditions()
+  {
+    var profile = CreateProfile(
+        Now,
+        subsystemHealth: CreateDegradedHealth());
+    var snapshot = CreateSnapshot(profile, Now);
+    snapshot = new AlertEvidenceSnapshot(
+        [
+            snapshot.Nodes[0] with
+            {
+              IsRevoked = true,
+            },
+        ]);
+
+    var evaluation = AlertRuleEvaluator.Evaluate(
+        snapshot,
+        CreateOptions(),
+        Now);
+
+    await Assert.That(evaluation.Candidates).IsEmpty();
+    await Assert.That(evaluation.Clearances).IsEmpty();
+    await Assert.That(evaluation.Suppressions).HasSingleItem();
+    await Assert.That(evaluation.Suppressions[0].NodeId)
+        .IsEqualTo(snapshot.Nodes[0].NodeId);
+    await Assert.That(evaluation.Suppressions[0].ProfileId).IsNull();
+  }
+
+  [Test]
   public async Task Stale_Manager_Suppresses_Specific_Failure_Diagnoses()
   {
     var profile = CreateProfile(
@@ -65,6 +93,38 @@ public sealed class AlertRuleEvaluatorTests
     await Assert.That(evaluation.Suppressions.Count(
         suppression => suppression.ProfileId == "default"))
         .IsEqualTo(15);
+  }
+
+  [Test]
+  public async Task Current_Healthy_Evidence_Clears_The_Exact_Previous_Rule()
+  {
+    var degraded = AlertRuleEvaluator.Evaluate(
+        CreateSnapshot(
+            CreateProfile(
+                Now,
+                subsystemHealth: CreateDegradedHealth()),
+            Now),
+        CreateOptions(),
+        Now);
+    var candidate = degraded.Candidates.Single(
+        item => item.Kind == "subsystem-failure");
+    var recoveredAt = Now.AddMinutes(1);
+
+    var recovered = AlertRuleEvaluator.Evaluate(
+        CreateSnapshot(
+            CreateProfile(
+                recoveredAt,
+                subsystemHealth: CreateHealthyHealth(recoveredAt)),
+            recoveredAt),
+        CreateOptions(),
+        recoveredAt);
+    var clearance = recovered.Clearances.Single(
+        item => item.Key == candidate.Key);
+
+    await Assert.That(clearance.SourceObservedAt)
+        .IsEqualTo(recoveredAt);
+    await Assert.That(clearance.DashboardReceivedAt)
+        .IsEqualTo(recoveredAt);
   }
 
   [Test]
@@ -228,6 +288,10 @@ public sealed class AlertRuleEvaluatorTests
     await Assert.That(candidates.Count(
         candidate => candidate.Kind == "resource-network-pressure"))
         .IsEqualTo(1);
+    await Assert.That(candidates.All(
+        candidate => candidate.SourceObservedAt == Now))
+        .IsTrue()
+        .Because("the condition onset and latest source observation are distinct clocks");
   }
 
   [Test]
@@ -417,6 +481,24 @@ public sealed class AlertRuleEvaluatorTests
           new SubsystemHealthSummary(
               "healthy",
               Now,
+              0,
+              null,
+              null,
+              null));
+
+  private static ManagerSubsystemHealth CreateHealthyHealth(
+      DateTimeOffset observedAt) =>
+      new(
+          new SubsystemHealthSummary(
+              "healthy",
+              observedAt,
+              0,
+              null,
+              null,
+              null),
+          new SubsystemHealthSummary(
+              "healthy",
+              observedAt,
               0,
               null,
               null,

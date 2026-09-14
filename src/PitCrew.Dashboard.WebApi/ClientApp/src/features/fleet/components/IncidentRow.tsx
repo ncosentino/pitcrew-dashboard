@@ -41,8 +41,13 @@ export function IncidentRow({
       description={incident.summary}
       status={
         <>
-          <StatusBadge status={incident.severity} />
-          <StatusBadge status={incident.status} />
+          {incident.currentSeverity ? <StatusBadge status={incident.currentSeverity} /> : null}
+          <StatusBadge status={incident.conditionState} />
+          {incident.status !== incident.operatorState &&
+          incident.status !== incident.conditionState ? (
+            <StatusBadge status={incident.status} />
+          ) : null}
+          <StatusBadge status={incident.operatorState} />
         </>
       }
       metadata={
@@ -51,7 +56,12 @@ export function IncidentRow({
           <span className="[overflow-wrap:anywhere]">
             {incident.profileId ? `Profile ${incident.profileId}` : 'Node scope'}
           </span>
-          <span>Last observed {formatTime(incident.lastObservedAt)}</span>
+          <span>
+            {incident.currentSeverity
+              ? `Confirmed ${incident.currentSeverity}`
+              : `Last confirmed ${incident.lastConfirmedSeverity}`}
+          </span>
+          <span>Evaluated {formatTime(incident.evaluatedAt ?? incident.lastObservedAt)}</span>
         </div>
       }
       actions={

@@ -53,4 +53,19 @@ public sealed record FleetResponse(
   /// Gets active warning and critical incidents visible to this tenant.
   /// </summary>
   public IReadOnlyList<AlertIncident> ActiveIncidents { get; init; } = [];
+
+  /// <summary>
+  /// Gets the authoritative number of active incidents.
+  /// </summary>
+  public int ActiveIncidentTotal { get; init; }
+
+  /// <summary>
+  /// Gets the authoritative number of active critical incidents.
+  /// </summary>
+  public int ActiveCriticalIncidentTotal { get; init; }
+
+  /// <summary>
+  /// Gets whether <see cref="ActiveIncidents"/> omits additional active incidents.
+  /// </summary>
+  public bool ActiveIncidentsTruncated { get; init; }
 }

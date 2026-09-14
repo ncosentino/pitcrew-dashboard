@@ -47,6 +47,16 @@ function incident(status: 'triggered' | 'acknowledged' | 'resolved' = 'triggered
     acknowledgedAt: status === 'acknowledged' ? '2026-07-28T01:04:00+00:00' : null,
     acknowledgedByGitHubUserId: status === 'acknowledged' ? '123' : null,
     resolvedAt: status === 'resolved' ? '2026-07-28T01:05:00+00:00' : null,
+    sourceObservedAt: '2026-07-28T01:02:30+00:00',
+    dashboardReceivedAt: '2026-07-28T01:02:45+00:00',
+    evaluatedAt: '2026-07-28T01:03:00+00:00',
+    resolutionEvidence: status === 'resolved' ? ('fresh' as const) : null,
+    conditionState: status === 'resolved' ? ('resolved' as const) : ('confirmed' as const),
+    operatorState: status === 'acknowledged' ? ('acknowledged' as const) : ('unowned' as const),
+    currentSeverity: status === 'resolved' ? null : ('critical' as const),
+    lastConfirmedSeverity: 'critical' as const,
+    peakSeverity: 'critical' as const,
+    revision: 1,
   };
 }
 
@@ -55,6 +65,10 @@ function page(status: 'triggered' | 'acknowledged' | 'resolved' = 'triggered') {
     generatedAt: '2026-07-28T01:03:00+00:00',
     incidents: [incident(status)],
     truncated: false,
+    totalCount: 1,
+    criticalCount: 1,
+    warningCount: 0,
+    nextCursor: null,
   };
 }
 
@@ -81,7 +95,12 @@ describe('IncidentsPage', () => {
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
       }
       if (url.includes('/fleet/v1/incidents?status=active')) {
-        return jsonResponse({ ...page(), truncated: true });
+        return jsonResponse({
+          ...page(),
+          truncated: true,
+          totalCount: 2,
+          nextCursor: 'next-page',
+        });
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
@@ -101,7 +120,89 @@ describe('IncidentsPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/not proof of this incident's cause/i)).toBeInTheDocument();
     expect(screen.getByText(/1 need attention · 1 critical · 0 warning/i)).toBeInTheDocument();
-    expect(screen.getByText(/showing only the newest incidents/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/showing 1 of 2 authoritative matching incidents/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load more incidents' })).toBeInTheDocument();
+  });
+
+  it('ignores a late continuation response after the active query changes', async () => {
+    const lateIncidentId = '77777777-7777-4777-8777-777777777777';
+    let resolveContinuation: ((response: Response) => void) | undefined;
+    const continuation = new Promise<Response>((resolve) => {
+      resolveContinuation = resolve;
+    });
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('cursor=next-page')) return continuation;
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          ...page(),
+          truncated: true,
+          totalCount: 2,
+          nextCursor: 'next-page',
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const user = userEvent.setup();
+    await screen.findByTestId(`incident-row-${incidentId}`);
+
+    await user.click(screen.getByRole('button', { name: 'Load more incidents' }));
+    await user.selectOptions(screen.getByLabelText('Severity'), 'warning');
+    resolveContinuation?.(
+      jsonResponse({
+        ...page(),
+        incidents: [
+          {
+            ...incident(),
+            incidentId: lateIncidentId,
+            title: 'Late critical continuation',
+          },
+        ],
+        truncated: false,
+        nextCursor: null,
+      }),
+    );
+
+    await act(async () => {
+      await continuation;
+    });
+    expect(screen.queryByTestId(`incident-row-${lateIncidentId}`)).not.toBeInTheDocument();
+  });
+
+  it('preserves explicit unknown severity while waiting for evidence', async () => {
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          ...page(),
+          incidents: [
+            {
+              ...incident(),
+              conditionState: 'waiting-for-evidence',
+              currentSeverity: null,
+            },
+          ],
+          criticalCount: 0,
+          warningCount: 0,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    expect(within(row).getByText(/waiting for evidence/i)).toBeInTheDocument();
+    expect(within(row).getByText('Last confirmed critical')).toBeInTheDocument();
+    expect(screen.getByText(/0 critical · 0 warning/i)).toBeInTheDocument();
   });
 
   it('offers a support diagnostic request for an unresolved incident with its mode preselected', async () => {
@@ -126,6 +227,35 @@ describe('IncidentsPage', () => {
     expect(
       screen.getByText(/enrolled separately from connector node identity/i),
     ).toBeInTheDocument();
+  });
+
+  it('labels legacy resolutions without inventing clearing provenance', async () => {
+    const legacy = {
+      ...incident('resolved'),
+      sourceObservedAt: null,
+      dashboardReceivedAt: null,
+      evaluatedAt: null,
+      resolutionEvidence: 'legacy-unverified' as const,
+    };
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:05:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=resolved')) {
+        return jsonResponse({
+          ...page('resolved'),
+          incidents: [legacy],
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    }, '/tenants/local/incidents?view=resolved');
+
+    expect(
+      await screen.findByText(/legacy resolution predates clearing-provenance tracking/i),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/unavailable for legacy evidence/i)).toHaveLength(2);
   });
 
   it('hides acknowledged incidents from the default queue and can reveal all active incidents', async () => {
@@ -174,6 +304,8 @@ describe('IncidentsPage', () => {
       ...incident(),
       incidentId: '44444444-4444-4444-8444-444444444444',
       severity: 'warning' as const,
+      currentSeverity: 'warning' as const,
+      lastConfirmedSeverity: 'warning' as const,
       title: 'Runner startup warning',
       reason: 'startup-delay',
       triggeredAt: '2026-07-28T00:45:00+00:00',
@@ -340,6 +472,12 @@ describe('IncidentsPage', () => {
         acknowledged = true;
         return new Response(null, { status: 204 });
       }
+      if (url.endsWith(`/fleet/v1/incidents/${incidentId}`)) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:04:00+00:00',
+          incident: incident('acknowledged'),
+        });
+      }
       if (url.includes('/fleet/v1/incidents?status=active')) {
         return jsonResponse(page(acknowledged ? 'acknowledged' : 'triggered'));
       }
@@ -369,6 +507,11 @@ describe('IncidentsPage', () => {
     expect(new Headers(request?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
       'test-antiforgery-token',
     );
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).endsWith(`/fleet/v1/incidents/${incidentId}`),
+      ),
+    ).toBe(true);
   });
 
   it('unacknowledges an acknowledged incident and refreshes its lifecycle state', async () => {
@@ -382,6 +525,12 @@ describe('IncidentsPage', () => {
       if (url.endsWith(`/incidents/${incidentId}/unacknowledge`) && init?.method === 'POST') {
         unacknowledged = true;
         return new Response(null, { status: 204 });
+      }
+      if (url.endsWith(`/fleet/v1/incidents/${incidentId}`)) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:05:00+00:00',
+          incident: incident('triggered'),
+        });
       }
       if (url.includes('/fleet/v1/incidents?status=active')) {
         return jsonResponse(page(unacknowledged ? 'triggered' : 'acknowledged'));
@@ -412,6 +561,98 @@ describe('IncidentsPage', () => {
     expect(new Headers(request?.[1]?.headers).get('X-PitCrew-Antiforgery')).toBe(
       'test-antiforgery-token',
     );
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).endsWith(`/fleet/v1/incidents/${incidentId}`),
+      ),
+    ).toBe(true);
+  });
+
+  it('does not retrieve or apply state when acknowledgement is forbidden', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.endsWith(`/incidents/${incidentId}/acknowledge`) && init?.method === 'POST') {
+        return jsonResponse(
+          { error: { code: 'forbidden', message: 'Administrator access is required.' } },
+          403,
+        );
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderPage(fetchMock);
+    const user = userEvent.setup();
+    await screen.findByTestId(`incident-row-${incidentId}`);
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge incident' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Administrator access is required.');
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).endsWith(`/fleet/v1/incidents/${incidentId}`),
+      ),
+    ).toBe(false);
+    expect(screen.getByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
+  });
+
+  it('ignores a late exact refresh after incident query navigation', async () => {
+    let resolveExact: ((response: Response) => void) | undefined;
+    const pendingExact = new Promise<Response>((resolve) => {
+      resolveExact = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.endsWith(`/incidents/${incidentId}/acknowledge`) && init?.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      if (url.endsWith(`/fleet/v1/incidents/${incidentId}`)) return pendingExact;
+      if (url.includes('/fleet/v1/incidents?status=resolved')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:05:00+00:00',
+          incidents: [],
+          truncated: false,
+          totalCount: 0,
+          criticalCount: 0,
+          warningCount: 0,
+          nextCursor: null,
+        });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) return jsonResponse(page());
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderPage(fetchMock);
+    const user = userEvent.setup();
+    await screen.findByTestId(`incident-row-${incidentId}`);
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge incident' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).endsWith(`/fleet/v1/incidents/${incidentId}`),
+        ),
+      ).toBe(true),
+    );
+    await user.selectOptions(screen.getByLabelText('Work queue'), 'resolved');
+    resolveExact?.(
+      jsonResponse({
+        generatedAt: '2026-07-28T01:04:00+00:00',
+        incident: incident('acknowledged'),
+      }),
+    );
+    await act(async () => {
+      await pendingExact;
+    });
+
+    expect(screen.queryByText(/Acknowledged default capacity/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/No resolved incidents/i)).toBeInTheDocument();
   });
 
   it('announces an error when unacknowledge fails', async () => {
@@ -453,7 +694,16 @@ describe('IncidentsPage', () => {
       }
       if (url.endsWith(`/incidents/${incidentId}/unacknowledge`) && init?.method === 'POST') {
         unacknowledged = true;
-        return new Response(null, { status: 204 });
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:05:00+00:00',
+          incident: incident('triggered'),
+        });
+      }
+      if (url.endsWith(`/fleet/v1/incidents/${incidentId}`)) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:05:00+00:00',
+          incident: incident('triggered'),
+        });
       }
       if (url.includes('/fleet/v1/incidents?status=active')) {
         return jsonResponse(page(unacknowledged ? 'triggered' : 'acknowledged'));
@@ -479,6 +729,8 @@ describe('IncidentsPage', () => {
       ...incident(),
       incidentId: '55555555-5555-4555-8555-555555555555',
       severity: 'warning' as const,
+      currentSeverity: 'warning' as const,
+      lastConfirmedSeverity: 'warning' as const,
       title: 'Selected startup incident',
       reason: 'startup-delay',
     };
@@ -491,8 +743,18 @@ describe('IncidentsPage', () => {
       if (url.includes('/fleet/v1/incidents?status=active')) {
         return jsonResponse({
           generatedAt: '2026-07-28T01:03:00+00:00',
-          incidents: [incident(), selected],
-          truncated: false,
+          incidents: [incident()],
+          truncated: true,
+          totalCount: 2,
+          criticalCount: 1,
+          warningCount: 1,
+          nextCursor: '2026-07-28T01:02:00.0000000+00:00|22222222-2222-4222-8222-222222222222',
+        });
+      }
+      if (url.endsWith(`/fleet/v1/incidents/${selected.incidentId}`)) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          incident: selected,
         });
       }
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
@@ -501,13 +763,9 @@ describe('IncidentsPage', () => {
     expect(
       await screen.findByRole('heading', { name: 'Selected startup incident', level: 2 }),
     ).toBeInTheDocument();
-    expect(screen.getAllByTestId(/^incident-row-/)).toHaveLength(2);
-    const selectedRow = screen.getByTestId(`incident-row-${selected.incidentId}`);
-    expect(selectedRow).toHaveClass('bg-accent/60');
-    expect(within(selectedRow).getByRole('link', { name: 'Selected' })).toHaveAttribute(
-      'href',
-      `/tenants/local/incidents?view=active&incident=${selected.incidentId}`,
-    );
+    expect(screen.getAllByTestId(/^incident-row-/)).toHaveLength(1);
+    expect(screen.queryByTestId(`incident-row-${selected.incidentId}`)).not.toBeInTheDocument();
+    expect(screen.getByText(/outside the current queue filters/i)).toBeInTheDocument();
   });
 
   it('keeps a deep-linked acknowledged case selected outside the attention filter', async () => {

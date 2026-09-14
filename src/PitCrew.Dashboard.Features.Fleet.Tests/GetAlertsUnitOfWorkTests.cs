@@ -26,10 +26,11 @@ public sealed class GetAlertsUnitOfWorkTests
     var options = new FleetDashboardOptions();
     var store = _mocks.Create<IAlertIncidentStore>();
     store
-        .Setup(candidate => candidate.GetAsync(
+        .Setup(candidate => candidate.GetPageAsync(
             "tenant",
             AlertIncidentFilter.Active,
             options.MaximumAlertIncidentsPerQuery,
+            null,
             Now,
             It.IsAny<CancellationToken>()))
         .ReturnsAsync(new AlertIncidentPage(Now, [], false));

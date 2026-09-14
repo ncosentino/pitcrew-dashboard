@@ -2,9 +2,9 @@
 
 The version 1 fleet trust corpus is sanitized, deterministic executable evidence
 for reporting, freshness, incident-cardinality, condition-decomposition, and
-support-diagnostic failures. It is a characterization baseline for later API,
-storage, and browser work; it does not change production projection, grouping,
-or lifecycle semantics.
+support-diagnostic failures. It is the shared evidence vocabulary for API,
+storage, and browser tests. Production incident integrity consumes its clocks
+and clearing scenarios without changing the corpus's grouping vocabulary.
 
 The portable source is
 `test-assets/fleet-trust/fleet-trust-scenarios.v1.json`. The
@@ -34,9 +34,30 @@ reported through one bounded `InvalidOperationException` boundary.
 - The current incident decomposition uses one stable candidate key for one
   persistent condition episode. Independent condition keys remain separate;
   no cross-condition grouping is performed.
-- Incident reads are bounded to 200 by default. The page exposes truncation but
-  no authoritative total, so the 201-record case intentionally expects 200
-  visible records and `truncated: true`.
+- Incident reads are bounded to 200 by default and expose authoritative tenant-
+  scoped totals, current-severity counts, attention-ranked stable continuation
+  cursors, and explicit truncation. Critical unowned incidents precede less
+  urgent records even when newer noncritical history exceeds the page bound.
+  Exact tenant-and-incident reads support deep links beyond the first page
+  without widening the page bound.
+- Candidate absence is not clearing evidence. An active incident changes to
+  resolved only when the same rule and stable condition key produce a fresh
+  clearance. Missing, stale, disconnected, suppressed, or removed evidence
+  projects `waiting-for-evidence`; revoked observation contracts project
+  `monitoring-ended`. Both preserve the unresolved episode, last-confirmed
+  severity, peak severity, and source facts without presenting them as current.
+- Connector disconnection suppresses profile evaluation without discarding
+  node-scoped conditions. The retained incident remains operator-visible while
+  current profile evidence is unavailable.
+- Condition truth, current severity, and operator ownership are independent.
+  Acknowledgement and undo bind to the current incident revision and append
+  immutable actor, action, revision, and occurrence-time audit records in the
+  same transaction. Material warning-to-critical escalation advances the
+  revision and returns ownership to unowned without deleting prior audit events.
+- Incident contracts distinguish source observation, Dashboard receipt, rule
+  evaluation, and response generation. Existing resolved rows without
+  verifiable clearing provenance are returned as `legacy-unverified`; no fresh
+  evidence is invented for them.
 - Completed support results are durably stored and exact tenant-scoped session
   reads return the same verified result after leaving and returning.
 - Omitted support profiles are accepted by the current report validator when the
@@ -69,11 +90,16 @@ the same scenario. Claim `state` describes availability and authority, while
 unavailable evidence.
 
 `SqliteAlertIncidentStoreTests` persists 201 independently keyed incidents,
-queries the production store with the characterized 200-record limit, verifies
-truncation, and confirms that the current page does not invent an authoritative
-total. `SqliteSupportStoreTests` computes the expected result digest before
-persistence, creates a fresh store context, reads the exact tenant/session
-record again, and verifies both returned values against that independent digest.
+queries the production store with the 200-record limit, verifies the
+authoritative total and continuation boundary, and reads an exact tenant-scoped
+incident outside the first page. Integrity scenario tests also cover explicit
+clock persistence, waiting and monitoring-ended projections, stale replay,
+restart/resume, node-scoped disconnect suppression, revisioned escalation,
+acknowledgement audit history, and duplicate-free attention pagination.
+`SqliteSupportStoreTests`
+computes the expected result digest before persistence, creates a fresh store
+context, reads the exact tenant/session record again, and verifies both returned
+values against that independent digest.
 
 Changes to the corpus require updating its typed contract tests. Projection,
 freshness, pagination, and grouping changes should consume these scenarios and

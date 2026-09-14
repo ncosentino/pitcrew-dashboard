@@ -373,6 +373,7 @@ export function NodeDetailLayout() {
         incidents={nodeIncidents}
         tenantId={tenantId}
         testId={`node-active-incidents-${node.nodeId}`}
+        truncated={fleet?.activeIncidentsTruncated}
       />
       {status === 'offline' ? (
         <StateBanner tone="caution">

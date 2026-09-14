@@ -81,6 +81,10 @@ public sealed record RecoverManagerResponse(
 /// <param name="AcknowledgedAt">Time an administrator acknowledged the incident.</param>
 /// <param name="AcknowledgedByGitHubUserId">Acknowledging GitHub user identifier.</param>
 /// <param name="ResolvedAt">Time the condition cleared.</param>
+/// <param name="SourceObservedAt">Latest source time proving the condition present, or <see langword="null"/> for legacy rows.</param>
+/// <param name="DashboardReceivedAt">Dashboard receipt time for the proving evidence, or <see langword="null"/> for legacy rows.</param>
+/// <param name="EvaluatedAt">Dashboard evaluation time for the current condition state, or <see langword="null"/> for legacy rows.</param>
+/// <param name="ResolutionEvidence">Fresh resolution provenance or <c>legacy-unverified</c> for older resolved rows.</param>
 public sealed record AlertIncidentResponse(
     Guid IncidentId,
     Guid NodeId,
@@ -98,7 +102,17 @@ public sealed record AlertIncidentResponse(
     DateTimeOffset LastObservedAt,
     DateTimeOffset? AcknowledgedAt,
     string? AcknowledgedByGitHubUserId,
-    DateTimeOffset? ResolvedAt);
+    DateTimeOffset? ResolvedAt,
+    DateTimeOffset? SourceObservedAt,
+    DateTimeOffset? DashboardReceivedAt,
+    DateTimeOffset? EvaluatedAt,
+    string? ResolutionEvidence,
+    string ConditionState,
+    string OperatorState,
+    string? CurrentSeverity,
+    string LastConfirmedSeverity,
+    string PeakSeverity,
+    int Revision);
 
 /// <summary>
 /// Returns bounded operational incident history for one tenant.
@@ -106,10 +120,25 @@ public sealed record AlertIncidentResponse(
 /// <param name="GeneratedAt">Dashboard time when the response was generated.</param>
 /// <param name="Incidents">Visible incidents ordered newest first.</param>
 /// <param name="Truncated">Whether the query limit hid older matching incidents.</param>
+/// <param name="TotalCount">Authoritative matching incident count across all pages.</param>
+/// <param name="CriticalCount">Authoritative matching critical count.</param>
+/// <param name="WarningCount">Authoritative matching warning count.</param>
+/// <param name="NextCursor">Opaque cursor for the next page, or <see langword="null"/>.</param>
 public sealed record AlertIncidentListResponse(
     DateTimeOffset GeneratedAt,
     IReadOnlyList<AlertIncidentResponse> Incidents,
-    bool Truncated);
+    bool Truncated,
+    int TotalCount,
+    int CriticalCount,
+    int WarningCount,
+    string? NextCursor);
+
+/// <summary>
+/// Returns one exact tenant-scoped incident and the response-generation clock.
+/// </summary>
+public sealed record AlertIncidentDetailResponse(
+    DateTimeOffset GeneratedAt,
+    AlertIncidentResponse Incident);
 
 internal sealed record CreatedEnrollmentCode(
     Guid EnrollmentCodeId,

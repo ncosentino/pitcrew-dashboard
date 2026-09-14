@@ -24,6 +24,7 @@ internal sealed class AlertEvaluationUnitOfWork(
         now);
     await _incidentStore.ReconcileAsync(
         evaluation.Candidates,
+        evaluation.Clearances,
         evaluation.Suppressions,
         now,
         now.AddDays(-options.AlertIncidentRetentionDays),

@@ -70,6 +70,16 @@ function createIncident(kind: string, reason: string): OperationalIncident {
     acknowledgedAt: null,
     acknowledgedByGitHubUserId: null,
     resolvedAt: null,
+    sourceObservedAt: generatedAt,
+    dashboardReceivedAt: generatedAt,
+    evaluatedAt: generatedAt,
+    resolutionEvidence: null,
+    conditionState: 'confirmed',
+    operatorState: 'unowned',
+    currentSeverity: 'critical',
+    lastConfirmedSeverity: 'critical',
+    peakSeverity: 'critical',
+    revision: 1,
   };
 }
 

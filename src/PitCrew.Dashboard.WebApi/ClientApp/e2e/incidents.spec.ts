@@ -264,9 +264,42 @@ test('critical/warning mix: both severities display with labeled counts', async 
   await expect(incidentSummary.getByText('1 critical', { exact: true })).toBeVisible();
   await expect(incidentSummary.getByText('1 warning', { exact: true })).toBeVisible();
   await expect(page.getByLabel('2 active incidents; highest severity critical')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Review 2 active incidents' })).toBeVisible();
+  await expect(
+    incidentSummary.getByRole('link', { name: 'Review 2 active incidents' }),
+  ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'critical-warning-mix');
+});
+
+test('truncated fleet summary qualifies slice-derived severity counts', async ({
+  page,
+}, testInfo) => {
+  const warningIncident = buildIncident({
+    incidentId: 'b3333333-3333-4333-8333-333333333333',
+    severity: 'warning',
+    title: 'Visible warning from bounded fleet slice',
+  });
+  const base = baseScenario();
+  const scenario: MockApiOptions = {
+    ...base,
+    fleet: buildFleetResponse(base.fleet.nodes, [warningIncident], {
+      activeIncidentTotal: 3,
+      activeCriticalIncidentTotal: 1,
+      activeIncidentsTruncated: true,
+    }),
+  };
+
+  await setUpPage(page, scenario, 'light');
+  await page.goto(fleetPath);
+
+  const incidentSummary = page.getByTestId('fleet-active-incidents');
+  await expect(incidentSummary.getByText('3 active incidents', { exact: true })).toBeVisible();
+  await expect(incidentSummary.getByText('1 critical', { exact: true })).toBeVisible();
+  await expect(incidentSummary.getByText('1 warning shown', { exact: true })).toBeVisible();
+  await expect(incidentSummary.getByText('1 warning', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('3 active incidents; highest severity critical')).toBeVisible();
+
+  await expectNoOverflowAndAccessible(page, testInfo, 'truncated-fleet-summary');
 });
 
 test('attention queue hides acknowledged incidents and supports filtering and sorting', async ({
@@ -474,7 +507,7 @@ test('truncated: truncation banner communicates bounded history', async ({ page 
   await page.goto(incidentsPath);
 
   await expect(
-    page.getByText(/showing only the newest incidents allowed by the server response limit/i),
+    page.getByText(/authoritative matching incidents in attention-ranked order/i),
   ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'truncated');
