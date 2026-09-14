@@ -64,7 +64,18 @@ public sealed record SupportDiagnosticSession(
     SupportEnvelope? ResultEnvelope,
     JsonElement? Report,
     string? Markdown,
-    SupportResultAttestation? Attestation);
+    SupportResultAttestation? Attestation)
+{
+  /// <summary>
+  /// Gets the Dashboard time when the relay result envelope was received.
+  /// </summary>
+  public DateTimeOffset? ResultReceivedAt { get; init; }
+
+  /// <summary>
+  /// Gets the Dashboard time when result authenticity and schema validation succeeded.
+  /// </summary>
+  public DateTimeOffset? ResultVerifiedAt { get; init; }
+}
 
 /// <summary>
 /// Result of creating or mutating a support diagnostic session.

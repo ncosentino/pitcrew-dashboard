@@ -175,6 +175,7 @@ public interface IRecoveryCommandStore
   /// <param name="receivedAt">Dashboard time when synchronization was accepted.</param>
   /// <param name="redeliverBefore">Unclaimed offers older than this time may be offered again.</param>
   /// <param name="cancellationToken">Token that cancels synchronization.</param>
+  /// <param name="applyCapability">Whether the capability belongs to an accepted complete inventory.</param>
   /// <returns>A command offered for execution, or <see langword="null"/>.</returns>
   Task<RecoverManagerCommand?> ApplyConnectorSyncAsync(
       Guid nodeId,
@@ -183,7 +184,8 @@ public interface IRecoveryCommandStore
       RecoveryCommandOutcome? outcome,
       DateTimeOffset receivedAt,
       DateTimeOffset redeliverBefore,
-      CancellationToken cancellationToken);
+      CancellationToken cancellationToken,
+      bool applyCapability = true);
 
   /// <summary>
   /// Loads connector-advertised recovery controls and command state for one tenant.

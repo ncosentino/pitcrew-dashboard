@@ -152,7 +152,8 @@ public sealed class FleetCarterModule : ICarterModule
             request.ConnectorHealth,
             request.ImageRolloutOperator,
             request.ImageRolloutCommandProgress,
-            request.ImageRolloutCommandOutcome),
+            request.ImageRolloutCommandOutcome,
+            request.ProfileInventory),
         cancellationToken);
     return result.Status switch
     {
@@ -234,7 +235,10 @@ public sealed class FleetCarterModule : ICarterModule
     {
       return Results.Ok(new AlertIncidentDetailResponse(
             generatedAt,
-            ToResponse(incident)));
+            ToResponse(
+                FleetEvidenceProjector.ProjectIncident(
+                    incident,
+                    generatedAt))));
     }
 
     var historyState = await incidentStore.GetHistoryStateAsync(
@@ -709,5 +713,6 @@ public sealed class FleetCarterModule : ICarterModule
           incident.PreviousHistoryState,
           incident.Transition,
           incident.SuppressionReason,
-          incident.SuppressedUntil);
+          incident.SuppressedUntil,
+          incident.EvidenceClaims);
 }

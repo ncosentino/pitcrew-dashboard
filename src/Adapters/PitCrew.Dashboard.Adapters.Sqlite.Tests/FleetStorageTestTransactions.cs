@@ -59,30 +59,45 @@ internal static class FleetStorageTestTransactions
       DateTimeOffset acceptedAt,
       IReadOnlyList<ManagerObservedState> profiles,
       ConnectorCredentialUpdate credentialUpdate,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      ConnectorProfileInventory? profileInventory = null)
   {
     await using var transaction = await SqliteFleetTransaction.BeginAsync(
         connectionFactory,
         cancellationToken);
-    var acceptedProfileIds = profiles
-        .Select(profile => profile.ProfileId)
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-    await store.ApplySyncAsync(
+    var applyResult = await store.ApplySyncAsync(
         transaction,
         nodeId,
         connectorVersion,
         acceptedAt,
-        profiles,
-        acceptedProfileIds,
         credentialUpdate,
-        cancellationToken);
-    await store.ApplyHostHardwareAsync(
-        transaction,
-        nodeId,
-        profiles,
-        profiles.Select(profile => profile.ProfileId).ToArray(),
-        acceptedAt,
-        cancellationToken);
+        cancellationToken,
+        profileInventory);
+    if (applyResult.ProfileInventoryAccepted)
+    {
+      var acceptedProfileIds = profiles
+          .Select(profile => profile.ProfileId)
+          .ToHashSet(StringComparer.OrdinalIgnoreCase);
+      await store.ApplyProfilesAsync(
+          transaction,
+          nodeId,
+          acceptedAt,
+          profiles,
+          acceptedProfileIds,
+          profileInventory,
+          cancellationToken);
+      if (profileInventory is null ||
+          profileInventory.Coverage == "complete")
+      {
+        await store.ApplyHostHardwareAsync(
+            transaction,
+            nodeId,
+            profiles,
+            profiles.Select(profile => profile.ProfileId).ToArray(),
+            acceptedAt,
+            cancellationToken);
+      }
+    }
     await transaction.CommitAsync(cancellationToken);
   }
 
@@ -101,6 +116,18 @@ internal static class FleetStorageTestTransactions
     await using var transaction = await SqliteFleetTransaction.BeginAsync(
         connectionFactory,
         cancellationToken);
+    var applyResult = await store.ApplySyncAsync(
+        transaction,
+        nodeId,
+        connectorVersion,
+        acceptedAt,
+        credentialUpdate,
+        cancellationToken);
+    if (!applyResult.ProfileInventoryAccepted)
+    {
+      await transaction.CommitAsync(cancellationToken);
+      return;
+    }
     var acceptedProfileIds = await historyStore.AppendAsync(
         transaction,
         nodeId,
@@ -108,14 +135,13 @@ internal static class FleetStorageTestTransactions
         acceptedAt,
         historyPolicy,
         cancellationToken);
-    await store.ApplySyncAsync(
+    await store.ApplyProfilesAsync(
         transaction,
         nodeId,
-        connectorVersion,
         acceptedAt,
         profiles,
         acceptedProfileIds,
-        credentialUpdate,
+        null,
         cancellationToken);
     var hardwareUpdated = false;
     if (profiles.Count == 0)

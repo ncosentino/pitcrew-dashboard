@@ -7,6 +7,146 @@ namespace PitCrew.Connector.Features.Sync.Tests;
 public sealed class ProtocolCompatibilityTests
 {
   [Test]
+  public async Task Protocol_Twelve_Profile_Inventory_Round_Trips_Without_Changing_Legacy_Profiles()
+  {
+    var request = JsonSerializer.Deserialize(
+        """
+        {
+          "protocolVersion": 12,
+          "connectorVersion": "12.0.0",
+          "sentAt": "2026-08-20T01:10:00+00:00",
+          "profiles": [],
+          "profileInventory": {
+            "coverage": "unavailable",
+            "observedAt": "2026-08-20T01:10:00+00:00",
+            "unavailableReason": "state-root-missing"
+          }
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncRequest);
+
+    await Assert.That(request).IsNotNull();
+    await Assert.That(request!.Profiles).IsEmpty();
+    await Assert.That(request.ProfileInventory).IsNotNull();
+    await Assert.That(request.ProfileInventory!.Coverage)
+        .IsEqualTo("unavailable");
+    await Assert.That(request.ProfileInventory.UnavailableReason)
+        .IsEqualTo("state-root-missing");
+  }
+
+  [Test]
+  public async Task Contract_Twenty_One_Source_Observations_Round_Trip()
+  {
+    var profile = JsonSerializer.Deserialize(
+        """
+        {
+          "schemaVersion": 1,
+          "managerContractVersion": 21,
+          "profileId": "default",
+          "managerInstanceId": "manager-instance",
+          "managerStatus": "running",
+          "observedAt": "2026-08-20T02:00:00+00:00",
+          "scope": "repo",
+          "generation": 1,
+          "desiredStateHash": null,
+          "desiredStateStatus": "accepted",
+          "desiredSlots": 0,
+          "activeSlots": 0,
+          "drainingSlots": 0,
+          "slots": [],
+          "resourceTelemetry": null,
+          "configuredSlots": 0,
+          "autoscaling": null,
+          "eligibleSlots": 0,
+          "sourceObservations": {
+            "localRuntime": {
+              "authority": "pitcrew-manager",
+              "source": "local-runtime",
+              "sourceIdentity": "manager-instance",
+              "observedAt": "2026-08-20T02:00:00+00:00",
+              "coverage": "complete",
+              "retention": "live",
+              "reason": null
+            },
+            "githubScaleSet": {
+              "authority": "pitcrew-manager",
+              "source": "github-scale-set",
+              "sourceIdentity": "manager-instance",
+              "observedAt": null,
+              "coverage": "unavailable",
+              "retention": "live",
+              "reason": "not-observed"
+            },
+            "resourceTelemetry": {
+              "authority": "pitcrew-manager",
+              "source": "resource-telemetry",
+              "sourceIdentity": "manager-instance",
+              "observedAt": null,
+              "coverage": "unavailable",
+              "retention": "live",
+              "reason": "source-unavailable"
+            },
+            "hostHardware": {
+              "authority": "pitcrew-manager",
+              "source": "host-hardware",
+              "sourceIdentity": "manager-instance",
+              "observedAt": "2026-08-20T01:00:00+00:00",
+              "coverage": "complete",
+              "retention": "last-known",
+              "reason": "stale"
+            },
+            "hostAdmission": {
+              "authority": "pitcrew-manager",
+              "source": "host-admission",
+              "sourceIdentity": "manager-instance",
+              "observedAt": "2026-08-20T02:00:00+00:00",
+              "coverage": "partial",
+              "retention": "live",
+              "reason": "source-partial"
+            },
+            "subsystemHealth": {
+              "authority": "pitcrew-manager",
+              "source": "subsystem-health",
+              "sourceIdentity": "manager-instance",
+              "observedAt": null,
+              "coverage": "unavailable",
+              "retention": "live",
+              "reason": "unsupported"
+            },
+            "capacity": {
+              "authority": "pitcrew-manager",
+              "source": "capacity",
+              "sourceIdentity": "manager-instance",
+              "observedAt": "2026-08-20T02:00:00+00:00",
+              "coverage": "complete",
+              "retention": "live",
+              "reason": null
+            },
+            "workload": {
+              "authority": "pitcrew-manager",
+              "source": "workload",
+              "sourceIdentity": "manager-instance",
+              "observedAt": "2026-08-20T02:00:00+00:00",
+              "coverage": "complete",
+              "retention": "live",
+              "reason": null
+            }
+          }
+        }
+        """,
+        PitCrewProtocolJsonContext.Default.ManagerObservedState);
+
+    await Assert.That(profile).IsNotNull();
+    await Assert.That(profile!.SourceObservations).IsNotNull();
+    await Assert.That(profile.SourceObservations!.Workload.Coverage)
+        .IsEqualTo("complete");
+    await Assert.That(profile.SourceObservations.HostHardware.Retention)
+        .IsEqualTo("last-known");
+    await Assert.That(profile.SourceObservations.ResourceTelemetry.ObservedAt)
+        .IsNull();
+  }
+
+  [Test]
   public async Task Protocol_Two_Payloads_Remain_Readable_Without_Capacity_Fields()
   {
     var request = JsonSerializer.Deserialize(

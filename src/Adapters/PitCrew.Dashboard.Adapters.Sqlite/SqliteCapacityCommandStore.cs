@@ -19,6 +19,7 @@ internal sealed class SqliteCapacityCommandStore(
       string requestedByGitHubUserId,
       DateTimeOffset requestedAt,
       DateTimeOffset expiresAt,
+      DateTimeOffset capabilityObservedAfter,
       CancellationToken cancellationToken,
       Guid? resumeCommandId = null)
   {
@@ -30,12 +31,24 @@ internal sealed class SqliteCapacityCommandStore(
             cancellationToken);
 
     CapacityOperatorCapability? capability;
+    DateTimeOffset? capabilityAt;
     await using (var capabilityCommand = connection.CreateCommand())
     {
       capabilityCommand.Transaction = transaction;
       capabilityCommand.CommandText =
           """
-          SELECT capacity_capability_json
+          SELECT CASE
+              WHEN profile_inventory_coverage IS NULL
+                OR (
+                  profile_inventory_coverage = 'complete'
+                  AND capacity_capability_at IS NOT NULL
+                  AND profile_inventory_received_at IS NOT NULL
+                  AND julianday(capacity_capability_at)
+                    >= julianday(profile_inventory_received_at))
+              THEN capacity_capability_json
+              ELSE NULL
+          END,
+          capacity_capability_at
           FROM nodes
           WHERE tenant_id = $tenantId
             AND node_id = $nodeId
@@ -45,19 +58,33 @@ internal sealed class SqliteCapacityCommandStore(
       capabilityCommand.Parameters.AddWithValue(
           "$nodeId",
           nodeId.ToString("D"));
-      var value = await capabilityCommand.ExecuteScalarAsync(
+      await using var reader = await capabilityCommand.ExecuteReaderAsync(
           cancellationToken);
-      if (value is null)
+      if (!await reader.ReadAsync(cancellationToken))
       {
         return new CapacityCommandQueueResult(
             CapacityCommandQueueStatus.NodeNotFound,
             null);
       }
-      capability = value is DBNull
+      capability = await reader.IsDBNullAsync(0, cancellationToken)
           ? null
           : JsonSerializer.Deserialize(
-              (string)value,
+              reader.GetString(0),
               PitCrewProtocolJsonContext.Default.CapacityOperatorCapability);
+      capabilityAt = await reader.IsDBNullAsync(1, cancellationToken)
+          ? null
+          : DateTimeOffset.Parse(
+              reader.GetString(1),
+              CultureInfo.InvariantCulture,
+              DateTimeStyles.RoundtripKind);
+    }
+
+    if (capabilityAt is null ||
+        capabilityAt < capabilityObservedAfter)
+    {
+      return new CapacityCommandQueueResult(
+          CapacityCommandQueueStatus.Unsupported,
+          null);
     }
 
     var profile = capability?.Profiles.FirstOrDefault(candidate =>
@@ -198,7 +225,8 @@ internal sealed class SqliteCapacityCommandStore(
       CapacityCommandOutcome? outcome,
       DateTimeOffset receivedAt,
       DateTimeOffset redeliverBefore,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      bool applyCapability = true)
   {
     await using var connection = await _connectionFactory.OpenAsync(
         cancellationToken);
@@ -207,8 +235,9 @@ internal sealed class SqliteCapacityCommandStore(
             connection,
             cancellationToken);
 
-    await using (var capabilityCommand = connection.CreateCommand())
+    if (applyCapability)
     {
+      await using var capabilityCommand = connection.CreateCommand();
       capabilityCommand.Transaction = transaction;
       capabilityCommand.CommandText =
           """
@@ -298,6 +327,17 @@ internal sealed class SqliteCapacityCommandStore(
           "$nodeId",
           nodeId.ToString("D"));
       await expire.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    if (!applyCapability)
+    {
+      await SqliteProfileOperationSlot.ReleaseCompletedAsync(
+          connection,
+          transaction,
+          nodeId,
+          cancellationToken);
+      await transaction.CommitAsync(cancellationToken);
+      return null;
     }
 
     PendingCommand? pending = null;
@@ -478,7 +518,15 @@ internal sealed class SqliteCapacityCommandStore(
           SELECT node_id, capacity_capability_json
           FROM nodes
           WHERE tenant_id = $tenantId
-            AND capacity_capability_json IS NOT NULL;
+            AND capacity_capability_json IS NOT NULL
+            AND (
+              profile_inventory_coverage IS NULL
+              OR (
+                profile_inventory_coverage = 'complete'
+                AND capacity_capability_at IS NOT NULL
+                AND profile_inventory_received_at IS NOT NULL
+                AND julianday(capacity_capability_at)
+                  >= julianday(profile_inventory_received_at)));
           """;
       capabilityCommand.Parameters.AddWithValue("$tenantId", tenantId);
       await using var reader = await capabilityCommand.ExecuteReaderAsync(

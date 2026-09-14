@@ -62,6 +62,13 @@ public sealed record ConnectorCredentialUpdate(
     string CredentialHash);
 
 /// <summary>
+/// Reports which inventory-derived effects may be committed for one connector synchronization.
+/// </summary>
+/// <param name="ProfileInventoryAccepted">Whether the inventory observation advanced or represents a legacy snapshot.</param>
+public sealed record FleetSyncApplyResult(
+    bool ProfileInventoryAccepted);
+
+/// <summary>
 /// Describes the outcome of redeeming a one-time connector enrollment code.
 /// </summary>
 public enum ConnectorEnrollmentStatus
@@ -163,25 +170,43 @@ public interface IFleetStore
       CancellationToken cancellationToken);
 
   /// <summary>
-  /// Atomically applies one connector heartbeat and its complete profile projection.
+  /// Atomically applies one connector heartbeat and conditionally advances its inventory authority.
   /// </summary>
-  /// <param name="transaction">Transaction that also carries the bounded history write for the heartbeat.</param>
+  /// <param name="transaction">Transaction that also carries accepted inventory-derived writes.</param>
   /// <param name="nodeId">Authenticated node identifier.</param>
   /// <param name="connectorVersion">Connector application version.</param>
   /// <param name="receivedAt">Dashboard time when the synchronization was accepted.</param>
-  /// <param name="profiles">Latest profile observations visible to the connector.</param>
-  /// <param name="acceptedProfileIds">Profiles whose authoritative observation passed history gates and advanced.</param>
   /// <param name="credentialUpdate">Credential mutation committed with the snapshot.</param>
   /// <param name="cancellationToken">Token that cancels synchronization.</param>
-  /// <returns>A task that completes after the projection is written into the transaction.</returns>
-  Task ApplySyncAsync(
+  /// <param name="profileInventory">Connector inventory coverage, or <see langword="null"/> for a legacy complete snapshot.</param>
+  /// <returns>Whether the supplied inventory observation was accepted.</returns>
+  Task<FleetSyncApplyResult> ApplySyncAsync(
       IFleetStorageTransaction transaction,
       Guid nodeId,
       string connectorVersion,
       DateTimeOffset receivedAt,
+      ConnectorCredentialUpdate credentialUpdate,
+      CancellationToken cancellationToken,
+      ConnectorProfileInventory? profileInventory = null);
+
+  /// <summary>
+  /// Applies profile mutations from an inventory observation already accepted in the same transaction.
+  /// </summary>
+  /// <param name="transaction">Transaction that accepted the inventory observation.</param>
+  /// <param name="nodeId">Authenticated node identifier.</param>
+  /// <param name="receivedAt">Dashboard time when the synchronization was accepted.</param>
+  /// <param name="profiles">Latest profile observations visible to the connector.</param>
+  /// <param name="acceptedProfileIds">Profiles whose authoritative observation passed history gates and advanced.</param>
+  /// <param name="profileInventory">Accepted inventory coverage, or <see langword="null"/> for a legacy complete snapshot.</param>
+  /// <param name="cancellationToken">Token that cancels synchronization.</param>
+  /// <returns>A task that completes after accepted profile mutations are written.</returns>
+  Task ApplyProfilesAsync(
+      IFleetStorageTransaction transaction,
+      Guid nodeId,
+      DateTimeOffset receivedAt,
       IReadOnlyList<ManagerObservedState> profiles,
       IReadOnlySet<string> acceptedProfileIds,
-      ConnectorCredentialUpdate credentialUpdate,
+      ConnectorProfileInventory? profileInventory,
       CancellationToken cancellationToken);
 
   /// <summary>

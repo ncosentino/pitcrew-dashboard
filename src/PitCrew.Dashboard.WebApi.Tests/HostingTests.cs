@@ -900,6 +900,7 @@ public sealed class HostingTests
       await Assert.That(incidents).IsNotNull();
       await Assert.That(incidents!.Incidents).HasSingleItem();
       var incident = incidents.Incidents[0];
+      await Assert.That(incident.EvidenceClaims).IsNotEmpty();
 
       using var acknowledgement =
           await DashboardTestHelpers.PostAuthenticatedAsync(
@@ -958,6 +959,7 @@ public sealed class HostingTests
           cancellationToken);
       await Assert.That(exact?.Incident.IncidentId)
           .IsEqualTo(incident.IncidentId);
+      await Assert.That(exact?.Incident.EvidenceClaims).IsNotEmpty();
       await Assert.That(triggered.Incidents[0].ResolvedAt)
           .IsNull();
 
@@ -1203,11 +1205,15 @@ public sealed class HostingTests
       await Assert.That(queue.StatusCode)
           .IsEqualTo(HttpStatusCode.Accepted);
 
+      var deliveryObserved = observed with
+      {
+        ObservedAt = observed.ObservedAt.AddSeconds(1),
+      };
       var delivery = await DashboardTestHelpers.SynchronizeCapacityAsync(
           client,
           identity.Credential,
           "3.0.0",
-          observed,
+          deliveryObserved,
           capability,
           null,
           cancellationToken);
@@ -1217,6 +1223,7 @@ public sealed class HostingTests
 
       var updatedObserved = observed with
       {
+        ObservedAt = observed.ObservedAt.AddSeconds(2),
         Generation = 4,
         DesiredSlots = 10,
         ConfiguredSlots = 10,
@@ -1265,11 +1272,15 @@ public sealed class HostingTests
       await Assert.That(pauseQueue.StatusCode)
           .IsEqualTo(HttpStatusCode.Accepted);
 
+      var pauseDeliveryObserved = updatedObserved with
+      {
+        ObservedAt = updatedObserved.ObservedAt.AddSeconds(1),
+      };
       var pauseDelivery = await DashboardTestHelpers.SynchronizeCapacityAsync(
           client,
           identity.Credential,
           "9.0.0",
-          updatedObserved,
+          pauseDeliveryObserved,
           new CapacityOperatorCapability(
               [
                   new CapacityOperatorProfile(
@@ -1286,7 +1297,7 @@ public sealed class HostingTests
 
       var pausedObserved = updatedObserved with
       {
-        ObservedAt = updatedObserved.ObservedAt.AddSeconds(2),
+        ObservedAt = pauseDeliveryObserved.ObservedAt.AddSeconds(1),
         Generation = 5,
         DesiredSlots = 0,
         ConfiguredSlots = 0,
@@ -1332,11 +1343,15 @@ public sealed class HostingTests
       await Assert.That(resumeQueue.StatusCode)
           .IsEqualTo(HttpStatusCode.Accepted);
 
+      var resumeDeliveryObserved = pausedObserved with
+      {
+        ObservedAt = pausedObserved.ObservedAt.AddSeconds(1),
+      };
       var resumeDelivery = await DashboardTestHelpers.SynchronizeCapacityAsync(
           client,
           identity.Credential,
           "9.0.0",
-          pausedObserved,
+          resumeDeliveryObserved,
           new CapacityOperatorCapability(
               [
                   new CapacityOperatorProfile(
@@ -1462,11 +1477,15 @@ public sealed class HostingTests
       await Assert.That(overlappingCapacity.StatusCode)
           .IsEqualTo(HttpStatusCode.Conflict);
 
+      var deliveryObserved = observed with
+      {
+        ObservedAt = observed.ObservedAt.AddSeconds(1),
+      };
       var delivery = await DashboardTestHelpers.SynchronizeRecoveryAsync(
           client,
           identity.Credential,
           "3.0.0",
-          observed,
+          deliveryObserved,
           capability,
           null,
           null,
@@ -1475,11 +1494,15 @@ public sealed class HostingTests
       await Assert.That(delivery.RecoveryCommand!.ExpectedManagerInstanceId)
           .IsEqualTo(observed.ManagerInstanceId);
 
+      var claimObserved = observed with
+      {
+        ObservedAt = observed.ObservedAt.AddSeconds(2),
+      };
       var afterClaim = await DashboardTestHelpers.SynchronizeRecoveryAsync(
           client,
           identity.Credential,
           "3.0.0",
-          observed,
+          claimObserved,
           capability,
           new RecoveryCommandProgress(
               delivery.RecoveryCommand.CommandId,
@@ -1493,6 +1516,7 @@ public sealed class HostingTests
 
       var recovered = observed with
       {
+        ObservedAt = observed.ObservedAt.AddSeconds(3),
         ManagerInstanceId = Guid.NewGuid().ToString("D"),
       };
       await DashboardTestHelpers.SynchronizeRecoveryAsync(

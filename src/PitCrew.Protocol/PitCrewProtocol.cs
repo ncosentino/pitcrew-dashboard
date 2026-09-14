@@ -10,7 +10,7 @@ public static class PitCrewProtocol
   /// <summary>
   /// Gets the current connector synchronization protocol version.
   /// </summary>
-  public const int Version = 11;
+  public const int Version = 12;
 
   /// <summary>
   /// Gets the first protocol version that carries profile-image rollout evidence.
@@ -144,6 +144,7 @@ public sealed record ManagerWorkerUpdateState(
 /// <param name="Update">Worker-image convergence evidence when reported; otherwise <see langword="null"/>.</param>
 /// <param name="Host">Manager contract 13 sanitized node hardware inventory when reported.</param>
 /// <param name="HostAdmission">Manager contract 18 host-local admission evidence, including contract 19 profile-usable capacity when reported.</param>
+/// <param name="SourceObservations">Manager contract 21 source-family provenance when reported.</param>
 public sealed record ManagerObservedState(
     int SchemaVersion,
     int ManagerContractVersion,
@@ -169,7 +170,8 @@ public sealed record ManagerObservedState(
     ManagerCapacityEvidence? CapacityEvidence = null,
     ManagerWorkerUpdateState? Update = null,
     ObservedHost? Host = null,
-    HostAdmissionState? HostAdmission = null);
+    HostAdmissionState? HostAdmission = null,
+    ManagerSourceObservations? SourceObservations = null);
 
 /// <summary>
 /// Requests enrollment of one connector installation with a dashboard deployment.
@@ -538,6 +540,7 @@ public static class ConnectorHealthReplayContract
 /// <param name="ImageRolloutOperator">Locally enabled profile-image rollout capability, or <see langword="null"/>. Requires protocol version 11.</param>
 /// <param name="ImageRolloutCommandProgress">Most recent unacknowledged image-rollout progress report, or <see langword="null"/>. Requires protocol version 11.</param>
 /// <param name="ImageRolloutCommandOutcome">Most recent unacknowledged image-rollout outcome, or <see langword="null"/>. Requires protocol version 11.</param>
+/// <param name="ProfileInventory">Connector protocol 12 profile inventory coverage.</param>
 public sealed record ConnectorSyncRequest(
     int ProtocolVersion,
     string ConnectorVersion,
@@ -551,7 +554,8 @@ public sealed record ConnectorSyncRequest(
     ConnectorHealthReplay? ConnectorHealth = null,
     ImageRolloutOperatorCapability? ImageRolloutOperator = null,
     ImageRolloutCommandProgress? ImageRolloutCommandProgress = null,
-    ImageRolloutCommandOutcome? ImageRolloutCommandOutcome = null);
+    ImageRolloutCommandOutcome? ImageRolloutCommandOutcome = null,
+    ConnectorProfileInventory? ProfileInventory = null);
 
 /// <summary>
 /// Delivers a staged replacement node credential to the connector.
@@ -606,7 +610,11 @@ public sealed record ConnectorSyncResponse(
 [JsonSerializable(typeof(ObservedSlotState))]
 [JsonSerializable(typeof(CurrentJobContext))]
 [JsonSerializable(typeof(ManagerAutoscalingState))]
+[JsonSerializable(typeof(ManagerSourceObservation))]
+[JsonSerializable(typeof(ManagerSourceObservations))]
 [JsonSerializable(typeof(ManagerObservedState))]
+[JsonSerializable(typeof(ConnectorProfileInventory))]
+[JsonSerializable(typeof(EvidenceClaim))]
 [JsonSerializable(typeof(ConnectorEnrollmentRequest))]
 [JsonSerializable(typeof(ConnectorEnrollmentResponse))]
 [JsonSerializable(typeof(CapacityOperatorProfile))]

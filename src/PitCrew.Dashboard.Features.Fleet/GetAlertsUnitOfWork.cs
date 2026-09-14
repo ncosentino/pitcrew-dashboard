@@ -52,18 +52,28 @@ internal sealed class GetAlertsUnitOfWork(
 
     var now = _timeProvider.GetUtcNow();
     var page = await _incidentStore.GetPageAsync(
-            tenantId,
-            filter.Value,
-            limit,
-            cursor,
-            now,
-            cancellationToken);
-    return page.CursorInvalidated
-        ? Invalid("The incident cursor is stale; restart pagination.")
-        : new AlertQueryResult(
-            AlertQueryStatus.Succeeded,
-            null,
-            page);
+        tenantId,
+        filter.Value,
+        limit,
+        cursor,
+        now,
+        cancellationToken);
+    if (page.CursorInvalidated)
+    {
+      return Invalid("The incident cursor is stale; restart pagination.");
+    }
+    return new AlertQueryResult(
+        AlertQueryStatus.Succeeded,
+        null,
+        page with
+        {
+          Incidents = page.Incidents
+              .Select(incident =>
+                  FleetEvidenceProjector.ProjectIncident(
+                      incident,
+                      now))
+              .ToArray(),
+        });
   }
 
   private static AlertQueryResult Invalid(string error) =>

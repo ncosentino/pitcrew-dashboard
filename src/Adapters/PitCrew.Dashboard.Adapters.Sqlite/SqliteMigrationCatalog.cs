@@ -4732,5 +4732,38 @@ internal static class SqliteMigrationCatalog
                       projection_version = projection_version + 1;
               END;
               """),
+        new(
+              35,
+              "claim-level-evidence-projection",
+              """
+              ALTER TABLE profiles
+                  ADD COLUMN received_at TEXT NULL;
+
+              ALTER TABLE nodes
+                  ADD COLUMN profile_inventory_coverage TEXT NULL
+                      CHECK (profile_inventory_coverage IS NULL
+                          OR profile_inventory_coverage IN (
+                              'complete',
+                              'partial',
+                              'unavailable'));
+
+              ALTER TABLE nodes
+                  ADD COLUMN profile_inventory_observed_at TEXT NULL;
+
+              ALTER TABLE nodes
+                  ADD COLUMN profile_inventory_reason TEXT NULL
+                      CHECK (profile_inventory_reason IS NULL
+                          OR length(profile_inventory_reason)
+                              BETWEEN 1 AND 128);
+
+              ALTER TABLE nodes
+                  ADD COLUMN profile_inventory_received_at TEXT NULL;
+
+              ALTER TABLE support_sessions
+                  ADD COLUMN result_received_at TEXT NULL;
+
+              ALTER TABLE support_sessions
+                  ADD COLUMN result_verified_at TEXT NULL;
+              """),
     ];
 }

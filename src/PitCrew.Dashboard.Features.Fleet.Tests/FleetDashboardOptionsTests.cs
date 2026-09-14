@@ -22,11 +22,12 @@ public sealed class FleetDashboardOptionsTests
       AlertBlockIoBytesPerSecond = -1,
       MaximumResolvedAlertIncidentsPerTenant = 10,
       MaximumAlertIncidentsPerQuery = 11,
+      CapacityCapabilityFreshnessSeconds = 20,
     };
 
     var errors = options.Validate().ToArray();
 
-    await Assert.That(errors.Length).IsEqualTo(5);
+    await Assert.That(errors.Length).IsEqualTo(6);
     await Assert.That(errors).Contains(
         "AlertManagerStaleAfterSeconds must be at least twice ConnectorPollSeconds.");
     await Assert.That(errors).Contains(
@@ -37,5 +38,7 @@ public sealed class FleetDashboardOptionsTests
         "AlertBlockIoBytesPerSecond cannot be negative.");
     await Assert.That(errors).Contains(
         "MaximumAlertIncidentsPerQuery cannot exceed MaximumResolvedAlertIncidentsPerTenant.");
+    await Assert.That(errors).Contains(
+        "CapacityCapabilityFreshnessSeconds must be at least twice ConnectorPollSeconds.");
   }
 }

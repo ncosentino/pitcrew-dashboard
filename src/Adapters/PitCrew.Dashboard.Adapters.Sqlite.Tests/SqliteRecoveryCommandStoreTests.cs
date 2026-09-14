@@ -19,6 +19,98 @@ public sealed class SqliteRecoveryCommandStoreTests
       TimeSpan.Zero);
 
   [Test]
+  public async Task Rejected_Inventory_Preserves_Recovery_Authority_While_Applying_Scoped_Outcome(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var (connectionFactory, nodeId) = await CreateEnrolledNodeAsync(
+          databasePath,
+          cancellationToken);
+      var store = new SqliteRecoveryCommandStore(connectionFactory);
+      var acceptedCapability = CreateCapability();
+      await SynchronizeAsync(store, nodeId, Now, cancellationToken);
+      var queued = await QueueAsync(store, nodeId, Now, cancellationToken);
+      await SynchronizeAsync(
+          store,
+          nodeId,
+          Now.AddSeconds(1),
+          cancellationToken);
+      var before = await StoredNodeCapabilityProbe.ReadAsync(
+          connectionFactory,
+          nodeId,
+          "recovery",
+          cancellationToken);
+      var outcome = new RecoveryCommandOutcome(
+          queued.CommandId!.Value,
+          "failed",
+          "process-failure",
+          "Recovery process exited with a failure.",
+          "manager-instance",
+          "manager-instance",
+          Now.AddSeconds(2));
+      var replayedCapability = acceptedCapability with
+      {
+        Profiles =
+        [
+            acceptedCapability.Profiles[0] with
+            {
+              DesiredGeneration = 99,
+            },
+        ],
+      };
+
+      await store.ApplyConnectorSyncAsync(
+          Guid.NewGuid(),
+          replayedCapability,
+          null,
+          outcome,
+          Now.AddMinutes(10),
+          Now.AddMinutes(8),
+          cancellationToken,
+          applyCapability: false);
+      var afterForeignOutcome = await store.GetControlsAsync(
+          "tenant",
+          120,
+          cancellationToken);
+      await Assert.That(
+          afterForeignOutcome[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("queued");
+
+      await store.ApplyConnectorSyncAsync(
+          nodeId,
+          replayedCapability,
+          null,
+          outcome,
+          Now.AddMinutes(10),
+          Now.AddMinutes(8),
+          cancellationToken,
+          applyCapability: false);
+      var after = await StoredNodeCapabilityProbe.ReadAsync(
+          connectionFactory,
+          nodeId,
+          "recovery",
+          cancellationToken);
+      var controls = await store.GetControlsAsync(
+          "tenant",
+          120,
+          cancellationToken);
+
+      await Assert.That(after).IsEqualTo(before);
+      await Assert.That(controls[0].Profiles[0].DesiredGeneration)
+          .IsEqualTo(4);
+      await Assert.That(controls[0].Profiles[0].LatestCommand!.Status)
+          .IsEqualTo("failed");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Recovery_Command_Is_Offered_Until_Claimed_And_Executes_At_Most_Once(
       CancellationToken cancellationToken)
   {
@@ -331,6 +423,7 @@ public sealed class SqliteRecoveryCommandStoreTests
           "1",
           Now.AddSeconds(1),
           Now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(blockedCapacity.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Conflict);
@@ -367,6 +460,7 @@ public sealed class SqliteRecoveryCommandStoreTests
           "1",
           Now.AddSeconds(160),
           Now.AddMinutes(20),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(allowedCapacity.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued)
@@ -611,6 +705,7 @@ public sealed class SqliteRecoveryCommandStoreTests
           "1",
           Now,
           Now.AddMinutes(10),
+          DateTimeOffset.MinValue,
           cancellationToken);
       await Assert.That(capacityCommand.Status)
           .IsEqualTo(CapacityCommandQueueStatus.Queued);

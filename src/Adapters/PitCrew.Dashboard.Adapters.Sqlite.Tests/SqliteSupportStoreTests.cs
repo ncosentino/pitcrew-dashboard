@@ -95,8 +95,10 @@ public sealed class SqliteSupportStoreTests
               "payload",
               "signature",
               SupportEnvelopeCryptography.SignatureAlgorithm)),
+          scenario.Clocks.EvaluatedAt,
+          cancellationToken,
           scenario.Clocks.DashboardReceivedAt,
-          cancellationToken);
+          scenario.Clocks.EvaluatedAt);
       var firstRead = await supportStore.GetSessionOrNullAsync(
           tenantId,
           scenario.SessionId,
@@ -128,6 +130,10 @@ public sealed class SqliteSupportStoreTests
           .IsEqualTo(expectedDigest);
       await Assert.That(ResultDigest(returnedRead))
           .IsEqualTo(expectedDigest);
+      await Assert.That(returnedRead.ResultReceivedAt)
+          .IsEqualTo(scenario.Clocks.DashboardReceivedAt);
+      await Assert.That(returnedRead.ResultVerifiedAt)
+          .IsEqualTo(scenario.Clocks.EvaluatedAt);
       await Assert.That(wrongTenantRead).IsNull();
     }
     finally

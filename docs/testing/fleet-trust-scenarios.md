@@ -29,6 +29,18 @@ reported through one bounded `InvalidOperationException` boundary.
   profile diagnoses. Retained manager and workload evidence remains evidence,
   but it does not prove current workload state or true resolution.
 - Fresh connector contact can coexist with stale manager evidence.
+- Manager contract 21 source-family provenance is projected without replacing
+  source observation time with connector receipt or response generation time.
+  Legacy manager records retain their values with unsupported provenance
+  explicitly unavailable.
+- Connector protocol 12 distinguishes complete, partial, and unavailable
+  profile inventory. Partial or unavailable acquisition preserves omitted
+  profiles as last-known evidence; only a complete inventory, including a
+  measured empty inventory, may remove them.
+- Partial or unavailable inventory cannot authorize capacity, recovery, or
+  image-rollout work. A complete inventory also cannot refresh an older
+  operation capability; protocol-12 capability receipt must be at least as
+  recent as the accepted inventory receipt.
 - Credential-derived connector identity is authoritative. A disagreeing payload
   identity does not replace it.
 - One stable candidate key remains one persistent condition episode. Activated
@@ -64,7 +76,10 @@ reported through one bounded `InvalidOperationException` boundary.
   `reopened-after-unverified-legacy-resolution`; unknown and false evidence do
   not allocate a successor or invent recovery.
 - Completed support results are durably stored and exact tenant-scoped session
-  reads return the same verified result after leaving and returning.
+  reads return the same verified result after leaving and returning. Result
+  source completion, Dashboard receipt, verification, lifecycle completion,
+  and response generation remain separate clocks; legacy rows do not receive
+  invented receipt or verification times.
 - Omitted support profiles are accepted by the current report validator when the
   broker returns a valid local profile. The corpus labels that result ambiguous
   rather than guessing which profile the operator intended.

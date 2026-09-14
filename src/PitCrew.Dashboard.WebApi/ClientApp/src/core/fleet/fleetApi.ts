@@ -4,6 +4,24 @@ import { HttpClient } from '@/core/api/httpClient';
 
 export const offsetDateTimeSchema = z.string().datetime({ offset: true });
 
+export const evidenceClaimSchema = z.object({
+  name: z.string().min(1).max(128),
+  authority: z.string().min(1).max(128),
+  source: z.string().min(1).max(128),
+  sourceIdentity: z.string().min(1).max(128).nullable(),
+  sourceObservedAt: offsetDateTimeSchema.nullable(),
+  dashboardReceivedAt: offsetDateTimeSchema.nullable(),
+  evaluatedAt: offsetDateTimeSchema.nullable(),
+  verifiedAt: offsetDateTimeSchema.nullable(),
+  responseGeneratedAt: offsetDateTimeSchema,
+  freshnessBoundary: offsetDateTimeSchema.nullable(),
+  coverage: z.enum(['complete', 'partial', 'unavailable']),
+  retention: z.enum(['live', 'last-known']),
+  freshness: z.string().min(1).max(64),
+  value: z.string().max(256).nullable(),
+  unavailableReason: z.string().min(1).max(128).nullable(),
+});
+
 const resourceUsageSchema = z.object({
   cpuCores: z.number().nonnegative(),
   memoryWorkingSetBytes: z.number().int().nonnegative(),
@@ -675,6 +693,88 @@ const hostAdmissionStateSchema = z
     }
   });
 
+const managerSourceObservationSchema = z
+  .object({
+    authority: z.literal('pitcrew-manager'),
+    source: z.enum([
+      'local-runtime',
+      'github-scale-set',
+      'resource-telemetry',
+      'host-hardware',
+      'host-admission',
+      'subsystem-health',
+      'capacity',
+      'workload',
+    ]),
+    sourceIdentity: z.string().min(1).max(128),
+    observedAt: offsetDateTimeSchema.nullable(),
+    coverage: z.enum(['complete', 'partial', 'unavailable']),
+    retention: z.enum(['live', 'last-known']),
+    reason: z
+      .enum(['stale', 'source-partial', 'not-observed', 'source-unavailable', 'unsupported'])
+      .nullable(),
+  })
+  .superRefine((observation, context) => {
+    const isValid =
+      observation.coverage === 'complete'
+        ? observation.observedAt != null &&
+          (observation.retention === 'live'
+            ? observation.reason == null
+            : observation.reason === 'stale')
+        : observation.coverage === 'partial'
+          ? observation.observedAt != null && observation.reason === 'source-partial'
+          : observation.observedAt == null &&
+            observation.retention === 'live' &&
+            (observation.reason === 'not-observed' ||
+              observation.reason === 'source-unavailable' ||
+              observation.reason === 'unsupported');
+    if (!isValid) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Manager source coverage, retention, observation time, and reason conflict.',
+      });
+    }
+  });
+
+const managerSourceObservationsSchema = z.object({
+  localRuntime: managerSourceObservationSchema.safeExtend({
+    source: z.literal('local-runtime'),
+  }),
+  githubScaleSet: managerSourceObservationSchema.safeExtend({
+    source: z.literal('github-scale-set'),
+  }),
+  resourceTelemetry: managerSourceObservationSchema.safeExtend({
+    source: z.literal('resource-telemetry'),
+  }),
+  hostHardware: managerSourceObservationSchema.safeExtend({
+    source: z.literal('host-hardware'),
+  }),
+  hostAdmission: managerSourceObservationSchema.safeExtend({
+    source: z.literal('host-admission'),
+  }),
+  subsystemHealth: managerSourceObservationSchema.safeExtend({
+    source: z.literal('subsystem-health'),
+  }),
+  capacity: managerSourceObservationSchema.safeExtend({
+    source: z.literal('capacity'),
+  }),
+  workload: managerSourceObservationSchema.safeExtend({
+    source: z.literal('workload'),
+  }),
+});
+
+const connectorProfileInventorySchema = z.object({
+  coverage: z.enum(['complete', 'partial', 'unavailable']),
+  observedAt: offsetDateTimeSchema,
+  unavailableReason: z.string().min(1).max(128).nullable(),
+});
+
+const fleetProfileEvidenceSchema = z.object({
+  profileId: z.string().min(1),
+  dashboardReceivedAt: offsetDateTimeSchema.nullable(),
+  claims: z.array(evidenceClaimSchema),
+});
+
 export const managerObservedStateSchema = z
   .object({
     schemaVersion: z.number().int(),
@@ -702,8 +802,23 @@ export const managerObservedStateSchema = z
     update: managerWorkerUpdateStateSchema.nullable().default(null),
     host: observedHostSchema.nullable().optional(),
     hostAdmission: hostAdmissionStateSchema.nullable().optional(),
+    sourceObservations: managerSourceObservationsSchema.nullable().optional(),
   })
   .superRefine((profile, context) => {
+    if (profile.managerContractVersion >= 21 && profile.sourceObservations == null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Manager contract 21 requires source-family observations.',
+        path: ['sourceObservations'],
+      });
+    }
+    if (profile.managerContractVersion < 21 && profile.sourceObservations != null) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Source-family observations require manager contract 21.',
+        path: ['sourceObservations'],
+      });
+    }
     const hardware = profile.host?.hardware;
     if (hardware != null) {
       const values = [
@@ -1184,6 +1299,10 @@ export const fleetNodeSchema = z
     recoveryControls: z.array(recoveryControlStateSchema).default([]),
     hardware: hostHardwareInventorySchema.nullable().optional(),
     connectorHealth: connectorHealthCurrentSchema.nullable().optional(),
+    profileInventory: connectorProfileInventorySchema.nullable().optional(),
+    profileInventoryReceivedAt: offsetDateTimeSchema.nullable().optional(),
+    evidenceClaims: z.array(evidenceClaimSchema).optional(),
+    profileEvidence: z.array(fleetProfileEvidenceSchema).optional(),
   })
   .superRefine((node, context) => {
     if (node.connectorHealth != null && node.connectorHealth.nodeId !== node.nodeId) {
@@ -1250,6 +1369,7 @@ export const operationalIncidentSchema = z
       .optional(),
     suppressionReason: z.string().min(1).max(64).nullable().optional(),
     suppressedUntil: offsetDateTimeSchema.nullable().optional(),
+    evidenceClaims: z.array(evidenceClaimSchema).optional(),
   })
   .transform((incident) => {
     const conditionState =

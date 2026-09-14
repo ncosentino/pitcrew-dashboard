@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 
 using Carter;
 
@@ -11,6 +12,7 @@ using Microsoft.Extensions.Options;
 using PitCrew.Dashboard.Features.Access;
 using PitCrew.Dashboard.Features.Support.Abstractions;
 using PitCrew.Dashboard.Kernel.Authentication;
+using PitCrew.Protocol;
 using PitCrew.Support.Protocol;
 
 namespace PitCrew.Dashboard.Features.Support;
@@ -216,17 +218,23 @@ public sealed class SupportCarterModule : ICarterModule
       HttpContext context,
       string tenantId,
       IGetSupportDiagnosticSessionUnitOfWork unitOfWork,
-      CancellationToken cancellationToken) =>
-      Results.Ok((await unitOfWork.GetRecentAsync(
+      TimeProvider timeProvider,
+      CancellationToken cancellationToken)
+  {
+    var generatedAt = timeProvider.GetUtcNow();
+    return Results.Ok((await unitOfWork.GetRecentAsync(
           context.User,
           tenantId,
-          cancellationToken)).Select(MapSession));
+          cancellationToken)).Select(session =>
+              MapSession(session, generatedAt)));
+  }
 
   private static async Task<IResult> CreateSessionAsync(
       HttpContext context,
       string tenantId,
       CreateSupportDiagnosticSessionRequest request,
       ICreateSupportDiagnosticSessionUnitOfWork unitOfWork,
+      TimeProvider timeProvider,
       CancellationToken cancellationToken)
   {
     context.Response.Headers.CacheControl = "no-store";
@@ -247,7 +255,9 @@ public sealed class SupportCarterModule : ICarterModule
     {
       SupportMutationStatus.Succeeded when result.Session is not null => Results.Accepted(
           $"/api/tenants/{tenantId}/support/v1/sessions/{result.Session.SessionId:D}",
-          MapSession(result.Session)),
+          MapSession(
+              result.Session,
+              timeProvider.GetUtcNow())),
       SupportMutationStatus.Invalid => Results.BadRequest(Error("invalid_support_session", result.Error ?? "The support diagnostic session is invalid.")),
       SupportMutationStatus.Forbidden => Results.Forbid(),
       SupportMutationStatus.NotFound => Results.NotFound(),
@@ -271,13 +281,17 @@ public sealed class SupportCarterModule : ICarterModule
       string tenantId,
       Guid sessionId,
       IGetSupportDiagnosticSessionUnitOfWork unitOfWork,
+      TimeProvider timeProvider,
       CancellationToken cancellationToken)
   {
     context.Response.Headers.CacheControl = "no-store";
     var result = await unitOfWork.GetAsync(context.User, tenantId, sessionId, cancellationToken);
     return result.Status switch
     {
-      SupportMutationStatus.Succeeded when result.Session is not null => Results.Ok(MapSession(result.Session)),
+      SupportMutationStatus.Succeeded when result.Session is not null => Results.Ok(
+          MapSession(
+              result.Session,
+              timeProvider.GetUtcNow())),
       SupportMutationStatus.Forbidden => Results.Forbid(),
       SupportMutationStatus.NotFound => Results.NotFound(),
       SupportMutationStatus.Invalid => Results.BadRequest(Error(
@@ -316,8 +330,12 @@ public sealed class SupportCarterModule : ICarterModule
           identity.LastResultAt,
           identity.CapabilityVersion);
 
-  private static SupportDiagnosticSessionResponse MapSession(SupportDiagnosticSession session) =>
-      new(
+  private static SupportDiagnosticSessionResponse MapSession(
+      SupportDiagnosticSession session,
+      DateTimeOffset generatedAt)
+  {
+    var resultCoverage = ResultCoverage(session.Report);
+    return new SupportDiagnosticSessionResponse(
           session.SessionId.ToString("D"),
           session.NodeId.ToString("D"),
           session.DiagnosticMode,
@@ -341,7 +359,113 @@ public sealed class SupportCarterModule : ICarterModule
                       session.Attestation.PayloadBase64Url,
                       session.Attestation.SignatureBase64Url,
                       session.Attestation.SignatureAlgorithm))
-              : null);
+              : null)
+    {
+      EvidenceClaims =
+      [
+        new EvidenceClaim(
+            "diagnostic-authorization",
+            "dashboard-authorization",
+            "support-session-request",
+            session.RequestedByGitHubUserId,
+            session.RequestedAt,
+            session.RequestedAt,
+            session.RequestedAt,
+            null,
+            generatedAt,
+            session.ExpiresAt,
+            "complete",
+            "live",
+            "current",
+            "authorized",
+            null),
+        new EvidenceClaim(
+            "diagnostic-transport",
+            "support-relay",
+            "support-session-lifecycle",
+            null,
+            session.DispatchedAt ?? session.CompletedAt,
+            session.DispatchedAt ?? session.CompletedAt,
+            session.CompletedAt,
+            null,
+            generatedAt,
+            session.ExpiresAt,
+            session.DispatchedAt is null ? "unavailable" : "complete",
+            "live",
+            session.Status.ToString().ToLowerInvariant(),
+            session.Status.ToString().ToLowerInvariant(),
+            session.RejectionDisposition),
+        new EvidenceClaim(
+            "diagnostic-result",
+            "verified-node-result",
+            "local-broker",
+            session.NodeId.ToString("D"),
+            ResultCompletedAt(session.Report),
+            session.ResultReceivedAt,
+            session.CompletedAt,
+            session.ResultVerifiedAt,
+            generatedAt,
+            null,
+            resultCoverage,
+            "live",
+            session.Status == SupportDiagnosticSessionStatus.Completed
+                ? resultCoverage
+                : "unavailable",
+            session.Status == SupportDiagnosticSessionStatus.Completed
+                ? session.ProfileId
+                : null,
+            session.Status == SupportDiagnosticSessionStatus.Completed
+                ? null
+                : session.RejectionDisposition ?? "result-unavailable"),
+      ],
+    };
+  }
+
+  private static string ResultCoverage(JsonElement? report)
+  {
+    if (report is null)
+    {
+      return "unavailable";
+    }
+    var hasMeasurements =
+        report.Value.TryGetProperty(
+            "verifiedMeasurements",
+            out var measurements) &&
+        HasEvidenceItems(measurements);
+    var hasUnavailable =
+        report.Value.TryGetProperty(
+            "unavailableEvidence",
+            out var unavailable) &&
+        HasEvidenceItems(unavailable);
+    return hasUnavailable
+        ? hasMeasurements ? "partial" : "unavailable"
+        : "complete";
+  }
+
+  private static bool HasEvidenceItems(JsonElement value)
+  {
+    if (value.ValueKind == JsonValueKind.Array)
+    {
+      return value.GetArrayLength() > 0;
+    }
+    if (value.ValueKind != JsonValueKind.Object)
+    {
+      return false;
+    }
+    using var properties = value.EnumerateObject();
+    return properties.MoveNext();
+  }
+
+  private static DateTimeOffset? ResultCompletedAt(
+      JsonElement? report) =>
+      report is not null &&
+      report.Value.TryGetProperty(
+          "completedAt",
+          out var completedAt) &&
+      completedAt.ValueKind == JsonValueKind.String &&
+      completedAt.TryGetDateTimeOffset(out var parsed)
+          ? parsed
+          : null;
 
   private static IResult MutationResult(SupportMutationStatus status) =>
       status switch

@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+using PitCrew.Protocol;
+
 namespace PitCrew.Dashboard.Features.Support;
 
 /// <summary>
@@ -157,7 +159,13 @@ public sealed record SupportDiagnosticSessionResponse(
     DateTimeOffset ExpiresAt,
     DateTimeOffset? DispatchedAt,
     string? RejectionDisposition,
-    SupportDiagnosticResultResponse? Result);
+    SupportDiagnosticResultResponse? Result)
+{
+  /// <summary>
+  /// Gets claim-level authorization, transport, and verified-result evidence.
+  /// </summary>
+  public IReadOnlyList<EvidenceClaim> EvidenceClaims { get; init; } = [];
+}
 
 /// <summary>
 /// Verified support diagnostic result returned only for completed sessions.

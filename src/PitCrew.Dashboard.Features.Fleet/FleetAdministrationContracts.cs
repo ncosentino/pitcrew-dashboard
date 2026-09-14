@@ -1,3 +1,5 @@
+using PitCrew.Protocol;
+
 namespace PitCrew.Dashboard.Features.Fleet;
 
 /// <summary>
@@ -85,6 +87,7 @@ public sealed record RecoverManagerResponse(
 /// <param name="DashboardReceivedAt">Dashboard receipt time for the proving evidence, or <see langword="null"/> for legacy rows.</param>
 /// <param name="EvaluatedAt">Dashboard evaluation time for the current condition state, or <see langword="null"/> for legacy rows.</param>
 /// <param name="ResolutionEvidence">Fresh resolution provenance or <c>legacy-unverified</c> for older resolved rows.</param>
+/// <param name="EvidenceClaims">Claim-level condition and ownership evidence.</param>
 public sealed record AlertIncidentResponse(
     Guid IncidentId,
     Guid NodeId,
@@ -123,7 +126,8 @@ public sealed record AlertIncidentResponse(
     string? PreviousHistoryState,
     string? Transition,
     string? SuppressionReason,
-    DateTimeOffset? SuppressedUntil);
+    DateTimeOffset? SuppressedUntil,
+    IReadOnlyList<EvidenceClaim> EvidenceClaims);
 
 /// <summary>
 /// Returns bounded operational incident history for one tenant.

@@ -40,6 +40,7 @@ internal sealed class SetCapacityMaximumUnitOfWork(
       return Task.FromResult<CapacityCommandQueueResult?>(null);
     }
 
+    var options = _options.Value;
     var requestedAt = _timeProvider.GetUtcNow();
     return QueueAsync();
 
@@ -52,7 +53,9 @@ internal sealed class SetCapacityMaximumUnitOfWork(
             user.GitHubUserId,
             requestedAt,
             requestedAt.AddMinutes(
-                _options.Value.CapacityCommandLifetimeMinutes),
+                options.CapacityCommandLifetimeMinutes),
+            requestedAt.AddSeconds(
+                -options.CapacityCapabilityFreshnessSeconds),
             cancellationToken,
             resumeCommandId);
   }
