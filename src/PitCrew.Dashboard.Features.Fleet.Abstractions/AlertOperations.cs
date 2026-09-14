@@ -196,6 +196,8 @@ public sealed record AlertCommandEvidence(
 /// <param name="Kind">Closed alert kind used for filtering and display.</param>
 /// <param name="Severity">Severity: warning or critical.</param>
 /// <param name="FirstObservedAt">Earliest time the condition is proven to have been present.</param>
+/// <param name="SourceObservedAt">Latest source time that proves the condition is present.</param>
+/// <param name="DashboardReceivedAt">Dashboard time when the proving evidence was accepted.</param>
 /// <param name="Debounce">Required continuous duration before the incident triggers.</param>
 /// <param name="Title">Short operator-facing incident title.</param>
 /// <param name="Summary">Current bounded incident summary.</param>
@@ -210,12 +212,25 @@ public sealed record AlertCandidate(
     string Kind,
     string Severity,
     DateTimeOffset FirstObservedAt,
+    DateTimeOffset SourceObservedAt,
+    DateTimeOffset DashboardReceivedAt,
     TimeSpan Debounce,
     string Title,
     string Summary,
     string Reason,
     string? Evidence,
     string Link);
+
+/// <summary>
+/// Carries fresh rule-specific evidence that one exact condition is no longer present.
+/// </summary>
+/// <param name="Key">Stable condition key proven clear.</param>
+/// <param name="SourceObservedAt">Source time of the clearing observation.</param>
+/// <param name="DashboardReceivedAt">Dashboard time when the clearing evidence was accepted.</param>
+public sealed record AlertClearance(
+    string Key,
+    DateTimeOffset SourceObservedAt,
+    DateTimeOffset DashboardReceivedAt);
 
 /// <summary>
 /// Prevents unavailable evidence from falsely resolving a previously triggered diagnosis.
@@ -233,15 +248,18 @@ public sealed record AlertSuppression(
     string? Key,
     Guid NodeId,
     string? ProfileId,
-    string? Kind);
+    string? Kind,
+    string ConditionState = "waiting-for-evidence");
 
 /// <summary>
 /// Returns all currently proven candidates plus diagnoses whose evidence is temporarily unavailable.
 /// </summary>
 /// <param name="Candidates">Complete set of currently proven alert conditions.</param>
+/// <param name="Clearances">Fresh rule-specific evidence that exact prior conditions cleared.</param>
 /// <param name="Suppressions">Diagnoses that cannot currently be proven clear or unhealthy.</param>
 public sealed record AlertEvaluationResult(
     IReadOnlyList<AlertCandidate> Candidates,
+    IReadOnlyList<AlertClearance> Clearances,
     IReadOnlyList<AlertSuppression> Suppressions);
 
 /// <summary>
@@ -281,7 +299,58 @@ public sealed record AlertIncident(
     DateTimeOffset LastObservedAt,
     DateTimeOffset? AcknowledgedAt,
     string? AcknowledgedByGitHubUserId,
-    DateTimeOffset? ResolvedAt);
+    DateTimeOffset? ResolvedAt)
+{
+  /// <summary>
+  /// Gets the latest source time that proved the condition present.
+  /// </summary>
+  public DateTimeOffset? SourceObservedAt { get; init; }
+
+  /// <summary>
+  /// Gets the Dashboard receipt time for the latest proving evidence.
+  /// </summary>
+  public DateTimeOffset? DashboardReceivedAt { get; init; }
+
+  /// <summary>
+  /// Gets the Dashboard time when the latest condition state was evaluated.
+  /// </summary>
+  public DateTimeOffset? EvaluatedAt { get; init; }
+
+  /// <summary>
+  /// Gets whether resolution has fresh clearing provenance or predates provenance tracking.
+  /// </summary>
+  public string? ResolutionEvidence { get; init; }
+
+  /// <summary>
+  /// Gets the independently evaluated condition truth projection.
+  /// </summary>
+  public string ConditionState { get; init; } = "legacy-unverified";
+
+  /// <summary>
+  /// Gets whether the current incident revision is unowned or acknowledged.
+  /// </summary>
+  public string OperatorState { get; init; } = "unowned";
+
+  /// <summary>
+  /// Gets the current confirmed severity, or <see langword="null"/> while truth is unknown.
+  /// </summary>
+  public string? CurrentSeverity { get; init; }
+
+  /// <summary>
+  /// Gets the severity from the most recent confirmed true signal.
+  /// </summary>
+  public string LastConfirmedSeverity { get; init; } = "warning";
+
+  /// <summary>
+  /// Gets the greatest confirmed severity reached during this episode.
+  /// </summary>
+  public string PeakSeverity { get; init; } = "warning";
+
+  /// <summary>
+  /// Gets the monotonic incident revision acknowledged by operator state.
+  /// </summary>
+  public int Revision { get; init; } = 1;
+}
 
 /// <summary>
 /// Returns bounded visible incidents for one tenant.
@@ -292,7 +361,78 @@ public sealed record AlertIncident(
 public sealed record AlertIncidentPage(
     DateTimeOffset GeneratedAt,
     IReadOnlyList<AlertIncident> Incidents,
-    bool Truncated);
+    bool Truncated)
+{
+  /// <summary>
+  /// Gets the authoritative number of matching incidents across all pages.
+  /// </summary>
+  public int TotalCount { get; init; }
+
+  /// <summary>
+  /// Gets the authoritative number of matching critical incidents.
+  /// </summary>
+  public int CriticalCount { get; init; }
+
+  /// <summary>
+  /// Gets the authoritative number of matching warning incidents.
+  /// </summary>
+  public int WarningCount { get; init; }
+
+  /// <summary>
+  /// Gets the opaque cursor for the next page, or <see langword="null"/>.
+  /// </summary>
+  public string? NextCursor { get; init; }
+}
+
+/// <summary>
+/// Identifies the last row of an incident page for stable continuation.
+/// </summary>
+public sealed record AlertIncidentCursor(
+    int AttentionRank,
+    DateTimeOffset SortAt,
+    Guid IncidentId)
+{
+  /// <summary>
+  /// Formats the cursor for an HTTP query parameter.
+  /// </summary>
+  public override string ToString() =>
+      $"{AttentionRank.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{SortAt.ToUniversalTime():O}|{IncidentId:D}";
+
+  /// <summary>
+  /// Parses a previously returned cursor.
+  /// </summary>
+  public static AlertIncidentCursor? ParseOrNull(
+      string? value)
+  {
+    if (string.IsNullOrWhiteSpace(value))
+    {
+      return null;
+    }
+    var firstSeparator = value.IndexOf('|');
+    var lastSeparator = value.LastIndexOf('|');
+    if (firstSeparator <= 0 ||
+        lastSeparator <= firstSeparator ||
+        !int.TryParse(
+            value[..firstSeparator],
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var attentionRank) ||
+        attentionRank is < 0 or > 6 ||
+        !DateTimeOffset.TryParse(
+            value[(firstSeparator + 1)..lastSeparator],
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind,
+            out var sortAt) ||
+        !Guid.TryParse(
+            value[(lastSeparator + 1)..],
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var incidentId))
+    {
+      return null;
+    }
+    return new AlertIncidentCursor(attentionRank, sortAt, incidentId);
+  }
+}
 
 /// <summary>
 /// Loads bounded current and recent evidence for alert evaluation.
@@ -329,6 +469,7 @@ public interface IAlertIncidentStore
   /// <returns>A task that completes after the atomic reconciliation.</returns>
   Task ReconcileAsync(
       IReadOnlyList<AlertCandidate> candidates,
+      IReadOnlyList<AlertClearance> clearances,
       IReadOnlyList<AlertSuppression> suppressions,
       DateTimeOffset evaluatedAt,
       DateTimeOffset resolvedBefore,
@@ -349,6 +490,25 @@ public interface IAlertIncidentStore
       AlertIncidentFilter filter,
       int limit,
       DateTimeOffset generatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Loads one bounded page using an opaque continuation cursor.
+  /// </summary>
+  Task<AlertIncidentPage> GetPageAsync(
+      string tenantId,
+      AlertIncidentFilter filter,
+      int limit,
+      AlertIncidentCursor? cursor,
+      DateTimeOffset generatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Loads one exact incident when it belongs to the requested tenant.
+  /// </summary>
+  Task<AlertIncident?> GetByIdAsync(
+      string tenantId,
+      Guid incidentId,
       CancellationToken cancellationToken);
 
   /// <summary>
@@ -373,12 +533,14 @@ public interface IAlertIncidentStore
   /// </summary>
   /// <param name="tenantId">Tenant that owns the incident.</param>
   /// <param name="incidentId">Incident to unacknowledge.</param>
+  /// <param name="unacknowledgedByGitHubUserId">Administrator reversing acknowledgement.</param>
   /// <param name="unacknowledgedAt">Dashboard time when acknowledgement is reversed.</param>
   /// <param name="cancellationToken">Token that cancels unacknowledgement.</param>
   /// <returns>The unacknowledgement result.</returns>
   Task<AlertUnacknowledgeStatus> UnacknowledgeAsync(
       string tenantId,
       Guid incidentId,
+      string unacknowledgedByGitHubUserId,
       DateTimeOffset unacknowledgedAt,
       CancellationToken cancellationToken);
 }

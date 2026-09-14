@@ -297,10 +297,12 @@ export default function FleetOverviewPage() {
   const comparisonNodes = (fleet?.nodes ?? []).filter((node) =>
     selectedNodeIds.includes(node.nodeId),
   );
-  const criticalIncidents = activeIncidents.filter(
-    (incident) => incident.severity === 'critical',
-  ).length;
-  const warningIncidents = activeIncidents.length - criticalIncidents;
+  const criticalIncidents = fleet?.activeCriticalIncidentTotal;
+  const incidentTotal = fleet?.activeIncidentTotal;
+  const warningIncidents =
+    incidentTotal == null || criticalIncidents == null
+      ? undefined
+      : incidentTotal - criticalIncidents;
   const onlineNodes = fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
   const attentionNodes =
     fleet?.nodes.filter(
@@ -336,30 +338,36 @@ export default function FleetOverviewPage() {
                 ? error
                   ? 'Status unavailable'
                   : 'Loading'
-                : criticalIncidents > 0
-                  ? 'Critical incidents'
-                  : warningIncidents > 0 || attentionNodes > 0
-                    ? 'Needs attention'
-                    : 'No reported exception'
+                : criticalIncidents == null || warningIncidents == null
+                  ? 'Incident count unavailable'
+                  : criticalIncidents > 0
+                    ? 'Critical incidents'
+                    : warningIncidents > 0 || attentionNodes > 0
+                      ? 'Needs attention'
+                      : 'No reported exception'
             }
             tone={
               !fleet
                 ? error
                   ? 'critical'
                   : 'neutral'
-                : criticalIncidents > 0
-                  ? 'critical'
-                  : warningIncidents > 0 || attentionNodes > 0
-                    ? 'caution'
-                    : 'positive'
+                : criticalIncidents == null || warningIncidents == null
+                  ? 'neutral'
+                  : criticalIncidents > 0
+                    ? 'critical'
+                    : warningIncidents > 0 || attentionNodes > 0
+                      ? 'caution'
+                      : 'positive'
             }
           />
         }
         items={[
           {
-            label: 'Observation',
+            label: 'Response generated',
             value: fleet ? formatTime(fleet.generatedAt) : error ? 'Unavailable' : 'Loading…',
-            detail: fleet ? 'Latest accepted tenant projection' : 'Waiting for fleet evidence',
+            detail: fleet
+              ? 'Source observations retain their own timestamps'
+              : 'Waiting for fleet evidence',
           },
           {
             label: 'Nodes online',
@@ -377,9 +385,11 @@ export default function FleetOverviewPage() {
           },
           {
             label: 'Active incidents',
-            value: fleet ? activeIncidents.length : error ? 'Unavailable' : 'Loading…',
+            value: fleet ? (incidentTotal ?? 'Unavailable') : error ? 'Unavailable' : 'Loading…',
             detail: fleet
-              ? `${criticalIncidents} critical · ${warningIncidents} warning`
+              ? criticalIncidents == null || warningIncidents == null
+                ? 'Authoritative incident totals unavailable'
+                : `${criticalIncidents} critical · ${warningIncidents} warning`
               : 'Incident evidence unavailable',
           },
         ]}
@@ -388,6 +398,13 @@ export default function FleetOverviewPage() {
       {error ? (
         <StateBanner role={fleet ? 'status' : 'alert'} tone="caution">
           {fleet ? `Showing stale fleet data. ${error}` : error}
+        </StateBanner>
+      ) : null}
+
+      {fleet?.activeIncidentsTruncated ? (
+        <StateBanner role="status" tone="caution">
+          Fleet cards include {activeIncidents.length} of {fleet.activeIncidentTotal} active
+          incidents. Open the incident queue for exact totals, pagination, and deep-linked records.
         </StateBanner>
       ) : null}
 

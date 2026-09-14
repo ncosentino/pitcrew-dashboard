@@ -319,5 +319,15 @@ function createIncident(nodeId: string): OperationalIncident {
     acknowledgedAt: null,
     acknowledgedByGitHubUserId: null,
     resolvedAt: null,
+    sourceObservedAt: '2026-08-06T04:20:00+00:00',
+    dashboardReceivedAt: '2026-08-06T04:20:00+00:00',
+    evaluatedAt: '2026-08-06T04:20:00+00:00',
+    resolutionEvidence: null,
+    conditionState: 'confirmed',
+    operatorState: 'unowned',
+    currentSeverity: 'warning',
+    lastConfirmedSeverity: 'warning',
+    peakSeverity: 'warning',
+    revision: 1,
   };
 }

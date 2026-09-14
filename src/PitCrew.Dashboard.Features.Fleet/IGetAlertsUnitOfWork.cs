@@ -4,7 +4,8 @@ namespace PitCrew.Dashboard.Features.Fleet;
 
 internal sealed record AlertQueryInput(
     string? Status,
-    string? Limit);
+    string? Limit,
+    string? Cursor = null);
 
 internal enum AlertQueryStatus
 {

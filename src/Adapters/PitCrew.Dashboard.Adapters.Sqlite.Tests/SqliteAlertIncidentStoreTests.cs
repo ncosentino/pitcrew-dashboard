@@ -133,8 +133,12 @@ public sealed partial class SqliteAlertIncidentStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteAlertIncidentStore(factory);
+      var candidate = CreateCandidate(
+          "failure",
+          "tenant",
+          TimeSpan.Zero);
       await store.ReconcileAsync(
-          [CreateCandidate("failure", "tenant", TimeSpan.Zero)],
+          [candidate],
           [],
           Origin,
           Origin.AddDays(-90),
@@ -178,6 +182,7 @@ public sealed partial class SqliteAlertIncidentStoreTests
 
       await store.ReconcileAsync(
           [],
+          [CreateClearance(candidate, Origin.AddMinutes(2))],
           [],
           Origin.AddMinutes(2),
           Origin.AddDays(-90),
@@ -203,8 +208,17 @@ public sealed partial class SqliteAlertIncidentStoreTests
                   cancellationToken))
           .Throws<SqliteException>()
           .Because("resolved incident history is immutable");
+      var recurrence = CreateCandidate(
+          "failure",
+          "tenant",
+          TimeSpan.Zero) with
+      {
+        FirstObservedAt = Origin.AddMinutes(3),
+        SourceObservedAt = Origin.AddMinutes(3),
+        DashboardReceivedAt = Origin.AddMinutes(3),
+      };
       await store.ReconcileAsync(
-          [CreateCandidate("failure", "tenant", TimeSpan.Zero)],
+          [recurrence],
           [],
           Origin.AddMinutes(3),
           Origin.AddDays(-90),
@@ -247,13 +261,12 @@ public sealed partial class SqliteAlertIncidentStoreTests
       for (var index = 0; index < 4; index++)
       {
         var observedAt = Origin.AddHours(index);
+        var candidate = CreateCandidate(
+            $"episode-{index}",
+            "tenant",
+            TimeSpan.Zero);
         await store.ReconcileAsync(
-            [
-                CreateCandidate(
-                    $"episode-{index}",
-                    "tenant",
-                    TimeSpan.Zero),
-            ],
+            [candidate],
             [],
             observedAt,
             Origin.AddDays(-90),
@@ -261,6 +274,7 @@ public sealed partial class SqliteAlertIncidentStoreTests
             cancellationToken);
         await store.ReconcileAsync(
             [],
+            [CreateClearance(candidate, observedAt.AddMinutes(1))],
             [],
             observedAt.AddMinutes(1),
             Origin.AddDays(-90),
@@ -400,6 +414,8 @@ public sealed partial class SqliteAlertIncidentStoreTests
 
       await store.ReconcileAsync(
           [],
+          [CreateClearance(triggered, Origin.AddMinutes(7)),
+           CreateClearance(pending, Origin.AddMinutes(7))],
           [],
           Origin.AddMinutes(7),
           Origin.AddDays(-90),
@@ -434,8 +450,12 @@ public sealed partial class SqliteAlertIncidentStoreTests
           databasePath,
           cancellationToken);
       var store = new SqliteAlertIncidentStore(factory);
+      var candidate = CreateCandidate(
+          "failure",
+          "tenant",
+          TimeSpan.Zero);
       await store.ReconcileAsync(
-          [CreateCandidate("failure", "tenant", TimeSpan.Zero)],
+          [candidate],
           [],
           Origin,
           Origin.AddDays(-90),
@@ -460,12 +480,14 @@ public sealed partial class SqliteAlertIncidentStoreTests
       await Assert.That(await store.UnacknowledgeAsync(
           "other",
           incidentId,
+          "1",
           Origin.AddMinutes(2),
           cancellationToken))
           .IsEqualTo(AlertUnacknowledgeStatus.NotFound);
       await Assert.That(await store.UnacknowledgeAsync(
           "tenant",
           incidentId,
+          "1",
           Origin.AddMinutes(2),
           cancellationToken))
           .IsEqualTo(AlertUnacknowledgeStatus.Succeeded);
@@ -488,12 +510,14 @@ public sealed partial class SqliteAlertIncidentStoreTests
       await Assert.That(await store.UnacknowledgeAsync(
           "tenant",
           incidentId,
+          "1",
           Origin.AddMinutes(2),
           cancellationToken))
           .IsEqualTo(AlertUnacknowledgeStatus.AlreadyTriggered);
 
       await store.ReconcileAsync(
           [],
+          [CreateClearance(candidate, Origin.AddMinutes(3))],
           [],
           Origin.AddMinutes(3),
           Origin.AddDays(-90),
@@ -502,6 +526,7 @@ public sealed partial class SqliteAlertIncidentStoreTests
       await Assert.That(await store.UnacknowledgeAsync(
           "tenant",
           incidentId,
+          "1",
           Origin.AddMinutes(4),
           cancellationToken))
           .IsEqualTo(AlertUnacknowledgeStatus.Resolved);
@@ -509,6 +534,7 @@ public sealed partial class SqliteAlertIncidentStoreTests
       await Assert.That(await store.UnacknowledgeAsync(
           "tenant",
           Guid.NewGuid(),
+          "1",
           Origin.AddMinutes(4),
           cancellationToken))
           .IsEqualTo(AlertUnacknowledgeStatus.NotFound);
@@ -533,12 +559,19 @@ public sealed partial class SqliteAlertIncidentStoreTests
           "test-alert",
           "warning",
           Origin,
+          Origin,
+          Origin,
           debounce,
           "Test incident",
           "Test incident summary.",
           reason,
           null,
           $"/tenants/{tenantId}/nodes/11111111-1111-1111-1111-111111111111");
+
+  private static AlertClearance CreateClearance(
+      AlertCandidate candidate,
+      DateTimeOffset observedAt) =>
+      new(candidate.Key, observedAt, observedAt);
 
   private static async Task UpdateResolvedSummaryAsync(
       SqliteConnectionFactory factory,

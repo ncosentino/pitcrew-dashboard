@@ -47,7 +47,8 @@ export function IncidentDetail({
   const connectorHeading = connectorEvidenceIsIncidentSpecific
     ? 'Connector recovery evidence'
     : 'Node connector context';
-  const evidenceHeading = incident.status === 'resolved' ? 'Retained evidence' : 'Current evidence';
+  const evidenceHeading =
+    incident.conditionState === 'confirmed' ? 'Current evidence' : 'Last confirmed evidence';
   const nodeValue = node
     ? node.displayName
     : enrichmentStatus === 'loading'
@@ -76,8 +77,9 @@ export function IncidentDetail({
       description={incident.summary}
       status={
         <>
-          <StatusBadge status={incident.severity} />
+          <StatusBadge status={incident.currentSeverity ?? incident.conditionState} />
           <StatusBadge status={incident.status} />
+          <StatusBadge status={incident.operatorState} />
         </>
       }
       actions={
@@ -115,6 +117,25 @@ export function IncidentDetail({
             failed.
           </StateBanner>
         ) : null}
+        {incident.resolutionEvidence === 'legacy-unverified' ? (
+          <StateBanner tone="caution" role="status">
+            This legacy resolution predates clearing-provenance tracking. Its historical resolved
+            status is retained, but the dashboard cannot verify which fresh rule-specific evidence
+            cleared it.
+          </StateBanner>
+        ) : null}
+        {incident.conditionState === 'waiting-for-evidence' ? (
+          <StateBanner tone="caution" role="status">
+            Current rule-specific evidence is unavailable. The incident remains open without
+            claiming recovery; the displayed severity and facts are from its last confirmed state.
+          </StateBanner>
+        ) : null}
+        {incident.conditionState === 'monitoring-ended' ? (
+          <StateBanner tone="caution" role="status">
+            Authoritative monitoring for this condition ended. The incident remains open for
+            explicit operator handling, and retained facts do not describe current impact.
+          </StateBanner>
+        ) : null}
 
         <section aria-labelledby={`incident-evidence-${incident.incidentId}`}>
           <h3 id={`incident-evidence-${incident.incidentId}`} className="text-sm font-semibold">
@@ -129,6 +150,15 @@ export function IncidentDetail({
             />
             <IncidentFact label="Reason" value={incident.reason} />
             <IncidentFact
+              label="Severity"
+              value={
+                incident.currentSeverity
+                  ? `Current ${incident.currentSeverity}`
+                  : `Last confirmed ${incident.lastConfirmedSeverity}`
+              }
+              detail={`Peak ${incident.peakSeverity}; revision ${incident.revision}`}
+            />
+            <IncidentFact
               label="Evidence"
               value={incident.evidence ?? 'No additional evidence was reported.'}
             />
@@ -142,7 +172,31 @@ export function IncidentDetail({
           <dl className="mt-3 grid gap-3 sm:grid-cols-2">
             <IncidentFact label="First observed" value={formatTime(incident.firstObservedAt)} />
             <IncidentFact label="Triggered" value={formatTime(incident.triggeredAt)} />
-            <IncidentFact label="Last observed" value={formatTime(incident.lastObservedAt)} />
+            <IncidentFact
+              label="Source observed"
+              value={
+                incident.sourceObservedAt
+                  ? formatTime(incident.sourceObservedAt)
+                  : 'Unavailable for legacy evidence'
+              }
+            />
+            <IncidentFact
+              label="Dashboard received"
+              value={
+                incident.dashboardReceivedAt
+                  ? formatTime(incident.dashboardReceivedAt)
+                  : 'Unavailable for legacy evidence'
+              }
+            />
+            <IncidentFact
+              label="Evaluated"
+              value={incident.evaluatedAt ? formatTime(incident.evaluatedAt) : 'Unavailable'}
+              detail={
+                incident.evaluatedAt
+                  ? 'Dashboard rule-evaluation clock'
+                  : 'Legacy evidence does not include a distinct evaluation clock'
+              }
+            />
             <IncidentFact
               label={incident.status === 'resolved' ? 'Resolved' : 'Ownership'}
               value={
@@ -150,14 +204,14 @@ export function IncidentDetail({
                   ? incident.resolvedAt
                     ? formatTime(incident.resolvedAt)
                     : 'Resolution time unavailable'
-                  : incident.status === 'acknowledged'
+                  : incident.operatorState === 'acknowledged'
                     ? incident.acknowledgedAt
                       ? `Acknowledged ${formatTime(incident.acknowledgedAt)}`
                       : 'Acknowledged; time unavailable'
                     : 'Unacknowledged'
               }
               detail={
-                incident.status === 'acknowledged'
+                incident.operatorState === 'acknowledged'
                   ? incident.acknowledgedByGitHubUserId
                     ? `GitHub user ${incident.acknowledgedByGitHubUserId}`
                     : 'Owner identity unavailable'
@@ -253,16 +307,16 @@ export function IncidentDetail({
             <Button
               type="button"
               size="sm"
-              variant={incident.status === 'triggered' ? 'default' : 'outline'}
+              variant={incident.operatorState === 'unowned' ? 'default' : 'outline'}
               className="mt-3 min-h-11"
               disabled={isAcknowledging}
-              onClick={incident.status === 'triggered' ? onAcknowledge : onUnacknowledge}
+              onClick={incident.operatorState === 'unowned' ? onAcknowledge : onUnacknowledge}
             >
               {isAcknowledging
-                ? incident.status === 'triggered'
+                ? incident.operatorState === 'unowned'
                   ? 'Acknowledging…'
                   : 'Reverting…'
-                : incident.status === 'triggered'
+                : incident.operatorState === 'unowned'
                   ? 'Acknowledge incident'
                   : 'Unacknowledge incident'}
             </Button>

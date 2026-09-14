@@ -4363,5 +4363,107 @@ internal static class SqliteMigrationCatalog
                               'fair-share-contention',
                               'adoption-pending'));
               """),
+        new(
+              32,
+              "fleet-incident-integrity",
+              """
+              ALTER TABLE alert_incidents
+                  ADD COLUMN source_observed_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN dashboard_received_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN evaluated_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN resolution_source_observed_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN resolution_dashboard_received_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN resolution_evaluated_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN condition_state TEXT NOT NULL
+                      DEFAULT 'legacy-unverified'
+                      CHECK (condition_state IN (
+                          'confirmed',
+                          'waiting-for-evidence',
+                          'monitoring-ended',
+                          'resolved',
+                          'legacy-unverified'));
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN operator_state TEXT NOT NULL
+                      DEFAULT 'unowned'
+                      CHECK (operator_state IN ('unowned', 'acknowledged'));
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN current_severity TEXT NULL
+                      CHECK (current_severity IS NULL
+                          OR current_severity IN ('warning', 'critical'));
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN last_confirmed_severity TEXT NOT NULL
+                      DEFAULT 'warning'
+                      CHECK (last_confirmed_severity IN ('warning', 'critical'));
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN peak_severity TEXT NOT NULL
+                      DEFAULT 'warning'
+                      CHECK (peak_severity IN ('warning', 'critical'));
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN incident_revision INTEGER NOT NULL DEFAULT 1
+                      CHECK (incident_revision >= 1);
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN acknowledged_revision INTEGER NULL
+                      CHECK (acknowledged_revision IS NULL
+                          OR acknowledged_revision >= 1);
+
+              UPDATE alert_incidents
+              SET condition_state = CASE
+                      WHEN status = 'resolved' THEN 'legacy-unverified'
+                      ELSE 'waiting-for-evidence'
+                  END,
+                  operator_state = CASE
+                      WHEN status = 'acknowledged' THEN 'acknowledged'
+                      ELSE 'unowned'
+                  END,
+                  current_severity = NULL,
+                  last_confirmed_severity = severity,
+                  peak_severity = severity,
+                  acknowledged_revision = CASE
+                      WHEN status = 'acknowledged' THEN 1
+                      ELSE NULL
+                  END;
+
+              CREATE TABLE alert_incident_acknowledgement_events (
+                  event_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  incident_id TEXT NOT NULL,
+                  action TEXT NOT NULL
+                      CHECK (action IN ('acknowledged', 'unacknowledged')),
+                  actor_github_user_id TEXT NOT NULL
+                      CHECK (length(actor_github_user_id) BETWEEN 1 AND 64),
+                  incident_revision INTEGER NOT NULL
+                      CHECK (incident_revision >= 1),
+                  occurred_at TEXT NOT NULL,
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+                  FOREIGN KEY (incident_id)
+                      REFERENCES alert_incidents(incident_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_alert_incident_acknowledgement_events_incident
+                  ON alert_incident_acknowledgement_events (
+                      tenant_id,
+                      incident_id,
+                      occurred_at,
+                      event_id);
+              """),
     ];
 }

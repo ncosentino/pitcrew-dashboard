@@ -48,11 +48,18 @@ internal static class AlertRuleEvaluator
     ArgumentNullException.ThrowIfNull(snapshot);
     ArgumentNullException.ThrowIfNull(options);
     var candidates = new List<AlertCandidate>();
+    var clearances = new List<AlertClearance>();
     var suppressions = new List<AlertSuppression>();
     foreach (var node in snapshot.Nodes)
     {
       if (node.IsRevoked)
       {
+        suppressions.Add(new AlertSuppression(
+            null,
+            node.NodeId,
+            null,
+            null,
+            "monitoring-ended"));
         continue;
       }
 
@@ -72,7 +79,8 @@ internal static class AlertRuleEvaluator
             $"{node.DisplayName} connector is offline",
             $"No connector synchronization has been accepted since {lastContact:O}.",
             "connector-offline",
-            null));
+            null,
+            lastContact));
         suppressions.Add(new AlertSuppression(
             null,
             node.NodeId,
@@ -81,8 +89,15 @@ internal static class AlertRuleEvaluator
         continue;
       }
 
+      clearances.Add(Clear(
+          node,
+          null,
+          "connector-offline",
+          "node",
+          lastContact));
       EvaluateHostPressure(
           candidates,
+          clearances,
           suppressions,
           node,
           options);
@@ -90,6 +105,7 @@ internal static class AlertRuleEvaluator
       {
         EvaluateProfile(
             candidates,
+            clearances,
             suppressions,
             node,
             profile,
@@ -102,6 +118,11 @@ internal static class AlertRuleEvaluator
         candidates
             .OrderBy(candidate => candidate.Key, StringComparer.Ordinal)
             .ToArray(),
+        clearances
+            .GroupBy(clearance => clearance.Key, StringComparer.Ordinal)
+            .Select(group => group.MaxBy(clearance => clearance.SourceObservedAt)!)
+            .OrderBy(clearance => clearance.Key, StringComparer.Ordinal)
+            .ToArray(),
         suppressions
             .Distinct()
             .ToArray());
@@ -109,6 +130,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateProfile(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
@@ -131,8 +153,9 @@ internal static class AlertRuleEvaluator
           $"{observation.ProfileId} manager evidence is stale",
           $"The latest manager observation is from {observation.ObservedAt:O}.",
           "manager-observation-stale",
-          null));
-      EvaluateCommands(candidates, node, profile);
+          null,
+          observation.ObservedAt));
+      EvaluateCommands(candidates, clearances, node, profile);
       SuppressManagerDiagnoses(
           suppressions,
           node,
@@ -140,6 +163,12 @@ internal static class AlertRuleEvaluator
       return;
     }
 
+    clearances.Add(Clear(
+        node,
+        observation.ProfileId,
+        "manager-stale",
+        "profile",
+        observation.ObservedAt));
     if (!string.Equals(
         observation.ManagerStatus,
         "running",
@@ -164,35 +193,49 @@ internal static class AlertRuleEvaluator
           $"manager-{observation.ManagerStatus}",
           null));
     }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          observation.ProfileId,
+          "manager-unavailable",
+          "profile",
+          observation.ObservedAt));
+    }
 
     EvaluateSubsystems(
         candidates,
+        clearances,
         suppressions,
         node,
         profile,
         options);
     EvaluateOperations(
         candidates,
+        clearances,
         suppressions,
         node,
         profile,
         options);
-    EvaluateWorkers(candidates, node, profile, options);
+    EvaluateWorkers(candidates, clearances, node, profile, options);
     EvaluateCapacity(
         candidates,
+        clearances,
         suppressions,
         node,
         profile,
         options);
     EvaluateJournal(
         candidates,
+        clearances,
         suppressions,
         node,
         profile,
         options);
-    EvaluateCommands(candidates, node, profile);
+    EvaluateCommands(candidates, clearances, node, profile);
     EvaluateResources(
         candidates,
+        clearances,
         suppressions,
         node,
         profile,
@@ -201,6 +244,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateSubsystems(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
@@ -219,6 +263,7 @@ internal static class AlertRuleEvaluator
 
     EvaluateSubsystem(
         candidates,
+        clearances,
         node,
         profile.Observation.ProfileId,
         "docker",
@@ -226,6 +271,7 @@ internal static class AlertRuleEvaluator
         options);
     EvaluateSubsystem(
         candidates,
+        clearances,
         node,
         profile.Observation.ProfileId,
         "github",
@@ -235,6 +281,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateSubsystem(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       AlertNodeEvidence node,
       string profileId,
       string subsystem,
@@ -245,6 +292,12 @@ internal static class AlertRuleEvaluator
         summary.State == "degraded" &&
         summary.ConsecutiveFailures < options.AlertRepeatedFailureCount)
     {
+      clearances.Add(Clear(
+          node,
+          profileId,
+          "subsystem-failure",
+          subsystem,
+          summary.ObservedAt));
       return;
     }
 
@@ -268,6 +321,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateOperations(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
@@ -299,6 +353,12 @@ internal static class AlertRuleEvaluator
               "blocked" or
               "retry-scheduled"))
       {
+        clearances.Add(Clear(
+            node,
+            profile.Observation.ProfileId,
+            "manager-operation-failure",
+            $"{managerEvent.Operation}|{managerEvent.Target}",
+            managerEvent.ObservedAt));
         continue;
       }
       var failures = Math.Max(
@@ -306,6 +366,12 @@ internal static class AlertRuleEvaluator
           managerEvent.Attempt ?? 0);
       if (failures < options.AlertRepeatedFailureCount)
       {
+        clearances.Add(Clear(
+            node,
+            profile.Observation.ProfileId,
+            "manager-operation-failure",
+            $"{managerEvent.Operation}|{managerEvent.Target}",
+            managerEvent.ObservedAt));
         continue;
       }
 
@@ -336,10 +402,33 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateWorkers(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
       FleetDashboardOptions options)
   {
+    foreach (var slot in profile.Observation.Slots.Where(
+        slot => slot.ProcessRunning))
+    {
+      var observedAt = slot.UpdatedAt ?? profile.Observation.ObservedAt;
+      clearances.Add(Clear(
+          node,
+          profile.Observation.ProfileId,
+          "worker-failure",
+          slot.Key,
+          observedAt));
+      if (slot.LastExit is not null)
+      {
+        clearances.Add(Clear(
+            node,
+            profile.Observation.ProfileId,
+            slot.LastExit.Classification == "oom-killed"
+                ? "worker-oom"
+                : "worker-exit",
+            $"{slot.Key}|{slot.LastExit.ObservedAt:O}",
+            observedAt));
+      }
+    }
     foreach (var slot in profile.Observation.Slots.Where(
         slot => !slot.ProcessRunning))
     {
@@ -400,6 +489,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateCapacity(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
@@ -424,6 +514,7 @@ internal static class AlertRuleEvaluator
       {
         EvaluateDeficit(
             candidates,
+            clearances,
             node,
             profile.Observation.ProfileId,
             "fixed",
@@ -448,6 +539,7 @@ internal static class AlertRuleEvaluator
       {
         EvaluateDeficit(
             candidates,
+            clearances,
             node,
             profile.Observation.ProfileId,
             target.Key,
@@ -467,6 +559,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateDeficit(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       AlertNodeEvidence node,
       string profileId,
       string targetKey,
@@ -476,6 +569,12 @@ internal static class AlertRuleEvaluator
     if (deficit.LocalDeficit <= 0 &&
         deficit.EligibilityDeficit is null or <= 0)
     {
+      clearances.Add(Clear(
+          node,
+          profileId,
+          "capacity-deficit",
+          targetKey,
+          deficit.ObservedAt));
       return;
     }
 
@@ -502,6 +601,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateJournal(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
@@ -534,6 +634,18 @@ internal static class AlertRuleEvaluator
           $"journal-{journal.Status}",
           null));
     }
+    else if (!string.Equals(
+        journal.Status,
+        "unreported",
+        StringComparison.Ordinal))
+    {
+      clearances.Add(Clear(
+          node,
+          profile.Observation.ProfileId,
+          "journal-unavailable",
+          "journal",
+          profile.Observation.ObservedAt));
+    }
     if (journal.UndeliveredEvents > 0)
     {
       candidates.Add(Create(
@@ -548,6 +660,15 @@ internal static class AlertRuleEvaluator
           $"{journal.UndeliveredEvents} retained manager events have not reached the dashboard.",
           "journal-undelivered",
           null));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          profile.Observation.ProfileId,
+          "journal-undelivered",
+          "journal",
+          profile.Observation.ObservedAt));
     }
     if (journal.MissedEvents > 0 ||
         journal.EpochResets > 0 ||
@@ -565,6 +686,15 @@ internal static class AlertRuleEvaluator
           $"Missed {journal.MissedEvents}, manager-dropped {journal.ManagerDroppedEvents}, resets {journal.EpochResets}.",
           "journal-discontinuity",
           null));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          profile.Observation.ProfileId,
+          "journal-discontinuity",
+          "journal",
+          profile.Observation.ObservedAt));
     }
     if (journal.HistoryExpiredAt is not null)
     {
@@ -585,16 +715,19 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateCommands(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       AlertNodeEvidence node,
       AlertProfileEvidence profile)
   {
     EvaluateCommand(
         candidates,
+        clearances,
         node,
         profile.Observation,
         profile.LatestCapacityCommand);
     EvaluateCommand(
         candidates,
+        clearances,
         node,
         profile.Observation,
         profile.LatestRecoveryCommand);
@@ -602,13 +735,23 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateCommand(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       AlertNodeEvidence node,
       ManagerObservedState observation,
       AlertCommandEvidence? command)
   {
-    if (command is null ||
-        !_failedCommandStatuses.Contains(command.Status))
+    if (command is null)
     {
+      return;
+    }
+    if (!_failedCommandStatuses.Contains(command.Status))
+    {
+      clearances.Add(Clear(
+          node,
+          observation.ProfileId,
+          "command-failure",
+          $"{command.Kind}|{command.CommandId:D}",
+          command.CompletedAt ?? observation.ObservedAt));
       return;
     }
 
@@ -629,6 +772,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateResources(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
@@ -670,7 +814,17 @@ internal static class AlertRuleEvaluator
           $"{profile.Observation.ProfileId} has sustained CPU pressure",
           $"The newest {required} complete samples are at or above {options.AlertCpuPressurePercent}% of host CPU capacity.",
           "sustained-cpu-pressure",
-          null));
+          null,
+          measurements[^1].ObservedAt));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          profile.Observation.ProfileId,
+          "resource-cpu-pressure",
+          "cpu",
+          measurements[^1].ObservedAt));
     }
     var memoryEvaluable = measurements.Length == required &&
         measurements.All(sample =>
@@ -701,11 +855,22 @@ internal static class AlertRuleEvaluator
           $"{profile.Observation.ProfileId} has sustained memory pressure",
           $"The newest {required} complete samples are at or above {options.AlertMemoryPressurePercent}% of host memory capacity.",
           "sustained-memory-pressure",
-          null));
+          null,
+          measurements[^1].ObservedAt));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          profile.Observation.ProfileId,
+          "resource-memory-pressure",
+          "memory",
+          measurements[^1].ObservedAt));
     }
 
     if (!EvaluateRate(
         candidates,
+        clearances,
         node,
         profile,
         samples,
@@ -723,6 +888,7 @@ internal static class AlertRuleEvaluator
     }
     if (!EvaluateRate(
         candidates,
+        clearances,
         node,
         profile,
         samples,
@@ -742,6 +908,7 @@ internal static class AlertRuleEvaluator
 
   private static void EvaluateHostPressure(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       ICollection<AlertSuppression> suppressions,
       AlertNodeEvidence node,
       FleetDashboardOptions options)
@@ -792,7 +959,17 @@ internal static class AlertRuleEvaluator
           "sustained-host-cpu-pressure",
           string.Create(
               CultureInfo.InvariantCulture,
-              $"peakCpuPercent={peakCpu?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"};peakCpuPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}")));
+              $"peakCpuPercent={peakCpu?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"};peakCpuPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}"),
+          measurements[^1].ObservedAt));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          null,
+          "host-cpu-pressure",
+          "cpu",
+          measurements[^1].ObservedAt));
     }
 
     var memoryEvaluable = measurements.All(sample =>
@@ -833,7 +1010,17 @@ internal static class AlertRuleEvaluator
           "sustained-host-memory-pressure",
           string.Create(
               CultureInfo.InvariantCulture,
-              $"minimumAvailableBytes={minimumAvailable?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};peakMemoryPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}")));
+              $"minimumAvailableBytes={minimumAvailable?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};peakMemoryPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}"),
+          measurements[^1].ObservedAt));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          null,
+          "host-memory-pressure",
+          "memory",
+          measurements[^1].ObservedAt));
     }
 
     var ioEvaluable = measurements.All(sample =>
@@ -863,7 +1050,17 @@ internal static class AlertRuleEvaluator
           "sustained-host-io-pressure",
           string.Create(
               CultureInfo.InvariantCulture,
-              $"peakIoPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}")));
+              $"peakIoPsi={peakStall?.ToString("0.##", CultureInfo.InvariantCulture) ?? "unavailable"}"),
+          measurements[^1].ObservedAt));
+    }
+    else
+    {
+      clearances.Add(Clear(
+          node,
+          null,
+          "host-io-pressure",
+          "io",
+          measurements[^1].ObservedAt));
     }
   }
 
@@ -887,6 +1084,7 @@ internal static class AlertRuleEvaluator
 
   private static bool EvaluateRate(
       ICollection<AlertCandidate> candidates,
+      ICollection<AlertClearance> clearances,
       AlertNodeEvidence node,
       AlertProfileEvidence profile,
       IReadOnlyList<AlertResourceSample> samples,
@@ -936,6 +1134,15 @@ internal static class AlertRuleEvaluator
     if (newest.Length != required ||
         newest.Any(interval => interval.Rate < threshold))
     {
+      if (newest.Length == required)
+      {
+        clearances.Add(Clear(
+            node,
+            profile.Observation.ProfileId,
+            kind,
+            subject,
+            newest[^1].ObservedAt));
+      }
       return true;
     }
 
@@ -950,7 +1157,8 @@ internal static class AlertRuleEvaluator
         $"{profile.Observation.ProfileId} has sustained {label}",
         $"The newest {required} measured intervals are at or above {threshold.ToString(CultureInfo.InvariantCulture)} bytes per second.",
         $"sustained-{subject}-pressure",
-        null));
+        null,
+        samples[^1].ObservedAt));
     return true;
   }
 
@@ -965,7 +1173,8 @@ internal static class AlertRuleEvaluator
       string title,
       string summary,
       string reason,
-      string? evidence) =>
+      string? evidence,
+      DateTimeOffset? sourceObservedAt = null) =>
       Create(
           node,
           profileId,
@@ -977,7 +1186,8 @@ internal static class AlertRuleEvaluator
           title,
           summary,
           reason,
-          evidence);
+          evidence,
+          sourceObservedAt);
 
   private static AlertCandidate Create(
       AlertNodeEvidence node,
@@ -990,7 +1200,8 @@ internal static class AlertRuleEvaluator
       string title,
       string summary,
       string reason,
-      string? evidence)
+      string? evidence,
+      DateTimeOffset? sourceObservedAt = null)
   {
     var key = CreateKey(node, profileId, kind, subject);
     var tenant = Uri.EscapeDataString(node.TenantId);
@@ -1006,6 +1217,8 @@ internal static class AlertRuleEvaluator
         kind,
         severity,
         firstObservedAt,
+        sourceObservedAt ?? firstObservedAt,
+        node.LastSeenAt ?? node.EnrolledAt,
         debounce,
         Bound(title, 160),
         Bound(summary, 512),
@@ -1013,6 +1226,17 @@ internal static class AlertRuleEvaluator
         evidence is null ? null : Bound(evidence, 512),
         link);
   }
+
+  private static AlertClearance Clear(
+      AlertNodeEvidence node,
+      string? profileId,
+      string kind,
+      string subject,
+      DateTimeOffset sourceObservedAt) =>
+      new(
+          CreateKey(node, profileId, kind, subject),
+          sourceObservedAt,
+          node.LastSeenAt ?? node.EnrolledAt);
 
   private static AlertSuppression ExactSuppression(
       AlertNodeEvidence node,

@@ -20,7 +20,7 @@ import {
 } from '@/core/auth';
 import { PitCrewBrand } from '@/core/branding/PitCrewBrand';
 import type { FeatureManifest } from '@/core/features/FeatureManifest';
-import { FleetProvider, getActiveIncidents } from '@/core/fleet';
+import { FleetProvider, getActiveIncidentPage } from '@/core/fleet';
 import { ThemeToggle } from '@/core/theme/ThemeToggle';
 import { PageHeader } from '@/core/ui/PageHeader';
 import { cn } from '@/lib/utils';
@@ -296,16 +296,17 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
     const controller = new AbortController();
     const load = async () => {
       try {
-        const incidents = await getActiveIncidents(selectedTenant.tenantId, controller.signal);
+        const page = await getActiveIncidentPage(selectedTenant.tenantId, controller.signal);
         if (!controller.signal.aborted) {
           setIncidentState({
             tenantId: selectedTenant.tenantId,
-            count: incidents.length,
-            highestSeverity: incidents.some((incident) => incident.severity === 'critical')
-              ? 'critical'
-              : incidents.length > 0
-                ? 'warning'
-                : null,
+            count: page.totalCount ?? null,
+            highestSeverity:
+              (page.criticalCount ?? 0) > 0
+                ? 'critical'
+                : (page.warningCount ?? 0) > 0
+                  ? 'warning'
+                  : null,
           });
         }
       } catch (caught) {

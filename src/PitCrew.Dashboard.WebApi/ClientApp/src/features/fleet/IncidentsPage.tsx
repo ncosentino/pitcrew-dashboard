@@ -15,6 +15,7 @@ import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import {
   acknowledgeIncident,
+  getIncidentOrNull,
   getIncidents,
   unacknowledgeIncident,
   type IncidentFilter,
@@ -68,6 +69,7 @@ export default function IncidentsPage() {
     status: 'loading',
   });
   const [page, setPage] = useState<IncidentPage | null>(null);
+  const [exactIncident, setExactIncident] = useState<OperationalIncident | null>(null);
   const [loadedFilter, setLoadedFilter] = useState<IncidentFilter | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -75,6 +77,12 @@ export default function IncidentsPage() {
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
   const [isQueueOpenOnMobile, setIsQueueOpenOnMobile] = useState(false);
   const requestVersion = useRef(0);
+  const continuationRequest = useRef<{
+    controller: AbortController;
+    query: string;
+  } | null>(null);
+  const mutationController = useRef<AbortController | null>(null);
+  const mutationVersion = useRef(0);
   const selectedCase = useRef<HTMLDivElement>(null);
   const pendingSelectionFocus = useRef<string | null>(null);
   const isDesktopWorkspace = useMediaQuery(desktopIncidentWorkspaceQuery);
@@ -91,6 +99,8 @@ export default function IncidentsPage() {
   const sort = parseIncidentSort(searchParams.get('sort'));
   const query = searchParams.get('q')?.trim().toLocaleLowerCase() ?? '';
   const sourceFilter = apiFilterForView(view);
+  const requestedIncidentId = searchParams.get('incident') || null;
+  const continuationQuery = `${tenantId}|${sourceFilter}|${view}|${severity}|${query}|${sort}`;
 
   const setParameter = useCallback(
     (key: string, value: string, defaultValue: string) => {
@@ -105,6 +115,7 @@ export default function IncidentsPage() {
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
+      continuationRequest.current?.controller.abort();
       const version = ++requestVersion.current;
       setIsLoading(true);
       try {
@@ -118,7 +129,14 @@ export default function IncidentsPage() {
           });
         const next = await getIncidents(tenantId, sourceFilter, signal);
         if (version !== requestVersion.current) return;
+        const selected =
+          requestedIncidentId != null &&
+          !next.incidents.some((incident) => incident.incidentId === requestedIncidentId)
+            ? await getIncidentOrNull(tenantId, requestedIncidentId, signal)
+            : null;
+        if (version !== requestVersion.current) return;
         setPage(next);
+        setExactIncident(selected);
         setLoadedFilter(sourceFilter);
         setError(null);
         void fleetPromise.then((result) => {
@@ -142,7 +160,7 @@ export default function IncidentsPage() {
         if (!signal?.aborted && version === requestVersion.current) setIsLoading(false);
       }
     },
-    [sourceFilter, tenantId],
+    [requestedIncidentId, sourceFilter, tenantId],
   );
 
   useEffect(() => {
@@ -153,10 +171,22 @@ export default function IncidentsPage() {
     const refresh = globalThis.setInterval(() => void load(controller.signal), 30_000);
     return () => {
       controller.abort();
+      continuationRequest.current?.controller.abort();
+      mutationController.current?.abort();
+      mutationVersion.current += 1;
       globalThis.clearTimeout(initial);
       globalThis.clearInterval(refresh);
     };
   }, [load]);
+
+  useEffect(() => {
+    const request = continuationRequest.current;
+    if (request == null) return;
+    continuationRequest.current = null;
+    request.controller.abort();
+    requestVersion.current += 1;
+    setIsLoading(false);
+  }, [continuationQuery]);
 
   const nodesById = useMemo(
     () => new Map(currentEnrichment.nodes.map((node) => [node.nodeId, node] as const)),
@@ -166,33 +196,36 @@ export default function IncidentsPage() {
   const counts = useMemo(() => {
     const incidents = currentPage?.incidents ?? [];
     return {
-      total: incidents.length,
-      acknowledged: incidents.filter((incident) => incident.status === 'acknowledged').length,
+      loaded: incidents.length,
+      total: currentPage?.totalCount,
+      acknowledged: incidents.filter((incident) => incident.operatorState === 'acknowledged')
+        .length,
     };
   }, [currentPage]);
   const visibleIncidents = useMemo(() => {
     const incidents = currentPage?.incidents ?? [];
     return incidents
-      .filter((incident) => view !== 'attention' || incident.status === 'triggered')
-      .filter((incident) => severity === 'all' || incident.severity === severity)
+      .filter((incident) => view !== 'attention' || incident.operatorState === 'unowned')
+      .filter((incident) => severity === 'all' || incident.currentSeverity === severity)
       .filter((incident) => matchesIncidentSearch(incident, nodesById.get(incident.nodeId), query))
       .sort((left, right) => compareIncidents(left, right, sort));
   }, [currentPage, nodesById, query, severity, sort, view]);
   const visibleCritical = visibleIncidents.filter(
-    (incident) => incident.severity === 'critical',
+    (incident) => incident.currentSeverity === 'critical',
   ).length;
-  const visibleWarning = visibleIncidents.length - visibleCritical;
-  const visibleTriggered = visibleIncidents.filter((incident) => incident.status === 'triggered');
-  const visibleTriggeredCritical = visibleTriggered.filter(
-    (incident) => incident.severity === 'critical',
+  const visibleWarning = visibleIncidents.filter(
+    (incident) => incident.currentSeverity === 'warning',
   ).length;
+  const visibleTriggered = visibleIncidents.filter(
+    (incident) => incident.operatorState === 'unowned',
+  );
   const sourceHasTriggeredIncident =
-    currentPage?.incidents.some((incident) => incident.status === 'triggered') ?? false;
-  const requestedIncidentId = searchParams.get('incident') || null;
+    currentPage?.incidents.some((incident) => incident.operatorState === 'unowned') ?? false;
   const requestedIncident =
     requestedIncidentId == null
       ? undefined
-      : currentPage?.incidents.find((incident) => incident.incidentId === requestedIncidentId);
+      : (currentPage?.incidents.find((incident) => incident.incidentId === requestedIncidentId) ??
+        exactIncident);
   const requestedIncidentIsUnavailable =
     currentPage != null && requestedIncidentId != null && requestedIncident == null;
   const selectedIncident =
@@ -266,40 +299,130 @@ export default function IncidentsPage() {
   }, [setSearchParams]);
 
   const acknowledge = async (incident: OperationalIncident) => {
+    mutationController.current?.abort();
+    const controller = new AbortController();
+    mutationController.current = controller;
+    const version = ++mutationVersion.current;
     setAcknowledgingId(incident.incidentId);
     setError(null);
     setNotice(null);
     try {
-      await acknowledgeIncident(tenantId, incident.incidentId, antiforgeryToken);
-      await load();
+      const updated = await acknowledgeIncident(
+        tenantId,
+        incident.incidentId,
+        antiforgeryToken,
+        controller.signal,
+      );
+      if (version !== mutationVersion.current || controller.signal.aborted) return;
+      updateIncident(updated);
       setNotice(
         view === 'attention'
           ? `Acknowledged ${incident.title}. It remains active and is now hidden from Needs attention.`
           : `Acknowledged ${incident.title}. The incident remains active.`,
       );
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      if (version !== mutationVersion.current) return;
       setError(
         caught instanceof Error ? caught.message : 'The incident could not be acknowledged.',
       );
     } finally {
-      setAcknowledgingId(null);
+      if (mutationController.current === controller) mutationController.current = null;
+      if (version === mutationVersion.current) setAcknowledgingId(null);
     }
   };
 
   const unacknowledge = async (incident: OperationalIncident) => {
+    mutationController.current?.abort();
+    const controller = new AbortController();
+    mutationController.current = controller;
+    const version = ++mutationVersion.current;
     setAcknowledgingId(incident.incidentId);
     setError(null);
     setNotice(null);
     try {
-      await unacknowledgeIncident(tenantId, incident.incidentId, antiforgeryToken);
-      await load();
+      const updated = await unacknowledgeIncident(
+        tenantId,
+        incident.incidentId,
+        antiforgeryToken,
+        controller.signal,
+      );
+      if (version !== mutationVersion.current || controller.signal.aborted) return;
+      updateIncident(updated);
       setNotice(`Unacknowledged ${incident.title}. The incident returned to triggered.`);
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      if (version !== mutationVersion.current) return;
       setError(
         caught instanceof Error ? caught.message : 'The incident could not be unacknowledged.',
       );
     } finally {
-      setAcknowledgingId(null);
+      if (mutationController.current === controller) mutationController.current = null;
+      if (version === mutationVersion.current) setAcknowledgingId(null);
+    }
+  };
+
+  const updateIncident = (updated: OperationalIncident) => {
+    setPage((current) =>
+      current == null
+        ? current
+        : {
+            ...current,
+            incidents: current.incidents.map((incident) =>
+              incident.incidentId === updated.incidentId ? updated : incident,
+            ),
+          },
+    );
+    setExactIncident((current) => (current?.incidentId === updated.incidentId ? updated : current));
+  };
+
+  const loadNextPage = async () => {
+    const cursor = currentPage?.nextCursor;
+    if (!cursor) return;
+    continuationRequest.current?.controller.abort();
+    const controller = new AbortController();
+    const requestedQuery = continuationQuery;
+    const request = { controller, query: requestedQuery };
+    continuationRequest.current = request;
+    const version = ++requestVersion.current;
+    const requestedTenantId = tenantId;
+    const requestedFilter = sourceFilter;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const next = await getIncidents(
+        requestedTenantId,
+        requestedFilter,
+        controller.signal,
+        cursor,
+      );
+      if (
+        version !== requestVersion.current ||
+        controller.signal.aborted ||
+        continuationRequest.current?.query !== requestedQuery
+      ) {
+        return;
+      }
+      setPage((current) => {
+        if (current == null || current.nextCursor !== cursor || loadedFilter !== requestedFilter) {
+          return current;
+        }
+        const knownIds = new Set(current.incidents.map((incident) => incident.incidentId));
+        return {
+          ...next,
+          incidents: [
+            ...current.incidents,
+            ...next.incidents.filter((incident) => !knownIds.has(incident.incidentId)),
+          ],
+        };
+      });
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      if (version !== requestVersion.current) return;
+      setError(caught instanceof Error ? caught.message : 'More incidents could not be loaded.');
+    } finally {
+      if (continuationRequest.current === request) continuationRequest.current = null;
+      if (version === requestVersion.current && !controller.signal.aborted) setIsLoading(false);
     }
   };
 
@@ -318,7 +441,7 @@ export default function IncidentsPage() {
                   : 'Loading'
                 : view === 'resolved' || view === 'history'
                   ? 'Historical view'
-                  : visibleTriggeredCritical > 0
+                  : (currentPage.criticalCount ?? 0) > 0
                     ? 'Critical attention'
                     : visibleTriggered.length > 0
                       ? 'Needs attention'
@@ -335,7 +458,7 @@ export default function IncidentsPage() {
                   : 'neutral'
                 : view === 'resolved' || view === 'history'
                   ? 'neutral'
-                  : visibleTriggeredCritical > 0
+                  : (currentPage.criticalCount ?? 0) > 0
                     ? 'critical'
                     : visibleTriggered.length > 0 || visibleIncidents.length > 0
                       ? 'caution'
@@ -353,17 +476,28 @@ export default function IncidentsPage() {
               : error
                 ? 'Unavailable'
                 : 'Loading…',
-            detail: 'Latest accepted incident projection',
+            detail: 'Response generated; source and receipt clocks remain separate',
           },
           {
             label: 'Queue results',
-            value: currentPage ? visibleIncidents.length : error ? 'Unavailable' : 'Loading…',
-            detail: `${viewLabels[view]} after current filters`,
+            value: currentPage
+              ? (counts.total ?? 'Unavailable')
+              : error
+                ? 'Unavailable'
+                : 'Loading…',
+            detail: `${counts.loaded} loaded · ${viewLabels[view]}`,
           },
           {
             label: 'Critical in view',
-            value: currentPage ? visibleCritical : error ? 'Unavailable' : 'Loading…',
-            detail: `${visibleWarning} warning`,
+            value: currentPage
+              ? (currentPage.criticalCount ?? 'Unavailable')
+              : error
+                ? 'Unavailable'
+                : 'Loading…',
+            detail:
+              currentPage?.warningCount == null
+                ? 'Authoritative severity totals unavailable'
+                : `${currentPage.warningCount} warning across all pages`,
           },
           {
             label: 'Acknowledged',
@@ -386,7 +520,9 @@ export default function IncidentsPage() {
               ? `Loading ${viewLabels[view].toLocaleLowerCase()} incidents…`
               : view === 'attention'
                 ? `${visibleIncidents.length} need attention · ${visibleCritical} critical · ${visibleWarning} warning${counts.acknowledged > 0 ? ` · ${counts.acknowledged} acknowledged hidden` : ''}`
-                : `${visibleIncidents.length} of ${counts.total} incidents shown`
+                : counts.total == null
+                  ? `${visibleIncidents.length} filtered · ${counts.loaded} loaded`
+                  : `${visibleIncidents.length} filtered · ${counts.loaded} of ${counts.total} loaded`
           }
           onParameterChange={setParameter}
           onReset={resetView}
@@ -410,7 +546,24 @@ export default function IncidentsPage() {
 
       {currentPage?.truncated ? (
         <StateBanner tone="caution" role="status">
-          Showing only the newest incidents allowed by the server response limit.
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              {counts.total == null
+                ? `Showing ${counts.loaded} server-bounded incidents; authoritative total unavailable.`
+                : `Showing ${counts.loaded} of ${counts.total} authoritative matching incidents.`}
+            </span>
+            {currentPage.nextCursor ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isLoading}
+                onClick={() => void loadNextPage()}
+              >
+                {isLoading ? 'Loading…' : 'Load more incidents'}
+              </Button>
+            ) : null}
+          </div>
         </StateBanner>
       ) : null}
 

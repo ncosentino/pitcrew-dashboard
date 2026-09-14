@@ -37,6 +37,7 @@ public sealed class FleetCarterModule : ICarterModule
     fleet.MapGet("/nodes", GetFleetAsync);
     fleet.MapGet("/history/capabilities", GetHistoryCapabilities);
     fleet.MapGet("/incidents", GetIncidentsAsync);
+    fleet.MapGet("/incidents/{incidentId:guid}", GetIncidentAsync);
     fleet.MapGet("/nodes/{nodeId:guid}/history", GetNodeHistoryAsync);
     fleet.MapGet(
         "/nodes/{nodeId:guid}/profiles/{profileId}/history",
@@ -194,7 +195,8 @@ public sealed class FleetCarterModule : ICarterModule
         tenantId,
         new AlertQueryInput(
             query["status"].ToString(),
-            query["limit"].ToString()),
+            query["limit"].ToString(),
+            query["cursor"].ToString()),
         cancellationToken);
     return result.Status switch
     {
@@ -214,6 +216,25 @@ public sealed class FleetCarterModule : ICarterModule
           statusCode: StatusCodes.Status500InternalServerError,
           title: "Unsupported incident query result."),
     };
+  }
+
+  private static async Task<IResult> GetIncidentAsync(
+      string tenantId,
+      Guid incidentId,
+      IAlertIncidentStore incidentStore,
+      TimeProvider timeProvider,
+      CancellationToken cancellationToken)
+  {
+    var generatedAt = timeProvider.GetUtcNow();
+    var incident = await incidentStore.GetByIdAsync(
+        tenantId,
+        incidentId,
+        cancellationToken);
+    return incident is null
+        ? Results.NotFound()
+        : Results.Ok(new AlertIncidentDetailResponse(
+            generatedAt,
+            ToResponse(incident)));
   }
 
   private static async Task<IResult> GetNodeHistoryAsync(
@@ -625,24 +646,42 @@ public sealed class FleetCarterModule : ICarterModule
       AlertIncidentPage page) =>
       new(
             page.GeneratedAt,
-            page.Incidents.Select(incident => new AlertIncidentResponse(
-                incident.IncidentId,
-                incident.NodeId,
-                incident.ProfileId,
-                incident.Kind,
-                incident.Severity,
-                incident.Status,
-                incident.Title,
-                incident.Summary,
-                incident.Reason,
-                incident.Evidence,
-                incident.Link,
-                incident.FirstObservedAt,
-                incident.TriggeredAt,
-                incident.LastObservedAt,
-                incident.AcknowledgedAt,
-                incident.AcknowledgedByGitHubUserId,
-                incident.ResolvedAt))
+            page.Incidents.Select(ToResponse)
                 .ToArray(),
-            page.Truncated);
+            page.Truncated,
+            page.TotalCount,
+            page.CriticalCount,
+            page.WarningCount,
+            page.NextCursor);
+
+  private static AlertIncidentResponse ToResponse(
+      AlertIncident incident) =>
+      new(
+          incident.IncidentId,
+          incident.NodeId,
+          incident.ProfileId,
+          incident.Kind,
+          incident.Severity,
+          incident.Status,
+          incident.Title,
+          incident.Summary,
+          incident.Reason,
+          incident.Evidence,
+          incident.Link,
+          incident.FirstObservedAt,
+          incident.TriggeredAt,
+          incident.LastObservedAt,
+          incident.AcknowledgedAt,
+          incident.AcknowledgedByGitHubUserId,
+          incident.ResolvedAt,
+          incident.SourceObservedAt,
+          incident.DashboardReceivedAt,
+          incident.EvaluatedAt,
+          incident.ResolutionEvidence,
+          incident.ConditionState,
+          incident.OperatorState,
+          incident.CurrentSeverity,
+          incident.LastConfirmedSeverity,
+          incident.PeakSeverity,
+          incident.Revision);
 }

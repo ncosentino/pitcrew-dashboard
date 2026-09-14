@@ -72,6 +72,9 @@ internal sealed class GetFleetUnitOfWork(
           })
           .ToArray(),
       ActiveIncidents = incidents.Incidents,
+      ActiveIncidentTotal = incidents.TotalCount,
+      ActiveCriticalIncidentTotal = incidents.CriticalCount,
+      ActiveIncidentsTruncated = incidents.Truncated,
     };
   }
 }

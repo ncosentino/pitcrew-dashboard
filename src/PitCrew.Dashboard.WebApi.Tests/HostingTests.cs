@@ -877,6 +877,8 @@ public sealed class HostingTests
                   "test-alert",
                   "warning",
                   now,
+                  now,
+                  now,
                   TimeSpan.Zero,
                   "Test operational incident",
                   "Test incident summary.",
@@ -884,6 +886,7 @@ public sealed class HostingTests
                   null,
                   $"/tenants/{DashboardTestHelpers.TenantId}/fleet"),
           ],
+          [],
           [],
           now,
           now.AddDays(-90),
@@ -912,6 +915,9 @@ public sealed class HostingTests
 
       await Assert.That(acknowledgement.StatusCode)
           .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(
+          await acknowledgement.Content.ReadAsStringAsync(cancellationToken))
+          .IsEmpty();
       await Assert.That(acknowledged).IsNotNull();
       await Assert.That(acknowledged!.Incidents).HasSingleItem();
       await Assert.That(acknowledged.Incidents[0].Status)
@@ -934,6 +940,9 @@ public sealed class HostingTests
 
       await Assert.That(unacknowledgement.StatusCode)
           .IsEqualTo(HttpStatusCode.NoContent);
+      await Assert.That(
+          await unacknowledgement.Content.ReadAsStringAsync(cancellationToken))
+          .IsEmpty();
       await Assert.That(triggered).IsNotNull();
       await Assert.That(triggered!.Incidents).HasSingleItem();
       await Assert.That(triggered.Incidents[0].Status)
@@ -943,6 +952,12 @@ public sealed class HostingTests
       await Assert.That(
           triggered.Incidents[0].AcknowledgedByGitHubUserId)
           .IsNull();
+
+      var exact = await client.GetFromJsonAsync<AlertIncidentDetailResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents/{incident.IncidentId:D}",
+          cancellationToken);
+      await Assert.That(exact?.Incident.IncidentId)
+          .IsEqualTo(incident.IncidentId);
       await Assert.That(triggered.Incidents[0].ResolvedAt)
           .IsNull();
     }

@@ -182,6 +182,10 @@ function hostAdmissionResponse(overrides: Readonly<Record<string, unknown>> = {}
 function fleetResponse() {
   return {
     generatedAt: '2026-07-19T18:30:05+00:00',
+    activeIncidents: [],
+    activeIncidentTotal: 0,
+    activeCriticalIncidentTotal: 0,
+    activeIncidentsTruncated: false,
     nodes: [
       {
         nodeId: charlieId,
@@ -497,6 +501,8 @@ describe('fleet overview and node detail', () => {
   it('orders active incidents ahead of ordinary node state by default', async () => {
     const response = {
       ...fleetResponse(),
+      activeIncidentTotal: 1,
+      activeCriticalIncidentTotal: 1,
       activeIncidents: [
         {
           incidentId: 'd6235ec4-2a15-4f91-a9e0-811152869a54',
