@@ -230,11 +230,14 @@ public sealed class SupportCarterModule : ICarterModule
       CancellationToken cancellationToken)
   {
     context.Response.Headers.CacheControl = "no-store";
+    var intentId = request.IntentId == Guid.Empty
+        ? Guid.NewGuid()
+        : request.IntentId;
     var result = await unitOfWork.CreateAsync(
         context.User,
         tenantId,
         new SupportDiagnosticSessionInput(
-            request.IntentId,
+            intentId,
             request.NodeId,
             request.DiagnosticMode,
             request.ProfileId,
