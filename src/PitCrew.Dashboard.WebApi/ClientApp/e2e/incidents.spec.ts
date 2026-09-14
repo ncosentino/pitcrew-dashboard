@@ -108,23 +108,23 @@ for (const theme of workspaceThemes) {
       await setUpPage(page, scenario, theme);
       await page.goto(incidentsPath);
 
-      await expect(page.getByRole('region', { name: 'Incident work queue' })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Incident action queue' })).toBeVisible();
       await expect(
         page.getByRole('heading', { name: 'Critical capacity deficit', level: 2 }),
       ).toBeVisible();
-      await expect(page.getByRole('region', { name: 'Current evidence' })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Confirmed problem evidence' })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Lifecycle timeline' })).toBeVisible();
       if (viewport.name === 'mobile') {
         await expect(page.getByText('Filter incidents', { exact: true })).toBeVisible();
         await expect(page.getByText('Choose incident', { exact: true })).toBeVisible();
-        await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeHidden();
+        await expect(page.getByRole('list', { name: 'Incident records' })).toBeHidden();
         const detailBox = await page
           .getByRole('heading', { name: 'Critical capacity deficit', level: 2 })
           .boundingBox();
         expect(detailBox).not.toBeNull();
         expect(detailBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(viewport.size.height);
       } else {
-        await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
+        await expect(page.getByRole('list', { name: 'Incident records' })).toBeVisible();
       }
 
       await expectNoOverflowAndAccessible(page, testInfo, `workspace-${theme}-${viewport.name}`);
@@ -164,10 +164,57 @@ test('long incident and node evidence remains contained at the narrow viewport',
 
   await expect(page.getByRole('heading', { name: longTitle, level: 2 })).toBeVisible();
   await page.getByText('Choose incident', { exact: true }).click();
-  await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Incident records' })).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'long-content-narrow');
 });
+
+for (const total of [0, 1, 62, 200, 201]) {
+  test(`preserves exact incident hierarchy at the ${total}-record boundary`, async ({ page }) => {
+    const visibleCount = total === 201 ? 200 : total;
+    const incidents = Array.from({ length: visibleCount }, (_, index) =>
+      buildIncident({
+        incidentId: `f6000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        severity: index === 0 ? 'critical' : 'warning',
+        title: `Boundary incident ${index + 1}`,
+      }),
+    );
+    const alpha = buildFleetNode({
+      nodeId: nodeIds.alpha,
+      displayName: 'Alpha',
+      isOnline: true,
+      profiles: [buildProfile('build')],
+    });
+    const scenario: MockApiOptions = {
+      ...baseScenario(),
+      fleet: buildFleetResponse([alpha], incidents, {
+        activeIncidentTotal: total,
+        activeCriticalIncidentTotal: total > 0 ? 1 : 0,
+        activeIncidentsTruncated: total === 201,
+      }),
+      incidents: buildIncidentPage(incidents, total === 201),
+    };
+
+    await page.setViewportSize(total >= 200 ? viewports.mobile : viewports.desktop);
+    await setUpPage(page, scenario, 'light');
+    await page.goto(incidentsPath);
+    await page.waitForLoadState('networkidle');
+
+    const readiness = page.getByRole('region', { name: 'Incident action queue' });
+    await expect(readiness.getByText('Records in view').locator('..')).toContainText(String(total));
+    if (total === 0) {
+      await expect(page.getByText('No incidents require action')).toBeVisible();
+    } else {
+      await expect(
+        page.getByText(`${visibleCount} require action`, { exact: false }),
+      ).toBeVisible();
+    }
+    if (total === 201) {
+      await expect(page.getByRole('button', { name: 'Load more incidents' })).toBeVisible();
+    }
+    expect((await measureDocumentOverflow(page)).overflowPx).toBe(0);
+  });
+}
 
 test('exactly retrieves an older critical incident beyond the visible queue', async ({ page }) => {
   const visible = buildIncident({ title: 'Visible warning', severity: 'warning' });
@@ -189,7 +236,7 @@ test('exactly retrieves an older critical incident beyond the visible queue', as
     page.getByRole('heading', { level: 2, name: 'Older retained critical incident' }),
   ).toBeVisible();
   await expect(page.getByText(/outside the current queue filters/i)).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Operational incident queue' })).toContainText(
+  await expect(page.getByRole('list', { name: 'Incident records' })).toContainText(
     'Visible warning',
   );
 });
@@ -218,7 +265,7 @@ test('mobile incident selection collapses the queue and focuses the case file', 
   await page.goto(`${incidentsPath}?view=active`);
 
   await page.getByText('Choose incident', { exact: true }).click();
-  const queue = page.getByRole('list', { name: 'Operational incident queue' });
+  const queue = page.getByRole('list', { name: 'Incident records' });
   await expect(queue).toBeVisible();
   await page
     .getByTestId(`incident-row-${warningIncident.incidentId}`)
@@ -286,12 +333,14 @@ test('critical/warning mix: both severities display with labeled counts', async 
   // Fleet page shows the incident banner with both counts
   await page.goto(fleetPath);
   const incidentSummary = page.getByTestId('fleet-active-incidents');
-  await expect(incidentSummary.getByText('2 active incidents')).toBeVisible();
+  await expect(incidentSummary.getByText('2 open incident records')).toBeVisible();
   await expect(incidentSummary.getByText('1 critical', { exact: true })).toBeVisible();
   await expect(incidentSummary.getByText('1 warning', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('2 active incidents; highest severity critical')).toBeVisible();
   await expect(
-    incidentSummary.getByRole('link', { name: 'Review 2 active incidents' }),
+    page.getByLabel('2 open incident records; highest unowned current severity critical'),
+  ).toBeVisible();
+  await expect(
+    incidentSummary.getByRole('link', { name: 'Review 2 open incident records' }),
   ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'critical-warning-mix');
@@ -319,11 +368,13 @@ test('truncated fleet summary qualifies slice-derived severity counts', async ({
   await page.goto(fleetPath);
 
   const incidentSummary = page.getByTestId('fleet-active-incidents');
-  await expect(incidentSummary.getByText('3 active incidents', { exact: true })).toBeVisible();
+  await expect(incidentSummary.getByText('3 open incident records', { exact: true })).toBeVisible();
   await expect(incidentSummary.getByText('1 critical', { exact: true })).toBeVisible();
   await expect(incidentSummary.getByText('1 warning shown', { exact: true })).toBeVisible();
   await expect(incidentSummary.getByText('1 warning', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('3 active incidents; highest severity critical')).toBeVisible();
+  await expect(
+    page.getByLabel('3 open incident records; highest unowned current severity critical'),
+  ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'truncated-fleet-summary');
 });
@@ -361,13 +412,13 @@ test('attention queue hides acknowledged incidents and supports filtering and so
   await setUpPage(page, scenario, 'light');
   await page.goto(incidentsPath);
 
-  await expect(page.getByText(/2 need attention · 1 critical · 1 warning/i)).toBeVisible();
-  await expect(page.getByText(/1 acknowledged hidden/i)).toBeVisible();
+  await expect(page.getByText(/2 require action · 1 critical · 1 warning/i)).toBeVisible();
+  await expect(page.getByText(/1 operator-owned hidden/i)).toBeVisible();
   await expect(page.getByText('Acknowledged connector outage')).toBeHidden();
 
   await page.getByLabel('Sort by').selectOption('oldest');
   const visibleIncidentRows = page
-    .getByRole('list', { name: 'Operational incident queue' })
+    .getByRole('list', { name: 'Incident records' })
     .locator('[data-testid^="incident-row-"]');
   await expect(visibleIncidentRows.first()).toContainText('Runner startup warning');
 
@@ -484,9 +535,11 @@ test('acknowledged: acknowledged incident shows ack state and undo action', asyn
   await page.goto(`${incidentsPath}?view=active`);
 
   await expect(
-    page.getByTestId(`incident-row-${ackedIncident.incidentId}`).getByText('acknowledged', {
-      exact: true,
-    }),
+    page
+      .getByTestId(`incident-row-${ackedIncident.incidentId}`)
+      .getByText('Operator acknowledged', {
+        exact: true,
+      }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unacknowledge incident' })).toBeVisible();
 
@@ -509,14 +562,14 @@ test('resolved: resolved incident displays resolved timestamp', async ({ page },
   await page.goto(`${incidentsPath}?view=resolved`);
 
   await expect(
-    page.getByTestId(`incident-row-${resolvedIncident.incidentId}`).getByText('resolved', {
+    page.getByTestId(`incident-row-${resolvedIncident.incidentId}`).getByText('Legacy evidence', {
       exact: true,
     }),
   ).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Lifecycle timeline' }).getByText('Resolved', { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Retained evidence' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Retained incident evidence' })).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'resolved');
 });

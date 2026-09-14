@@ -54,6 +54,11 @@ understandable without motion alone.
 Use readable line length/line height, deliberate heading hierarchy, and spacing that
 groups related controls/content.
 
+Operational urgency follows evidence, not record volume. Current confirmed actionable
+incidents may dominate. Warnings remain subordinate, while unavailable evidence,
+reporting loss, retained history, acknowledgement, monitoring-ended records, and
+diagnostic transport use neutral or caution hierarchy rather than critical styling.
+
 Reuse existing tokens and components before adding one-off values. Preserve the
 project's incumbent identity; this guidance does not impose one Genesis palette,
 typeface, or component aesthetic.

@@ -7,6 +7,7 @@ import { OperationalRow } from '@/core/ui/OperationalList';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import type { OperationalIncident } from '../incidentsApi';
+import { incidentConditionLabel } from '../incidentView';
 import type { IncidentEnrichmentStatus } from './IncidentDetail';
 
 interface IncidentRowProps {
@@ -33,6 +34,7 @@ export function IncidentRow({
       : enrichmentStatus === 'unavailable'
         ? 'Node identity unavailable'
         : 'Node not present';
+  const conditionLabel = incidentConditionLabel(incident.conditionState);
   return (
     <OperationalRow
       testId={`incident-row-${incident.incidentId}`}
@@ -42,12 +44,10 @@ export function IncidentRow({
       status={
         <>
           {incident.currentSeverity ? <StatusBadge status={incident.currentSeverity} /> : null}
-          <StatusBadge status={incident.conditionState} />
-          {incident.status !== incident.operatorState &&
-          incident.status !== incident.conditionState ? (
-            <StatusBadge status={incident.status} />
+          <StatusBadge status={conditionLabel} tone="neutral" />
+          {incident.operatorState === 'acknowledged' ? (
+            <StatusBadge status="Operator acknowledged" tone="caution" />
           ) : null}
-          <StatusBadge status={incident.operatorState} />
         </>
       }
       metadata={
@@ -58,8 +58,8 @@ export function IncidentRow({
           </span>
           <span>
             {incident.currentSeverity
-              ? `Confirmed ${incident.currentSeverity}`
-              : `Last confirmed ${incident.lastConfirmedSeverity}`}
+              ? `Confirmed ${incident.currentSeverity} problem`
+              : `Last confirmed ${incident.lastConfirmedSeverity}; current impact unavailable`}
           </span>
           <span>Evaluated {formatTime(incident.evaluatedAt ?? incident.lastObservedAt)}</span>
         </div>

@@ -141,7 +141,7 @@ The local journal remains the source of replayed evidence. Dashboard does not
 receive connector text logs, absolute host paths, credentials, connector
 identity, payloads, query strings, environment values, or stack traces.
 
-## Dashboard offline presentation
+## Dashboard reporting-loss presentation
 
 Fleet responses include the connector-health snapshot committed with the
 latest accepted synchronization. If that synchronization omitted replay
@@ -149,22 +149,26 @@ evidence, the current Fleet projection reports it unavailable instead of
 reusing an older snapshot; the bounded event ledger remains retained in storage
 and is not added to every browser poll.
 
-When a node is offline, Dashboard labels connector, profile, capacity, worker,
+When a connector is not reporting, Dashboard labels profile, capacity, worker,
 resource, and hardware values as last-known evidence with their source
 timestamps. Hardware whose latest collection succeeded is labelled
 `latest reported`, not `current`, because connector liveness does not prove
-physical-host liveness.
+physical-host liveness. Dashboard does not label the host offline from this
+evidence.
 
 When replayed evidence exists, node and incident views show the retained failure
 category, affected profile when known, outage interval, retry evidence, and
 recovery. When no replay has ever arrived, Dashboard states that the reason is
-unavailable because the connector is unreachable; acknowledgement remains a
-separate incident lifecycle action and never implies diagnosis or resolution.
+unavailable because Dashboard is not receiving connector reports;
+acknowledgement remains a separate incident lifecycle action and never implies
+diagnosis or resolution.
 
 The read-only `Prepare diagnostics` action downloads schema version 1 preflight
 JSON compatible with PitCrew's remote-diagnostics importer. It contains the
-node ID, online/offline/revoked state, last accepted heartbeat, selected
-diagnostic mode, and retained incident category. GitHub run metadata,
-independent endpoint probing, and release lookup remain explicitly unavailable
-until the operator or agent supplies them. The document contains no credential,
-command, local path, connector identity, or free-form host input.
+node ID, serialized `online`/`offline`/`revoked` connector state, last accepted
+heartbeat, selected diagnostic mode, and retained incident category. The UI
+presents `offline` as connector reporting loss rather than a host-liveness claim.
+GitHub run metadata, independent endpoint probing, and release lookup remain
+explicitly unavailable until the operator or agent supplies them. The document
+contains no credential, command, local path, connector identity, or free-form
+host input.

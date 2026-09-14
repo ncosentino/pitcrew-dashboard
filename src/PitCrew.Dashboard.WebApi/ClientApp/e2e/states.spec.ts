@@ -97,7 +97,7 @@ test('empty: a tenant with no enrolled nodes shows the enrollment prompt', async
   await setUpPage(page, emptyScenario(), 'light');
   await page.goto(fleetPath);
 
-  await expect(page.getByRole('heading', { level: 3, name: 'No servers enrolled' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 3, name: 'No nodes enrolled' })).toBeVisible();
   await expectStateEvidence(page, testInfo, 'empty');
 });
 

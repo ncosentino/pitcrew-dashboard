@@ -7,7 +7,9 @@ import {
   type OperationalIncident,
 } from '@/core/fleet';
 
-export type ProfileAttentionTone = 'positive' | 'caution' | 'critical';
+import { isActionableIncident } from './incidentView';
+
+export type ProfileAttentionTone = 'positive' | 'caution' | 'critical' | 'neutral';
 export type ProfileAttentionTask = 'overview' | 'capacity' | 'workers' | 'diagnostics';
 
 export interface ProfileAttentionSummary {
@@ -108,23 +110,59 @@ export function summarizeProfileAttention(
   const profileIncidents = incidents.filter(
     (incident) => incident.profileId == null || incident.profileId === profile.profileId,
   );
-  if (profileIncidents.some((incident) => incident.severity === 'critical')) {
+  const actionableIncidents = profileIncidents.filter(isActionableIncident);
+  if (actionableIncidents.some((incident) => incident.currentSeverity === 'critical')) {
     candidates.push(
       attention(
         'Critical incident',
-        'A retained critical incident applies to this profile.',
+        'A confirmed unowned critical incident applies to this profile.',
         'critical',
         'overview',
       ),
     );
-  } else if (profileIncidents.length > 0) {
+  } else if (actionableIncidents.some((incident) => incident.currentSeverity === 'warning')) {
     candidates.push(
       attention(
-        `${profileIncidents.length} active ${profileIncidents.length === 1 ? 'incident' : 'incidents'}`,
-        'Review retained incident evidence before acting.',
+        'Warning incident',
+        'A confirmed warning incident applies to this profile.',
         'caution',
         'overview',
         1,
+      ),
+    );
+  } else if (
+    profileIncidents.some(
+      (incident) => incident.operatorState === 'acknowledged' && incident.currentSeverity != null,
+    )
+  ) {
+    candidates.push(
+      attention(
+        'Operator acknowledged',
+        'A current problem is operator-owned; acknowledgement does not resolve it.',
+        'caution',
+        'overview',
+        7,
+      ),
+    );
+  } else if (profileIncidents.length > 0) {
+    const conditionStates = new Set(profileIncidents.map((incident) => incident.conditionState));
+    const label =
+      conditionStates.size === 1
+        ? conditionStates.has('waiting-for-evidence')
+          ? 'Waiting for evidence'
+          : conditionStates.has('recovering')
+            ? 'Recovery observed'
+            : conditionStates.has('monitoring-ended')
+              ? 'Monitoring ended'
+              : 'Retained incident history'
+        : 'Open incident evidence';
+    candidates.push(
+      attention(
+        label,
+        `${profileIncidents.length} open ${profileIncidents.length === 1 ? 'record has' : 'records have'} no current actionable severity.`,
+        'neutral',
+        'overview',
+        8,
       ),
     );
   }

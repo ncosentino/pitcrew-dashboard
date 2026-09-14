@@ -5,7 +5,9 @@ interface StatusBadgeProps {
   readonly tone?: 'positive' | 'caution' | 'critical' | 'neutral';
 }
 
-function toneClasses(tone: NonNullable<StatusBadgeProps['tone']>): string {
+type StatusTone = NonNullable<StatusBadgeProps['tone']>;
+
+function toneClasses(tone: StatusTone): string {
   switch (tone) {
     case 'positive':
       return 'bg-status-positive text-status-positive-foreground';
@@ -18,8 +20,8 @@ function toneClasses(tone: NonNullable<StatusBadgeProps['tone']>): string {
   }
 }
 
-function statusClasses(status: string): string {
-  switch (status) {
+function statusTone(status: string): StatusTone {
+  switch (status.toLocaleLowerCase()) {
     case 'available':
     case 'connected':
     case 'idle':
@@ -29,12 +31,14 @@ function statusClasses(status: string): string {
     case 'active':
     case 'succeeded':
     case 'recovered':
-    case 'resolved':
     case 'healthy':
     case 'clean':
     case 'current':
-      return 'bg-status-positive text-status-positive-foreground';
+      return 'positive';
     case 'partial':
+    case 'backoff':
+    case 'degraded':
+    case 'disconnected':
     case 'draining':
     case 'restarting':
     case 'rotation requested':
@@ -48,40 +52,37 @@ function statusClasses(status: string): string {
     case 'retry-scheduled':
     case 'rolling':
     case 'withheld':
-      return 'bg-status-caution text-status-caution-foreground';
-    case 'backoff':
-    case 'disconnected':
-    case 'degraded':
+    case 'stopped':
+      return 'caution';
     case 'invalid':
     case 'conflict':
-    case 'revoked':
     case 'rejected':
     case 'registration-missing':
     case 'failed':
     case 'critical':
-    case 'triggered':
     case 'timed-out':
     case 'blocked':
-    case 'unavailable':
     case 'oom-killed':
     case 'sigkill':
     case 'signal':
     case 'error':
     case 'launch-failure':
-      return 'bg-status-critical text-status-critical-foreground';
+      return 'critical';
     default:
-      return 'bg-muted text-muted-foreground';
+      return 'neutral';
   }
 }
 
 /** Renders a status label with an optional independent semantic tone. */
 export function StatusBadge({ status, tone }: StatusBadgeProps) {
+  const resolvedTone = tone ?? statusTone(status);
   return (
     <span
       className={cn(
         'inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold capitalize',
-        tone ? toneClasses(tone) : statusClasses(status),
+        toneClasses(resolvedTone),
       )}
+      data-status-tone={resolvedTone}
     >
       {status.replaceAll('-', ' ')}
     </span>

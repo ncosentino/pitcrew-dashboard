@@ -329,10 +329,10 @@ describe('SupportPage', () => {
     renderSupportPage('/tenants/local/support/run');
 
     const mode = await screen.findByRole('combobox', { name: 'Problem to investigate' });
-    expect(within(mode).getByRole('option', { name: 'Connector offline' })).toHaveValue(
-      'ConnectorOffline',
-    );
-    expect(screen.getByText(/normal connector status is unavailable/i)).toBeVisible();
+    expect(
+      within(mode).getByRole('option', { name: 'Connector reporting unavailable' }),
+    ).toHaveValue('ConnectorOffline');
+    expect(screen.getByText(/Dashboard is not receiving normal connector reports/i)).toBeVisible();
   });
 
   it('preselects a requested diagnostic mode and names its independent identity', async () => {
@@ -469,7 +469,7 @@ describe('SupportPage', () => {
 
     renderSupportPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Support unavailable');
+    expect(await screen.findByRole('status')).toHaveTextContent('Support unavailable');
     const readiness = screen.getByRole('region', { name: 'Support readiness' });
     expect(within(readiness).getByText('Status unavailable')).toBeVisible();
     expect(within(readiness).getAllByText('Unavailable')).toHaveLength(4);
@@ -504,7 +504,7 @@ describe('SupportPage', () => {
       ),
     ).toBeVisible();
     await waitFor(() => {
-      expect(screen.getByRole('region', { name: 'Connector offline' })).toBeVisible();
+      expect(screen.getByRole('region', { name: 'Connector reporting unavailable' })).toBeVisible();
     });
   });
 
@@ -572,7 +572,7 @@ describe('SupportPage', () => {
     await flushInitialSupportLoad();
 
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Waiting for a terminal result. This session updates automatically.',
+      'Waiting for an enrolled support node to poll. This session updates automatically.',
     );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
@@ -988,9 +988,9 @@ describe('SupportPage', () => {
       'href',
       `/tenants/local/support/sessions/${queued.sessionId}`,
     );
-    expect(screen.getByRole('region', { name: 'Connector offline' })).toHaveTextContent(
-      'Verified evidence',
-    );
+    expect(
+      screen.getByRole('region', { name: 'Connector reporting unavailable' }),
+    ).toHaveTextContent('Verified evidence');
   });
 
   it('loads a selected completed session outside the bounded recent list', async () => {
@@ -1109,7 +1109,7 @@ describe('SupportSessionCard', () => {
       />,
     );
 
-    expect(screen.getByText('Connector offline')).toBeInTheDocument();
+    expect(screen.getByText('Connector reporting unavailable')).toBeInTheDocument();
     expect(screen.getByText('<script>alert(1)</script> verified evidence')).toBeInTheDocument();
     expect(screen.getByText('ES256-P1363')).toBeInTheDocument();
     expect(document.querySelector('script')).toBeNull();
@@ -1245,7 +1245,7 @@ describe('SupportSessionCard', () => {
 
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Waiting for a terminal result. This session updates automatically.',
+      'Request delivered to the support node. Waiting for a verified result; this session updates automatically.',
     );
   });
 });

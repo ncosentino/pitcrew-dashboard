@@ -32,7 +32,7 @@ test('desktop shell groups work and remembers the compact rail', async ({ page }
   await expect(navigation.getByRole('list', { name: 'Operate' })).toBeVisible();
   await expect(navigation.getByRole('list', { name: 'Configure' })).toBeVisible();
   await expect(navigation.getByRole('link', { name: 'Incidents' })).toHaveAccessibleDescription(
-    /1 active incident; highest severity critical/,
+    /1 open incident record; highest unowned current severity critical/,
   );
 
   const collapse = page.getByRole('button', { name: 'Collapse primary navigation' });
@@ -43,10 +43,10 @@ test('desktop shell groups work and remembers the compact rail', async ({ page }
   await expect(navigation).toHaveAttribute('data-rail-mode', 'compact');
   await expect(navigation.getByRole('link', { name: 'Fleet' })).toBeVisible();
   await expect(navigation.getByRole('link', { name: 'Fleet' })).toHaveAccessibleDescription(
-    'Readiness, nodes, and profile health',
+    'Exceptions, evidence coverage, and nodes',
   );
   await expect(navigation.getByRole('link', { name: 'Incidents' })).toHaveAccessibleDescription(
-    /1 active incident; highest severity critical/,
+    /1 open incident record; highest unowned current severity critical/,
   );
   await expect(navigation.getByRole('link', { name: 'Tenant administration' })).toBeVisible();
   expect(await page.evaluate((key) => localStorage.getItem(key), shellRailStorageKey)).toBe(

@@ -18,13 +18,15 @@ comparison remain available after the operational signal is clear.
 
 ## Hierarchy and interaction
 
-- Lead with one compact readiness band for observation freshness, online nodes,
-  attention-bearing nodes, and active incidents.
+- Lead with one compact readiness band for observation freshness, reporting nodes,
+  nodes with current confirmed incidents, and open incident records.
 - Rank the default node inventory by explicit incidents, profile lifecycle and
-  rollout exceptions, degraded connector evidence, and offline state before ordinary
-  online or revoked records; preserve deliberate name, status, and last-observed
+  rollout exceptions, degraded connector evidence, and reporting loss before ordinary
+  current or revoked records; preserve deliberate name, status, and last-observed
   sorting.
-- Present incidents as one attention-ordered queue and one selected case file.
+- Present confirmed unowned incidents as the default action queue and one selected
+  case file. Keep waiting-for-evidence, operator-owned, monitoring-ended, resolved,
+  and retained records discoverable in subordinate views.
   Selection is URL-stable through the `incident` query parameter; a missing retained
   record produces an explicit recovery state and never substitutes another incident.
 - Fleet, node, and profile exception links open the actionable queue with explicit
@@ -33,7 +35,8 @@ comparison remain available after the operational signal is clear.
 - Scoped queues report matches found within the currently loaded global page. Global
   totals and truncation remain visibly qualified as cross-scope source coverage and
   are never labeled as authoritative matching counts for the client-applied scope.
-- Keep severity, lifecycle, reason, evidence, node/profile identity, timeline,
+- Keep current severity, condition state, operator ownership, reason, evidence,
+  node/profile identity, timeline,
   incident-specific connector recovery or independent connector context, and the
   owning-route link in the selected case file.
 - Carry the exact incident ID, diagnostic mode, known profile, and canonical incident
@@ -62,4 +65,5 @@ Direction: exception-led signal ledger, grounded surface candidate 6, seed
 attention order, and the selected trustworthy case file read as one continuous
 operator decision. Avoid inventory-first composition, duplicate mobile/desktop case
 content, row-level action clutter, clipped controls, color-only severity, and
-acknowledgement language that resembles resolution.
+acknowledgement language that resembles resolution, or retained and unavailable
+records that inherit critical prominence from past severity.

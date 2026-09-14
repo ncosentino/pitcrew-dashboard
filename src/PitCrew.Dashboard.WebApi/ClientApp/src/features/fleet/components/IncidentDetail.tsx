@@ -13,6 +13,7 @@ import { StateBanner } from '@/core/ui/StateBanner';
 import { StatusBadge } from '@/core/ui/StatusBadge';
 
 import type { OperationalIncident } from '../incidentsApi';
+import { incidentConditionLabel } from '../incidentView';
 
 export type IncidentEnrichmentStatus = 'loading' | 'available' | 'stale' | 'unavailable';
 
@@ -51,10 +52,10 @@ export function IncidentDetail({
     : 'Node connector context';
   const evidenceHeading =
     incident.status === 'resolved'
-      ? 'Retained evidence'
+      ? 'Retained incident evidence'
       : incident.conditionState === 'confirmed'
-        ? 'Current evidence'
-        : 'Last confirmed evidence';
+        ? 'Confirmed problem evidence'
+        : 'Last confirmed problem evidence';
   const nodeValue = node
     ? node.displayName
     : enrichmentStatus === 'loading'
@@ -83,9 +84,11 @@ export function IncidentDetail({
       description={incident.summary}
       status={
         <>
-          <StatusBadge status={incident.currentSeverity ?? incident.conditionState} />
-          <StatusBadge status={incident.status} />
-          <StatusBadge status={incident.operatorState} />
+          {incident.currentSeverity ? <StatusBadge status={incident.currentSeverity} /> : null}
+          <StatusBadge status={incidentConditionLabel(incident.conditionState)} tone="neutral" />
+          {incident.operatorState === 'acknowledged' ? (
+            <StatusBadge status="Operator acknowledged" tone="caution" />
+          ) : null}
         </>
       }
       actions={

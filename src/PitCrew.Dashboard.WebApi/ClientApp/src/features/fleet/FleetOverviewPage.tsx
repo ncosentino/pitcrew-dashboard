@@ -38,6 +38,7 @@ import {
 } from './profileWorkspace';
 import { HardwareComparison } from './components/HostHardwareSummary';
 import { ActiveIncidentSummary } from './components/ActiveIncidentSummary';
+import { incidentConditionLabel, isActionableIncident } from './incidentView';
 
 type FleetDensity = 'comfortable' | 'compact';
 type FleetSort = NodeSort | 'attention';
@@ -98,9 +99,10 @@ function NodeSummaryRow({
   profileAttention,
 }: NodeSummaryRowProps) {
   const aggregate = aggregateNode(node);
-  const status = getNodeStatus(node);
   const resources = aggregate.resources;
   const admission = summarizeNodeHostAdmission(node.profiles);
+  const reporting = nodeReportingState(node);
+  const incidentSignal = nodeIncidentSignal(incidents);
   return (
     <tr className="border-t" data-testid={`fleet-node-${node.nodeId}`}>
       <td className={cn('px-4', density === 'compact' ? 'py-2' : 'py-4')}>
@@ -123,11 +125,9 @@ function NodeSummaryRow({
       </td>
       <td className="px-4 py-2">
         <div className="flex flex-wrap gap-2">
-          <StatusBadge status={status} />
-          {incidents.some((incident) => incident.severity === 'critical') ? (
-            <StatusBadge status="critical" />
-          ) : incidents.length > 0 ? (
-            <StatusBadge status="warning" />
+          <StatusBadge status={reporting.label} tone={reporting.tone} />
+          {incidentSignal ? (
+            <StatusBadge status={incidentSignal.label} tone={incidentSignal.tone} />
           ) : null}
           {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
           {profileAttention ? (
@@ -142,7 +142,7 @@ function NodeSummaryRow({
             className="mt-1 inline-block text-xs font-semibold text-link underline-offset-4 hover:underline"
             to={incidentQueueHref(tenantId, node.nodeId)}
           >
-            Review {incidents.length} active {incidents.length === 1 ? 'incident' : 'incidents'}
+            Review {incidents.length} open incident {incidents.length === 1 ? 'record' : 'records'}
           </Link>
         ) : null}
         {profileAttention ? (
@@ -158,8 +158,9 @@ function NodeSummaryRow({
             Review {profileAttention.summary.label}
           </Link>
         ) : null}
-        {!node.isOnline ? (
+        {!node.isOnline && !node.isRevoked ? (
           <div className="mt-1 text-xs text-muted-foreground">
+            Reporting loss does not confirm host failure.{' '}
             {node.connectorHealth?.snapshot.lastFailureCategory
               ? `Retained cause: ${node.connectorHealth.snapshot.lastFailureCategory}`
               : 'Reason unavailable: no connector health replay'}
@@ -299,20 +300,28 @@ export default function FleetOverviewPage() {
   );
   const criticalIncidents = fleet?.activeCriticalIncidentTotal;
   const incidentTotal = fleet?.activeIncidentTotal;
+  const actionableIncidents = activeIncidents.filter(isActionableIncident);
+  const actionableCritical = actionableIncidents.filter(
+    (incident) => incident.currentSeverity === 'critical',
+  ).length;
+  const actionableWarning = actionableIncidents.filter(
+    (incident) => incident.currentSeverity === 'warning',
+  ).length;
   const warningIncidents = fleet?.activeIncidents.filter(
     (incident) => incident.currentSeverity === 'warning',
   ).length;
-  const incidentsAwaitingEvidence = fleet?.activeIncidents.filter(
-    (incident) => incident.currentSeverity == null,
-  ).length;
+  const conditionCounts = countIncidentConditions(activeIncidents);
   const onlineNodes = fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
-  const attentionNodes =
+  const actionableProblemNodes =
+    fleet?.nodes.filter((node) =>
+      (incidentsByNode.get(node.nodeId) ?? []).some(isActionableIncident),
+    ).length ?? 0;
+  const evidenceGapNodes =
     fleet?.nodes.filter(
       (node) =>
         getNodeStatus(node) === 'offline' ||
         nodeHasDegradedConnector(node) ||
-        profileAttentionByNode.has(node.nodeId) ||
-        (incidentsByNode.get(node.nodeId)?.length ?? 0) > 0,
+        profileAttentionByNode.has(node.nodeId),
     ).length ?? 0;
 
   const changeDensity = (nextDensity: FleetDensity) => {
@@ -332,7 +341,7 @@ export default function FleetOverviewPage() {
     <>
       <ReadinessSummary
         title="Fleet readiness"
-        description="Current or retained node evidence, active incidents, and the fleet records that require operator attention."
+        description="Confirmed incidents lead. Connector reporting gaps, retained evidence, and node inventory remain distinct and subordinate."
         status={
           <StatusBadge
             status={
@@ -342,11 +351,15 @@ export default function FleetOverviewPage() {
                   : 'Loading'
                 : criticalIncidents == null || incidentTotal == null
                   ? 'Incident count unavailable'
-                  : criticalIncidents > 0
-                    ? 'Critical incidents'
-                    : incidentTotal > 0 || attentionNodes > 0
-                      ? 'Needs attention'
-                      : 'No reported exception'
+                  : actionableCritical > 0
+                    ? 'Critical action required'
+                    : actionableWarning > 0
+                      ? 'Action required'
+                      : evidenceGapNodes > 0
+                        ? 'Evidence gaps'
+                        : incidentTotal > 0
+                          ? 'Open records'
+                          : 'No reported exception'
             }
             tone={
               !fleet
@@ -355,11 +368,13 @@ export default function FleetOverviewPage() {
                   : 'neutral'
                 : criticalIncidents == null || incidentTotal == null
                   ? 'neutral'
-                  : criticalIncidents > 0
+                  : actionableCritical > 0
                     ? 'critical'
-                    : incidentTotal > 0 || attentionNodes > 0
+                    : actionableWarning > 0 || evidenceGapNodes > 0
                       ? 'caution'
-                      : 'positive'
+                      : incidentTotal > 0
+                        ? 'neutral'
+                        : 'positive'
             }
           />
         }
@@ -372,28 +387,28 @@ export default function FleetOverviewPage() {
               : 'Waiting for fleet evidence',
           },
           {
-            label: 'Nodes online',
+            label: 'Nodes reporting',
             value: fleet
               ? `${onlineNodes} of ${fleet.nodes.length}`
               : error
                 ? 'Unavailable'
                 : 'Loading…',
-            detail: 'Connector-derived node state',
+            detail: 'Current connector contact; not a host-liveness claim',
           },
           {
-            label: 'Nodes needing attention',
-            value: fleet ? attentionNodes : error ? 'Unavailable' : 'Loading…',
-            detail: 'Incident, profile exception, degraded connector, or offline state',
+            label: 'Nodes requiring action',
+            value: fleet ? actionableProblemNodes : error ? 'Unavailable' : 'Loading…',
+            detail: 'At least one confirmed unowned incident',
           },
           {
-            label: 'Active incidents',
+            label: 'Open incident records',
             value: fleet ? (incidentTotal ?? 'Unavailable') : error ? 'Unavailable' : 'Loading…',
             detail: fleet
               ? criticalIncidents == null || incidentTotal == null
                 ? 'Authoritative incident totals unavailable'
                 : fleet.activeIncidentsTruncated === false
-                  ? `${criticalIncidents} critical · ${warningIncidents} warning · ${incidentsAwaitingEvidence} awaiting evidence`
-                  : `${criticalIncidents} critical · remaining severity breakdown unavailable`
+                  ? `${criticalIncidents} current critical · ${warningIncidents} current warning · ${formatConditionCounts(conditionCounts)}`
+                  : `${criticalIncidents} current critical across all pages · loaded conditions: ${formatConditionCounts(conditionCounts)} · remaining breakdown unavailable`
               : 'Incident evidence unavailable',
           },
         ]}
@@ -407,8 +422,8 @@ export default function FleetOverviewPage() {
 
       {fleet?.activeIncidentsTruncated ? (
         <StateBanner role="status" tone="caution">
-          Fleet cards include {activeIncidents.length} of {fleet.activeIncidentTotal} active
-          incidents. Open the incident queue for exact totals, pagination, and deep-linked records.
+          Fleet rows include {activeIncidents.length} of {fleet.activeIncidentTotal} open incident
+          records. Open the incident queue for exact totals, pagination, and deep-linked history.
         </StateBanner>
       ) : null}
 
@@ -459,8 +474,8 @@ export default function FleetOverviewPage() {
 
       {!isLoading && fleet?.nodes.length === 0 ? (
         <EmptyState
-          description="Create a one-time code, configure it on a connector, and start the connector. No enrolled servers means no connector has reported; it does not prove fleet health."
-          title="No servers enrolled"
+          description="Create a one-time code, configure it on a connector, and start the connector. No enrolled nodes means no connector has reported; it does not prove fleet health."
+          title="No nodes enrolled"
         />
       ) : null}
 
@@ -533,9 +548,10 @@ export default function FleetOverviewPage() {
               <div className="grid gap-3 lg:hidden" data-testid="fleet-mobile-summary">
                 {visibleNodes.map((node) => {
                   const aggregate = aggregateNode(node);
-                  const nodeStatus = getNodeStatus(node);
+                  const reporting = nodeReportingState(node);
                   const admission = summarizeNodeHostAdmission(node.profiles);
                   const nodeIncidents = incidentsByNode.get(node.nodeId) ?? [];
+                  const incidentSignal = nodeIncidentSignal(nodeIncidents);
                   const profileAttention = profileAttentionByNode.get(node.nodeId);
                   return (
                     <div
@@ -544,11 +560,9 @@ export default function FleetOverviewPage() {
                       data-testid={`fleet-node-card-${node.nodeId}`}
                     >
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <StatusBadge status={nodeStatus} />
-                        {nodeIncidents.some((incident) => incident.severity === 'critical') ? (
-                          <StatusBadge status="critical" />
-                        ) : nodeIncidents.length > 0 ? (
-                          <StatusBadge status="warning" />
+                        <StatusBadge status={reporting.label} tone={reporting.tone} />
+                        {incidentSignal ? (
+                          <StatusBadge status={incidentSignal.label} tone={incidentSignal.tone} />
                         ) : null}
                         {nodeHasDegradedConnector(node) ? <StatusBadge status="degraded" /> : null}
                         {profileAttention ? (
@@ -569,8 +583,8 @@ export default function FleetOverviewPage() {
                           className="text-xs font-semibold text-link underline-offset-4 hover:underline"
                           to={incidentQueueHref(tenantId, node.nodeId)}
                         >
-                          Review {nodeIncidents.length} active{' '}
-                          {nodeIncidents.length === 1 ? 'incident' : 'incidents'}
+                          Review {nodeIncidents.length} open incident{' '}
+                          {nodeIncidents.length === 1 ? 'record' : 'records'}
                         </Link>
                       ) : null}
                       {profileAttention ? (
@@ -672,14 +686,16 @@ function nodeAttentionRank(
   incidents: ReadonlyArray<OperationalIncident>,
   profileAttention: NodeProfileAttention | undefined,
 ): number {
-  if (incidents.some((incident) => incident.severity === 'critical')) return 0;
-  if (incidents.length > 0) return 1;
+  const actionableIncidents = incidents.filter(isActionableIncident);
+  if (actionableIncidents.some((incident) => incident.currentSeverity === 'critical')) return 0;
+  if (actionableIncidents.some((incident) => incident.currentSeverity === 'warning')) return 1;
   if (profileAttention?.summary.tone === 'critical') return 2;
   if (nodeHasDegradedConnector(node)) return 3;
-  if (getNodeStatus(node) === 'offline') return 4;
-  if (profileAttention) return 5;
-  if (getNodeStatus(node) === 'online') return 6;
-  return 7;
+  if (profileAttention) return 4;
+  if (getNodeStatus(node) === 'offline') return 5;
+  if (incidents.length > 0) return 6;
+  if (getNodeStatus(node) === 'online') return 7;
+  return 8;
 }
 
 function incidentQueueHref(tenantId: string, nodeId: string): string {
@@ -689,6 +705,49 @@ function incidentQueueHref(tenantId: string, nodeId: string): string {
 
 function nodeHasDegradedConnector(node: FleetNode): boolean {
   return node.isOnline && !node.isRevoked && node.connectorHealth?.snapshot.state === 'degraded';
+}
+
+function nodeReportingState(node: FleetNode): {
+  readonly label: string;
+  readonly tone: 'positive' | 'caution' | 'neutral';
+} {
+  if (node.isRevoked) return { label: 'Enrollment revoked', tone: 'neutral' };
+  if (node.isOnline) return { label: 'Connector reporting', tone: 'positive' };
+  return { label: 'Connector not reporting', tone: 'caution' };
+}
+
+function nodeIncidentSignal(
+  incidents: ReadonlyArray<OperationalIncident>,
+): { readonly label: string; readonly tone: 'critical' | 'caution' | 'neutral' } | null {
+  const actionableIncidents = incidents.filter(isActionableIncident);
+  if (actionableIncidents.some((incident) => incident.currentSeverity === 'critical')) {
+    return { label: 'Critical action required', tone: 'critical' };
+  }
+  if (actionableIncidents.some((incident) => incident.currentSeverity === 'warning')) {
+    return { label: 'Warning action required', tone: 'caution' };
+  }
+  if (incidents.some((incident) => incident.operatorState === 'acknowledged')) {
+    return { label: 'Operator acknowledged', tone: 'caution' };
+  }
+  const condition = incidents[0]?.conditionState;
+  return condition ? { label: incidentConditionLabel(condition), tone: 'neutral' } : null;
+}
+
+function countIncidentConditions(incidents: ReadonlyArray<OperationalIncident>) {
+  return {
+    waiting: incidents.filter((incident) => incident.conditionState === 'waiting-for-evidence')
+      .length,
+    recovering: incidents.filter((incident) => incident.conditionState === 'recovering').length,
+    monitoringEnded: incidents.filter((incident) => incident.conditionState === 'monitoring-ended')
+      .length,
+    retained: incidents.filter((incident) =>
+      ['legacy-unverified', 'resolved'].includes(incident.conditionState),
+    ).length,
+  };
+}
+
+function formatConditionCounts(counts: ReturnType<typeof countIncidentConditions>): string {
+  return `${counts.waiting} waiting for evidence · ${counts.recovering} recovering · ${counts.monitoringEnded} monitoring ended · ${counts.retained} retained`;
 }
 
 function selectNodeProfileAttention(node: FleetNode): NodeProfileAttention | undefined {

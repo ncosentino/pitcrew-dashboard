@@ -480,7 +480,7 @@ describe('profile detail routes', () => {
     expect(screen.getByTestId('profile-overview-operations-default')).toHaveTextContent(
       'unavailable',
     );
-    expect(screen.getByText('Evidence needs attention')).toBeVisible();
+    expect(screen.getByText('Evidence gap or change')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Review diagnostics' })).toHaveAttribute(
       'href',
       `${profilePath}/diagnostics`,
@@ -1606,7 +1606,7 @@ describe('profile detail routes', () => {
     ).toHaveClass('bg-status-positive');
     expect(
       screen.getByTestId('profile-subsystem-summary-docker-default').lastElementChild,
-    ).toHaveClass('bg-status-critical');
+    ).toHaveClass('bg-status-caution');
     expect(screen.getByTestId('profile-subsystem-summary-docker-default')).toHaveTextContent(
       'degraded',
     );

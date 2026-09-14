@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Semantic tone for a state banner, driving both color and default ARIA role. */
-export type StateBannerTone = 'positive' | 'caution' | 'critical';
+export type StateBannerTone = 'positive' | 'caution' | 'critical' | 'neutral';
 
 const toneClasses: Record<StateBannerTone, string> = {
   positive:
@@ -11,12 +11,14 @@ const toneClasses: Record<StateBannerTone, string> = {
   caution: 'border-status-caution-foreground/30 bg-status-caution text-status-caution-foreground',
   critical:
     'border-status-critical-foreground/30 bg-status-critical text-status-critical-foreground',
+  neutral: 'border-border bg-muted/45 text-foreground',
 };
 
 const defaultRole: Record<StateBannerTone, 'status' | 'alert'> = {
   positive: 'status',
   caution: 'status',
   critical: 'alert',
+  neutral: 'status',
 };
 
 /** Props for the shared operational state banner. */

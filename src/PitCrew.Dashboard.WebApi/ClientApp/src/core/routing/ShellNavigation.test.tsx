@@ -17,7 +17,7 @@ const items: ReadonlyArray<ShellNavigationItem> = [
   },
   {
     label: 'Incidents',
-    description: 'Active exceptions and bounded history',
+    description: 'Action queue and retained history',
     path: '/tenants/local/incidents',
     group: 'monitor',
     order: 20,
@@ -25,7 +25,7 @@ const items: ReadonlyArray<ShellNavigationItem> = [
     activePaths: ['/tenants/local/incidents'],
     badge: {
       label: '3',
-      accessibleLabel: '3 active incidents; highest severity critical',
+      accessibleLabel: '3 open incident records; highest unowned current severity critical',
       tone: 'critical',
     },
   },
@@ -90,7 +90,7 @@ describe('ShellNavigation', () => {
       'Readiness, nodes, and profile health',
     );
     expect(screen.getByRole('link', { name: 'Incidents' })).toHaveAccessibleDescription(
-      'Active exceptions and bounded history 3 active incidents; highest severity critical',
+      'Action queue and retained history 3 open incident records; highest unowned current severity critical',
     );
   });
 

@@ -33,8 +33,9 @@ access to enrollment, access, diagnostics, and tenant administration.
 - Narrow screens use the bounded navigation sheet with the same groups, destinations,
   tenant context, theme control, and sign-out. Desktop rail preference never changes
   mobile composition.
-- Active incident count retains severity when available and becomes explicitly
-  unavailable when the badge request fails rather than disappearing as measured zero.
+- Open incident record count retains the highest current severity when available and
+  becomes explicitly unavailable when the badge request fails rather than
+  disappearing as measured zero. Count alone does not create critical prominence.
 - Route focus lands on the page heading or named content region without drawing a
   page-sized outline.
 

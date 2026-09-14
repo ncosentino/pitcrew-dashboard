@@ -12,6 +12,7 @@ for serialized names.
 | **Host** | The physical machine, virtual machine, or Docker-visible operating environment whose resources are being observed. | Use for CPU, memory, operating-system, Docker runtime, and pressure evidence. |
 | **Node** | The enrolled Dashboard identity authenticated by one connector, normally representing one host. | Lead with the node display name. Present the stable node ID as secondary, copyable metadata. |
 | **Connector** | The outbound process that reads local PitCrew state and synchronizes credential-free evidence to Dashboard. | Connector health describes delivery behavior, not host or manager health. |
+| **Connector not reporting** | Dashboard has not accepted current synchronization from the connector. | State explicitly that reporting loss does not confirm host failure. Show affected values as last known or unavailable according to their source evidence. |
 | **Profile** | One manager scope and configuration reported by a node. | Use the profile ID as its human-recognizable name until a separate display name exists. |
 | **Target** | One repository or scale-set activation target inside an autoscaled profile. | Keep target-local evidence separate from profile totals. |
 
@@ -58,6 +59,8 @@ when the distinction is known.
 | **Triggered** | A debounced condition crossed its incident threshold and remains active. | Lead with severity, affected identity, and direct evidence. |
 | **Acknowledged** | An operator has seen and taken ownership of an active incident. | Acknowledgement never means the condition is resolved. Use immediate acknowledgement with a short undo or unacknowledge path. |
 | **Resolved** | Authoritative evidence shows the triggering condition ended. | Preserve the incident in bounded history with its resolved time. |
+| **Waiting for evidence** | The condition remains open, but current rule-specific evidence is unavailable. | Keep the last confirmed severity as retained context. Do not present it as current urgency or place it in the default action queue. |
+| **Monitoring ended** | The authoritative source no longer evaluates the condition. | Keep retained facts visible, state that current impact is unavailable, and require explicit operator handling where the contract does. |
 | **Warning** | Material degradation that needs attention but is not the highest urgency. | Pair the label with text; do not rely on amber alone. |
 | **Critical** | The highest-severity active condition in the current incident model. | Pair the label with text and keep its evidence path visible. |
 
@@ -71,6 +74,8 @@ when the distinction is known.
 | **Rotate credential** | Replace an active credential with a new value and invalidate the old value according to its contract. | Confirm identity, scope, expiry, and one-time value handling before execution. |
 | **Revoke** | Permanently invalidate the selected enrollment or diagnostic credential. | Use explicit confirmation and name what stops working. |
 | **Prepare diagnostics** | Download credential-free Dashboard context for a separately authorized host diagnostic collection. | State that the exact affected GitHub run or job still needs to be supplied. |
+| **Diagnostic transport** | Relay polling and request delivery between Dashboard and an independently enrolled support node. | Describe queued, delivered, unavailable, or expired transport separately from diagnostic evidence and fleet health. |
+| **Diagnostic session** | One bounded read-only support request and its lifecycle. | Completion confirms verified evidence collection, not remediation. Rejection or expiry is a request outcome, not a critical fleet incident. |
 
 ## Copy rules
 
@@ -84,3 +89,5 @@ when the distinction is known.
   identity or fence being acted on.
 - Never use **healthy**, **current**, **resolved**, or **zero** as a success-shaped
   fallback when evidence is missing.
+- Do not use **offline** by itself when the known fact is only that connector reporting
+  stopped. Prefer **connector not reporting** and state that host state is unconfirmed.

@@ -314,7 +314,7 @@ describe('authenticated routing', () => {
     await user.type(screen.getByLabelText('Tenant display name'), 'New tenant');
     await user.click(screen.getByRole('button', { name: 'Create tenant' }));
 
-    expect(await screen.findByText('No servers enrolled')).toBeInTheDocument();
+    expect(await screen.findByText('No nodes enrolled')).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/tenants/new-tenant/fleet');
     expect(sessionLoads).toBe(2);
     const creationCall = fetchMock.mock.calls.find(
@@ -481,7 +481,7 @@ describe('authenticated routing', () => {
     expect(within(navigation).getByRole('list', { name: 'Configure' })).toBeInTheDocument();
     expect(navigation).toHaveAttribute('data-rail-mode', 'compact');
     expect(within(navigation).getByRole('link', { name: 'Fleet' })).toHaveAccessibleDescription(
-      'Readiness, nodes, and profile health',
+      'Exceptions, evidence coverage, and nodes',
     );
     expect(screen.getByText('Runner slots and current job correlation')).toHaveClass('sr-only');
 
@@ -500,7 +500,7 @@ describe('authenticated routing', () => {
     const incidents = await screen.findByRole('link', { name: 'Incidents' });
     await waitFor(() =>
       expect(incidents).toHaveAccessibleDescription(
-        'Active exceptions and bounded history Active incident count unavailable',
+        'Action queue and retained history Open incident record count unavailable',
       ),
     );
     expect(within(incidents).getByText('?')).toBeInTheDocument();
