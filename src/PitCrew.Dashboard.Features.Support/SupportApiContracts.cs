@@ -128,7 +128,13 @@ public sealed record CreateSupportDiagnosticSessionRequest(
     Guid NodeId,
     string DiagnosticMode,
     string? ProfileId,
-    int ExpiresInSeconds);
+    int ExpiresInSeconds)
+{
+  /// <summary>
+  /// Gets the optional tenant-owned incident to correlate with this request.
+  /// </summary>
+  public Guid? IncidentId { get; init; }
+}
 
 /// <summary>
 /// Response for one support diagnostic session.
@@ -161,6 +167,11 @@ public sealed record SupportDiagnosticSessionResponse(
     string? RejectionDisposition,
     SupportDiagnosticResultResponse? Result)
 {
+  /// <summary>
+  /// Gets the tenant-authorized incident correlation, when one was supplied.
+  /// </summary>
+  public string? IncidentId { get; init; }
+
   /// <summary>
   /// Gets claim-level authorization, transport, and verified-result evidence.
   /// </summary>

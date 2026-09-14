@@ -140,7 +140,7 @@ function NodeSummaryRow({
         {incidents.length > 0 ? (
           <Link
             className="mt-1 inline-block text-xs font-semibold text-link underline-offset-4 hover:underline"
-            to={incidentInvestigationHref(tenantId, incidents[0].incidentId)}
+            to={incidentQueueHref(tenantId, node.nodeId)}
           >
             Review {incidents.length} active {incidents.length === 1 ? 'incident' : 'incidents'}
           </Link>
@@ -567,7 +567,7 @@ export default function FleetOverviewPage() {
                       {nodeIncidents.length > 0 ? (
                         <Link
                           className="text-xs font-semibold text-link underline-offset-4 hover:underline"
-                          to={incidentInvestigationHref(tenantId, nodeIncidents[0].incidentId)}
+                          to={incidentQueueHref(tenantId, node.nodeId)}
                         >
                           Review {nodeIncidents.length} active{' '}
                           {nodeIncidents.length === 1 ? 'incident' : 'incidents'}
@@ -682,8 +682,9 @@ function nodeAttentionRank(
   return 7;
 }
 
-function incidentInvestigationHref(tenantId: string, incidentId: string): string {
-  return `/tenants/${encodeURIComponent(tenantId)}/incidents?view=active&incident=${encodeURIComponent(incidentId)}`;
+function incidentQueueHref(tenantId: string, nodeId: string): string {
+  const query = new URLSearchParams({ view: 'active', nodeId });
+  return `/tenants/${encodeURIComponent(tenantId)}/incidents?${query.toString()}`;
 }
 
 function nodeHasDegradedConnector(node: FleetNode): boolean {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   buildSupportDiagnosticRequestPath,
+  buildIncidentInvestigationPath,
   selectIncidentDiagnosticMode,
   type FleetNode,
 } from '@/core/fleet';
@@ -42,6 +43,7 @@ export function IncidentDetail({
   onUnacknowledge,
 }: IncidentDetailProps) {
   const supportDiagnosticMode = selectIncidentDiagnosticMode(incident, node);
+  const incidentReturnPath = buildIncidentInvestigationPath(tenantId, incident.incidentId);
   const connector = node?.connectorHealth?.snapshot;
   const connectorEvidenceIsIncidentSpecific = incident.kind === 'connector-offline';
   const connectorHeading = connectorEvidenceIsIncidentSpecific
@@ -96,6 +98,10 @@ export function IncidentDetail({
                   tenantId,
                   supportDiagnosticMode,
                   incident.profileId,
+                  {
+                    incidentId: incident.incidentId,
+                    returnTo: incidentReturnPath,
+                  },
                 )}
               >
                 Request support diagnostics

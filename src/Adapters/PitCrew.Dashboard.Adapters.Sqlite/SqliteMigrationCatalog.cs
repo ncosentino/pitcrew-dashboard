@@ -4765,5 +4765,14 @@ internal static class SqliteMigrationCatalog
               ALTER TABLE support_sessions
                   ADD COLUMN result_verified_at TEXT NULL;
               """),
+        new(
+              36,
+              "support-session-incident-correlation",
+              """
+              ALTER TABLE support_sessions
+                  ADD COLUMN incident_id TEXT NULL
+                      CHECK (incident_id IS NULL
+                          OR length(incident_id) = 36);
+              """),
     ];
 }

@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 using PitCrew.Dashboard.Features.Access;
+using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Dashboard.Features.Support;
 using PitCrew.Dashboard.Kernel.Authentication;
 using PitCrew.Support.Protocol;
@@ -82,6 +83,10 @@ public sealed class SupportHostingTests
           session.AntiforgeryToken,
           nodeKeys,
           cancellationToken);
+      var incidentId = (await CreateIncidentsAsync(
+          factory.Services,
+          1,
+          cancellationToken))[0];
       var credential = await DashboardTestHelpers.CreateDiagnosticCredentialAsync(
           client,
           session.AntiforgeryToken,
@@ -92,6 +97,21 @@ public sealed class SupportHostingTests
           [],
           cancellationToken);
 
+      using var unknownIncidentResponse = await DashboardTestHelpers.SendDiagnosticAsync(
+          client,
+          HttpMethod.Post,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+          credential.Value,
+          new CreateSupportDiagnosticSessionRequest(
+              Guid.NewGuid(),
+              Guid.Parse(enrollment.NodeId, CultureInfo.InvariantCulture),
+              SupportDiagnosticModes.ConnectorOffline,
+              "default",
+              300)
+          {
+            IncidentId = Guid.NewGuid(),
+          },
+          cancellationToken);
       using var createResponse = await DashboardTestHelpers.SendDiagnosticAsync(
           client,
           HttpMethod.Post,
@@ -101,11 +121,17 @@ public sealed class SupportHostingTests
               Guid.NewGuid(),
               Guid.Parse(enrollment.NodeId, CultureInfo.InvariantCulture),
               SupportDiagnosticModes.ConnectorOffline,
-              null,
-              300),
+              "default",
+              300)
+          {
+            IncidentId = incidentId,
+          },
           cancellationToken);
-      var created = await createResponse.Content.ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
-          cancellationToken) ??
+      var createdPayload = await createResponse.Content.ReadAsStringAsync(cancellationToken);
+      using var createdJson = JsonDocument.Parse(createdPayload);
+      var created = JsonSerializer.Deserialize<SupportDiagnosticSessionResponse>(
+          createdPayload,
+          JsonSerializerOptions.Web) ??
           throw new InvalidOperationException("Support session response was empty.");
       using var getResponse = await DashboardTestHelpers.SendDiagnosticAsync(
           client,
@@ -117,9 +143,28 @@ public sealed class SupportHostingTests
       var fetched = await getResponse.Content.ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
           cancellationToken) ??
           throw new InvalidOperationException("Support session fetch response was empty.");
+      using var listResponse = await DashboardTestHelpers.SendDiagnosticAsync(
+          client,
+          HttpMethod.Get,
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+          credential.Value,
+          null,
+          cancellationToken);
+      var listed = await listResponse.Content.ReadFromJsonAsync<SupportDiagnosticSessionResponse[]>(
+          cancellationToken) ??
+          throw new InvalidOperationException("Support session list response was empty.");
 
+      await Assert.That(unknownIncidentResponse.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
       await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(
+          createdJson.RootElement.GetProperty("incidentId").GetString())
+          .IsEqualTo(incidentId.ToString("D"));
       await Assert.That(getResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(listResponse.StatusCode).IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(created.IncidentId).IsEqualTo(incidentId.ToString("D"));
+      await Assert.That(fetched.IncidentId).IsEqualTo(created.IncidentId);
+      await Assert.That(listed).HasSingleItem();
+      await Assert.That(listed[0].IncidentId).IsEqualTo(created.IncidentId);
       await Assert.That(created.Capability).IsEqualTo(SupportCapability.DiagnosticsSnapshotV1);
       await Assert.That(created.RequestDigest).Matches("^[a-f0-9]{64}$");
       await Assert.That(created.NodeSigningKeyFingerprint).Matches("^[a-f0-9]{64}$");
@@ -248,7 +293,7 @@ public sealed class SupportHostingTests
   }
 
   [Test]
-  public async Task Uncertain_Relay_Acceptance_Retries_The_Same_Support_Intent(
+  public async Task Uncertain_Relay_Retry_Reconciles_Retained_Intent_After_Incident_Prune(
       CancellationToken cancellationToken)
   {
     var databasePath = DashboardTestHelpers.CreateDatabasePath();
@@ -287,6 +332,10 @@ public sealed class SupportHostingTests
               browserSession.AntiforgeryToken,
               SupportKeyFactory.CreateNodeKeys(),
               cancellationToken);
+      var incidentIds = await CreateIncidentsAsync(
+          factory.Services,
+          1,
+          cancellationToken);
       var intentId = Guid.NewGuid();
       var body = new
       {
@@ -296,7 +345,8 @@ public sealed class SupportHostingTests
             CultureInfo.InvariantCulture),
         DiagnosticMode =
             SupportDiagnosticModes.ConnectorOffline,
-        ProfileId = (string?)null,
+        ProfileId = "default",
+        IncidentId = incidentIds[0],
         ExpiresInSeconds = 300,
       };
 
@@ -307,6 +357,17 @@ public sealed class SupportHostingTests
               browserSession.AntiforgeryToken,
               body,
               cancellationToken);
+      await PruneIncidentsAsync(
+          factory.Services,
+          1,
+          cancellationToken);
+      var incidentStore = factory.Services.GetRequiredService<IAlertIncidentStore>();
+      await Assert.That(
+          await incidentStore.GetByIdAsync(
+              DashboardTestHelpers.TenantId,
+              incidentIds[0],
+              cancellationToken))
+          .IsNull();
       using var secondResponse =
           await DashboardTestHelpers.PostAuthenticatedAsync(
               client,
@@ -326,8 +387,9 @@ public sealed class SupportHostingTests
                     enrollment.NodeId,
                     CultureInfo.InvariantCulture),
                 DiagnosticMode =
-                    SupportDiagnosticModes.CapacityMismatch,
+                    SupportDiagnosticModes.ConnectorOffline,
                 ProfileId = "default",
+                IncidentId = Guid.NewGuid(),
                 ExpiresInSeconds = 300,
               },
               cancellationToken);
@@ -733,6 +795,94 @@ public sealed class SupportHostingTests
           .IsEqualTo(
               SupportRequestRejectionDispositions
                   .UnsupportedCapability);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Exact_Support_Session_Remains_Readable_Beyond_Recent_List(
+      CancellationToken cancellationToken)
+  {
+    const int sessionCount = 51;
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl:
+              "http://support-relay-internal:8080/");
+      var relayHandler = new SupportSessionRelayHandler();
+      await using var factory =
+          new WebApplicationFactory<Program>()
+              .WithWebHostBuilder(
+                  builder => builder.ConfigureServices(
+                      services => services
+                          .AddHttpClient(
+                              SupportRelayManagementHttpClientOptions
+                                  .ClientName)
+                          .ConfigurePrimaryHttpMessageHandler(
+                              () => relayHandler)));
+      using var client = factory.CreateClient();
+      var browserSession = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var enrollment = await SupportEnrollmentTestHelper.EnrollAsync(
+          client,
+          browserSession.AntiforgeryToken,
+          SupportKeyFactory.CreateNodeKeys(),
+          cancellationToken);
+      var nodeId = Guid.Parse(
+          enrollment.NodeId,
+          CultureInfo.InvariantCulture);
+      string? oldestSessionId = null;
+
+      for (var index = 0; index < sessionCount; index++)
+      {
+        using var createResponse =
+            await DashboardTestHelpers.PostAuthenticatedAsync(
+                client,
+                $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+                browserSession.AntiforgeryToken,
+                new CreateSupportDiagnosticSessionRequest(
+                    Guid.NewGuid(),
+                    nodeId,
+                    SupportDiagnosticModes.ConnectorOffline,
+                    "default",
+                    300),
+                cancellationToken);
+        var created = await createResponse.Content
+            .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+                cancellationToken) ??
+            throw new InvalidOperationException(
+                "Support session response was empty.");
+        oldestSessionId ??= created.SessionId;
+        await Assert.That(createResponse.StatusCode)
+            .IsEqualTo(HttpStatusCode.Accepted);
+      }
+
+      var recent = await client.GetFromJsonAsync<
+          SupportDiagnosticSessionResponse[]>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+          cancellationToken);
+      var exact = await client.GetFromJsonAsync<
+          SupportDiagnosticSessionResponse>(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions/{oldestSessionId}",
+          cancellationToken);
+
+      await Assert.That(recent).IsNotNull();
+      await Assert.That(recent!).Count().IsEqualTo(50);
+      await Assert.That(recent.Select(session => session.SessionId))
+          .DoesNotContain(oldestSessionId!);
+      await Assert.That(exact).IsNotNull();
+      await Assert.That(exact!.SessionId)
+          .IsEqualTo(oldestSessionId);
+      await Assert.That(exact.ProfileId).IsEqualTo("default");
     }
     finally
     {
@@ -1833,6 +1983,75 @@ public sealed class SupportHostingTests
         "$sessionId",
         sessionId.ToString("D", CultureInfo.InvariantCulture));
     await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static async Task<IReadOnlyList<Guid>> CreateIncidentsAsync(
+      IServiceProvider services,
+      int count,
+      CancellationToken cancellationToken)
+  {
+    var now = DateTimeOffset.Parse(
+        "2026-09-14T00:00:00+00:00",
+        CultureInfo.InvariantCulture);
+    var store = services.GetRequiredService<IAlertIncidentStore>();
+    await store.ReconcileAsync(
+        Enumerable.Range(0, count)
+            .Select(index => new AlertCandidate(
+                $"support-correlation-{index}",
+                DashboardTestHelpers.TenantId,
+                Guid.NewGuid(),
+                "default",
+                "test-alert",
+                "warning",
+                now.AddSeconds(index),
+                now.AddSeconds(index),
+                now.AddSeconds(index),
+                TimeSpan.Zero,
+                $"Support correlation incident {index}",
+                "Support correlation test incident.",
+                "test-reason",
+                null,
+                $"/tenants/{DashboardTestHelpers.TenantId}/fleet"))
+            .ToArray(),
+        [],
+        [],
+        now,
+        now.AddDays(-90),
+        100,
+        cancellationToken);
+    var incidents = await store.GetAsync(
+        DashboardTestHelpers.TenantId,
+        AlertIncidentFilter.Active,
+        count,
+        now,
+        cancellationToken);
+    return incidents.Incidents.Select(static incident => incident.IncidentId).ToArray();
+  }
+
+  private static async Task PruneIncidentsAsync(
+      IServiceProvider services,
+      int count,
+      CancellationToken cancellationToken)
+  {
+    var clearedAt = DateTimeOffset.Parse(
+        "2026-09-14T00:01:00+00:00",
+        CultureInfo.InvariantCulture);
+    var store = services.GetRequiredService<IAlertIncidentStore>();
+    await store.ReconcileAsync(
+        [],
+        Enumerable.Range(0, count)
+            .Select(index => new AlertClearance(
+                $"support-correlation-{index}",
+                clearedAt,
+                clearedAt))
+            .ToArray(),
+        [],
+        clearedAt,
+        clearedAt.AddMinutes(1),
+        0,
+        cancellationToken,
+        TimeSpan.Zero,
+        0);
   }
 
   private static void AddAuthenticationCookie(

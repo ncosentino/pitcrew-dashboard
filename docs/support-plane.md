@@ -128,6 +128,7 @@ Content-Type: application/json
   "nodeId": "00000000-0000-0000-0000-000000000000",
   "diagnosticMode": "ConnectorOffline",
   "profileId": "default",
+  "incidentId": "00000000-0000-0000-0000-000000000000",
   "expiresInSeconds": 300
 }
 ```
@@ -136,8 +137,14 @@ Content-Type: application/json
 uncertain, the caller retries the same intent and parameters; Dashboard returns
 the original session and its current queued, dispatched, or terminal lifecycle
 without creating or enqueueing another session. An elapsed queued or dispatched
-session is atomically projected to `Expired` before it is returned. Reusing an
-intent with different actor, node, mode, profile, or lifetime is a conflict.
+session is atomically projected to `Expired` before it is returned. The optional
+`incidentId` must resolve through the tenant-scoped incident store before
+creation. Dashboard retains that bounded correlation on the session and returns it
+from recent and exact reads; navigation URLs do not establish correlation. An
+authorized retry reconciles the tenant-bound persisted intent before applying
+live-incident checks required for new sessions, so incident-history compaction does
+not break exact retry. Reusing an intent with different actor, node, mode, profile,
+incident, or lifetime is a conflict without probing the changed incident.
 For compatibility with support clients released before request intents were
 introduced, an omitted or empty `intentId` receives a new server-generated
 identity. Those legacy requests retain create-session behavior but cannot
@@ -149,12 +156,13 @@ returns HTTP 503 while the queued local session remains reconcilable. Modeled
 create and query outcomes use stable 4xx/503 responses rather than generic 500s.
 
 The browser stores only the pending intent UUID, tenant-bound normalized request
-parameters, and a 15-minute expiry in same-tab session storage. This permits
-reload and leave/return reconciliation without storing credentials, request
-envelopes, results, or private host evidence. Success and definitive domain
-responses clear the entry; transport and 5xx uncertainty retain it. Malformed,
-expired, cross-tenant, changed-request, and unavailable-storage cases fail
-closed to a new bounded intent.
+parameters, and a 15-minute expiry in same-tab session storage. Incident-correlated
+and explicitly unscoped requests use distinct entries, so leave/return preserves an
+uncertain request without permitting another incident context to reconcile it. This
+does not store credentials, request envelopes, results, or private host evidence.
+Success and definitive domain responses clear the exact entry; transport and 5xx
+uncertainty retain it. Malformed, expired, cross-tenant, changed-request, and
+unavailable-storage cases fail closed to a new bounded intent.
 
 Diagnostic credentials scoped to connector node IDs cannot authorize support
 plane creation, recent-session listing, or exact session reads. Connector and

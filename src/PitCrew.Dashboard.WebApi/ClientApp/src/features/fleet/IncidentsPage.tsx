@@ -100,6 +100,8 @@ export default function IncidentsPage() {
   const query = searchParams.get('q')?.trim().toLocaleLowerCase() ?? '';
   const sourceFilter = apiFilterForView(view);
   const requestedIncidentId = searchParams.get('incident') || null;
+  const scopedNodeId = searchParams.get('nodeId') || null;
+  const scopedProfileId = searchParams.get('profileId') || null;
   const continuationQuery = `${tenantId}|${sourceFilter}|${view}|${severity}|${query}|${sort}`;
 
   const setParameter = useCallback(
@@ -193,6 +195,7 @@ export default function IncidentsPage() {
     [currentEnrichment.nodes],
   );
   const currentPage = loadedFilter === sourceFilter ? page : null;
+  const hasRouteScope = scopedNodeId !== null;
   const counts = useMemo(() => {
     const incidents = currentPage?.incidents ?? [];
     return {
@@ -202,14 +205,30 @@ export default function IncidentsPage() {
         .length,
     };
   }, [currentPage]);
-  const visibleIncidents = useMemo(() => {
+  const scopedIncidents = useMemo(() => {
     const incidents = currentPage?.incidents ?? [];
     return incidents
+      .filter((incident) => scopedNodeId == null || incident.nodeId === scopedNodeId)
+      .filter(
+        (incident) =>
+          scopedProfileId == null ||
+          incident.profileId == null ||
+          incident.profileId === scopedProfileId,
+      );
+  }, [currentPage, scopedNodeId, scopedProfileId]);
+  const visibleIncidents = useMemo(() => {
+    return scopedIncidents
       .filter((incident) => view !== 'attention' || incident.operatorState === 'unowned')
       .filter((incident) => severity === 'all' || incident.currentSeverity === severity)
       .filter((incident) => matchesIncidentSearch(incident, nodesById.get(incident.nodeId), query))
       .sort((left, right) => compareIncidents(left, right, sort));
-  }, [currentPage, nodesById, query, severity, sort, view]);
+  }, [nodesById, query, scopedIncidents, severity, sort, view]);
+  const scopedCritical = scopedIncidents.filter(
+    (incident) => incident.currentSeverity === 'critical',
+  ).length;
+  const scopedWarning = scopedIncidents.filter(
+    (incident) => incident.currentSeverity === 'warning',
+  ).length;
   const visibleCritical = visibleIncidents.filter(
     (incident) => incident.currentSeverity === 'critical',
   ).length;
@@ -441,7 +460,7 @@ export default function IncidentsPage() {
                   : 'Loading'
                 : view === 'resolved' || view === 'history'
                   ? 'Historical view'
-                  : (currentPage.criticalCount ?? 0) > 0
+                  : (hasRouteScope ? scopedCritical : (currentPage.criticalCount ?? 0)) > 0
                     ? 'Critical attention'
                     : visibleTriggered.length > 0
                       ? 'Needs attention'
@@ -458,7 +477,7 @@ export default function IncidentsPage() {
                   : 'neutral'
                 : view === 'resolved' || view === 'history'
                   ? 'neutral'
-                  : (currentPage.criticalCount ?? 0) > 0
+                  : (hasRouteScope ? scopedCritical : (currentPage.criticalCount ?? 0)) > 0
                     ? 'critical'
                     : visibleTriggered.length > 0 || visibleIncidents.length > 0
                       ? 'caution'
@@ -481,21 +500,28 @@ export default function IncidentsPage() {
           {
             label: 'Queue results',
             value: currentPage
-              ? (counts.total ?? 'Unavailable')
+              ? hasRouteScope
+                ? scopedIncidents.length
+                : (counts.total ?? 'Unavailable')
               : error
                 ? 'Unavailable'
                 : 'Loading…',
-            detail: `${counts.loaded} loaded · ${viewLabels[view]}`,
+            detail: hasRouteScope
+              ? `${scopedIncidents.length} scoped incident${scopedIncidents.length === 1 ? '' : 's'} loaded · ${counts.loaded} records loaded from bounded global response`
+              : `${counts.loaded} loaded · ${viewLabels[view]}`,
           },
           {
             label: 'Critical in view',
             value: currentPage
-              ? (currentPage.criticalCount ?? 'Unavailable')
+              ? hasRouteScope
+                ? scopedCritical
+                : (currentPage.criticalCount ?? 'Unavailable')
               : error
                 ? 'Unavailable'
                 : 'Loading…',
-            detail:
-              currentPage?.warningCount == null
+            detail: hasRouteScope
+              ? `${scopedWarning} scoped warning${scopedWarning === 1 ? '' : 's'} loaded; global totals do not describe this scope`
+              : currentPage?.warningCount == null
                 ? 'Authoritative severity totals unavailable'
                 : `${currentPage.warningCount} warning across all pages`,
           },
@@ -518,16 +544,44 @@ export default function IncidentsPage() {
           resultSummary={
             !currentPage
               ? `Loading ${viewLabels[view].toLocaleLowerCase()} incidents…`
-              : view === 'attention'
-                ? `${visibleIncidents.length} need attention · ${visibleCritical} critical · ${visibleWarning} warning${counts.acknowledged > 0 ? ` · ${counts.acknowledged} acknowledged hidden` : ''}`
-                : counts.total == null
-                  ? `${visibleIncidents.length} filtered · ${counts.loaded} loaded`
-                  : `${visibleIncidents.length} filtered · ${counts.loaded} of ${counts.total} loaded`
+              : hasRouteScope
+                ? `${visibleIncidents.length} filtered · ${scopedIncidents.length} scoped among ${counts.loaded} loaded globally`
+                : view === 'attention'
+                  ? `${visibleIncidents.length} need attention · ${visibleCritical} critical · ${visibleWarning} warning${counts.acknowledged > 0 ? ` · ${counts.acknowledged} acknowledged hidden` : ''}`
+                  : counts.total == null
+                    ? `${visibleIncidents.length} filtered · ${counts.loaded} loaded`
+                    : `${visibleIncidents.length} filtered · ${counts.loaded} of ${counts.total} loaded`
           }
           onParameterChange={setParameter}
           onReset={resetView}
           onRefresh={() => void load()}
         />
+      ) : null}
+
+      {scopedNodeId ? (
+        <StateBanner tone="caution" role="status">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="[overflow-wrap:anywhere]">
+              Scoped to node {scopedNodeId}
+              {scopedProfileId ? ` · profile ${scopedProfileId}` : ''}. Route scope filters this
+              queue only and grants no diagnostic or operational authority.
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const next = new URLSearchParams(searchParams);
+                next.delete('nodeId');
+                next.delete('profileId');
+                next.delete('incident');
+                setSearchParams(next, { replace: true });
+              }}
+            >
+              Show all incidents
+            </Button>
+          </div>
+        </StateBanner>
       ) : null}
 
       {error ? (
@@ -548,9 +602,11 @@ export default function IncidentsPage() {
         <StateBanner tone="caution" role="status">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span>
-              {counts.total == null
-                ? `Showing ${counts.loaded} attention-ranked incidents from a bounded server response; authoritative total unavailable.`
-                : `Showing ${counts.loaded} of ${counts.total} authoritative matching incidents in attention-ranked order. More matching incidents remain beyond this bounded page.`}
+              {hasRouteScope
+                ? `Showing ${scopedIncidents.length} scoped incident${scopedIncidents.length === 1 ? '' : 's'} found within ${counts.loaded} records loaded from a bounded global response. The global total${counts.total == null ? ' is unavailable' : ` is ${counts.total} across all scopes`}; more scoped incidents may remain beyond this page.`
+                : counts.total == null
+                  ? `Showing ${counts.loaded} attention-ranked incidents from a bounded server response; authoritative total unavailable.`
+                  : `Showing ${counts.loaded} of ${counts.total} authoritative matching incidents in attention-ranked order. More matching incidents remain beyond this bounded page.`}
             </span>
             {currentPage.nextCursor ? (
               <Button

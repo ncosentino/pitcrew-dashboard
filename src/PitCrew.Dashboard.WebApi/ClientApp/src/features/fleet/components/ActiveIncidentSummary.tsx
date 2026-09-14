@@ -11,6 +11,8 @@ interface ActiveIncidentSummaryProps {
   readonly totalCount?: number;
   readonly criticalCount?: number;
   readonly truncated?: boolean;
+  readonly nodeId?: string;
+  readonly profileId?: string;
 }
 
 /** Renders compact active-incident severity above fleet inventory using shared primitives. */
@@ -21,6 +23,8 @@ export function ActiveIncidentSummary({
   totalCount,
   criticalCount,
   truncated,
+  nodeId,
+  profileId,
 }: ActiveIncidentSummaryProps) {
   const sliceIsComplete = truncated === false;
   const totalIsAuthoritative = totalCount != null;
@@ -79,10 +83,17 @@ export function ActiveIncidentSummary({
       <Link
         aria-label={`Review ${incidentLabel}`}
         className="text-sm font-semibold underline-offset-4 hover:underline"
-        to={`/tenants/${encodeURIComponent(tenantId)}/incidents`}
+        to={incidentQueueHref(tenantId, nodeId, profileId)}
       >
         View incidents
       </Link>
     </StateBanner>
   );
+}
+
+function incidentQueueHref(tenantId: string, nodeId?: string, profileId?: string): string {
+  const query = new URLSearchParams({ view: 'active' });
+  if (nodeId) query.set('nodeId', nodeId);
+  if (profileId) query.set('profileId', profileId);
+  return `/tenants/${encodeURIComponent(tenantId)}/incidents?${query.toString()}`;
 }

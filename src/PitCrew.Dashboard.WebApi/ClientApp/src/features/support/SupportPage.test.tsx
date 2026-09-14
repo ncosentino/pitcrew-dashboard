@@ -16,7 +16,7 @@ import SupportPage, {
   SupportSessionCard,
   writePendingSupportIntent,
 } from './SupportPage';
-import { type SupportSession } from './supportApi';
+import { supportIntentParameters, type SupportSession } from './supportApi';
 
 const activeIdentity = {
   nodeId: '11111111-1111-4111-8111-111111111111',
@@ -73,6 +73,7 @@ function supportSession(
 ): SupportSession {
   return {
     sessionId,
+    incidentId: null,
     nodeId: activeIdentity.nodeId,
     diagnosticMode: 'ConnectorOffline',
     profileId: null,
@@ -118,6 +119,7 @@ function renderSupportPage(initialPath = '/tenants/local/support') {
 
 describe('support intent persistence', () => {
   afterEach(() => {
+    sessionStorage.clear();
     vi.restoreAllMocks();
   });
 
@@ -145,8 +147,10 @@ describe('support intent persistence', () => {
     writePendingSupportIntent('tenant-b', 'parameters-a', secondIntentId, 1_000);
     expect(readPendingSupportIntent('tenant-a', 'parameters-b', 1_001)).toBeNull();
     expect(readPendingSupportIntent('tenant-b', 'parameters-a', 1_001)?.id).toBe(secondIntentId);
-    const key = sessionStorage.key(0);
-    if (key === null) throw new Error('Expected a stored support intent.');
+    const key = Array.from({ length: sessionStorage.length }, (_, index) =>
+      sessionStorage.key(index),
+    ).find((candidate) => candidate && sessionStorage.getItem(candidate)?.includes(secondIntentId));
+    if (!key) throw new Error('Expected a stored support intent.');
     sessionStorage.setItem(key, '{malformed');
     expect(readPendingSupportIntent('tenant-b', 'parameters-a', 1_001)).toBeNull();
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
@@ -162,6 +166,37 @@ describe('support intent persistence', () => {
     clearPendingSupportIntent('tenant-a', first);
 
     expect(readPendingSupportIntent('tenant-a', 'parameters-b', 1_002)?.id).toBe(secondIntentId);
+  });
+
+  it('binds recovery to the incident identity or explicit unscoped state', () => {
+    const incidentA = '77777777-7777-4777-8777-777777777777';
+    const incidentB = '88888888-8888-4888-8888-888888888888';
+    const scopedA = supportIntentParameters(
+      activeIdentity.nodeId,
+      'CapacityMismatch',
+      'default',
+      incidentA,
+    );
+    const scopedB = supportIntentParameters(
+      activeIdentity.nodeId,
+      'CapacityMismatch',
+      'default',
+      incidentB,
+    );
+    const unscoped = supportIntentParameters(
+      activeIdentity.nodeId,
+      'CapacityMismatch',
+      'default',
+      null,
+    );
+    const intent = writePendingSupportIntent('tenant-a', scopedA, firstIntentId, 1_000);
+
+    expect(readPendingSupportIntent('tenant-a', scopedB, 1_001)).toBeNull();
+    expect(readPendingSupportIntent('tenant-a', unscoped, 1_001)).toBeNull();
+    expect(readPendingSupportIntent('tenant-a', scopedA, 1_002)?.id).toBe(intent.id);
+    const unscopedIntent = writePendingSupportIntent('tenant-a', unscoped, secondIntentId, 1_003);
+    expect(readPendingSupportIntent('tenant-a', scopedA, 1_004)?.id).toBe(intent.id);
+    expect(readPendingSupportIntent('tenant-a', unscoped, 1_004)?.id).toBe(unscopedIntent.id);
   });
 });
 
@@ -253,6 +288,7 @@ describe('SupportIdentityInventory', () => {
 describe('SupportPage', () => {
   afterEach(() => {
     cleanup();
+    sessionStorage.clear();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -314,6 +350,73 @@ describe('SupportPage', () => {
     expect(mode).toHaveValue('HostPressure');
     expect(screen.getByTestId('support-run-preselected-mode')).toBeVisible();
     expect(screen.getByRole('textbox', { name: /Profile ID/ })).toHaveValue('copilot-cli');
+  });
+
+  it('preserves exact incident context through request and verified return', async () => {
+    const incidentId = '77777777-7777-4777-8777-777777777777';
+    const returnTo = `/tenants/local/incidents?view=active&incident=${incidentId}`;
+    const created = { ...supportSession('Completed', completedResult), incidentId };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (
+        url.endsWith('/support/v1/sessions') &&
+        (init?.method === 'POST' || (input instanceof Request && input.method === 'POST'))
+      ) {
+        return jsonResponse(created, 202);
+      }
+      if (url.endsWith(`/support/v1/sessions/${created.sessionId}`)) {
+        return jsonResponse(created);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const user = userEvent.setup();
+    renderSupportPage(
+      `/tenants/local/support/run?mode=CapacityMismatch&profileId=default&incidentId=${incidentId}&returnTo=${encodeURIComponent(returnTo)}`,
+    );
+
+    expect(await screen.findByText(/Selected incident context is preserved/i)).toBeVisible();
+    await screen.findByRole('option', { name: 'Active node' });
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Support node' }),
+      activeIdentity.nodeId,
+    );
+    await user.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+
+    const returnLink = await screen.findByRole('link', { name: 'Return to incident' });
+    expect(screen.getByRole('link', { name: /Overview/ }).getAttribute('href')).toContain(
+      `incidentId=${incidentId}`,
+    );
+    expect(returnLink).toHaveAttribute('href', returnTo);
+  });
+
+  it('does not attach URL incident context to a completed session correlated to another incident', async () => {
+    const routeIncidentId = '77777777-7777-4777-8777-777777777777';
+    const storedIncidentId = '88888888-8888-4888-8888-888888888888';
+    const completed = {
+      ...supportSession('Completed', completedResult),
+      incidentId: storedIncidentId,
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith(`/support/v1/sessions/${completed.sessionId}`)) {
+        return jsonResponse(completed);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const returnTo = `/tenants/local/incidents?view=active&incident=${routeIncidentId}`;
+
+    renderSupportPage(
+      `/tenants/local/support/sessions/${completed.sessionId}?incidentId=${routeIncidentId}&returnTo=${encodeURIComponent(returnTo)}`,
+    );
+
+    expect(await screen.findByText('Verified evidence')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Return to incident' })).not.toBeInTheDocument();
   });
 
   it('ignores an unsupported requested diagnostic mode without preselection copy', async () => {
@@ -854,11 +957,12 @@ describe('SupportPage', () => {
   });
 
   it('orders active sessions before history and restores a deep-linked detail', async () => {
-    const completed = supportSession(
-      'Completed',
-      completedResult,
-      '55555555-5555-4555-8555-555555555555',
-    );
+    const incidentId = '66666666-6666-4666-8666-666666666666';
+    const returnTo = `/tenants/local/incidents?view=active&incident=${incidentId}`;
+    const completed = {
+      ...supportSession('Completed', completedResult, '55555555-5555-4555-8555-555555555555'),
+      incidentId,
+    };
     const queued = supportSession('Queued');
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
@@ -868,7 +972,9 @@ describe('SupportPage', () => {
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
 
-    renderSupportPage(`/tenants/local/support/sessions/${completed.sessionId}`);
+    renderSupportPage(
+      `/tenants/local/support/sessions/${completed.sessionId}?incidentId=${incidentId}&returnTo=${encodeURIComponent(returnTo)}`,
+    );
 
     const sessionList = (await screen.findAllByRole('list', { name: 'Support sessions' }))[0];
     const rows = within(sessionList).getAllByRole('listitem');
@@ -876,7 +982,11 @@ describe('SupportPage', () => {
     expect(within(rows[1]).getByText('Completed', { selector: 'span' })).toBeVisible();
     expect(within(sessionList).getByRole('link', { name: 'Selected' })).toHaveAttribute(
       'href',
-      `/tenants/local/support/sessions/${completed.sessionId}`,
+      `/tenants/local/support/sessions/${completed.sessionId}?incidentId=${incidentId}&returnTo=${encodeURIComponent(returnTo)}`,
+    );
+    expect(within(sessionList).getByRole('link', { name: 'View details' })).toHaveAttribute(
+      'href',
+      `/tenants/local/support/sessions/${queued.sessionId}`,
     );
     expect(screen.getByRole('region', { name: 'Connector offline' })).toHaveTextContent(
       'Verified evidence',
@@ -1032,11 +1142,27 @@ describe('SupportSessionCard', () => {
   );
 
   it('renders bounded dispatch and rejection evidence', () => {
-    render(<SupportSessionCard session={supportSession('Rejected')} />);
+    render(
+      <MemoryRouter>
+        <SupportSessionCard
+          session={supportSession('Rejected')}
+          supportBasePath="/tenants/local/support"
+        />
+      </MemoryRouter>,
+    );
 
-    expect(screen.getByText(/First dispatched/)).toBeVisible();
+    expect(screen.getByText('First dispatched', { selector: 'dt' })).toBeVisible();
     expect(screen.getByText('broker-evidence-access-denied', { selector: 'code' })).toBeVisible();
     expect(screen.getByText('The broker cannot read the approved evidence set.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Correct and retry request' })).toHaveAttribute(
+      'href',
+      '/tenants/local/support/run?mode=ConnectorOffline',
+    );
+    expect(screen.getByRole('link', { name: 'Review support setup' })).toHaveAttribute(
+      'href',
+      '/tenants/local/support/nodes',
+    );
+    expect(screen.getByText('Credential-free escalation summary')).toBeVisible();
   });
 
   it('uses the omitted-profile corpus to explain ambiguous local selection', () => {

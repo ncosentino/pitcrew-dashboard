@@ -222,11 +222,77 @@ describe('IncidentsPage', () => {
 
     expect(request).toHaveAttribute(
       'href',
-      '/tenants/local/support/run?mode=CapacityMismatch&profileId=default',
+      `/tenants/local/support/run?mode=CapacityMismatch&profileId=default&incidentId=${incidentId}&returnTo=%2Ftenants%2Flocal%2Fincidents%3Fview%3Dactive%26incident%3D${incidentId}`,
     );
     expect(
       screen.getByText(/enrolled separately from connector node identity/i),
     ).toBeInTheDocument();
+  });
+
+  it('keeps node and profile route scope while showing the matching actionable queue', async () => {
+    const otherNodeIncident = {
+      ...incident(),
+      incidentId: '88888888-8888-4888-8888-888888888888',
+      nodeId: '99999999-9999-4999-8999-999999999999',
+      profileId: 'other',
+      title: 'Other node incident',
+    };
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          ...page(),
+          incidents: [otherNodeIncident, incident()],
+          totalCount: 2,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    }, `/tenants/local/incidents?view=active&nodeId=${nodeId}&profileId=default`);
+
+    expect(await screen.findByText(/Scoped to node .* profile default/i)).toBeInTheDocument();
+    expect(await screen.findByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(`incident-row-${otherNodeIncident.incidentId}`),
+    ).not.toBeInTheDocument();
+  });
+
+  it('qualifies scoped loaded counts against a truncated mixed-scope global response', async () => {
+    const otherNodeIncident = {
+      ...incident(),
+      incidentId: '88888888-8888-4888-8888-888888888888',
+      nodeId: '99999999-9999-4999-8999-999999999999',
+      profileId: 'other',
+      title: 'Other node incident',
+    };
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          ...page(),
+          incidents: [incident(), otherNodeIncident],
+          truncated: true,
+          totalCount: 25,
+          criticalCount: 14,
+          warningCount: 11,
+          nextCursor: 'next-page',
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    }, `/tenants/local/incidents?view=active&nodeId=${nodeId}&profileId=default`);
+
+    expect(await screen.findByText(/1 scoped incident loaded/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 records loaded from a bounded global response/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/25 authoritative matching incidents/i)).not.toBeInTheDocument();
   });
 
   it('labels legacy resolutions without inventing clearing provenance', async () => {

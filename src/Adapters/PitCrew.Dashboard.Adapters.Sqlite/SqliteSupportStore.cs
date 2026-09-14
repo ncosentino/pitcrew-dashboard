@@ -940,6 +940,7 @@ internal sealed class SqliteSupportStore(
             session_id,
             request_intent_id,
             tenant_id,
+            incident_id,
             node_id,
             diagnostic_mode,
             profile_id,
@@ -956,6 +957,7 @@ internal sealed class SqliteSupportStore(
             $sessionId,
             $intentId,
             $tenantId,
+            $incidentId,
             $nodeId,
             $diagnosticMode,
             $profileId,
@@ -1269,7 +1271,8 @@ internal sealed class SqliteSupportStore(
           s.markdown,
           s.attestation_json,
           s.result_received_at,
-          s.result_verified_at
+          s.result_verified_at,
+          s.incident_id
       FROM support_sessions AS s
       """;
 
@@ -1462,6 +1465,11 @@ internal sealed class SqliteSupportStore(
   {
     command.Parameters.AddWithValue("$sessionId", session.SessionId.ToString("D"));
     command.Parameters.AddWithValue("$tenantId", session.TenantId);
+    command.Parameters.AddWithValue(
+        "$incidentId",
+        session.IncidentId is Guid incidentId
+            ? incidentId.ToString("D")
+            : DBNull.Value);
     command.Parameters.AddWithValue("$nodeId", session.NodeId.ToString("D"));
     command.Parameters.AddWithValue("$diagnosticMode", session.DiagnosticMode);
     command.Parameters.AddWithValue("$profileId", (object?)session.ProfileId ?? DBNull.Value);
@@ -1571,6 +1579,9 @@ internal sealed class SqliteSupportStore(
     {
       ResultReceivedAt = ReadNullableDate(reader, 21),
       ResultVerifiedAt = ReadNullableDate(reader, 22),
+      IncidentId = reader.IsDBNull(23)
+          ? null
+          : Guid.Parse(reader.GetString(23), CultureInfo.InvariantCulture),
     };
   }
 

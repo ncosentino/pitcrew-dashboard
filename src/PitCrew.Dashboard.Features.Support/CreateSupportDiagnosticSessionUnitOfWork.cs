@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 
 using Microsoft.Extensions.Options;
 
+using PitCrew.Dashboard.Features.Fleet.Abstractions;
 using PitCrew.Dashboard.Features.Support.Abstractions;
 using PitCrew.Protocol;
 using PitCrew.Support.Protocol;
@@ -12,6 +13,7 @@ namespace PitCrew.Dashboard.Features.Support;
 internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
     SupportPrincipalAuthorizer _authorizer,
     ISupportStore _supportStore,
+    IAlertIncidentStore _incidentStore,
     SupportSecretService _secretService,
     DashboardSupportKeyService _keyService,
     SupportRelayManagementClient _relayClient,
@@ -38,18 +40,6 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
     {
       return new SupportSessionMutation(SupportMutationStatus.Forbidden, null, null);
     }
-    var identity = await _supportStore.GetIdentityOrNullAsync(
-        tenantId,
-        input.NodeId,
-        cancellationToken);
-    if (identity is null)
-    {
-      return new SupportSessionMutation(SupportMutationStatus.NotFound, null, null);
-    }
-    if (identity.RevokedAt is not null)
-    {
-      return new SupportSessionMutation(SupportMutationStatus.Revoked, null, null);
-    }
 
     var now = _timeProvider.GetUtcNow();
     var seconds = Math.Min(input.ExpiresInSeconds, _options.Value.MaximumSessionLifetimeSeconds);
@@ -67,6 +57,41 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
           now,
           cancellationToken);
     }
+
+    var identity = await _supportStore.GetIdentityOrNullAsync(
+        tenantId,
+        input.NodeId,
+        cancellationToken);
+    if (identity is null)
+    {
+      return new SupportSessionMutation(SupportMutationStatus.NotFound, null, null);
+    }
+    if (identity.RevokedAt is not null)
+    {
+      return new SupportSessionMutation(SupportMutationStatus.Revoked, null, null);
+    }
+    if (input.IncidentId is Guid incidentId)
+    {
+      var incident = await _incidentStore.GetByIdAsync(
+          tenantId,
+          incidentId,
+          cancellationToken);
+      if (incident is null)
+      {
+        return new SupportSessionMutation(SupportMutationStatus.NotFound, null, null);
+      }
+      if (!string.Equals(
+          incident.ProfileId,
+          input.ProfileId,
+          StringComparison.Ordinal))
+      {
+        return new SupportSessionMutation(
+            SupportMutationStatus.Invalid,
+            "Incident correlation does not match the requested profile.",
+            null);
+      }
+    }
+
     var sessionId = Guid.NewGuid();
     var request = new SupportDiagnosticRequest(
         "support-plane-v1",
@@ -117,7 +142,10 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         null,
         null,
         null,
-        null);
+        null)
+    {
+      IncidentId = input.IncidentId,
+    };
     var status = await _supportStore.CreateSessionAsync(
         session,
         input.IntentId,
@@ -236,6 +264,10 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
     {
       return "A support node identifier is required.";
     }
+    if (input.IncidentId == Guid.Empty)
+    {
+      return "Incident ID must be omitted or a non-empty identifier.";
+    }
     if (!SupportDiagnosticModes.IsSupported(input.DiagnosticMode))
     {
       return "Diagnostic mode must be one of the support-plane v1 closed modes.";
@@ -269,6 +301,7 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
           session.ProfileId,
           input.ProfileId,
           StringComparison.Ordinal) &&
+      session.IncidentId == input.IncidentId &&
       session.ExpiresAt - session.RequestedAt ==
           TimeSpan.FromSeconds(lifetimeSeconds);
 }

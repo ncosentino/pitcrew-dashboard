@@ -144,6 +144,7 @@ test('long incident and node evidence remains contained at the narrow viewport',
     evidence: 'e'.repeat(512),
     profileId: 'p'.repeat(128),
   });
+
   const longNode = buildFleetNode({
     nodeId: nodeIds.alpha,
     displayName: longNodeName,
@@ -166,6 +167,31 @@ test('long incident and node evidence remains contained at the narrow viewport',
   await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'long-content-narrow');
+});
+
+test('exactly retrieves an older critical incident beyond the visible queue', async ({ page }) => {
+  const visible = buildIncident({ title: 'Visible warning', severity: 'warning' });
+  const olderCritical = buildIncident({
+    incidentId: 'f8000000-0000-4000-8000-000000000001',
+    title: 'Older retained critical incident',
+    triggeredAt: '2026-08-01T10:00:00+00:00',
+  });
+  const scenario = {
+    ...baseScenario(),
+    incidents: buildIncidentPage([visible], true),
+    incidentDetails: [olderCritical],
+  };
+
+  await setUpPage(page, scenario, 'light');
+  await page.goto(`${incidentsPath}?view=active&incident=${olderCritical.incidentId}`);
+
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Older retained critical incident' }),
+  ).toBeVisible();
+  await expect(page.getByText(/outside the current queue filters/i)).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Operational incident queue' })).toContainText(
+    'Visible warning',
+  );
 });
 
 test('mobile incident selection collapses the queue and focuses the case file', async ({
