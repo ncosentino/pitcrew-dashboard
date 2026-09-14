@@ -4484,5 +4484,253 @@ internal static class SqliteMigrationCatalog
                       tenant_id,
                       request_intent_id);
               """),
+        new(
+              34,
+              "actionable-incident-projection",
+              """
+              ALTER TABLE alert_incidents
+                  ADD COLUMN rule_family TEXT NOT NULL DEFAULT 'legacy-v1';
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN rule_interpretation_version INTEGER NOT NULL DEFAULT 1
+                      CHECK (rule_interpretation_version >= 1);
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN grouping_policy_version INTEGER NOT NULL DEFAULT 1
+                      CHECK (grouping_policy_version >= 1);
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN incident_family TEXT NOT NULL DEFAULT 'legacy-v1';
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN canonical_target_scope TEXT NOT NULL DEFAULT '';
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN investigation_class TEXT NOT NULL DEFAULT 'legacy-v1-singleton';
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN evidence_dependency TEXT NOT NULL DEFAULT 'legacy-v1';
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN grouping_reasons TEXT NOT NULL DEFAULT '';
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN recovery_started_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN recovery_sample_count INTEGER NOT NULL DEFAULT 0
+                      CHECK (recovery_sample_count >= 0);
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN recovery_source_observed_at TEXT NULL;
+
+              ALTER TABLE alert_incidents
+                  ADD COLUMN recovery_dashboard_received_at TEXT NULL;
+
+              UPDATE alert_incidents
+              SET canonical_target_scope = 'condition:' || alert_key,
+                  grouping_reasons = 'same-stable-condition'
+              WHERE canonical_target_scope = '';
+
+              CREATE TABLE actionable_incident_projection_versions (
+                  tenant_id TEXT PRIMARY KEY,
+                  projection_version INTEGER NOT NULL DEFAULT 0
+                      CHECK (projection_version >= 0),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE
+              );
+
+              CREATE TABLE actionable_incident_series (
+                  series_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  canonical_key TEXT NOT NULL,
+                  grouping_policy_version INTEGER NOT NULL,
+                  incident_family TEXT NOT NULL,
+                  canonical_target_scope TEXT NOT NULL,
+                  investigation_class TEXT NOT NULL,
+                  evidence_dependency TEXT NOT NULL,
+                  last_episode_ordinal INTEGER NOT NULL DEFAULT 0
+                      CHECK (last_episode_ordinal >= 0),
+                  created_at TEXT NOT NULL,
+                  UNIQUE (tenant_id, canonical_key),
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE
+              );
+
+              CREATE TABLE actionable_incident_episodes (
+                  episode_id TEXT PRIMARY KEY,
+                  series_id TEXT NOT NULL,
+                  tenant_id TEXT NOT NULL,
+                  episode_ordinal INTEGER NOT NULL CHECK (episode_ordinal >= 0),
+                  status TEXT NOT NULL CHECK (status IN (
+                      'active',
+                      'waiting-for-evidence',
+                      'recovering',
+                      'monitoring-ended',
+                      'resolved',
+                      'legacy-resolution-unverified')),
+                  node_id TEXT NOT NULL,
+                  profile_id TEXT NULL,
+                  kind TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  summary TEXT NOT NULL,
+                  reason TEXT NOT NULL,
+                  evidence TEXT NULL,
+                  link TEXT NOT NULL,
+                  first_observed_at TEXT NOT NULL,
+                  triggered_at TEXT NOT NULL,
+                  last_observed_at TEXT NOT NULL,
+                  resolved_at TEXT NULL,
+                  current_severity TEXT NULL,
+                  last_confirmed_severity TEXT NOT NULL,
+                  peak_severity TEXT NOT NULL,
+                  operator_state TEXT NOT NULL CHECK (
+                      operator_state IN ('unowned', 'acknowledged')),
+                  acknowledged_at TEXT NULL,
+                  acknowledged_by_github_user_id TEXT NULL,
+                  acknowledged_revision INTEGER NULL,
+                  acknowledged_covered_severity TEXT NULL CHECK (
+                      acknowledged_covered_severity IS NULL OR
+                      acknowledged_covered_severity IN (
+                          'warning',
+                          'critical')),
+                  incident_revision INTEGER NOT NULL DEFAULT 1,
+                  previous_episode_id TEXT NULL,
+                  previous_history_state TEXT NULL CHECK (
+                      previous_history_state IS NULL OR
+                      previous_history_state IN (
+                          'history-expired',
+                          'legacy-resolution-history-expired')),
+                  transition TEXT NULL,
+                  grouping_reasons TEXT NOT NULL,
+                  condition_count INTEGER NOT NULL DEFAULT 1,
+                  history_state TEXT NOT NULL DEFAULT 'retained' CHECK (
+                      history_state IN ('retained', 'history-pruned')),
+                  resolution_provenance TEXT NOT NULL DEFAULT
+                      'resolution-provenance-unavailable' CHECK (
+                          resolution_provenance IN (
+                              'resolution-proven',
+                              'legacy-resolution-unverified',
+                              'reopened-after-unverified-legacy-resolution',
+                              'resolution-provenance-unavailable',
+                              'monitoring-ended')),
+                  suppression_reason TEXT NULL,
+                  suppression_expires_at TEXT NULL,
+                  suppression_covered_severity TEXT NULL,
+                  suppression_condition_count INTEGER NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE (series_id, episode_ordinal),
+                  FOREIGN KEY (series_id)
+                      REFERENCES actionable_incident_series(series_id)
+                      ON DELETE CASCADE
+              );
+
+              CREATE UNIQUE INDEX ix_actionable_incident_open_series
+                  ON actionable_incident_episodes (series_id)
+                  WHERE status IN (
+                      'active',
+                      'waiting-for-evidence',
+                      'recovering',
+                      'monitoring-ended');
+
+              CREATE INDEX ix_actionable_incident_tenant_status
+                  ON actionable_incident_episodes (
+                      tenant_id,
+                      status,
+                      updated_at DESC,
+                      episode_id DESC);
+
+              CREATE TABLE actionable_incident_memberships (
+                  episode_id TEXT NOT NULL,
+                  condition_incident_id TEXT NOT NULL UNIQUE,
+                  alert_key TEXT NOT NULL,
+                  rule_family TEXT NOT NULL,
+                  rule_interpretation_version INTEGER NOT NULL,
+                  grouping_policy_version INTEGER NOT NULL,
+                  grouping_reasons TEXT NOT NULL,
+                  membership_started_at TEXT NOT NULL,
+                  membership_ended_at TEXT NULL,
+                  PRIMARY KEY (episode_id, condition_incident_id),
+                  FOREIGN KEY (episode_id)
+                      REFERENCES actionable_incident_episodes(episode_id)
+                      ON DELETE CASCADE
+              );
+
+              CREATE TABLE actionable_incident_expiry_locators (
+                  external_id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  series_id TEXT NOT NULL,
+                  episode_ordinal INTEGER NOT NULL,
+                  expiry_category TEXT NOT NULL CHECK (expiry_category IN (
+                      'history-expired',
+                      'legacy-resolution-history-expired')),
+                  terminal_at TEXT NOT NULL,
+                  compacted_at TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  FOREIGN KEY (tenant_id)
+                      REFERENCES tenants(tenant_id) ON DELETE CASCADE
+              );
+
+              CREATE INDEX ix_actionable_incident_expiry_locator_retention
+                  ON actionable_incident_expiry_locators (
+                      tenant_id,
+                      terminal_at DESC,
+                      compacted_at DESC,
+                      external_id DESC);
+
+              CREATE INDEX ix_actionable_incident_expiry_locator_expiry
+                  ON actionable_incident_expiry_locators (expires_at);
+
+              CREATE TRIGGER trg_actionable_incident_episode_insert_version
+              AFTER INSERT ON actionable_incident_episodes
+              BEGIN
+                  INSERT INTO actionable_incident_projection_versions (
+                      tenant_id,
+                      projection_version)
+                  VALUES (NEW.tenant_id, 1)
+                  ON CONFLICT (tenant_id) DO UPDATE SET
+                      projection_version = projection_version + 1;
+              END;
+
+              CREATE TRIGGER trg_actionable_incident_episode_delete_version
+              AFTER DELETE ON actionable_incident_episodes
+              BEGIN
+                  INSERT INTO actionable_incident_projection_versions (
+                      tenant_id,
+                      projection_version)
+                  VALUES (OLD.tenant_id, 1)
+                  ON CONFLICT (tenant_id) DO UPDATE SET
+                      projection_version = projection_version + 1;
+              END;
+
+              CREATE TRIGGER trg_actionable_incident_episode_update_version
+              AFTER UPDATE OF
+                  status,
+                  operator_state,
+                  current_severity,
+                  suppression_reason,
+                  suppression_expires_at,
+                  resolved_at,
+                  triggered_at,
+                  history_state
+              ON actionable_incident_episodes
+              WHEN OLD.status IS NOT NEW.status
+                OR OLD.operator_state IS NOT NEW.operator_state
+                OR OLD.current_severity IS NOT NEW.current_severity
+                OR OLD.suppression_reason IS NOT NEW.suppression_reason
+                OR OLD.suppression_expires_at IS NOT NEW.suppression_expires_at
+                OR OLD.resolved_at IS NOT NEW.resolved_at
+                OR OLD.triggered_at IS NOT NEW.triggered_at
+                OR OLD.history_state IS NOT NEW.history_state
+              BEGIN
+                  INSERT INTO actionable_incident_projection_versions (
+                      tenant_id,
+                      projection_version)
+                  VALUES (NEW.tenant_id, 1)
+                  ON CONFLICT (tenant_id) DO UPDATE SET
+                      projection_version = projection_version + 1;
+              END;
+              """),
     ];
 }

@@ -960,6 +960,17 @@ public sealed class HostingTests
           .IsEqualTo(incident.IncidentId);
       await Assert.That(triggered.Incidents[0].ResolvedAt)
           .IsNull();
+
+      using var unavailable = await client.GetAsync(
+          $"/api/tenants/{DashboardTestHelpers.TenantId}/fleet/v1/incidents/{Guid.NewGuid():D}",
+          cancellationToken);
+      var unavailableHistory =
+          await unavailable.Content.ReadFromJsonAsync<
+              AlertIncidentHistoryResponse>(cancellationToken);
+      await Assert.That(unavailable.StatusCode)
+          .IsEqualTo(HttpStatusCode.NotFound);
+      await Assert.That(unavailableHistory?.HistoryState)
+          .IsEqualTo("history-unavailable");
     }
     finally
     {

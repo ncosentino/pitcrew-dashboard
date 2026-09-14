@@ -112,7 +112,18 @@ public sealed record AlertIncidentResponse(
     string? CurrentSeverity,
     string LastConfirmedSeverity,
     string PeakSeverity,
-    int Revision);
+    int Revision,
+    Guid SeriesId,
+    int EpisodeOrdinal,
+    int GroupingPolicyVersion,
+    IReadOnlyList<string> GroupingReasons,
+    int ConditionCount,
+    string HistoryState,
+    Guid? PreviousIncidentId,
+    string? PreviousHistoryState,
+    string? Transition,
+    string? SuppressionReason,
+    DateTimeOffset? SuppressedUntil);
 
 /// <summary>
 /// Returns bounded operational incident history for one tenant.
@@ -139,6 +150,13 @@ public sealed record AlertIncidentListResponse(
 public sealed record AlertIncidentDetailResponse(
     DateTimeOffset GeneratedAt,
     AlertIncidentResponse Incident);
+
+/// <summary>
+/// Returns the explicit degradation state of an incident deep link.
+/// </summary>
+public sealed record AlertIncidentHistoryResponse(
+    DateTimeOffset GeneratedAt,
+    string HistoryState);
 
 internal sealed record CreatedEnrollmentCode(
     Guid EnrollmentCodeId,

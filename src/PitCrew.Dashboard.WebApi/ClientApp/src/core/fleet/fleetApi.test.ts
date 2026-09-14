@@ -62,4 +62,32 @@ describe('operationalIncidentSchema legacy compatibility', () => {
     expect(parsed.currentSeverity).toBeNull();
     expect(parsed.lastConfirmedSeverity).toBe('critical');
   });
+
+  it('preserves actionable series, recurrence, grouping, and suppression fields', () => {
+    const parsed = operationalIncidentSchema.parse({
+      ...legacyIncident,
+      status: 'triggered',
+      conditionState: 'recovering',
+      currentSeverity: null,
+      seriesId: '33333333-3333-4333-8333-333333333333',
+      episodeOrdinal: 2,
+      groupingPolicyVersion: 1,
+      groupingReasons: ['same-investigation-class', 'same-authoritative-target'],
+      conditionCount: 3,
+      historyState: 'retained',
+      previousIncidentId: '44444444-4444-4444-8444-444444444444',
+      previousHistoryState: 'history-expired',
+      transition: 'recurrence',
+      suppressionReason: 'maintenance',
+      suppressedUntil: '2026-07-28T02:00:00+00:00',
+    });
+
+    expect(parsed.conditionState).toBe('recovering');
+    expect(parsed.seriesId).toBe('33333333-3333-4333-8333-333333333333');
+    expect(parsed.episodeOrdinal).toBe(2);
+    expect(parsed.conditionCount).toBe(3);
+    expect(parsed.transition).toBe('recurrence');
+    expect(parsed.previousHistoryState).toBe('history-expired');
+    expect(parsed.suppressionReason).toBe('maintenance');
+  });
 });
