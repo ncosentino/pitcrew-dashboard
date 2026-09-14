@@ -299,10 +299,12 @@ export default function FleetOverviewPage() {
   );
   const criticalIncidents = fleet?.activeCriticalIncidentTotal;
   const incidentTotal = fleet?.activeIncidentTotal;
-  const warningIncidents =
-    incidentTotal == null || criticalIncidents == null
-      ? undefined
-      : incidentTotal - criticalIncidents;
+  const warningIncidents = fleet?.activeIncidents.filter(
+    (incident) => incident.currentSeverity === 'warning',
+  ).length;
+  const incidentsAwaitingEvidence = fleet?.activeIncidents.filter(
+    (incident) => incident.currentSeverity == null,
+  ).length;
   const onlineNodes = fleet?.nodes.filter((node) => getNodeStatus(node) === 'online').length ?? 0;
   const attentionNodes =
     fleet?.nodes.filter(
@@ -338,11 +340,11 @@ export default function FleetOverviewPage() {
                 ? error
                   ? 'Status unavailable'
                   : 'Loading'
-                : criticalIncidents == null || warningIncidents == null
+                : criticalIncidents == null || incidentTotal == null
                   ? 'Incident count unavailable'
                   : criticalIncidents > 0
                     ? 'Critical incidents'
-                    : warningIncidents > 0 || attentionNodes > 0
+                    : incidentTotal > 0 || attentionNodes > 0
                       ? 'Needs attention'
                       : 'No reported exception'
             }
@@ -351,11 +353,11 @@ export default function FleetOverviewPage() {
                 ? error
                   ? 'critical'
                   : 'neutral'
-                : criticalIncidents == null || warningIncidents == null
+                : criticalIncidents == null || incidentTotal == null
                   ? 'neutral'
                   : criticalIncidents > 0
                     ? 'critical'
-                    : warningIncidents > 0 || attentionNodes > 0
+                    : incidentTotal > 0 || attentionNodes > 0
                       ? 'caution'
                       : 'positive'
             }
@@ -387,9 +389,11 @@ export default function FleetOverviewPage() {
             label: 'Active incidents',
             value: fleet ? (incidentTotal ?? 'Unavailable') : error ? 'Unavailable' : 'Loading…',
             detail: fleet
-              ? criticalIncidents == null || warningIncidents == null
+              ? criticalIncidents == null || incidentTotal == null
                 ? 'Authoritative incident totals unavailable'
-                : `${criticalIncidents} critical · ${warningIncidents} warning`
+                : fleet.activeIncidentsTruncated === false
+                  ? `${criticalIncidents} critical · ${warningIncidents} warning · ${incidentsAwaitingEvidence} awaiting evidence`
+                  : `${criticalIncidents} critical · remaining severity breakdown unavailable`
               : 'Incident evidence unavailable',
           },
         ]}
@@ -412,6 +416,9 @@ export default function FleetOverviewPage() {
         incidents={activeIncidents}
         tenantId={tenantId}
         testId="fleet-active-incidents"
+        totalCount={fleet?.activeIncidentTotal}
+        criticalCount={fleet?.activeCriticalIncidentTotal}
+        truncated={fleet?.activeIncidentsTruncated}
       />
 
       <details className="rounded-lg border bg-card px-4 py-3">

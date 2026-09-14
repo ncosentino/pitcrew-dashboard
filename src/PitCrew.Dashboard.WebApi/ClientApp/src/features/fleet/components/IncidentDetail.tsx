@@ -48,7 +48,11 @@ export function IncidentDetail({
     ? 'Connector recovery evidence'
     : 'Node connector context';
   const evidenceHeading =
-    incident.conditionState === 'confirmed' ? 'Current evidence' : 'Last confirmed evidence';
+    incident.status === 'resolved'
+      ? 'Retained evidence'
+      : incident.conditionState === 'confirmed'
+        ? 'Current evidence'
+        : 'Last confirmed evidence';
   const nodeValue = node
     ? node.displayName
     : enrichmentStatus === 'loading'
@@ -117,11 +121,12 @@ export function IncidentDetail({
             failed.
           </StateBanner>
         ) : null}
-        {incident.resolutionEvidence === 'legacy-unverified' ? (
+        {incident.conditionState === 'legacy-unverified' ||
+        incident.resolutionEvidence === 'legacy-unverified' ? (
           <StateBanner tone="caution" role="status">
-            This legacy resolution predates clearing-provenance tracking. Its historical resolved
-            status is retained, but the dashboard cannot verify which fresh rule-specific evidence
-            cleared it.
+            This legacy resolution predates clearing-provenance tracking. The retained evidence
+            records why it was raised, but the dashboard cannot verify which fresh rule-specific
+            evidence cleared it.
           </StateBanner>
         ) : null}
         {incident.conditionState === 'waiting-for-evidence' ? (

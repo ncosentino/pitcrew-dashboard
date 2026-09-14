@@ -674,11 +674,18 @@ export function buildIncident(overrides: Partial<OperationalIncident> = {}): Ope
 export function buildFleetResponse(
   nodes: ReadonlyArray<FleetNode>,
   activeIncidents: ReadonlyArray<OperationalIncident> = [],
+  overrides: Partial<FleetResponse> = {},
 ): FleetResponse {
   return fleetResponseSchema.parse({
     generatedAt: '2026-07-19T18:30:05+00:00',
     nodes,
     activeIncidents,
+    activeIncidentTotal: activeIncidents.length,
+    activeCriticalIncidentTotal: activeIncidents.filter(
+      (incident) => incident.currentSeverity === 'critical',
+    ).length,
+    activeIncidentsTruncated: false,
+    ...overrides,
   });
 }
 
@@ -690,6 +697,10 @@ export function buildIncidentPage(
     generatedAt: '2026-07-19T18:30:05+00:00',
     incidents,
     truncated,
+    totalCount: incidents.length + (truncated ? 1 : 0),
+    criticalCount: incidents.filter((incident) => incident.currentSeverity === 'critical').length,
+    warningCount: incidents.filter((incident) => incident.currentSeverity === 'warning').length,
+    nextCursor: truncated ? 'next-attention-page' : null,
   });
 }
 

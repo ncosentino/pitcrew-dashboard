@@ -288,6 +288,7 @@ export function ProfileDetailLayout() {
         incidents={profileIncidents}
         tenantId={tenantId}
         testId={`profile-active-incidents-${profile.profileId}`}
+        truncated={fleet?.activeIncidentsTruncated}
       />
       {!node.isOnline ? (
         <StateBanner className="py-4" data-testid="profile-node-offline" tone="caution">

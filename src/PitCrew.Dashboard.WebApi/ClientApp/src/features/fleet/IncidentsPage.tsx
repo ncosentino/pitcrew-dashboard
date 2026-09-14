@@ -549,8 +549,8 @@ export default function IncidentsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span>
               {counts.total == null
-                ? `Showing ${counts.loaded} server-bounded incidents; authoritative total unavailable.`
-                : `Showing ${counts.loaded} of ${counts.total} authoritative matching incidents.`}
+                ? `Showing ${counts.loaded} attention-ranked incidents from a bounded server response; authoritative total unavailable.`
+                : `Showing ${counts.loaded} of ${counts.total} authoritative matching incidents in attention-ranked order. More matching incidents remain beyond this bounded page.`}
             </span>
             {currentPage.nextCursor ? (
               <Button

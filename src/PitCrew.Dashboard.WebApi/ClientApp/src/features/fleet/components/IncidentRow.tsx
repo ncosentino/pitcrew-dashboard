@@ -41,8 +41,12 @@ export function IncidentRow({
       description={incident.summary}
       status={
         <>
-          <StatusBadge status={incident.currentSeverity ?? incident.conditionState} />
-          <StatusBadge status={incident.status} />
+          {incident.currentSeverity ? <StatusBadge status={incident.currentSeverity} /> : null}
+          <StatusBadge status={incident.conditionState} />
+          {incident.status !== incident.operatorState &&
+          incident.status !== incident.conditionState ? (
+            <StatusBadge status={incident.status} />
+          ) : null}
           <StatusBadge status={incident.operatorState} />
         </>
       }
