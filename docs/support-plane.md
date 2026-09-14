@@ -138,6 +138,12 @@ the original session and its current queued, dispatched, or terminal lifecycle
 without creating or enqueueing another session. An elapsed queued or dispatched
 session is atomically projected to `Expired` before it is returned. Reusing an
 intent with different actor, node, mode, profile, or lifetime is a conflict.
+For compatibility with support clients released before request intents were
+introduced, an omitted or empty `intentId` receives a new server-generated
+identity. Those legacy requests retain create-session behavior but cannot
+reconcile an uncertain response: repeating the same legacy body creates a new
+session. Clients that need exact retry recovery must send and reuse a non-empty
+`intentId`.
 Definite enqueue conflicts return HTTP 409, and unavailable relay management
 returns HTTP 503 while the queued local session remains reconcilable. Modeled
 create and query outcomes use stable 4xx/503 responses rather than generic 500s.

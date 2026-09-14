@@ -139,6 +139,115 @@ public sealed class SupportHostingTests
   }
 
   [Test]
+  public async Task Released_PitCrew_Request_Without_Intent_Creates_Independent_Sessions(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl:
+              "http://support-relay-internal:8080/");
+      var relayHandler = new SupportSessionRelayHandler();
+      await using var factory =
+          new WebApplicationFactory<Program>()
+              .WithWebHostBuilder(
+                  builder => builder.ConfigureServices(
+                      services => services
+                          .AddHttpClient(
+                              SupportRelayManagementHttpClientOptions
+                                  .ClientName)
+                          .ConfigurePrimaryHttpMessageHandler(
+                              () => relayHandler)));
+      using var client = factory.CreateClient();
+      var browserSession =
+          await DashboardTestHelpers.GetSessionAsync(
+              client,
+              cancellationToken);
+      var enrollment =
+          await SupportEnrollmentTestHelper.EnrollAsync(
+              client,
+              browserSession.AntiforgeryToken,
+              SupportKeyFactory.CreateNodeKeys(),
+              cancellationToken);
+      var body = new
+      {
+        nodeId = Guid.Parse(
+            enrollment.NodeId,
+            CultureInfo.InvariantCulture),
+        diagnosticMode =
+            SupportDiagnosticModes.ConnectorOffline,
+        profileId = (string?)null,
+        expiresInSeconds = 300,
+      };
+
+      using var firstResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              body,
+              cancellationToken);
+      using var secondResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              body,
+              cancellationToken);
+      using var explicitEmptyResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              new
+              {
+                intentId = Guid.Empty,
+                body.nodeId,
+                body.diagnosticMode,
+                body.profileId,
+                body.expiresInSeconds,
+              },
+              cancellationToken);
+      var first = await firstResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken);
+      var second = await secondResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken);
+      var explicitEmpty = await explicitEmptyResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken);
+
+      await Assert.That(firstResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(secondResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(explicitEmptyResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(first).IsNotNull();
+      await Assert.That(second).IsNotNull();
+      await Assert.That(explicitEmpty).IsNotNull();
+      await Assert.That(first!.SessionId)
+          .IsNotEqualTo(second!.SessionId);
+      await Assert.That(explicitEmpty!.SessionId)
+          .IsNotEqualTo(first.SessionId);
+      await Assert.That(explicitEmpty.SessionId)
+          .IsNotEqualTo(second.SessionId);
+      await Assert.That(relayHandler.EnqueuedSessionIds)
+          .Count().IsEqualTo(3);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Uncertain_Relay_Acceptance_Retries_The_Same_Support_Intent(
       CancellationToken cancellationToken)
   {
