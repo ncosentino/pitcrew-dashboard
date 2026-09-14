@@ -188,15 +188,15 @@ function Get-RuntimeIdentifier {
 }
 
 function Get-EvidencePolicyPath {
-    $packaged = Join-Path $PSScriptRoot 'support-evidence-policy-v0.10.11.json'
+    $packaged = Join-Path $PSScriptRoot 'support-evidence-policy-v0.10.18.json'
     if (Test-Path -LiteralPath $packaged -PathType Leaf) {
         return $packaged
     }
     $repositoryPolicy = Join-Path (
         Resolve-Path (Join-Path $PSScriptRoot '..')
-    ).Path 'assets' 'support-plane' 'support-evidence-policy-v0.10.11.json'
+    ).Path 'assets' 'support-plane' 'support-evidence-policy-v0.10.18.json'
     if (-not (Test-Path -LiteralPath $repositoryPolicy -PathType Leaf)) {
-        throw 'The product-owned PitCrew v0.10.11 evidence policy is missing.'
+        throw 'The product-owned PitCrew v0.10.18 evidence policy is missing.'
     }
     return $repositoryPolicy
 }
@@ -208,9 +208,9 @@ function Get-EvidencePolicy {
         -Encoding UTF8 |
         ConvertFrom-Json -Depth 10
     if ($policy.schemaVersion -ne 3 -or
-        $policy.pitCrewVersion -ne '0.10.11' -or
+        $policy.pitCrewVersion -ne '0.10.18' -or
         $policy.pitCrewCommit -ne
-            '95a92ca4cec1360d9e4384ac4887d37c6b5e7022' -or
+            '3c6106cb9ab45870897853522e5eb926250a29d6' -or
         $policy.collectorRelativePath -ne
             'plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1' -or
         $policy.collectorSha256 -ne
@@ -231,7 +231,7 @@ function Get-EvidencePolicy {
             'desired-capacity.json,acknowledged-capacity.json,static-profile.json,observed-state.json' -or
         (@($policy.connectorHealthFiles) -join ',') -ne
             'connector-health.json,connector-events.jsonl,connector-health-acknowledgement.json') {
-        throw 'The product-owned PitCrew v0.10.11 evidence policy is invalid.'
+        throw 'The product-owned PitCrew v0.10.18 evidence policy is invalid.'
     }
     return $policy
 }
@@ -712,7 +712,7 @@ function Assert-InstallInputs {
         if (-not (Test-Path `
                 -LiteralPath $sentinelPath `
                 -PathType Leaf)) {
-            throw 'PitCrewRoot does not match the supported v0.10.11 installation contract.'
+            throw 'PitCrewRoot does not match the supported v0.10.18 installation contract.'
         }
         if (Test-LinkedPathComponent -Root $PitCrewRoot -Path $sentinelPath) {
             throw 'Linked PitCrew installation evidence is not supported.'
@@ -729,11 +729,11 @@ function Assert-InstallInputs {
         '/',
         [IO.Path]::DirectorySeparatorChar)
     if (-not (Test-Path -LiteralPath $collector -PathType Leaf)) {
-        throw 'The fixed PitCrew v0.10.11 diagnostics collector is missing.'
+        throw 'The fixed PitCrew v0.10.18 diagnostics collector is missing.'
     }
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
-        throw 'The fixed PitCrew v0.10.11 diagnostics collector hash is invalid.'
+        throw 'The fixed PitCrew v0.10.18 diagnostics collector hash is invalid.'
     }
     if (Test-LinkedPathComponent -Root $PitCrewRoot -Path $collector) {
         throw 'Linked PitCrew installation evidence is not supported.'
@@ -5564,7 +5564,7 @@ function Assert-EvidenceFilesReadable {
         -Operation 'verify-collector-hash'
     $collectorHash = Get-CanonicalTextSha256 -LiteralPath $collector
     if ($collectorHash -cne [string]$policy.collectorSha256) {
-        throw 'The fixed PitCrew v0.10.11 diagnostics collector hash is invalid.'
+        throw 'The fixed PitCrew v0.10.18 diagnostics collector hash is invalid.'
     }
     foreach ($profile in $profiles) {
         $profileRoot = Join-Path $stateRoot $profile

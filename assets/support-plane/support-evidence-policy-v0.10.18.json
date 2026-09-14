@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
-  "pitCrewVersion": "0.10.11",
-  "pitCrewCommit": "95a92ca4cec1360d9e4384ac4887d37c6b5e7022",
+  "pitCrewVersion": "0.10.18",
+  "pitCrewCommit": "3c6106cb9ab45870897853522e5eb926250a29d6",
   "collectorRelativePath": "plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1",
   "collectorSha256": "898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf",
   "collectorHashCanonicalization": "utf8-lf",
