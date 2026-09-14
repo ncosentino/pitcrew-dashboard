@@ -202,9 +202,10 @@ The palette behaves like an instrument panel: navy establishes authority, orange
 
 ### Tertiary
 
-- **Positive** (`colors.positive-soft`, `colors.positive-ink`): healthy, current, connected, running, and resolved evidence.
-- **Caution** (`colors.caution-soft`, `colors.caution-ink`): partial, pending, stale, draining, and acknowledged evidence.
-- **Critical** (`colors.critical-soft`, `colors.critical-ink`, `colors.critical-action`): failed, unavailable, blocked, revoked, and destructive actions.
+- **Positive** (`colors.positive-soft`, `colors.positive-ink`): current, connected, running, accepted, and verified successful evidence.
+- **Caution** (`colors.caution-soft`, `colors.caution-ink`): warnings, partial or stale evidence, active change, operator acknowledgement, degraded state, and recoverable failed requests.
+- **Critical** (`colors.critical-soft`, `colors.critical-ink`, `colors.critical-action`): current confirmed critical incidents, explicit failed operations, and destructive actions.
+- **Neutral** (muted surface and foreground roles): unavailable or unknown evidence, reporting loss, retained or resolved history, monitoring-ended state, revoked lifecycle, and diagnostic transport progress.
 
 ### Neutral
 
@@ -224,6 +225,11 @@ The global canvas may carry only the existing low-opacity teal and orange corner
 **The Brand Is Not Semantics Rule.** Pit Navy, Signal Orange, and Instrument Teal may remain normative for artwork, charts, and large accents; normal text and controls must use role pairings that meet WCAG 2.2 AA.
 
 **The Exception Color Rule.** Emerald, amber, and red are reserved for evidence state and consequence. Always pair color with explicit text.
+
+**The Current Urgency Rule.** Red prominence belongs to a current confirmed critical
+problem or explicit failed operation. Counts, reporting loss, missing evidence,
+acknowledgement, monitoring-ended records, resolved history, and diagnostic transport
+must not inherit critical treatment from a past severity.
 
 ## Typography
 
@@ -322,6 +328,11 @@ Cards group one coherent task or evidence set. They are not the default page lay
 - **Evidence:** status color never stands alone; nearby copy distinguishes current, stale, retained, unavailable, missing, inferred, and measured zero.
 
 **The Evidence Has a State Rule.** Never render missing evidence as zero or let color imply certainty that the text does not state.
+
+Incident rows separate current severity from condition state and operator ownership.
+Only confirmed unowned incidents enter the default action queue. Waiting-for-evidence,
+acknowledged, monitoring-ended, resolved, and retained records remain available in
+subordinate views with plain labels.
 
 ### Navigation
 

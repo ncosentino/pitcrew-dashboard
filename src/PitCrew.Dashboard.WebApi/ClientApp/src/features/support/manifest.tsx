@@ -10,7 +10,7 @@ export const supportManifest: FeatureManifest = {
   navigation: [
     {
       label: 'Support',
-      description: 'Read-only diagnostics and support sessions',
+      description: 'Independent diagnostic sessions and evidence',
       path: '/tenants/:tenantId/support',
       group: 'operate',
       order: 30,

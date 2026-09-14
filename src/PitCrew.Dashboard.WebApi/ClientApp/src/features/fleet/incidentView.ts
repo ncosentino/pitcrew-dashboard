@@ -11,10 +11,10 @@ const severityFilters = new Set<SeverityFilter>(['all', 'critical', 'warning']);
 const incidentSorts = new Set<IncidentSort>(['priority', 'newest', 'oldest', 'observed']);
 
 export const viewLabels: Record<IncidentView, string> = {
-  attention: 'Needs attention',
-  active: 'All active',
-  resolved: 'Resolved',
-  history: 'All history',
+  attention: 'Needs action',
+  active: 'All open',
+  resolved: 'Resolved history',
+  history: 'All records',
 };
 
 export const sortLabels: Record<IncidentSort, string> = {
@@ -23,6 +23,29 @@ export const sortLabels: Record<IncidentSort, string> = {
   oldest: 'Oldest triggered',
   observed: 'Recently observed',
 };
+
+export function incidentConditionLabel(
+  conditionState: OperationalIncident['conditionState'],
+): string {
+  switch (conditionState) {
+    case 'confirmed':
+      return 'Confirmed problem';
+    case 'waiting-for-evidence':
+      return 'Waiting for evidence';
+    case 'recovering':
+      return 'Recovery observed';
+    case 'monitoring-ended':
+      return 'Monitoring ended';
+    case 'legacy-unverified':
+      return 'Legacy evidence';
+    case 'resolved':
+      return 'Resolved history';
+  }
+}
+
+export function isActionableIncident(incident: OperationalIncident): boolean {
+  return incident.conditionState === 'confirmed' && incident.operatorState === 'unowned';
+}
 
 export function parseIncidentView(value: string | null): IncidentView {
   return value != null && incidentViews.has(value as IncidentView)
@@ -63,11 +86,21 @@ export function compareIncidents(
   if (sort === 'oldest') return left.triggeredAt.localeCompare(right.triggeredAt);
   if (sort === 'observed') return right.lastObservedAt.localeCompare(left.lastObservedAt);
 
-  const statusRank = { triggered: 0, acknowledged: 1, resolved: 2 } as const;
+  const conditionRank = {
+    confirmed: 0,
+    recovering: 1,
+    'waiting-for-evidence': 2,
+    'monitoring-ended': 3,
+    'legacy-unverified': 4,
+    resolved: 5,
+  } as const;
+  const operatorRank = { unowned: 0, acknowledged: 1 } as const;
   const severityRank = { critical: 0, warning: 1 } as const;
   return (
-    statusRank[left.status] - statusRank[right.status] ||
-    severityRank[left.severity] - severityRank[right.severity] ||
+    conditionRank[left.conditionState] - conditionRank[right.conditionState] ||
+    operatorRank[left.operatorState] - operatorRank[right.operatorState] ||
+    (left.currentSeverity == null ? 2 : severityRank[left.currentSeverity]) -
+      (right.currentSeverity == null ? 2 : severityRank[right.currentSeverity]) ||
     right.lastObservedAt.localeCompare(left.lastObservedAt) ||
     left.title.localeCompare(right.title)
   );

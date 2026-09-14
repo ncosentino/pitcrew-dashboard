@@ -28,6 +28,7 @@ import { IncidentRow } from './components/IncidentRow';
 import {
   apiFilterForView,
   compareIncidents,
+  isActionableIncident,
   matchesIncidentSearch,
   parseIncidentSort,
   parseIncidentView,
@@ -218,7 +219,7 @@ export default function IncidentsPage() {
   }, [currentPage, scopedNodeId, scopedProfileId]);
   const visibleIncidents = useMemo(() => {
     return scopedIncidents
-      .filter((incident) => view !== 'attention' || incident.operatorState === 'unowned')
+      .filter((incident) => view !== 'attention' || isActionableIncident(incident))
       .filter((incident) => severity === 'all' || incident.currentSeverity === severity)
       .filter((incident) => matchesIncidentSearch(incident, nodesById.get(incident.nodeId), query))
       .sort((left, right) => compareIncidents(left, right, sort));
@@ -235,11 +236,11 @@ export default function IncidentsPage() {
   const visibleWarning = visibleIncidents.filter(
     (incident) => incident.currentSeverity === 'warning',
   ).length;
-  const visibleTriggered = visibleIncidents.filter(
-    (incident) => incident.operatorState === 'unowned',
+  const visibleActionable = visibleIncidents.filter(isActionableIncident);
+  const visibleActionableCritical = visibleActionable.some(
+    (incident) => incident.currentSeverity === 'critical',
   );
-  const sourceHasTriggeredIncident =
-    currentPage?.incidents.some((incident) => incident.operatorState === 'unowned') ?? false;
+  const sourceHasActionableIncident = currentPage?.incidents.some(isActionableIncident) ?? false;
   const requestedIncident =
     requestedIncidentId == null
       ? undefined
@@ -336,7 +337,7 @@ export default function IncidentsPage() {
       updateIncident(updated);
       setNotice(
         view === 'attention'
-          ? `Acknowledged ${incident.title}. It remains active and is now hidden from Needs attention.`
+          ? `Acknowledged ${incident.title}. It remains open and is now hidden from Needs action.`
           : `Acknowledged ${incident.title}. The incident remains active.`,
       );
     } catch (caught) {
@@ -448,8 +449,8 @@ export default function IncidentsPage() {
   return (
     <>
       <ReadinessSummary
-        title="Incident work queue"
-        description="Debounced operational exceptions and bounded history from manager-owned evidence. Acknowledgement records ownership; only new evidence resolves a condition."
+        title="Incident action queue"
+        description="Confirmed unowned problems lead. Waiting evidence, operator-owned incidents, monitoring-ended records, and resolved history remain available without imitating current urgency."
         narrowColumns={2}
         status={
           <StatusBadge
@@ -460,15 +461,15 @@ export default function IncidentsPage() {
                   : 'Loading'
                 : view === 'resolved' || view === 'history'
                   ? 'Historical view'
-                  : (hasRouteScope ? scopedCritical : (currentPage.criticalCount ?? 0)) > 0
-                    ? 'Critical attention'
-                    : visibleTriggered.length > 0
-                      ? 'Needs attention'
-                      : sourceHasTriggeredIncident
-                        ? 'No matching attention'
-                        : visibleIncidents.length > 0
-                          ? 'Active incidents owned'
-                          : 'No incident needs attention'
+                  : visibleActionableCritical
+                    ? 'Critical action required'
+                    : visibleActionable.length > 0
+                      ? 'Action required'
+                      : sourceHasActionableIncident
+                        ? 'No matching action'
+                        : currentPage.incidents.length > 0
+                          ? 'Open records'
+                          : 'No incident requires action'
             }
             tone={
               !currentPage
@@ -477,11 +478,11 @@ export default function IncidentsPage() {
                   : 'neutral'
                 : view === 'resolved' || view === 'history'
                   ? 'neutral'
-                  : (hasRouteScope ? scopedCritical : (currentPage.criticalCount ?? 0)) > 0
+                  : visibleActionableCritical
                     ? 'critical'
-                    : visibleTriggered.length > 0 || visibleIncidents.length > 0
+                    : visibleActionable.length > 0
                       ? 'caution'
-                      : sourceHasTriggeredIncident
+                      : sourceHasActionableIncident || currentPage.incidents.length > 0
                         ? 'neutral'
                         : 'positive'
             }
@@ -498,7 +499,7 @@ export default function IncidentsPage() {
             detail: 'Response generated; source and receipt clocks remain separate',
           },
           {
-            label: 'Queue results',
+            label: 'Records in view',
             value: currentPage
               ? hasRouteScope
                 ? scopedIncidents.length
@@ -511,7 +512,7 @@ export default function IncidentsPage() {
               : `${counts.loaded} loaded · ${viewLabels[view]}`,
           },
           {
-            label: 'Critical in view',
+            label: 'Confirmed critical',
             value: currentPage
               ? hasRouteScope
                 ? scopedCritical
@@ -526,7 +527,7 @@ export default function IncidentsPage() {
                 : `${currentPage.warningCount} warning across all pages`,
           },
           {
-            label: 'Acknowledged',
+            label: 'Operator acknowledged',
             value: currentPage ? counts.acknowledged : error ? 'Unavailable' : 'Loading…',
             detail: 'Still active until evidence resolves them',
           },
@@ -547,7 +548,7 @@ export default function IncidentsPage() {
               : hasRouteScope
                 ? `${visibleIncidents.length} filtered · ${scopedIncidents.length} scoped among ${counts.loaded} loaded globally`
                 : view === 'attention'
-                  ? `${visibleIncidents.length} need attention · ${visibleCritical} critical · ${visibleWarning} warning${counts.acknowledged > 0 ? ` · ${counts.acknowledged} acknowledged hidden` : ''}`
+                  ? `${visibleIncidents.length} require action · ${visibleCritical} critical · ${visibleWarning} warning${counts.acknowledged > 0 ? ` · ${counts.acknowledged} operator-owned hidden` : ''}`
                   : counts.total == null
                     ? `${visibleIncidents.length} filtered · ${counts.loaded} loaded`
                     : `${visibleIncidents.length} filtered · ${counts.loaded} of ${counts.total} loaded`
@@ -629,12 +630,14 @@ export default function IncidentsPage() {
         <EmptyState
           title={
             view === 'attention' || view === 'active'
-              ? 'No active incidents'
+              ? view === 'attention'
+                ? 'No incidents require action'
+                : 'No open incident records'
               : view === 'resolved'
                 ? 'No resolved incidents'
                 : 'No incident history'
           }
-          description="Brief conditions remain hidden unless they cross their debounce boundary. This does not prove the fleet is healthy — only that no qualifying condition is visible."
+          description="This does not prove the fleet is healthy. It means no qualifying confirmed problem is visible in this view; waiting evidence and retained records remain available in All open or history."
         />
       ) : null}
 
@@ -645,14 +648,14 @@ export default function IncidentsPage() {
       !requestedIncidentIsUnavailable ? (
         <EmptyState
           title={
-            view === 'attention' && counts.acknowledged > 0
-              ? 'No incidents need attention'
-              : 'No incidents match this view'
+            view === 'attention' ? 'No incidents require action' : 'No incidents match this view'
           }
           description={
             view === 'attention' && counts.acknowledged > 0
-              ? `${counts.acknowledged} active ${counts.acknowledged === 1 ? 'incident is' : 'incidents are'} acknowledged and hidden from this queue. Switch to All active to review them.`
-              : 'Change or reset the filters to return to the active attention queue.'
+              ? `${counts.acknowledged} open ${counts.acknowledged === 1 ? 'incident is' : 'incidents are'} operator-owned and hidden from this queue. Switch to All open to review them.`
+              : view === 'attention'
+                ? 'Open records are waiting for evidence, monitoring has ended, or the current filters exclude every confirmed unowned problem. Switch to All open to review them.'
+                : 'Change or reset the filters to return to the confirmed action queue.'
           }
           action={
             <Button type="button" variant="outline" onClick={resetView}>
@@ -718,9 +721,13 @@ export default function IncidentsPage() {
               <section className="min-w-0 border-t xl:border-0">
                 <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3 xl:mb-2 xl:px-0 xl:py-0">
                   <div>
-                    <h2 className="text-base font-semibold">Incident queue</h2>
+                    <h2 className="text-base font-semibold">
+                      {view === 'attention' ? 'Action queue' : 'Incident records'}
+                    </h2>
                     <p className="text-sm text-muted-foreground">
-                      Attention-ordered records matching the current view.
+                      {view === 'attention'
+                        ? 'Confirmed unowned problems in urgency order.'
+                        : 'Open or retained records matching the current view.'}
                     </p>
                   </div>
                   <span className="text-xs text-muted-foreground">
@@ -788,7 +795,7 @@ function IncidentQueue({
   className,
 }: IncidentQueueProps) {
   return (
-    <OperationalList label="Operational incident queue" className={className}>
+    <OperationalList label="Incident records" className={className}>
       {incidents.map((incident) => {
         const node = nodesById.get(incident.nodeId);
         const nextSearchParams = new URLSearchParams(searchParams);

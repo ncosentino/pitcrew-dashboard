@@ -7,8 +7,12 @@ import {
   type OperationalIncident,
 } from '@/core/fleet';
 
-export type ProfileAttentionTone = 'positive' | 'caution' | 'critical';
+import { isActionableIncident } from './incidentView';
+
+export type ProfileAttentionTone = 'positive' | 'caution' | 'critical' | 'neutral';
 export type ProfileAttentionTask = 'overview' | 'capacity' | 'workers' | 'diagnostics';
+export type ProfileAttentionCategory =
+  'confirmed-problem' | 'active-change' | 'evidence-gap' | 'retained';
 
 export interface ProfileAttentionSummary {
   readonly label: string;
@@ -16,6 +20,8 @@ export interface ProfileAttentionSummary {
   readonly tone: ProfileAttentionTone;
   readonly task: ProfileAttentionTask;
   readonly rank: number;
+  readonly category: ProfileAttentionCategory | 'none';
+  readonly categories: ReadonlyArray<ProfileAttentionCategory>;
 }
 
 export interface ProfileWorkloadSummary {
@@ -108,23 +114,71 @@ export function summarizeProfileAttention(
   const profileIncidents = incidents.filter(
     (incident) => incident.profileId == null || incident.profileId === profile.profileId,
   );
-  if (profileIncidents.some((incident) => incident.severity === 'critical')) {
+  const actionableIncidents = profileIncidents.filter(isActionableIncident);
+  if (actionableIncidents.some((incident) => incident.currentSeverity === 'critical')) {
     candidates.push(
       attention(
         'Critical incident',
-        'A retained critical incident applies to this profile.',
+        'A confirmed unowned critical incident applies to this profile.',
         'critical',
         'overview',
+        'confirmed-problem',
+      ),
+    );
+  } else if (actionableIncidents.some((incident) => incident.currentSeverity === 'warning')) {
+    candidates.push(
+      attention(
+        'Warning incident',
+        'A confirmed warning incident applies to this profile.',
+        'caution',
+        'overview',
+        'confirmed-problem',
+        1,
+      ),
+    );
+  } else if (
+    profileIncidents.some(
+      (incident) => incident.operatorState === 'acknowledged' && incident.currentSeverity != null,
+    )
+  ) {
+    candidates.push(
+      attention(
+        'Operator acknowledged',
+        'A current problem is operator-owned; acknowledgement does not resolve it.',
+        'caution',
+        'overview',
+        'retained',
+        7,
       ),
     );
   } else if (profileIncidents.length > 0) {
+    const conditionStates = new Set(profileIncidents.map((incident) => incident.conditionState));
+    const label =
+      conditionStates.size === 1
+        ? conditionStates.has('waiting-for-evidence')
+          ? 'Waiting for evidence'
+          : conditionStates.has('recovering')
+            ? 'Recovery observed'
+            : conditionStates.has('monitoring-ended')
+              ? 'Monitoring ended'
+              : 'Retained incident history'
+        : 'Open incident evidence';
+    const category: ProfileAttentionCategory =
+      conditionStates.has('recovering') &&
+      !conditionStates.has('waiting-for-evidence') &&
+      !conditionStates.has('monitoring-ended')
+        ? 'active-change'
+        : conditionStates.has('waiting-for-evidence')
+          ? 'evidence-gap'
+          : 'retained';
     candidates.push(
       attention(
-        `${profileIncidents.length} active ${profileIncidents.length === 1 ? 'incident' : 'incidents'}`,
-        'Review retained incident evidence before acting.',
-        'caution',
+        label,
+        `${profileIncidents.length} open ${profileIncidents.length === 1 ? 'record has' : 'records have'} no current actionable severity.`,
+        'neutral',
         'overview',
-        1,
+        category,
+        8,
       ),
     );
   }
@@ -133,8 +187,10 @@ export function summarizeProfileAttention(
       attention(
         'Manager stopped',
         'Manager observations may not advance.',
-        'critical',
+        'caution',
         'diagnostics',
+        'confirmed-problem',
+        2,
       ),
     );
   } else if (
@@ -152,7 +208,8 @@ export function summarizeProfileAttention(
             : 'Manager observations may not be current.',
         'caution',
         'diagnostics',
-        2,
+        profile.managerStatus === 'stale' ? 'evidence-gap' : 'active-change',
+        3,
       ),
     );
   }
@@ -163,6 +220,7 @@ export function summarizeProfileAttention(
         'The manager has not accepted the current desired state.',
         'caution',
         'capacity',
+        'confirmed-problem',
         3,
       ),
     );
@@ -172,8 +230,10 @@ export function summarizeProfileAttention(
       attention(
         'Autoscaling degraded',
         'The manager reports degraded autoscaling evidence.',
-        'critical',
+        'caution',
         'capacity',
+        'confirmed-problem',
+        2,
       ),
     );
   }
@@ -182,8 +242,10 @@ export function summarizeProfileAttention(
       attention(
         'Worker rollout degraded',
         'The manager reports a degraded worker-image rollout.',
-        'critical',
+        'caution',
         'workers',
+        'confirmed-problem',
+        2,
       ),
     );
   } else if (profile.update?.status === 'rolling') {
@@ -193,6 +255,7 @@ export function summarizeProfileAttention(
         'Current and stale workers coexist while the rollout converges.',
         'caution',
         'workers',
+        'active-change',
         4,
       ),
     );
@@ -205,8 +268,10 @@ export function summarizeProfileAttention(
       attention(
         'Subsystem degraded',
         'Docker or GitHub manager operations report a failure.',
-        'critical',
+        'caution',
         'diagnostics',
+        'confirmed-problem',
+        2,
       ),
     );
   }
@@ -215,8 +280,9 @@ export function summarizeProfileAttention(
       attention(
         'Telemetry unavailable',
         'Resource evidence is unavailable rather than zero.',
-        'caution',
+        'neutral',
         'diagnostics',
+        'evidence-gap',
         5,
       ),
     );
@@ -227,6 +293,7 @@ export function summarizeProfileAttention(
         'Resource totals include only reporting sources.',
         'caution',
         'diagnostics',
+        'evidence-gap',
         5,
       ),
     );
@@ -243,43 +310,73 @@ export function summarizeProfileAttention(
         `${withholding.label}. ${withholding.description}`,
         'caution',
         'capacity',
+        'confirmed-problem',
         4,
       ),
     );
   } else if (hostAdmission.status === 'unavailable') {
     candidates.push(
-      attention('Host admission unavailable', hostAdmission.description, 'caution', 'capacity', 6),
+      attention(
+        'Host admission unavailable',
+        hostAdmission.description,
+        'neutral',
+        'capacity',
+        'evidence-gap',
+        6,
+      ),
     );
   } else if (hostAdmission.status === 'degraded') {
     candidates.push(
-      attention('Host admission degraded', hostAdmission.description, 'caution', 'capacity', 6),
+      attention(
+        'Host admission degraded',
+        hostAdmission.description,
+        'caution',
+        'capacity',
+        'confirmed-problem',
+        2,
+      ),
     );
   }
 
   const operations = summarizeManagerOperations(profile.operationJournal);
   if (operations.status === 'degraded') {
-    candidates.push(attention(operations.label, operations.description, 'critical', 'diagnostics'));
+    candidates.push(
+      attention(
+        operations.label,
+        operations.description,
+        'critical',
+        'diagnostics',
+        'confirmed-problem',
+      ),
+    );
   } else if (operations.status === 'partial' || operations.status === 'unavailable') {
     candidates.push(
       attention(
         operations.status === 'unavailable' ? 'Manager operations unavailable' : operations.label,
         operations.description,
-        'caution',
+        operations.status === 'unavailable' ? 'neutral' : 'caution',
         'diagnostics',
+        'evidence-gap',
         7,
       ),
     );
   }
 
-  return (
-    candidates.sort((left, right) => left.rank - right.rank)[0] ?? {
-      label: 'No reported exception',
-      description: 'Current reported lifecycle evidence contains no material exception.',
-      tone: 'positive',
-      task: 'overview',
-      rank: 100,
-    }
-  );
+  const primary = candidates.sort((left, right) => left.rank - right.rank)[0];
+  return primary
+    ? {
+        ...primary,
+        categories: [...new Set(candidates.flatMap((candidate) => candidate.categories))],
+      }
+    : {
+        label: 'No reported exception',
+        description: 'Current reported lifecycle evidence contains no material exception.',
+        tone: 'positive',
+        task: 'overview',
+        rank: 100,
+        category: 'none',
+        categories: [],
+      };
 }
 
 function attention(
@@ -287,6 +384,7 @@ function attention(
   description: string,
   tone: Exclude<ProfileAttentionTone, 'positive'>,
   task: ProfileAttentionTask,
+  category: ProfileAttentionCategory,
   rank = tone === 'critical' ? 0 : 10,
 ): ProfileAttentionSummary {
   return {
@@ -295,5 +393,7 @@ function attention(
     tone,
     task,
     rank,
+    category,
+    categories: [category],
   };
 }

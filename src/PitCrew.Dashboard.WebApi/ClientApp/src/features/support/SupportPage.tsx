@@ -32,8 +32,9 @@ import {
 const diagnosticModeOptions = [
   {
     value: 'ConnectorOffline',
-    label: 'Connector offline',
-    description: 'Collect support evidence when normal connector status is unavailable.',
+    label: 'Connector reporting unavailable',
+    description:
+      'Collect independent evidence when Dashboard is not receiving normal connector reports.',
   },
   {
     value: 'CapacityMismatch',
@@ -581,7 +582,7 @@ export default function SupportPage() {
 
   return (
     <section className="grid min-w-0 gap-5">
-      {error ? <StateBanner tone="critical">{error}</StateBanner> : null}
+      {error ? <StateBanner tone={loadFailed ? 'neutral' : 'critical'}>{error}</StateBanner> : null}
       <ReadinessSummary
         title="Support readiness"
         description="Support diagnostics use an independent outbound identity and remain separate from connector and runner health."
@@ -600,7 +601,7 @@ export default function SupportPage() {
             }
             tone={
               loadFailed
-                ? 'critical'
+                ? 'neutral'
                 : latestPollAt
                   ? 'positive'
                   : activeIdentities.length > 0
@@ -622,7 +623,7 @@ export default function SupportPage() {
                   : 'No node can receive a request',
           },
           {
-            label: 'Latest relay poll',
+            label: 'Diagnostic transport',
             value:
               !loaded || loadFailed
                 ? loaded
@@ -631,7 +632,9 @@ export default function SupportPage() {
                 : latestPollAt
                   ? formatTime(latestPollAt)
                   : 'Unavailable',
-            detail: 'Reported by active support identities',
+            detail: latestPollAt
+              ? 'Latest relay poll from an active support identity'
+              : 'Relay contact has not been observed',
           },
           {
             label: 'Active sessions',
@@ -639,9 +642,9 @@ export default function SupportPage() {
             detail: 'Queued or dispatched',
           },
           {
-            label: 'Needs attention',
+            label: 'Requests needing review',
             value: !loaded ? 'Loading…' : loadFailed ? 'Unavailable' : attentionSessions.length,
-            detail: 'Rejected or expired sessions',
+            detail: 'Rejected or expired diagnostic sessions',
           },
         ]}
       />
@@ -692,7 +695,7 @@ export default function SupportPage() {
                   </StateBanner>
                 ) : null}
                 {loadFailed ? (
-                  <StateBanner tone="critical">
+                  <StateBanner tone="neutral">
                     Support identity state is unavailable. Reload this page before requesting a
                     diagnostic session.
                   </StateBanner>
@@ -917,7 +920,7 @@ function SupportSessionsWorkspace({
         </p>
       </div>
       {refreshError ? (
-        <StateBanner tone="caution">
+        <StateBanner tone="neutral">
           Automatic session refresh is partially unavailable: {refreshError}. Last known states are
           retained and later polling continues.
         </StateBanner>
@@ -974,7 +977,7 @@ function SupportSessionsWorkspace({
               title="Selected session unavailable"
               description="The exact session could not be read. Recent session history remains unchanged."
             >
-              <StateBanner tone="critical">
+              <StateBanner tone="neutral">
                 Keep this session link and retry after Dashboard connectivity recovers.
               </StateBanner>
             </DetailPanel>
@@ -1023,9 +1026,7 @@ function SupportSessionRow({
       status={<StatusBadge status={session.status} tone={sessionTone(session)} />}
       metadata={
         active ? (
-          <span className="text-xs text-muted-foreground">
-            Waiting for a terminal result · updates automatically
-          </span>
+          <span className="text-xs text-muted-foreground">{sessionProgressLabel(session)}</span>
         ) : session.rejectionDisposition ? (
           <span className="text-xs text-muted-foreground">
             {rejectionGuidance[session.rejectionDisposition] ??
@@ -1099,7 +1100,7 @@ function SupportOverview({
               }
               tone={
                 loadFailed
-                  ? 'critical'
+                  ? 'neutral'
                   : relayActivityObserved
                     ? 'positive'
                     : activeIdentities.length > 0
@@ -1135,7 +1136,7 @@ function SupportOverview({
             activeSessions.length > 0 ? (
               <StatusBadge status="Active" tone="caution" />
             ) : attentionSessions.length > 0 ? (
-              <StatusBadge status="Needs attention" tone="critical" />
+              <StatusBadge status="Review failed request" tone="caution" />
             ) : (
               <StatusBadge status="No active session" tone="neutral" />
             )
@@ -1377,7 +1378,7 @@ export function SupportSessionCard({
         <CopyableId value={session.sessionId} label="session ID" prefix="Session" />
         <CopyableId value={session.nodeId} label="support node ID" prefix="Node" />
         {session.rejectionDisposition ? (
-          <StateBanner tone="critical">
+          <StateBanner tone="caution">
             <div className="grid gap-2">
               <strong>{rejectionExplanation}</strong>
               <span>
@@ -1390,7 +1391,7 @@ export function SupportSessionCard({
           </StateBanner>
         ) : null}
         {session.status === 'Expired' ? (
-          <StateBanner tone="critical">
+          <StateBanner tone="caution">
             No verified report arrived before expiry. Confirm relay contact and local support setup,
             then retry with the same node, mode, and explicit profile.
           </StateBanner>
@@ -1428,8 +1429,8 @@ export function SupportSessionCard({
           </div>
         ) : null}
         {active ? (
-          <StateBanner tone="caution" role="status" aria-live="polite">
-            Waiting for a terminal result. This session updates automatically.
+          <StateBanner tone="neutral" role="status" aria-live="polite">
+            {sessionProgressLabel(session)}
           </StateBanner>
         ) : null}
         {session.result ? (
@@ -1564,9 +1565,15 @@ function isActiveSession(session: SupportSession): boolean {
 
 function sessionTone(session: SupportSession): 'positive' | 'caution' | 'neutral' | 'critical' {
   if (session.status === 'Completed') return 'positive';
-  if (isActiveSession(session)) return 'caution';
+  if (isActiveSession(session)) return 'neutral';
   if (session.status === 'Cancelled') return 'neutral';
-  return 'critical';
+  return 'caution';
+}
+
+function sessionProgressLabel(session: SupportSession): string {
+  return session.status === 'Queued'
+    ? 'Waiting for an enrolled support node to poll. This session updates automatically.'
+    : 'Request delivered to the support node. Waiting for a verified result; this session updates automatically.';
 }
 
 function diagnosticModeLabel(mode: string): string {

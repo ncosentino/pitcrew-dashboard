@@ -87,7 +87,9 @@ test.describe('support workspace', () => {
     await expect(page.getByRole('combobox', { name: 'Problem to investigate' })).toHaveValue(
       'ConnectorOffline',
     );
-    await expect(page.getByText(/normal connector status is unavailable/i)).toBeVisible();
+    await expect(
+      page.getByText(/Dashboard is not receiving normal connector reports/i),
+    ).toBeVisible();
   });
 
   test('keeps sessions scannable and one detail investigation dominant', async ({
@@ -104,7 +106,7 @@ test.describe('support workspace', () => {
       'href',
       `/tenants/${tenantId}/support/sessions/${completedSession.sessionId}`,
     );
-    const detail = page.getByRole('region', { name: 'Connector offline' });
+    const detail = page.getByRole('region', { name: 'Connector reporting unavailable' });
     await expect(detail).toContainText('Verified connector evidence.');
     await expect(detail.getByText('Structured report and attestation')).toBeVisible();
     const axeResult = await runAxeCheck(page, testInfo, 'support-populated-session-detail');
@@ -179,7 +181,7 @@ test.describe('support workspace', () => {
     await page.goto(`/tenants/${tenantId}/fleet`);
     await page
       .getByTestId(`fleet-node-${node.nodeId}`)
-      .getByRole('link', { name: 'Review 1 active incident' })
+      .getByRole('link', { name: 'Review 1 open incident record' })
       .click();
     await expect(page).toHaveURL(
       `/tenants/${tenantId}/incidents?view=active&nodeId=${node.nodeId}`,

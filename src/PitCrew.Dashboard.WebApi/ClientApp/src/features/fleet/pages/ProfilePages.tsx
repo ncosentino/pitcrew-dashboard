@@ -255,7 +255,14 @@ export function ProfileDetailLayout() {
               Download preflight context
             </Button>
             <StatusBadge
-              status={node.isRevoked ? 'revoked' : node.isOnline ? 'online' : 'offline'}
+              status={
+                node.isRevoked
+                  ? 'Enrollment revoked'
+                  : node.isOnline
+                    ? 'Connector reporting'
+                    : 'Connector not reporting'
+              }
+              tone={node.isRevoked ? 'neutral' : node.isOnline ? 'positive' : 'neutral'}
             />
             <StatusBadge status={profile.managerStatus} />
             <StatusBadge status={profile.desiredStateStatus} />
@@ -294,9 +301,10 @@ export function ProfileDetailLayout() {
       />
       {!node.isOnline ? (
         <StateBanner className="py-4" data-testid="profile-node-offline" tone="caution">
-          This node is offline. Every profile, capacity, worker, resource, subsystem, and recovery
-          value on these pages is last-known evidence observed {formatTime(profile.observedAt)}. The
-          connector was last seen {formatTime(node.lastSeenAt)}.
+          Dashboard is not receiving connector reports from this node. This does not confirm host
+          failure. Every profile, capacity, worker, resource, subsystem, and recovery value on these
+          pages is last-known evidence observed {formatTime(profile.observedAt)}. The connector last
+          reported {formatTime(node.lastSeenAt)}.
         </StateBanner>
       ) : null}
       {diagnosticsPrepared ? (
@@ -341,7 +349,7 @@ export function ProfileDetailLayout() {
             detail: `${workload.runningJobsLabel} running jobs · ${workload.runningJobsDetail}`,
           },
           {
-            label: 'Current exception',
+            label: 'Priority signal',
             value: attention.label,
             detail: attention.description,
           },
@@ -494,7 +502,7 @@ export function ProfileOverviewPage() {
         </OperationalRow>
         <OperationalRow
           title="Operational health"
-          description="Latest subsystem, resource, host-admission, image, and manager-operation evidence."
+          description="Confirmed subsystem problems lead; unavailable and retained evidence stay subordinate."
           status={<StatusBadge status={healthSummary.label} tone={healthSummary.tone} />}
           actions={
             <Button asChild size="sm" variant="outline">
@@ -612,7 +620,7 @@ function summarizeHealthSignals(
     ['degraded', 'failed', 'stopped', 'blocked'].includes(signal.status),
   );
   if (critical) {
-    return { label: 'Critical evidence', tone: 'critical', task: critical.task };
+    return { label: 'Confirmed problem', tone: 'critical', task: critical.task };
   }
   const caution = signals.find((signal) =>
     [
@@ -627,7 +635,7 @@ function summarizeHealthSignals(
     ].includes(signal.status),
   );
   if (caution) {
-    return { label: 'Evidence needs attention', tone: 'caution', task: caution.task };
+    return { label: 'Evidence gap or change', tone: 'caution', task: caution.task };
   }
   return { label: 'No reported exception', tone: 'positive', task: 'diagnostics' };
 }
@@ -691,8 +699,9 @@ export function ProfileCapacityPage() {
     <section className="grid gap-4">
       {!node.isOnline || node.isRevoked ? (
         <StateBanner data-testid="profile-node-unavailable" tone="caution">
-          Capacity changes are unavailable while this node is{' '}
-          {node.isRevoked ? 'revoked' : 'offline'}.
+          {node.isRevoked
+            ? 'Capacity changes are unavailable because this node enrollment is revoked.'
+            : 'Capacity changes are unavailable because connector reporting is unavailable.'}
         </StateBanner>
       ) : null}
       <MutationMessage

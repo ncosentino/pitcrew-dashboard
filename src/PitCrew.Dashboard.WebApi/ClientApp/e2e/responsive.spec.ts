@@ -96,7 +96,7 @@ test.describe('responsive mobile summaries', () => {
     ).toBeVisible();
     await expect(page.getByText('Choose incident', { exact: true })).toBeVisible();
     await page.getByText('Choose incident', { exact: true }).click();
-    await expect(page.getByRole('list', { name: 'Operational incident queue' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Incident records' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open owning evidence' })).toBeVisible();
 
     const overflow = await measureDocumentOverflow(page);

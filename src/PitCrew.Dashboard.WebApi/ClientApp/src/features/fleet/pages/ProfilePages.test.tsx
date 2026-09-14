@@ -480,7 +480,7 @@ describe('profile detail routes', () => {
     expect(screen.getByTestId('profile-overview-operations-default')).toHaveTextContent(
       'unavailable',
     );
-    expect(screen.getByText('Evidence needs attention')).toBeVisible();
+    expect(screen.getByText('Evidence gap or change')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Review diagnostics' })).toHaveAttribute(
       'href',
       `${profilePath}/diagnostics`,
@@ -581,6 +581,7 @@ describe('profile detail routes', () => {
     );
 
     const warning = await screen.findByTestId('profile-node-offline', {}, { timeout: 5_000 });
+    expect(screen.getByText('Connector not reporting')).toBeInTheDocument();
     expect(warning).toHaveTextContent('Every profile, capacity, worker, resource');
     expect(warning).toHaveTextContent('last-known evidence observed');
     expect(screen.getByTestId(`prepare-diagnostics-${nodeId}-default`)).toBeInTheDocument();
@@ -729,7 +730,7 @@ describe('profile detail routes', () => {
   });
 
   it.each([
-    ['offline', { isOnline: false }, 'offline'],
+    ['connector reporting unavailable', { isOnline: false }, 'connector reporting is unavailable'],
     ['revoked', { isRevoked: true }, 'revoked'],
   ])('disables capacity changes for %s nodes', async (_name, nodeOverrides, status) => {
     renderProfile(fleetResponse([nodeResponse(nodeOverrides)]), 'owner', profileRoute('capacity'));
@@ -1606,7 +1607,7 @@ describe('profile detail routes', () => {
     ).toHaveClass('bg-status-positive');
     expect(
       screen.getByTestId('profile-subsystem-summary-docker-default').lastElementChild,
-    ).toHaveClass('bg-status-critical');
+    ).toHaveClass('bg-status-caution');
     expect(screen.getByTestId('profile-subsystem-summary-docker-default')).toHaveTextContent(
       'degraded',
     );

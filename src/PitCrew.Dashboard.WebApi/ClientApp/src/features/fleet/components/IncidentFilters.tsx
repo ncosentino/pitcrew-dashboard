@@ -61,10 +61,10 @@ export function IncidentFilters({
               value={view}
               onChange={(event) => onParameterChange('view', event.target.value, 'attention')}
             >
-              <option value="attention">Needs attention</option>
-              <option value="active">All active</option>
-              <option value="resolved">Resolved</option>
-              <option value="history">All history</option>
+              <option value="attention">Needs action</option>
+              <option value="active">All open</option>
+              <option value="resolved">Resolved history</option>
+              <option value="history">All records</option>
             </select>
           </FormField>
           <FormField label="Search incidents">

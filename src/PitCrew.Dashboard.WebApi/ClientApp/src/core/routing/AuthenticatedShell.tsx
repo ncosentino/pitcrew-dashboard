@@ -238,18 +238,24 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
             ? currentIncidentState
               ? {
                   label: '?',
-                  accessibleLabel: 'Active incident count unavailable',
+                  accessibleLabel: 'Open incident record count unavailable',
                   tone: 'neutral' as const,
                 }
               : undefined
             : currentIncidentState.count > 0
               ? {
                   label: new Intl.NumberFormat(undefined).format(currentIncidentState.count),
-                  accessibleLabel: `${currentIncidentState.count} active ${currentIncidentState.count === 1 ? 'incident' : 'incidents'}; highest severity ${currentIncidentState.highestSeverity ?? 'warning'}`,
+                  accessibleLabel: `${currentIncidentState.count} open incident ${currentIncidentState.count === 1 ? 'record' : 'records'}; ${
+                    currentIncidentState.highestSeverity
+                      ? `highest unowned current severity ${currentIncidentState.highestSeverity}`
+                      : 'no unowned current action in loaded records'
+                  }`,
                   tone:
                     currentIncidentState.highestSeverity === 'critical'
                       ? ('critical' as const)
-                      : ('caution' as const),
+                      : currentIncidentState.highestSeverity === 'warning'
+                        ? ('caution' as const)
+                        : ('neutral' as const),
                 }
               : undefined
           : undefined;
@@ -298,15 +304,20 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
       try {
         const page = await getActiveIncidentPage(selectedTenant.tenantId, controller.signal);
         if (!controller.signal.aborted) {
+          const actionableIncidents = page.incidents.filter(
+            (incident) =>
+              incident.conditionState === 'confirmed' && incident.operatorState === 'unowned',
+          );
           setIncidentState({
             tenantId: selectedTenant.tenantId,
             count: page.totalCount ?? null,
-            highestSeverity:
-              (page.criticalCount ?? 0) > 0
-                ? 'critical'
-                : (page.warningCount ?? 0) > 0
-                  ? 'warning'
-                  : null,
+            highestSeverity: actionableIncidents.some(
+              (incident) => incident.currentSeverity === 'critical',
+            )
+              ? 'critical'
+              : actionableIncidents.some((incident) => incident.currentSeverity === 'warning')
+                ? 'warning'
+                : null,
           });
         }
       } catch (caught) {

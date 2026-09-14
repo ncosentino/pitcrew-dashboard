@@ -27,6 +27,10 @@ sessions use full-width operational rows; one selected session opens into a boun
 detail panel. Rare enrollment, revoked history, structured reports, attestation, and
 identifiers remain progressively disclosed.
 
+Readiness separates diagnostic transport from session outcome and verified evidence.
+Queued, delivered, unavailable, rejected, expired, completed, and retained states use
+plain operational labels without imitating fleet critical severity.
+
 Incident-originated requests preserve exact incident, diagnostic mode, known profile,
 and canonical return context through session creation and exact retrieval. Route
 context preselects and reconnects work but never selects a support identity or grants

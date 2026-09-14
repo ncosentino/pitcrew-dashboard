@@ -30,10 +30,13 @@ fixed-order field of full-width scan lines:
 explicit incidents and reported degraded lifecycle state rank before ordinary
 inventory, while a persisted table remains available for desktop comparison.
 Constrained layouts keep each profile row compact before drill-in.
+Connector reporting loss is labeled separately from host failure, and every affected
+value remains explicitly last known or unavailable.
 
 ## States and constraints
 
-Cover initial loading, missing node/profile, online, offline, revoked, stale manager,
+Cover initial loading, missing node/profile, connector reporting current or absent,
+revoked enrollment, stale manager,
 active incident, active job, degraded autoscaling, partial or unavailable telemetry,
 rolling image, read-only authorization, mutation progress/failure, empty profiles,
 contract-18 and degraded profile-capacity evidence, measured-zero admission, bounded
@@ -47,6 +50,6 @@ Concept provenance: surface seed `5de25d23`; the assigned third grounded structu
 the dispatch-board workspace implemented here. One glance shows entity readiness and
 which profile row needs attention; one task selection then replaces the evidence area
 without removing that context. The existing Pit Wall visual world remains
-authoritative. Avoid identifier-led titles, offline state promoted as current,
+authoritative. Avoid identifier-led titles, reporting loss presented as host failure,
 profile card walls, duplicated worker tables, or operations detached from their
 fences and prohibited effects.

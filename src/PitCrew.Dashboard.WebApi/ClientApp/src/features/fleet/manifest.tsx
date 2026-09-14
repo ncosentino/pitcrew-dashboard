@@ -85,7 +85,7 @@ export const fleetManifest: FeatureManifest = {
   navigation: [
     {
       label: 'Fleet',
-      description: 'Readiness, nodes, and profile health',
+      description: 'Exceptions, evidence coverage, and nodes',
       path: '/tenants/:tenantId/fleet',
       group: 'monitor',
       order: 10,
@@ -107,7 +107,7 @@ export const fleetManifest: FeatureManifest = {
     },
     {
       label: 'Incidents',
-      description: 'Active exceptions and bounded history',
+      description: 'Action queue and retained history',
       path: '/tenants/:tenantId/incidents',
       group: 'monitor',
       order: 20,

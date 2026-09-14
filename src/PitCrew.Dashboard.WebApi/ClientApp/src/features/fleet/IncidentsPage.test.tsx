@@ -110,7 +110,7 @@ describe('IncidentsPage', () => {
     });
 
     expect(within(row).getByText('critical')).toBeInTheDocument();
-    expect(within(row).getByText('triggered')).toBeInTheDocument();
+    expect(within(row).getByText('Confirmed problem')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open owning evidence' })).toHaveAttribute(
       'href',
       `/tenants/local/nodes/${nodeId}/profiles/default`,
@@ -119,7 +119,7 @@ describe('IncidentsPage', () => {
       screen.getByRole('heading', { name: 'default capacity is below target', level: 2 }),
     ).toBeInTheDocument();
     expect(screen.getByText(/not proof of this incident's cause/i)).toBeInTheDocument();
-    expect(screen.getByText(/1 need attention · 1 critical · 0 warning/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 require action · 1 critical · 0 warning/i)).toBeInTheDocument();
     expect(
       screen.getByText(/showing 1 of 2 authoritative matching incidents/i),
     ).toBeInTheDocument();
@@ -175,7 +175,7 @@ describe('IncidentsPage', () => {
     expect(screen.queryByTestId(`incident-row-${lateIncidentId}`)).not.toBeInTheDocument();
   });
 
-  it('preserves explicit unknown severity while waiting for evidence', async () => {
+  it('keeps waiting-for-evidence incidents out of the default action queue', async () => {
     renderPage(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
@@ -199,10 +199,56 @@ describe('IncidentsPage', () => {
       return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
     });
 
+    const user = userEvent.setup();
+    await screen.findByRole('region', { name: 'Incident action queue' });
+    expect(screen.queryByTestId(`incident-row-${incidentId}`)).not.toBeInTheDocument();
+    expect(await screen.findByText(/No incidents require action/i)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Work queue'), 'active');
+
     const row = await screen.findByTestId(`incident-row-${incidentId}`);
     expect(within(row).getByText(/waiting for evidence/i)).toBeInTheDocument();
-    expect(within(row).getByText('Last confirmed critical')).toBeInTheDocument();
-    expect(screen.getByText(/0 critical · 0 warning/i)).toBeInTheDocument();
+    expect(
+      within(row).getByText('Last confirmed critical; current impact unavailable'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Current rule-specific evidence is unavailable/i)).toBeInTheDocument();
+  });
+
+  it('keeps recovery hysteresis discoverable without labeling it as legacy evidence', async () => {
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          ...page(),
+          incidents: [
+            {
+              ...incident(),
+              conditionState: 'recovering',
+              currentSeverity: null,
+            },
+          ],
+          criticalCount: 0,
+          warningCount: 0,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    const user = userEvent.setup();
+    expect(screen.queryByTestId(`incident-row-${incidentId}`)).not.toBeInTheDocument();
+
+    await user.selectOptions(await screen.findByLabelText('Work queue'), 'active');
+
+    const row = await screen.findByTestId(`incident-row-${incidentId}`);
+    expect(within(row).getByText('Recovery observed')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: incident().title })).getByText('Recovery observed'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Legacy evidence')).not.toBeInTheDocument();
   });
 
   it('offers a support diagnostic request for an unresolved incident with its mode preselected', async () => {
@@ -349,13 +395,44 @@ describe('IncidentsPage', () => {
 
     expect(await screen.findByTestId(`incident-row-${incidentId}`)).toBeInTheDocument();
     expect(screen.queryByText('Acknowledged connector outage')).not.toBeInTheDocument();
-    expect(screen.getByText(/1 acknowledged hidden/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 operator-owned hidden/i)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Work queue'), 'active');
 
     expect(
       await screen.findByTestId(`incident-row-${acknowledged.incidentId}`),
     ).toBeInTheDocument();
+  });
+
+  it('does not present an acknowledged-only queue as critical action', async () => {
+    const acknowledged = {
+      ...incident('acknowledged'),
+      incidentId: '33333333-3333-4333-8333-333333333333',
+      title: 'Acknowledged connector outage',
+    };
+    renderPage(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/fleet/v1/nodes')) {
+        return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
+      }
+      if (url.includes('/fleet/v1/incidents?status=active')) {
+        return jsonResponse({
+          generatedAt: '2026-07-28T01:03:00+00:00',
+          incidents: [acknowledged],
+          totalCount: 1,
+          criticalCount: 1,
+          warningCount: 0,
+          truncated: false,
+        });
+      }
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    const status = await screen.findByText('Open records');
+    expect(status).toHaveAttribute('data-status-tone', 'neutral');
+    const readiness = screen.getByRole('region', { name: 'Incident action queue' });
+    expect(within(readiness).queryByText('Critical action required')).not.toBeInTheDocument();
   });
 
   it('filters by severity and search text, then sorts the visible queue', async () => {
@@ -557,13 +634,11 @@ describe('IncidentsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Acknowledge incident' }));
 
-    await expect(
-      screen.findByText(/now hidden from Needs attention/i),
-    ).resolves.toBeInTheDocument();
+    await expect(screen.findByText(/now hidden from Needs action/i)).resolves.toBeInTheDocument();
     expect(screen.queryByTestId(`incident-row-${incidentId}`)).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        'Acknowledged default capacity is below target. It remains active and is now hidden from Needs attention.',
+        'Acknowledged default capacity is below target. It remains open and is now hidden from Needs action.',
       ),
     ).toBeInTheDocument();
     const request = fetchMock.mock.calls.find(
@@ -613,7 +688,9 @@ describe('IncidentsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Unacknowledge incident' }));
 
     expect(
-      await within(screen.getByTestId(`incident-row-${incidentId}`)).findByText(/^triggered$/i),
+      await within(screen.getByTestId(`incident-row-${incidentId}`)).findByText(
+        /^Confirmed problem$/i,
+      ),
     ).toBeInTheDocument();
     expect(
       await screen.findByText(
@@ -785,7 +862,7 @@ describe('IncidentsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Unacknowledge incident' }));
 
     const refreshedRow = screen.getByTestId(`incident-row-${incidentId}`);
-    await within(refreshedRow).findByText(/^triggered$/i);
+    await within(refreshedRow).findByText(/^Confirmed problem$/i);
     expect(within(refreshedRow).queryByText(/^resolved$/i)).not.toBeInTheDocument();
     expect(within(refreshedRow).queryByText(/^acknowledged$/i)).not.toBeInTheDocument();
   });

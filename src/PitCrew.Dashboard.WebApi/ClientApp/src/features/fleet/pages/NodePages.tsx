@@ -378,9 +378,9 @@ export function NodeDetailLayout() {
       />
       {status === 'offline' ? (
         <StateBanner tone="caution">
-          This node is offline. Every connector, profile, capacity, resource, and hardware value
-          below is last known from {formatTime(node.lastSeenAt)} unless a more specific source
-          timestamp is shown.
+          Dashboard is not receiving connector reports from this node. This does not confirm that
+          the host failed. Every profile, capacity, resource, and hardware value below is last known
+          from {formatTime(node.lastSeenAt)} unless a more specific source timestamp is shown.
         </StateBanner>
       ) : null}
       {diagnosticsPrepared ? (
@@ -400,12 +400,25 @@ export function NodeDetailLayout() {
       <ReadinessSummary
         title="Node readiness"
         description="Current or last-known evidence used to choose the next node or profile investigation."
-        status={<StatusBadge status={status} />}
+        status={
+          <StatusBadge
+            status={
+              node.isRevoked
+                ? 'Enrollment revoked'
+                : node.isOnline
+                  ? 'Connector reporting'
+                  : 'Connector not reporting'
+            }
+            tone={node.isRevoked ? 'neutral' : node.isOnline ? 'positive' : 'caution'}
+          />
+        }
         items={[
           {
-            label: 'Last connector contact',
+            label: 'Connector reporting',
             value: formatTime(node.lastSeenAt),
-            detail: node.isOnline ? 'Connector currently online' : 'Last-known connector evidence',
+            detail: node.isOnline
+              ? 'Current Dashboard contact'
+              : 'Last accepted contact; host state is not confirmed',
           },
           {
             label: 'Profiles',
@@ -456,7 +469,6 @@ export function NodeOverviewPage() {
   const incidents = (fleet?.activeIncidents ?? []).filter(
     (incident) => incident.nodeId === node.nodeId,
   );
-  const nodeStatus = getNodeStatus(node);
   const connectorStatus =
     node.connectorHealth?.snapshot == null
       ? 'unavailable'
@@ -471,9 +483,9 @@ export function NodeOverviewPage() {
         : node.hardware.status === 'current'
           ? 'latest reported'
           : node.hardware.status;
-  const pressureStatus = incidents.some((incident) => incident.severity === 'critical')
+  const pressureStatus = incidents.some((incident) => incident.currentSeverity === 'critical')
     ? 'critical'
-    : incidents.length > 0
+    : incidents.some((incident) => incident.currentSeverity === 'warning')
       ? 'warning'
       : workload.confirmedBusyWorkers > 0 || workload.reportedRunningJobs > 0
         ? 'running'
@@ -495,7 +507,13 @@ export function NodeOverviewPage() {
     <div className="grid gap-2 md:gap-4">
       <ResponsiveOverviewSection
         isDesktop={isDesktop}
-        status={nodeStatus}
+        status={
+          node.isRevoked
+            ? 'Enrollment revoked'
+            : node.isOnline
+              ? 'Connector reporting'
+              : 'Connector not reporting'
+        }
         summary={`${node.connectorVersion || 'Unknown connector'} · ${aggregate.activeSlots} of ${aggregate.configuredSlots} local slots`}
         testId="node-overview-section-identity"
         title="Node identity"
@@ -759,9 +777,9 @@ export function NodeAdministrationPage() {
         ) : null}
         <DisplayNameEditor
           value={node.displayName}
-          label="Server display name"
-          submitLabel="Rename server"
-          successMessage="Server name updated."
+          label="Node display name"
+          submitLabel="Rename node"
+          successMessage="Node name updated."
           onSave={async (displayName) => {
             await renameNode(tenantId, node.nodeId, displayName, antiforgeryToken);
             await refreshNow();

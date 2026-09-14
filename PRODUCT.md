@@ -31,6 +31,11 @@ Success means an operator can move from an operational signal to trustworthy evi
 and the appropriate safe action without guessing whether data is current, retained,
 missing, or inferred.
 
+Confirmed unowned problems receive the strongest urgency. Waiting or unavailable
+evidence, retained history, operator acknowledgement, monitoring-ended records, and
+diagnostic transport state remain visible without presenting themselves as current
+critical impact.
+
 ## Positioning
 
 PitCrew Dashboard is a read-only-by-default evidence plane that never invents
