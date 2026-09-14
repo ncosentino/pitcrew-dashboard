@@ -20,6 +20,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   document.documentElement.classList.remove('dark');
   delete document.documentElement.dataset.theme;
   initializeColorTheme();

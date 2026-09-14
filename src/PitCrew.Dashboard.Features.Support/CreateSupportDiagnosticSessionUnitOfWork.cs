@@ -32,7 +32,6 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
     var decision = await _authorizer.CanRequestOrReadAsync(
         principal,
         tenantId,
-        input.NodeId,
         input.ProfileId,
         cancellationToken);
     if (!decision.Allowed || decision.ActorId is null)
@@ -54,6 +53,20 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
 
     var now = _timeProvider.GetUtcNow();
     var seconds = Math.Min(input.ExpiresInSeconds, _options.Value.MaximumSessionLifetimeSeconds);
+    var existing = await _supportStore.GetSessionByIntentOrNullAsync(
+        tenantId,
+        input.IntentId,
+        cancellationToken);
+    if (existing is not null)
+    {
+      return await ReconcileExistingAsync(
+          existing,
+          decision.ActorId,
+          input,
+          seconds,
+          now,
+          cancellationToken);
+    }
     var sessionId = Guid.NewGuid();
     var request = new SupportDiagnosticRequest(
         "support-plane-v1",
@@ -107,33 +120,118 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
         null);
     var status = await _supportStore.CreateSessionAsync(
         session,
+        input.IntentId,
         identity.NodeSigningPublicKeySpki,
         identity.NodeEncryptionPublicKeySpki,
         cancellationToken);
     if (status != SupportMutationStatus.Succeeded)
     {
+      if (status == SupportMutationStatus.Conflict)
+      {
+        existing = await _supportStore.GetSessionByIntentOrNullAsync(
+            tenantId,
+            input.IntentId,
+            cancellationToken);
+        if (existing is not null &&
+            MatchesIntent(existing, decision.ActorId, input, seconds))
+        {
+          return await ReconcileExistingAsync(
+              existing,
+              decision.ActorId,
+              input,
+              seconds,
+              now,
+              cancellationToken);
+        }
+      }
       return new SupportSessionMutation(status, null, null);
     }
+    return await EnqueueAsync(session, now, cancellationToken);
+  }
+
+  private async Task<SupportSessionMutation> ReconcileExistingAsync(
+      SupportDiagnosticSession session,
+      string actorId,
+      SupportDiagnosticSessionInput input,
+      int lifetimeSeconds,
+      DateTimeOffset now,
+      CancellationToken cancellationToken)
+  {
+    if (!MatchesIntent(
+        session,
+        actorId,
+        input,
+        lifetimeSeconds))
+    {
+      return new SupportSessionMutation(
+          SupportMutationStatus.Conflict,
+          "The request intent is already bound to different diagnostic parameters.",
+          session);
+    }
+    if (session.Status is (
+            SupportDiagnosticSessionStatus.Queued or
+            SupportDiagnosticSessionStatus.Dispatched) &&
+        session.ExpiresAt <= now)
+    {
+      _ = await _supportStore.UpdateSessionLifecycleAsync(
+          session.TenantId,
+          session.SessionId,
+          SupportDiagnosticSessionStatus.Expired,
+          session.DispatchedAt,
+          null,
+          session.ExpiresAt,
+          cancellationToken);
+      session = await _supportStore.GetSessionOrNullAsync(
+          session.TenantId,
+          session.SessionId,
+          cancellationToken) ?? session with
+          {
+            Status = SupportDiagnosticSessionStatus.Expired,
+            CompletedAt = session.ExpiresAt,
+          };
+    }
+    return new SupportSessionMutation(
+        SupportMutationStatus.Succeeded,
+        null,
+        session);
+  }
+
+  private async Task<SupportSessionMutation> EnqueueAsync(
+      SupportDiagnosticSession session,
+      DateTimeOffset now,
+      CancellationToken cancellationToken)
+  {
     var relayStatus = await _relayClient.EnqueueSessionAsync(
         session,
         cancellationToken);
-    if (relayStatus == SupportRelayManagementStatus.Failed)
+    if (relayStatus == SupportRelayManagementStatus.Conflict)
     {
       await _supportStore.CancelSessionAsync(
-          tenantId,
-          sessionId,
+          session.TenantId,
+          session.SessionId,
           now,
           cancellationToken);
       return new SupportSessionMutation(SupportMutationStatus.Conflict, null, null);
     }
+    if (relayStatus == SupportRelayManagementStatus.Unavailable)
+    {
+      return new SupportSessionMutation(
+          SupportMutationStatus.Unavailable,
+          "Relay acceptance is not yet confirmed.",
+          session);
+    }
     return new SupportSessionMutation(
-        status,
+        SupportMutationStatus.Succeeded,
         null,
         session);
   }
 
   private static string? Validate(SupportDiagnosticSessionInput input)
   {
+    if (input.IntentId == Guid.Empty)
+    {
+      return "A support request intent identifier is required.";
+    }
     if (input.NodeId == Guid.Empty)
     {
       return "A support node identifier is required.";
@@ -152,4 +250,25 @@ internal sealed class CreateSupportDiagnosticSessionUnitOfWork(
     }
     return null;
   }
+
+  private static bool MatchesIntent(
+      SupportDiagnosticSession session,
+      string actorId,
+      SupportDiagnosticSessionInput input,
+      int lifetimeSeconds) =>
+      string.Equals(
+          session.RequestedByGitHubUserId,
+          actorId,
+          StringComparison.Ordinal) &&
+      session.NodeId == input.NodeId &&
+      string.Equals(
+          session.DiagnosticMode,
+          input.DiagnosticMode,
+          StringComparison.Ordinal) &&
+      string.Equals(
+          session.ProfileId,
+          input.ProfileId,
+          StringComparison.Ordinal) &&
+      session.ExpiresAt - session.RequestedAt ==
+          TimeSpan.FromSeconds(lifetimeSeconds);
 }

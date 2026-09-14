@@ -124,12 +124,38 @@ Authorization: Bearer <diagnostic-credential-or-browser-session>
 Content-Type: application/json
 
 {
+  "intentId": "00000000-0000-4000-8000-000000000000",
   "nodeId": "00000000-0000-0000-0000-000000000000",
   "diagnosticMode": "ConnectorOffline",
   "profileId": "default",
   "expiresInSeconds": 300
 }
 ```
+
+`intentId` is a caller-generated stable request identity. If relay acceptance is
+uncertain, the caller retries the same intent and parameters; Dashboard returns
+the original session and its current queued, dispatched, or terminal lifecycle
+without creating or enqueueing another session. An elapsed queued or dispatched
+session is atomically projected to `Expired` before it is returned. Reusing an
+intent with different actor, node, mode, profile, or lifetime is a conflict.
+Definite enqueue conflicts return HTTP 409, and unavailable relay management
+returns HTTP 503 while the queued local session remains reconcilable. Modeled
+create and query outcomes use stable 4xx/503 responses rather than generic 500s.
+
+The browser stores only the pending intent UUID, tenant-bound normalized request
+parameters, and a 15-minute expiry in same-tab session storage. This permits
+reload and leave/return reconciliation without storing credentials, request
+envelopes, results, or private host evidence. Success and definitive domain
+responses clear the entry; transport and 5xx uncertainty retain it. Malformed,
+expired, cross-tenant, changed-request, and unavailable-storage cases fail
+closed to a new bounded intent.
+
+Diagnostic credentials scoped to connector node IDs cannot authorize support
+plane creation, recent-session listing, or exact session reads. Connector and
+support node IDs are independent namespaces, so support access fails closed
+even when both records contain the same GUID; it never compares those GUIDs or
+display names. Tenant-wide credentials and exact profile restrictions retain
+their existing authorization behavior.
 
 Administrators create a one-time node enrollment authorization with:
 
@@ -220,7 +246,10 @@ hard 1,024-key bound.
 
 `diagnosticMode` is one of `ConnectorOffline`, `CapacityMismatch`,
 `JobNotAssigned`, `HostPressure`, or `Full`. `profileId` is optional and must be
-validated locally by the broker before any file access.
+validated locally by the broker before any file access. Omission selects the
+profile only when exactly one local profile is allowlisted; zero or multiple
+eligible profiles produce the broker's `broker-invalid-profile` rejection.
+Omission never means all configured profiles.
 
 Read the same session with:
 
@@ -265,8 +294,9 @@ The attestation payload is canonical UTF-8 JSON containing `tenantId`, `nodeId`,
 without scraping Dashboard pages.
 
 The Dashboard session list remains storage-only and does not call the relay once
-per row. Select **Check result** on a pending session, or use the single-session
-API, to project the exact relay lifecycle. Dashboard persists the first relay
+per row. The single-session API is authoritative outside recent-list bounds and
+after leave/return navigation. Select **Check result** on a pending session, or
+use that API, to project the exact relay lifecycle. Dashboard persists the first relay
 dispatch time and any closed agent rejection disposition. Relay `completed`
 state causes Dashboard to fetch the opaque result, but Dashboard reports
 `Completed` only after decrypting and verifying the node-signed payload.
@@ -308,12 +338,16 @@ The support page renders the exact session lifecycle independently from semantic
 severity: `Queued`, `Dispatched`, `Completed`, `Rejected`, `Cancelled`, or
 `Expired`. New browser requests use the default 15-minute maximum session
 window. While the page is mounted, up to 16 `Queued` or `Dispatched` sessions
-refresh automatically every five seconds with one in-flight batch. Polling stops
-for terminal sessions and aborts on navigation. Operators can leave and return;
-the initial session read restores any completed result without a manual refresh
-button. Dispatched and later states show the first dispatch time when known.
-Rejected sessions also show the closed rejection disposition; they never
-display relay payloads or free-form agent output.
+refresh automatically every five seconds. Successful session reads update
+independently, so one slow or failed sibling cannot hide later progress; a
+superseded batch is aborted and polling continues. Polling stops for terminal
+sessions and aborts on navigation. Operators can leave and return; an exact
+selected-session read restores completed evidence even when the session is
+outside the bounded recent list. Dispatched and later states show the first
+dispatch time when known. Rejected sessions show the closed rejection
+disposition, partial reports retain explicit unavailable evidence, and
+`Completed` means verified evidence collection rather than verified remediation.
+The page never displays relay payloads or free-form agent output.
 
 ## Production node isolation
 

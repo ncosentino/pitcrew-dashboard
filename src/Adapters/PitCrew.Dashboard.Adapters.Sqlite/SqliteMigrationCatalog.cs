@@ -4465,5 +4465,24 @@ internal static class SqliteMigrationCatalog
                       occurred_at,
                       event_id);
               """),
+        new(
+              33,
+              "support-session-request-intents",
+              """
+              ALTER TABLE support_sessions
+                  ADD COLUMN request_intent_id TEXT NULL
+                      CHECK (request_intent_id IS NULL
+                          OR length(request_intent_id) = 36);
+
+              UPDATE support_sessions
+              SET request_intent_id = session_id
+              WHERE request_intent_id IS NULL;
+
+              CREATE UNIQUE INDEX
+                  ux_support_sessions_tenant_request_intent
+                  ON support_sessions (
+                      tenant_id,
+                      request_intent_id);
+              """),
     ];
 }

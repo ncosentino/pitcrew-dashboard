@@ -927,6 +927,7 @@ internal sealed class SqliteSupportStore(
 
   public async Task<SupportMutationStatus> CreateSessionAsync(
       SupportDiagnosticSession session,
+      Guid intentId,
       string expectedNodeSigningPublicKeySpki,
       string expectedNodeEncryptionPublicKeySpki,
       CancellationToken cancellationToken)
@@ -937,6 +938,7 @@ internal sealed class SqliteSupportStore(
         """
         INSERT INTO support_sessions (
             session_id,
+            request_intent_id,
             tenant_id,
             node_id,
             diagnostic_mode,
@@ -952,6 +954,7 @@ internal sealed class SqliteSupportStore(
             request_envelope_json)
         SELECT
             $sessionId,
+            $intentId,
             $tenantId,
             $nodeId,
             $diagnosticMode,
@@ -984,14 +987,52 @@ internal sealed class SqliteSupportStore(
         """;
     AddSessionInsertParameters(command, session);
     command.Parameters.AddWithValue(
+        "$intentId",
+        intentId.ToString("D"));
+    command.Parameters.AddWithValue(
         "$expectedNodeSigningPublicKeySpki",
         expectedNodeSigningPublicKeySpki);
     command.Parameters.AddWithValue(
         "$expectedNodeEncryptionPublicKeySpki",
         expectedNodeEncryptionPublicKeySpki);
-    return await command.ExecuteNonQueryAsync(cancellationToken) == 1
-        ? SupportMutationStatus.Succeeded
-        : SupportMutationStatus.NotFound;
+    try
+    {
+      return await command.ExecuteNonQueryAsync(cancellationToken) == 1
+          ? SupportMutationStatus.Succeeded
+          : SupportMutationStatus.NotFound;
+    }
+    catch (SqliteException)
+    {
+      return SupportMutationStatus.Conflict;
+    }
+  }
+
+  public async Task<SupportDiagnosticSession?> GetSessionByIntentOrNullAsync(
+      string tenantId,
+      Guid intentId,
+      CancellationToken cancellationToken)
+  {
+    await using var connection =
+        await _connectionFactory.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText = SelectSessionsSql +
+        """
+
+        WHERE s.tenant_id = $tenantId
+          AND s.request_intent_id = $intentId
+          AND s.capability = 'pitcrew.diagnostics.snapshot.v1'
+          AND length(s.request_digest) = 64
+          AND length(s.node_signing_key_fingerprint) = 64;
+        """;
+    command.Parameters.AddWithValue("$tenantId", tenantId);
+    command.Parameters.AddWithValue(
+        "$intentId",
+        intentId.ToString("D"));
+    await using var reader =
+        await command.ExecuteReaderAsync(cancellationToken);
+    return await reader.ReadAsync(cancellationToken)
+        ? ReadSession(reader)
+        : null;
   }
 
   public async Task<SupportDiagnosticSession?> GetSessionOrNullAsync(

@@ -98,6 +98,7 @@ public sealed class SupportHostingTests
           $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
           credential.Value,
           new CreateSupportDiagnosticSessionRequest(
+              Guid.NewGuid(),
               Guid.Parse(enrollment.NodeId, CultureInfo.InvariantCulture),
               SupportDiagnosticModes.ConnectorOffline,
               null,
@@ -130,6 +131,363 @@ public sealed class SupportHostingTests
       await Assert.That(fetched.Status).IsEqualTo("Queued");
       await Assert.That(fetched.DiagnosticMode).IsEqualTo(SupportDiagnosticModes.ConnectorOffline);
       await Assert.That(fetched.Result).IsNull();
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Uncertain_Relay_Acceptance_Retries_The_Same_Support_Intent(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl:
+              "http://support-relay-internal:8080/");
+      var relayHandler = new SupportSessionRelayHandler();
+      relayHandler.EnqueueStatuses.Enqueue(
+          HttpStatusCode.ServiceUnavailable);
+      relayHandler.EnqueueStatuses.Enqueue(
+          HttpStatusCode.Accepted);
+      await using var factory =
+          new WebApplicationFactory<Program>()
+              .WithWebHostBuilder(
+                  builder => builder.ConfigureServices(
+                      services => services
+                          .AddHttpClient(
+                              SupportRelayManagementHttpClientOptions
+                                  .ClientName)
+                          .ConfigurePrimaryHttpMessageHandler(
+                              () => relayHandler)));
+      using var client = factory.CreateClient();
+      var browserSession =
+          await DashboardTestHelpers.GetSessionAsync(
+              client,
+              cancellationToken);
+      var enrollment =
+          await SupportEnrollmentTestHelper.EnrollAsync(
+              client,
+              browserSession.AntiforgeryToken,
+              SupportKeyFactory.CreateNodeKeys(),
+              cancellationToken);
+      var intentId = Guid.NewGuid();
+      var body = new
+      {
+        IntentId = intentId,
+        NodeId = Guid.Parse(
+            enrollment.NodeId,
+            CultureInfo.InvariantCulture),
+        DiagnosticMode =
+            SupportDiagnosticModes.ConnectorOffline,
+        ProfileId = (string?)null,
+        ExpiresInSeconds = 300,
+      };
+
+      using var firstResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              body,
+              cancellationToken);
+      using var secondResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              body,
+              cancellationToken);
+      using var changedResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              new
+              {
+                IntentId = intentId,
+                NodeId = Guid.Parse(
+                    enrollment.NodeId,
+                    CultureInfo.InvariantCulture),
+                DiagnosticMode =
+                    SupportDiagnosticModes.CapacityMismatch,
+                ProfileId = "default",
+                ExpiresInSeconds = 300,
+              },
+              cancellationToken);
+      var second = await secondResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken);
+
+      await Assert.That(firstResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.ServiceUnavailable);
+      await Assert.That(secondResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(changedResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+      await Assert.That(second).IsNotNull();
+      await Assert.That(relayHandler.EnqueuedSessionIds)
+          .Count().IsEqualTo(1);
+      await Assert.That(second!.SessionId)
+          .IsEqualTo(
+              relayHandler.EnqueuedSessionIds[0].ToString("D"));
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Exact_Intent_Retry_Returns_Every_Existing_Lifecycle_Without_Reenqueue(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl:
+              "http://support-relay-internal:8080/");
+      var relayHandler = new SupportSessionRelayHandler();
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var fakeTime = new FakeTimeProvider(now);
+      await using var factory =
+          new WebApplicationFactory<Program>()
+              .WithWebHostBuilder(
+                  builder => builder.ConfigureServices(
+                      services =>
+                      {
+                        services.RemoveAll<TimeProvider>();
+                        services.AddSingleton<TimeProvider>(fakeTime);
+                        services
+                            .AddHttpClient(
+                                SupportRelayManagementHttpClientOptions
+                                    .ClientName)
+                            .ConfigurePrimaryHttpMessageHandler(
+                                () => relayHandler);
+                      }));
+      using var client = factory.CreateClient();
+      var browserSession =
+          await DashboardTestHelpers.GetSessionAsync(
+              client,
+              cancellationToken);
+      var enrollment =
+          await SupportEnrollmentTestHelper.EnrollAsync(
+              client,
+              browserSession.AntiforgeryToken,
+              SupportKeyFactory.CreateNodeKeys(),
+              cancellationToken);
+      var expectedStatuses = new[]
+      {
+        ("queued", "Queued"),
+        ("dispatched", "Dispatched"),
+        ("completed", "Completed"),
+        ("rejected", "Rejected"),
+        ("cancelled", "Cancelled"),
+        ("expired", "Expired"),
+      };
+
+      foreach (var (storedStatus, expectedStatus) in expectedStatuses)
+      {
+        var intentId = Guid.NewGuid();
+        var body = new
+        {
+          IntentId = intentId,
+          NodeId = Guid.Parse(
+              enrollment.NodeId,
+              CultureInfo.InvariantCulture),
+          DiagnosticMode =
+              SupportDiagnosticModes.ConnectorOffline,
+          ProfileId = (string?)null,
+          ExpiresInSeconds = 300,
+        };
+        using var createdResponse =
+            await DashboardTestHelpers.PostAuthenticatedAsync(
+                client,
+                $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+                browserSession.AntiforgeryToken,
+                body,
+                cancellationToken);
+        var created = await createdResponse.Content
+            .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+                cancellationToken) ??
+            throw new InvalidOperationException(
+                "Expected a created support session.");
+        await SetSupportSessionStatusAsync(
+            databasePath,
+            Guid.Parse(
+                created.SessionId,
+                CultureInfo.InvariantCulture),
+            storedStatus,
+            now,
+            cancellationToken);
+
+        using var retryResponse =
+            await DashboardTestHelpers.PostAuthenticatedAsync(
+                client,
+                $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+                browserSession.AntiforgeryToken,
+                body,
+                cancellationToken);
+        var retried = await retryResponse.Content
+            .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+                cancellationToken);
+
+        await Assert.That(retryResponse.StatusCode)
+            .IsEqualTo(HttpStatusCode.Accepted);
+        await Assert.That(retried).IsNotNull();
+        await Assert.That(retried!.SessionId)
+            .IsEqualTo(created.SessionId);
+        await Assert.That(retried.Status)
+            .IsEqualTo(expectedStatus);
+      }
+
+      var elapsedIntentId = Guid.NewGuid();
+      var elapsedBody = new
+      {
+        IntentId = elapsedIntentId,
+        NodeId = Guid.Parse(
+            enrollment.NodeId,
+            CultureInfo.InvariantCulture),
+        DiagnosticMode =
+            SupportDiagnosticModes.ConnectorOffline,
+        ProfileId = (string?)null,
+        ExpiresInSeconds = 300,
+      };
+      using var elapsedCreatedResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              elapsedBody,
+              cancellationToken);
+      var elapsedCreated = await elapsedCreatedResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken) ??
+          throw new InvalidOperationException(
+              "Expected an elapsed support session.");
+      fakeTime.Advance(TimeSpan.FromSeconds(301));
+
+      using var elapsedRetryResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              elapsedBody,
+              cancellationToken);
+      var elapsedRetry = await elapsedRetryResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken);
+
+      await Assert.That(elapsedRetryResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Accepted);
+      await Assert.That(elapsedRetry).IsNotNull();
+      await Assert.That(elapsedRetry!.SessionId)
+          .IsEqualTo(elapsedCreated.SessionId);
+      await Assert.That(elapsedRetry.Status)
+          .IsEqualTo("Expired");
+      await Assert.That(relayHandler.EnqueuedSessionIds)
+          .Count().IsEqualTo(7);
+      await using var connection =
+          new SqliteConnection($"Data Source={databasePath}");
+      await connection.OpenAsync(cancellationToken);
+      await using var countCommand = connection.CreateCommand();
+      countCommand.CommandText =
+          "SELECT COUNT(*) FROM support_sessions;";
+      await Assert.That(
+              Convert.ToInt32(
+                  await countCommand.ExecuteScalarAsync(
+                      cancellationToken),
+                  CultureInfo.InvariantCulture))
+          .IsEqualTo(7);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Relay_Enqueue_Conflict_Is_A_Stable_Client_Outcome(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(
+          databasePath,
+          "https://relay.test/",
+          "relay-secret-for-tests",
+          relayCleanupIntervalSeconds: 60,
+          relayInternalUrl:
+              "http://support-relay-internal:8080/");
+      var relayHandler = new SupportSessionRelayHandler();
+      relayHandler.EnqueueStatuses.Enqueue(
+          HttpStatusCode.Conflict);
+      await using var factory =
+          new WebApplicationFactory<Program>()
+              .WithWebHostBuilder(
+                  builder => builder.ConfigureServices(
+                      services => services
+                          .AddHttpClient(
+                              SupportRelayManagementHttpClientOptions
+                                  .ClientName)
+                          .ConfigurePrimaryHttpMessageHandler(
+                              () => relayHandler)));
+      using var client = factory.CreateClient();
+      var browserSession =
+          await DashboardTestHelpers.GetSessionAsync(
+              client,
+              cancellationToken);
+      var enrollment =
+          await SupportEnrollmentTestHelper.EnrollAsync(
+              client,
+              browserSession.AntiforgeryToken,
+              SupportKeyFactory.CreateNodeKeys(),
+              cancellationToken);
+
+      using var response =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              browserSession.AntiforgeryToken,
+              new
+              {
+                IntentId = Guid.NewGuid(),
+                NodeId = Guid.Parse(
+                    enrollment.NodeId,
+                    CultureInfo.InvariantCulture),
+                DiagnosticMode =
+                    SupportDiagnosticModes.ConnectorOffline,
+                ProfileId = (string?)null,
+                ExpiresInSeconds = 300,
+              },
+              cancellationToken);
+      using var error = JsonDocument.Parse(
+          await response.Content.ReadAsStringAsync(
+              cancellationToken));
+
+      await Assert.That(response.StatusCode)
+          .IsEqualTo(HttpStatusCode.Conflict);
+      await Assert.That(
+              error.RootElement
+                  .GetProperty("error")
+                  .GetProperty("code")
+                  .GetString())
+          .IsEqualTo("support_session_enqueue_conflict");
     }
     finally
     {
@@ -180,6 +538,7 @@ public sealed class SupportHostingTests
       {
         Content = JsonContent.Create(
             new CreateSupportDiagnosticSessionRequest(
+                Guid.NewGuid(),
                 Guid.Parse(
                     enrollment.NodeId,
                     CultureInfo.InvariantCulture),
@@ -265,6 +624,7 @@ public sealed class SupportHostingTests
       using var response = await client.PostAsJsonAsync(
           $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
           new CreateSupportDiagnosticSessionRequest(
+              Guid.NewGuid(),
               Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture),
               SupportDiagnosticModes.Full,
               null,
@@ -312,6 +672,7 @@ public sealed class SupportHostingTests
           $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
           credential.Value,
           new CreateSupportDiagnosticSessionRequest(
+              Guid.NewGuid(),
               Guid.Parse(enrollment.NodeId, CultureInfo.InvariantCulture),
               SupportDiagnosticModes.Full,
               null,
@@ -319,6 +680,184 @@ public sealed class SupportHostingTests
           cancellationToken);
 
       await Assert.That(createResponse.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
+    }
+    finally
+    {
+      DashboardTestHelpers.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Connector_Node_Restriction_Does_Not_Authorize_A_Support_Node_With_The_Same_Guid(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = DashboardTestHelpers.CreateDatabasePath();
+    try
+    {
+      using var configuration = new TestConfigurationScope(databasePath);
+      await using var factory = new WebApplicationFactory<Program>();
+      using var client = factory.CreateClient();
+      var session = await DashboardTestHelpers.GetSessionAsync(
+          client,
+          cancellationToken);
+      var enrollment = await SupportEnrollmentTestHelper.EnrollAsync(
+          client,
+          session.AntiforgeryToken,
+          SupportKeyFactory.CreateNodeKeys(),
+          cancellationToken);
+      var nodeId = Guid.Parse(
+          enrollment.NodeId,
+          CultureInfo.InvariantCulture);
+      var createBody = new
+      {
+        IntentId = Guid.NewGuid(),
+        NodeId = nodeId,
+        DiagnosticMode =
+            SupportDiagnosticModes.ConnectorOffline,
+        ProfileId = (string?)null,
+        ExpiresInSeconds = 300,
+      };
+      using var adminCreateResponse =
+          await DashboardTestHelpers.PostAuthenticatedAsync(
+              client,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              session.AntiforgeryToken,
+              createBody,
+              cancellationToken);
+      var adminCreated = await adminCreateResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse>(
+              cancellationToken) ??
+          throw new InvalidOperationException(
+              "Expected an administrator-created support session.");
+      var credential =
+          await DashboardTestHelpers.CreateDiagnosticCredentialAsync(
+              client,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "connector node restricted support credential",
+              DateTimeOffset.Parse(
+                  "2027-08-01T00:00:00+00:00",
+                  CultureInfo.InvariantCulture),
+              [],
+              [],
+              cancellationToken);
+      await using (var connection =
+          new SqliteConnection($"Data Source={databasePath}"))
+      {
+        await connection.OpenAsync(cancellationToken);
+        await using (var disableForeignKeys =
+            connection.CreateCommand())
+        {
+          disableForeignKeys.CommandText =
+              "PRAGMA foreign_keys = OFF;";
+          await disableForeignKeys.ExecuteNonQueryAsync(
+              cancellationToken);
+        }
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO diagnostic_credential_nodes (
+                credential_id,
+                node_id)
+            VALUES (
+                $credentialId,
+                $nodeId);
+            """;
+        command.Parameters.AddWithValue(
+            "$credentialId",
+            credential.Credential.CredentialId.ToString("D"));
+        command.Parameters.AddWithValue(
+            "$nodeId",
+            nodeId.ToString("D"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+      }
+
+      using var createResponse =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              client,
+              HttpMethod.Post,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              credential.Value,
+              createBody,
+              cancellationToken);
+      using var restrictedListResponse =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              client,
+              HttpMethod.Get,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              credential.Value,
+              body: null,
+              cancellationToken);
+      var restrictedList = await restrictedListResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse[]>(
+              cancellationToken);
+      using var restrictedExactResponse =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              client,
+              HttpMethod.Get,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions/{adminCreated.SessionId}",
+              credential.Value,
+              body: null,
+              cancellationToken);
+      using var adminListResponse =
+          await client.GetAsync(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              cancellationToken);
+      var adminList = await adminListResponse.Content
+          .ReadFromJsonAsync<SupportDiagnosticSessionResponse[]>(
+              cancellationToken);
+      using var adminExactResponse =
+          await client.GetAsync(
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions/{adminCreated.SessionId}",
+              cancellationToken);
+      var unrestrictedCredential =
+          await DashboardTestHelpers.CreateDiagnosticCredentialAsync(
+              client,
+              session.AntiforgeryToken,
+              DashboardTestHelpers.TenantId,
+              "tenant support diagnostic credential",
+              DateTimeOffset.Parse(
+                  "2027-08-01T00:00:00+00:00",
+                  CultureInfo.InvariantCulture),
+              [],
+              [],
+              cancellationToken);
+      using var unrestrictedListResponse =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              client,
+              HttpMethod.Get,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions",
+              unrestrictedCredential.Value,
+              body: null,
+              cancellationToken);
+      var unrestrictedList =
+          await unrestrictedListResponse.Content
+              .ReadFromJsonAsync<SupportDiagnosticSessionResponse[]>(
+                  cancellationToken);
+      using var unrestrictedExactResponse =
+          await DashboardTestHelpers.SendDiagnosticAsync(
+              client,
+              HttpMethod.Get,
+              $"/api/tenants/{DashboardTestHelpers.TenantId}/support/v1/sessions/{adminCreated.SessionId}",
+              unrestrictedCredential.Value,
+              body: null,
+              cancellationToken);
+
+      await Assert.That(createResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(restrictedListResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(restrictedList).IsEmpty();
+      await Assert.That(restrictedExactResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.Forbidden);
+      await Assert.That(adminList).Contains(
+          candidate => candidate.SessionId == adminCreated.SessionId);
+      await Assert.That(adminExactResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
+      await Assert.That(unrestrictedList).Contains(
+          candidate => candidate.SessionId == adminCreated.SessionId);
+      await Assert.That(unrestrictedExactResponse.StatusCode)
+          .IsEqualTo(HttpStatusCode.OK);
     }
     finally
     {
@@ -1113,6 +1652,57 @@ public sealed class SupportHostingTests
     {
       DashboardTestHelpers.DeleteDatabase(databasePath);
     }
+  }
+
+  private static async Task SetSupportSessionStatusAsync(
+      string databasePath,
+      Guid sessionId,
+      string status,
+      DateTimeOffset transitionedAt,
+      CancellationToken cancellationToken)
+  {
+    await using var connection =
+        new SqliteConnection($"Data Source={databasePath}");
+    await connection.OpenAsync(cancellationToken);
+    await using var command = connection.CreateCommand();
+    command.CommandText =
+        """
+        UPDATE support_sessions
+        SET status = $status,
+            dispatched_at =
+                CASE
+                    WHEN $status IN ('dispatched', 'completed', 'rejected')
+                    THEN $transitionedAt
+                    ELSE dispatched_at
+                END,
+            rejection_disposition =
+                CASE
+                    WHEN $status = 'rejected'
+                    THEN 'broker-evidence-access-denied'
+                    ELSE NULL
+                END,
+            completed_at =
+                CASE
+                    WHEN $status IN ('completed', 'rejected', 'expired')
+                    THEN $transitionedAt
+                    ELSE completed_at
+                END,
+            cancelled_at =
+                CASE
+                    WHEN $status = 'cancelled'
+                    THEN $transitionedAt
+                    ELSE cancelled_at
+                END
+        WHERE session_id = $sessionId;
+        """;
+    command.Parameters.AddWithValue("$status", status);
+    command.Parameters.AddWithValue(
+        "$transitionedAt",
+        transitionedAt.ToString("O", CultureInfo.InvariantCulture));
+    command.Parameters.AddWithValue(
+        "$sessionId",
+        sessionId.ToString("D", CultureInfo.InvariantCulture));
+    await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
   private static void AddAuthenticationCookie(

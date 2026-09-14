@@ -9,10 +9,37 @@ internal sealed class SupportPrincipalAuthorizer(
     SupportDashboardAccessService _accessContextService,
     IDiagnosticAccessScopeAccessor _diagnosticScopeAccessor)
 {
+  public async Task<SupportAccessDecision> CanListAsync(
+      ClaimsPrincipal principal,
+      string tenantId,
+      CancellationToken cancellationToken)
+  {
+    var diagnosticScope = _diagnosticScopeAccessor.GetOrNull(principal);
+    if (diagnosticScope is not null)
+    {
+      return string.Equals(
+              diagnosticScope.TenantId,
+              tenantId,
+              StringComparison.Ordinal) &&
+          diagnosticScope.NodeIds.Count == 0
+              ? new SupportAccessDecision(
+                  true,
+                  diagnosticScope.CredentialId.ToString("N"),
+                  diagnosticScope)
+              : new SupportAccessDecision(
+                  false,
+                  null,
+                  diagnosticScope);
+    }
+    return await AuthorizeAdministratorAsync(
+        principal,
+        tenantId,
+        cancellationToken);
+  }
+
   public async Task<SupportAccessDecision> CanRequestOrReadAsync(
       ClaimsPrincipal principal,
       string tenantId,
-      Guid nodeId,
       string? profileId,
       CancellationToken cancellationToken)
   {
@@ -20,7 +47,7 @@ internal sealed class SupportPrincipalAuthorizer(
     if (diagnosticScope is not null)
     {
       if (!string.Equals(diagnosticScope.TenantId, tenantId, StringComparison.Ordinal) ||
-          diagnosticScope.NodeIds.Count > 0 && !diagnosticScope.NodeIds.Contains(nodeId) ||
+          diagnosticScope.NodeIds.Count > 0 ||
           diagnosticScope.ProfileIds.Count > 0 &&
           (profileId is null ||
            !diagnosticScope.ProfileIds.Contains(profileId, StringComparer.Ordinal)))
@@ -33,6 +60,17 @@ internal sealed class SupportPrincipalAuthorizer(
           diagnosticScope);
     }
 
+    return await AuthorizeAdministratorAsync(
+        principal,
+        tenantId,
+        cancellationToken);
+  }
+
+  private async Task<SupportAccessDecision> AuthorizeAdministratorAsync(
+      ClaimsPrincipal principal,
+      string tenantId,
+      CancellationToken cancellationToken)
+  {
     var context = await _accessContextService.GetOrNullAsync(
         principal,
         cancellationToken);
@@ -50,4 +88,3 @@ internal sealed class SupportPrincipalAuthorizer(
     return new SupportAccessDecision(false, null, null);
   }
 }
-

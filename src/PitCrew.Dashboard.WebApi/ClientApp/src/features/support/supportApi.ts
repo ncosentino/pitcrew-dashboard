@@ -27,6 +27,9 @@ export const supportResultSchema = z.object({
   markdown: z.string(),
   attestation: supportAttestationSchema,
 });
+const dotNetGuidSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 export const supportRejectionDispositionSchema = z.enum([
   'envelope-unsupported',
   'envelope-signature-rejected',
@@ -54,7 +57,7 @@ export const supportRejectionDispositionSchema = z.enum([
   'result-unavailable',
 ]);
 export const supportSessionSchema = z.object({
-  sessionId: z.string().uuid(),
+  sessionId: dotNetGuidSchema,
   nodeId: z.string().uuid(),
   diagnosticMode: z.string(),
   profileId: z.string().nullable(),
@@ -125,6 +128,7 @@ export async function getSupportSession(
 
 export async function createSupportSession(
   tenantId: string,
+  intentId: string,
   nodeId: string,
   diagnosticMode: string,
   profileId: string | null,
@@ -135,7 +139,7 @@ export async function createSupportSession(
     {
       method: 'POST',
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
-      body: { nodeId, diagnosticMode, profileId, expiresInSeconds: 900 },
+      body: { intentId, nodeId, diagnosticMode, profileId, expiresInSeconds: 900 },
       schema: supportSessionSchema,
     },
   );

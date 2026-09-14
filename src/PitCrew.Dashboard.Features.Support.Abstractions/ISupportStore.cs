@@ -257,14 +257,28 @@ public interface ISupportStore
   /// Creates one queued diagnostic session.
   /// </summary>
   /// <param name="session">Session to persist.</param>
+  /// <param name="intentId">Caller-generated identity used to reconcile exact retries.</param>
   /// <param name="expectedNodeSigningPublicKeySpki">Signing key used to pin the session.</param>
   /// <param name="expectedNodeEncryptionPublicKeySpki">Encryption key used to seal the request.</param>
   /// <param name="cancellationToken">Token that cancels the write.</param>
   /// <returns>Mutation status.</returns>
   Task<SupportMutationStatus> CreateSessionAsync(
       SupportDiagnosticSession session,
+      Guid intentId,
       string expectedNodeSigningPublicKeySpki,
       string expectedNodeEncryptionPublicKeySpki,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Loads the session created for one tenant-scoped request intent.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the request intent.</param>
+  /// <param name="intentId">Caller-generated request intent identity.</param>
+  /// <param name="cancellationToken">Token that cancels the query.</param>
+  /// <returns>The existing session, or <see langword="null" /> when absent.</returns>
+  Task<SupportDiagnosticSession?> GetSessionByIntentOrNullAsync(
+      string tenantId,
+      Guid intentId,
       CancellationToken cancellationToken);
 
   /// <summary>

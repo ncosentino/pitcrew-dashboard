@@ -303,7 +303,7 @@ internal sealed class SqliteRelayStore(string _databasePath)
     return RelayCredentialRotationStatus.Promoted;
   }
 
-  public async Task<bool> EnqueueSessionAsync(
+  public async Task<RelaySessionEnqueueStatus> EnqueueSessionAsync(
       RelaySessionEnqueueRequest request,
       CancellationToken cancellationToken)
   {
@@ -345,12 +345,14 @@ internal sealed class SqliteRelayStore(string _databasePath)
     var inserted = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     if (inserted)
     {
-      return true;
+      return RelaySessionEnqueueStatus.Succeeded;
     }
     await using var existing = connection.CreateCommand();
     existing.CommandText =
         """
-        SELECT 1
+        SELECT
+            expires_at,
+            request_envelope_json
         FROM relay_sessions
         WHERE session_id = $sessionId
           AND tenant_id = $tenantId
@@ -359,7 +361,22 @@ internal sealed class SqliteRelayStore(string _databasePath)
     existing.Parameters.AddWithValue("$sessionId", request.SessionId.ToString("D"));
     existing.Parameters.AddWithValue("$tenantId", request.TenantId);
     existing.Parameters.AddWithValue("$nodeId", request.NodeId.ToString("D"));
-    return await existing.ExecuteScalarAsync(cancellationToken) is not null;
+    await using var reader =
+        await existing.ExecuteReaderAsync(cancellationToken);
+    if (await reader.ReadAsync(cancellationToken))
+    {
+      return DateTimeOffset.Parse(
+              reader.GetString(0),
+              CultureInfo.InvariantCulture) ==
+              request.ExpiresAt &&
+          string.Equals(
+              reader.GetString(1),
+              request.RequestEnvelope,
+              StringComparison.Ordinal)
+          ? RelaySessionEnqueueStatus.Succeeded
+          : RelaySessionEnqueueStatus.Conflict;
+    }
+    return RelaySessionEnqueueStatus.NotFound;
   }
 
   public async Task<RelayPollOutcome> PollAsync(

@@ -113,11 +113,13 @@ public sealed record SupportIdentityResponse(
 /// <summary>
 /// Request to create one bounded read-only diagnostic session.
 /// </summary>
+/// <param name="IntentId">Caller-generated idempotency identity for exact retry recovery.</param>
 /// <param name="NodeId">Target support node identifier.</param>
 /// <param name="DiagnosticMode">Closed v1 diagnostic mode.</param>
 /// <param name="ProfileId">Optional locally configured PitCrew profile identifier.</param>
 /// <param name="ExpiresInSeconds">Requested session lifetime.</param>
 public sealed record CreateSupportDiagnosticSessionRequest(
+    Guid IntentId,
     Guid NodeId,
     string DiagnosticMode,
     string? ProfileId,
