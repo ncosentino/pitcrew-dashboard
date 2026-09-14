@@ -22,6 +22,10 @@ internal sealed class SupportSessionRelayHandler :
 
   public string? RejectionDisposition { get; set; }
 
+  public Queue<HttpStatusCode> EnqueueStatuses { get; } = new();
+
+  public List<Guid> EnqueuedSessionIds { get; } = [];
+
   protected override async Task<HttpResponseMessage> SendAsync(
       HttpRequestMessage request,
       CancellationToken cancellationToken)
@@ -44,7 +48,11 @@ internal sealed class SupportSessionRelayHandler :
       _sessionId = root.GetProperty("sessionId").GetGuid();
       _expiresAt = root.GetProperty("expiresAt")
           .GetDateTimeOffset();
-      return new HttpResponseMessage(HttpStatusCode.Accepted);
+      EnqueuedSessionIds.Add(_sessionId);
+      return new HttpResponseMessage(
+          EnqueueStatuses.TryDequeue(out var status)
+              ? status
+              : HttpStatusCode.Accepted);
     }
     if (request.Method == HttpMethod.Get &&
         path ==

@@ -139,6 +139,53 @@ public sealed class RelayStoreTests
   }
 
   [Test]
+  public async Task Enqueue_Is_Idempotent_Only_For_An_Exact_Request(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = CreateDatabasePath();
+    try
+    {
+      var store = new SqliteRelayStore(databasePath);
+      await store.InitializeAsync(cancellationToken);
+      var nodeId = Guid.Parse("11111111-1111-1111-1111-111111111111", CultureInfo.InvariantCulture);
+      var sessionId = Guid.Parse("33333333-3333-3333-3333-333333333333", CultureInfo.InvariantCulture);
+      var expiresAt = DateTimeOffset.Parse(
+          "2026-08-01T00:10:00+00:00",
+          CultureInfo.InvariantCulture);
+      await store.RegisterNodeAsync(
+          new RelayNodeRegistrationRequest(
+              "tenant-a",
+              nodeId,
+              RelayCredentialHash.Hash("credential-a")),
+          cancellationToken);
+      var request = new RelaySessionEnqueueRequest(
+          "tenant-a",
+          nodeId,
+          sessionId,
+          expiresAt,
+          "opaque-request");
+
+      var first = await store.EnqueueSessionAsync(request, cancellationToken);
+      var exactRetry = await store.EnqueueSessionAsync(request, cancellationToken);
+      var changedEnvelope = await store.EnqueueSessionAsync(
+          request with { RequestEnvelope = "different-request" },
+          cancellationToken);
+      var changedExpiry = await store.EnqueueSessionAsync(
+          request with { ExpiresAt = expiresAt.AddMinutes(1) },
+          cancellationToken);
+
+      await Assert.That(first).IsEqualTo(RelaySessionEnqueueStatus.Succeeded);
+      await Assert.That(exactRetry).IsEqualTo(RelaySessionEnqueueStatus.Succeeded);
+      await Assert.That(changedEnvelope).IsEqualTo(RelaySessionEnqueueStatus.Conflict);
+      await Assert.That(changedExpiry).IsEqualTo(RelaySessionEnqueueStatus.Conflict);
+    }
+    finally
+    {
+      DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Session_Cannot_Cross_The_Registered_Node_Tenant(
       CancellationToken cancellationToken)
   {
@@ -166,7 +213,7 @@ public sealed class RelayStoreTests
           cancellationToken);
       var stored = await store.GetSessionAsync(sessionId, cancellationToken);
 
-      await Assert.That(enqueued).IsFalse()
+      await Assert.That(enqueued).IsEqualTo(RelaySessionEnqueueStatus.NotFound)
           .Because("relay routing must bind a session to the node's registered tenant");
       await Assert.That(stored).IsNull();
     }

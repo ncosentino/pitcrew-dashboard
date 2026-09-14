@@ -7,11 +7,13 @@ namespace PitCrew.Dashboard.Features.Support.Abstractions;
 /// <summary>
 /// Defines the bounded support diagnostic request accepted by Dashboard APIs.
 /// </summary>
+/// <param name="IntentId">Caller-generated idempotency identity for exact retry recovery.</param>
 /// <param name="NodeId">Target support node identifier.</param>
 /// <param name="DiagnosticMode">Closed diagnostic mode.</param>
 /// <param name="ProfileId">Optional locally configured PitCrew profile identifier.</param>
 /// <param name="ExpiresInSeconds">Requested lifetime in seconds.</param>
 public sealed record SupportDiagnosticSessionInput(
+    Guid IntentId,
     Guid NodeId,
     string DiagnosticMode,
     string? ProfileId,
@@ -86,6 +88,9 @@ public enum SupportMutationStatus
 
   /// <summary>The session is already terminal or otherwise conflicts.</summary>
   Conflict,
+
+  /// <summary>Relay management could not confirm whether the request was accepted.</summary>
+  Unavailable,
 }
 
 /// <summary>

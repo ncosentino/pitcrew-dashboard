@@ -151,6 +151,7 @@ internal sealed class SupportCanaryDashboardClient : IDisposable
     {
       Content = JsonContent.Create(
           new CreateSupportDiagnosticSessionRequest(
+              Guid.NewGuid(),
               nodeId,
               diagnosticMode,
               profileId,

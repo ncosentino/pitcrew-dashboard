@@ -145,6 +145,11 @@ public sealed class SupportTerminalLifecycleScenario : ICanaryScenario
             SupportDiagnosticModes.ConnectorOffline,
             UnconfiguredProfileId,
             cancellationToken);
+    if (brokerRejecting.ProfileId != UnconfiguredProfileId)
+    {
+      throw new CanaryScenarioFailureException(
+          "terminal-lifecycle-matrix-mismatch");
+    }
     var brokerRejected = await WaitForStatusAsync(
         dashboard,
         ParseSessionId(brokerRejecting),
@@ -168,6 +173,11 @@ public sealed class SupportTerminalLifecycleScenario : ICanaryScenario
         antiforgeryToken,
         activeNodeId,
         cancellationToken);
+    if (completing.ProfileId is not null)
+    {
+      throw new CanaryScenarioFailureException(
+          "terminal-lifecycle-matrix-mismatch");
+    }
     var completed = await WaitForStatusAsync(
         dashboard,
         ParseSessionId(completing),
@@ -179,6 +189,11 @@ public sealed class SupportTerminalLifecycleScenario : ICanaryScenario
         "Completed",
         requireDispatch: true,
         requireResult: true);
+    if (completed.ProfileId is not null)
+    {
+      throw new CanaryScenarioFailureException(
+          "terminal-lifecycle-matrix-mismatch");
+    }
     await dashboard.RevokeAsync(
         antiforgeryToken,
         dormant.NodeId,

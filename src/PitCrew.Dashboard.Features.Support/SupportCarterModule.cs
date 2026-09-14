@@ -234,6 +234,7 @@ public sealed class SupportCarterModule : ICarterModule
         context.User,
         tenantId,
         new SupportDiagnosticSessionInput(
+            request.IntentId,
             request.NodeId,
             request.DiagnosticMode,
             request.ProfileId,
@@ -248,7 +249,17 @@ public sealed class SupportCarterModule : ICarterModule
       SupportMutationStatus.Forbidden => Results.Forbid(),
       SupportMutationStatus.NotFound => Results.NotFound(),
       SupportMutationStatus.Revoked => Results.Conflict(Error("support_identity_revoked", "The support identity is revoked.")),
-      _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Unsupported support session creation result."),
+      SupportMutationStatus.Conflict => Results.Conflict(Error(
+          "support_session_enqueue_conflict",
+          result.Error ?? "The support session could not be queued in its current state.")),
+      SupportMutationStatus.Unavailable => Results.Json(
+          Error(
+              "support_relay_unavailable",
+              result.Error ?? "Relay acceptance is not yet confirmed. Retry with the same request intent."),
+          statusCode: StatusCodes.Status503ServiceUnavailable),
+      _ => Results.BadRequest(Error(
+          "invalid_support_session_result",
+          "The support diagnostic session outcome is invalid.")),
     };
   }
 
@@ -266,7 +277,20 @@ public sealed class SupportCarterModule : ICarterModule
       SupportMutationStatus.Succeeded when result.Session is not null => Results.Ok(MapSession(result.Session)),
       SupportMutationStatus.Forbidden => Results.Forbid(),
       SupportMutationStatus.NotFound => Results.NotFound(),
-      _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Unsupported support session query result."),
+      SupportMutationStatus.Invalid => Results.BadRequest(Error(
+          "invalid_support_session_query",
+          "The support session query is invalid.")),
+      SupportMutationStatus.Conflict => Results.Conflict(Error(
+          "support_session_query_conflict",
+          "The support session could not be read in its current state.")),
+      SupportMutationStatus.Unavailable => Results.Json(
+          Error(
+              "support_session_query_unavailable",
+              "The support session could not be refreshed. Its last known state remains available."),
+          statusCode: StatusCodes.Status503ServiceUnavailable),
+      _ => Results.Conflict(Error(
+          "support_session_query_outcome",
+          "The support session query did not produce a readable result.")),
     };
   }
 

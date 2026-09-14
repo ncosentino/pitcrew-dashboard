@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 
 import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
+import { ApiError } from '@/core/api/httpClient';
 import { useSession } from '@/core/auth';
 import { formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
@@ -26,7 +27,6 @@ import {
   type SupportIdentity,
   type SupportSession,
 } from './supportApi';
-
 const diagnosticModeOptions = [
   {
     value: 'ConnectorOffline',
@@ -63,6 +63,110 @@ function readRequestedMode(value: string | null): DiagnosticMode | null {
 }
 
 type SupportSection = 'overview' | 'run' | 'sessions' | 'nodes';
+type SelectedSessionLoadState = 'idle' | 'loading' | 'not-found' | 'unavailable';
+
+export interface PendingSupportIntent {
+  readonly id: string;
+  readonly parameters: string;
+  readonly expiresAt: number;
+}
+
+export const pendingSupportIntentTtlMilliseconds = 15 * 60 * 1_000;
+
+const pendingIntentStoragePrefix = 'pitcrew.support.pending-intent.v1';
+const intentIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function pendingIntentStorageKey(tenantId: string): string {
+  return `${pendingIntentStoragePrefix}:${encodeURIComponent(tenantId)}`;
+}
+
+function getSessionStorage(): Storage | null {
+  try {
+    return globalThis.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function removePendingIntentValue(storage: Storage, key: string): void {
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Storage can become unavailable after a successful read.
+  }
+}
+
+export function readPendingSupportIntent(
+  tenantId: string,
+  parameters: string,
+  now = Date.now(),
+): PendingSupportIntent | null {
+  const storage = getSessionStorage();
+  if (!storage || tenantId.length === 0) return null;
+  const key = pendingIntentStorageKey(tenantId);
+  try {
+    const value = storage.getItem(key);
+    if (value === null) return null;
+    const candidate = JSON.parse(value) as Partial<PendingSupportIntent>;
+    if (
+      typeof candidate.id !== 'string' ||
+      !intentIdPattern.test(candidate.id) ||
+      candidate.parameters !== parameters ||
+      typeof candidate.expiresAt !== 'number' ||
+      !Number.isFinite(candidate.expiresAt) ||
+      candidate.expiresAt <= now ||
+      candidate.expiresAt > now + pendingSupportIntentTtlMilliseconds
+    ) {
+      removePendingIntentValue(storage, key);
+      return null;
+    }
+    return {
+      id: candidate.id,
+      parameters,
+      expiresAt: candidate.expiresAt,
+    };
+  } catch {
+    removePendingIntentValue(storage, key);
+    return null;
+  }
+}
+
+export function writePendingSupportIntent(
+  tenantId: string,
+  parameters: string,
+  id: string,
+  now = Date.now(),
+): PendingSupportIntent {
+  const intent = {
+    id,
+    parameters,
+    expiresAt: now + pendingSupportIntentTtlMilliseconds,
+  };
+  const storage = getSessionStorage();
+  if (!storage || tenantId.length === 0) return intent;
+  try {
+    storage.setItem(pendingIntentStorageKey(tenantId), JSON.stringify(intent));
+  } catch {
+    // The in-memory intent still protects retries during this mount.
+  }
+  return intent;
+}
+
+export function clearPendingSupportIntent(tenantId: string, intent: PendingSupportIntent): void {
+  const storage = getSessionStorage();
+  if (!storage || tenantId.length === 0) return;
+  const key = pendingIntentStorageKey(tenantId);
+  try {
+    const value = storage.getItem(key);
+    if (value === null) return;
+    const candidate = JSON.parse(value) as Partial<PendingSupportIntent>;
+    if (candidate.id === intent.id && candidate.parameters === intent.parameters) {
+      removePendingIntentValue(storage, key);
+    }
+  } catch {
+    removePendingIntentValue(storage, key);
+  }
+}
 
 const sessionRefreshIntervalMilliseconds = 5_000;
 const maximumAutomaticallyRefreshedSessions = 16;
@@ -117,6 +221,7 @@ export default function SupportPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [sessionRefreshError, setSessionRefreshError] = useState<string | null>(null);
   const [requestBusy, setRequestBusy] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState<PendingSupportIntent | null>(null);
   const [enrollmentBusy, setEnrollmentBusy] = useState(false);
   const [showEnrollment, setShowEnrollment] = useState(false);
   const [revokingNodeId, setRevokingNodeId] = useState<string | null>(null);
@@ -138,6 +243,8 @@ export default function SupportPage() {
     selectedSessionId === null
       ? (sessions[0] ?? null)
       : (sessions.find((candidate) => candidate.sessionId === selectedSessionId) ?? null);
+  const [selectedSessionLoadState, setSelectedSessionLoadState] =
+    useState<SelectedSessionLoadState>('idle');
   const selectedMode =
     diagnosticModeOptions.find((candidate) => candidate.value === mode) ?? diagnosticModeOptions[0];
   const taskNavigationItems = [
@@ -177,7 +284,17 @@ export default function SupportPage() {
         getSupportSessions(tenantId, signal),
       ]);
       setIdentities(nextIdentities);
-      setSessions(prioritizeSessions(nextSessions));
+      setSessions((current) => {
+        const exactSelected = selectedSessionId
+          ? current.find((candidate) => candidate.sessionId === selectedSessionId)
+          : undefined;
+        return prioritizeSessions(
+          exactSelected &&
+            !nextSessions.some((candidate) => candidate.sessionId === exactSelected.sessionId)
+            ? [...nextSessions, exactSelected]
+            : nextSessions,
+        );
+      });
       setLoaded(true);
       setLoadFailed(false);
       const activeIdentities = nextIdentities.filter((identity) => identity.status === 'Active');
@@ -187,7 +304,7 @@ export default function SupportPage() {
           : (activeIdentities[0]?.nodeId ?? ''),
       );
     },
-    [tenantId],
+    [selectedSessionId, tenantId],
   );
 
   useEffect(() => {
@@ -206,6 +323,35 @@ export default function SupportPage() {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (selectedSessionId === null || selectedSession !== null) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setSelectedSessionLoadState('loading');
+      void getSupportSession(tenantId, selectedSessionId, controller.signal)
+        .then((exactSession) => {
+          if (controller.signal.aborted) return;
+          setSessions((current) =>
+            prioritizeSessions([
+              ...current.filter((candidate) => candidate.sessionId !== exactSession.sessionId),
+              exactSession,
+            ]),
+          );
+          setSelectedSessionLoadState('idle');
+        })
+        .catch((caught: unknown) => {
+          if (caught instanceof Error && caught.name === 'AbortError') return;
+          setSelectedSessionLoadState(
+            caught instanceof ApiError && caught.status === 404 ? 'not-found' : 'unavailable',
+          );
+        });
+    }, 0);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [selectedSession, selectedSessionId, tenantId]);
+
   const refreshActiveSessions = useCallback(async () => {
     if (activeSessionKey.length === 0) return;
     sessionRefreshController.current?.abort();
@@ -213,22 +359,30 @@ export default function SupportPage() {
     sessionRefreshController.current = controller;
     try {
       const sessionIds = activeSessionKey.split(',');
-      const refreshed = await Promise.all(
-        sessionIds.map((sessionId) => getSupportSession(tenantId, sessionId, controller.signal)),
+      const failures: string[] = [];
+      await Promise.all(
+        sessionIds.map(async (sessionId) => {
+          try {
+            const refreshed = await getSupportSession(tenantId, sessionId, controller.signal);
+            if (controller.signal.aborted) return;
+            setSessions((current) =>
+              current.map((candidate) =>
+                candidate.sessionId === refreshed.sessionId ? refreshed : candidate,
+              ),
+            );
+          } catch (caught) {
+            if (caught instanceof Error && caught.name === 'AbortError') return;
+            failures.push(
+              caught instanceof Error
+                ? caught.message
+                : 'A support session could not be refreshed automatically.',
+            );
+          }
+        }),
       );
-      if (controller.signal.aborted) return;
-      const refreshedById = new Map(refreshed.map((candidate) => [candidate.sessionId, candidate]));
-      setSessions((current) =>
-        current.map((candidate) => refreshedById.get(candidate.sessionId) ?? candidate),
-      );
-      setSessionRefreshError(null);
-    } catch (caught) {
-      if (caught instanceof Error && caught.name === 'AbortError') return;
-      setSessionRefreshError(
-        caught instanceof Error
-          ? caught.message
-          : 'Active support sessions could not be refreshed automatically.',
-      );
+      if (!controller.signal.aborted) {
+        setSessionRefreshError(failures[0] ?? null);
+      }
     } finally {
       if (sessionRefreshController.current === controller) {
         sessionRefreshController.current = null;
@@ -249,6 +403,31 @@ export default function SupportPage() {
   }, [activeSessionKey, refreshActiveSessions]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (nodeId.length === 0) {
+        setPendingIntent(null);
+        return;
+      }
+      const normalizedProfileId = profileId.trim().length === 0 ? null : profileId.trim();
+      const parameters = JSON.stringify([nodeId, mode, normalizedProfileId, 900]);
+      setPendingIntent(readPendingSupportIntent(tenantId, parameters));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [mode, nodeId, profileId, tenantId]);
+
+  useEffect(() => {
+    if (pendingIntent === null) return;
+    const timer = window.setTimeout(
+      () => {
+        clearPendingSupportIntent(tenantId, pendingIntent);
+        setPendingIntent((current) => (current?.id === pendingIntent.id ? null : current));
+      },
+      Math.max(0, pendingIntent.expiresAt - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [pendingIntent, tenantId]);
+
+  useEffect(() => {
     if (enrollment) {
       enrollmentResult.current?.focus({ preventScroll: true });
     }
@@ -256,13 +435,23 @@ export default function SupportPage() {
 
   const requestSession = async () => {
     if (!session) return;
+    const normalizedProfileId = profileId.trim().length === 0 ? null : profileId.trim();
+    const parameters = JSON.stringify([nodeId, mode, normalizedProfileId, 900]);
+    const now = Date.now();
+    const intent =
+      pendingIntent?.parameters === parameters && pendingIntent.expiresAt > now
+        ? pendingIntent
+        : (readPendingSupportIntent(tenantId, parameters) ??
+          writePendingSupportIntent(tenantId, parameters, crypto.randomUUID(), now));
+    setPendingIntent(intent);
     setRequestBusy(true);
     try {
       const created = await createSupportSession(
         tenantId,
+        intent.id,
         nodeId,
         mode,
-        profileId.trim().length === 0 ? null : profileId.trim(),
+        normalizedProfileId,
         session.antiforgeryToken,
       );
       setSessions((current) =>
@@ -271,6 +460,8 @@ export default function SupportPage() {
           ...current.filter((item) => item.sessionId !== created.sessionId),
         ]),
       );
+      clearPendingSupportIntent(tenantId, intent);
+      setPendingIntent(null);
       setError(null);
       try {
         await load();
@@ -284,10 +475,20 @@ export default function SupportPage() {
       }
       navigate(`${supportBasePath}/sessions/${created.sessionId}`);
     } catch (caught) {
-      setError(
+      const uncertain =
+        !(caught instanceof ApiError) || caught.status === 0 || caught.status >= 500;
+      if (!uncertain) {
+        clearPendingSupportIntent(tenantId, intent);
+        setPendingIntent(null);
+      }
+      const message =
         caught instanceof Error
           ? caught.message
-          : 'Support diagnostic session could not be created.',
+          : 'Support diagnostic session could not be created.';
+      setError(
+        uncertain
+          ? `${message} The request may have been accepted. Retry request reconciliation with the same settings.`
+          : message,
       );
     } finally {
       setRequestBusy(false);
@@ -501,7 +702,7 @@ export default function SupportPage() {
                 </div>
                 <FormField
                   label="Profile ID"
-                  hint="Optional. Use only when the diagnostic should target one locally configured profile."
+                  hint="Leave blank only when this node allows exactly one local profile. Otherwise enter the allowed profile ID to avoid an ambiguous request."
                 >
                   <input
                     className="h-11 rounded-md border bg-background px-3 text-sm"
@@ -515,7 +716,11 @@ export default function SupportPage() {
                     disabled={requestBusy || !nodeId}
                     onClick={() => void requestSession()}
                   >
-                    {requestBusy ? 'Requesting…' : 'Request read-only diagnostics'}
+                    {requestBusy
+                      ? 'Requesting…'
+                      : pendingIntent
+                        ? 'Retry request reconciliation'
+                        : 'Request read-only diagnostics'}
                   </Button>
                   <p className="text-xs text-muted-foreground">
                     Sessions expire after 15 minutes and update automatically.
@@ -533,6 +738,7 @@ export default function SupportPage() {
               supportBasePath={supportBasePath}
               refreshError={sessionRefreshError}
               refreshLimited={activeSessions.length > maximumAutomaticallyRefreshedSessions}
+              selectedSessionLoadState={selectedSessionLoadState}
             />
           ) : null}
           {section === 'nodes' ? (
@@ -619,6 +825,7 @@ interface SupportSessionsWorkspaceProps {
   readonly supportBasePath: string;
   readonly refreshError: string | null;
   readonly refreshLimited: boolean;
+  readonly selectedSessionLoadState: SelectedSessionLoadState;
 }
 
 function SupportSessionsWorkspace({
@@ -629,6 +836,7 @@ function SupportSessionsWorkspace({
   supportBasePath,
   refreshError,
   refreshLimited,
+  selectedSessionLoadState,
 }: SupportSessionsWorkspaceProps) {
   const renderSessionList = () => (
     <OperationalList label="Support sessions">
@@ -656,7 +864,10 @@ function SupportSessionsWorkspace({
         </p>
       </div>
       {refreshError ? (
-        <StateBanner tone="critical">Automatic session refresh failed: {refreshError}</StateBanner>
+        <StateBanner tone="caution">
+          Automatic session refresh is partially unavailable: {refreshError}. Last known states are
+          retained and later polling continues.
+        </StateBanner>
       ) : null}
       {refreshLimited ? (
         <StateBanner tone="caution">
@@ -692,10 +903,26 @@ function SupportSessionsWorkspace({
               session={selectedSession}
               nodeName={supportNodeLabel(selectedSession.nodeId, identities)}
             />
-          ) : selectedSessionId ? (
+          ) : selectedSessionId && selectedSessionLoadState === 'loading' ? (
+            <DetailPanel
+              title="Loading selected session"
+              description="Reading this exact tenant session outside the bounded recent list."
+            >
+              <StateBanner tone="caution">Loading authoritative session evidence…</StateBanner>
+            </DetailPanel>
+          ) : selectedSessionId && selectedSessionLoadState === 'unavailable' ? (
+            <DetailPanel
+              title="Selected session unavailable"
+              description="The exact session could not be read. Recent session history remains unchanged."
+            >
+              <StateBanner tone="critical">
+                Keep this session link and retry after Dashboard connectivity recovers.
+              </StateBanner>
+            </DetailPanel>
+          ) : selectedSessionId && selectedSessionLoadState === 'not-found' ? (
             <DetailPanel
               title="Session not found"
-              description="The requested support session is not present in this tenant's recent session history."
+              description="The requested support session does not exist in this tenant."
             >
               <StateBanner tone="critical">
                 Check the session link or return to the session list and select an available record.
@@ -1017,10 +1244,15 @@ export function SupportSessionCard({
   nodeName = 'Support node unavailable',
 }: SupportSessionCardProps) {
   const active = isActiveSession(session);
-  const rejectionExplanation = session.rejectionDisposition
-    ? (rejectionGuidance[session.rejectionDisposition] ??
-      'The support agent rejected this request before producing a verified report.')
-    : null;
+  const rejectionExplanation =
+    session.rejectionDisposition === 'broker-invalid-profile'
+      ? session.profileId === null
+        ? 'The broker could not select one local profile. Omission is valid only when exactly one profile is allowlisted.'
+        : 'The requested profile is missing, invalid, or not allowlisted on the node.'
+      : session.rejectionDisposition
+        ? (rejectionGuidance[session.rejectionDisposition] ??
+          'The support agent rejected this request before producing a verified report.')
+        : null;
   return (
     <DetailPanel
       title={diagnosticModeLabel(session.diagnosticMode)}
@@ -1039,7 +1271,12 @@ export function SupportSessionCard({
             label="First dispatched"
             value={session.dispatchedAt ? formatTime(session.dispatchedAt) : 'Not dispatched'}
           />
-          <SessionFact label="Profile" value={session.profileId ?? 'All configured profiles'} />
+          <SessionFact
+            label="Profile"
+            value={
+              session.profileId ?? 'Not specified; local selection requires exactly one profile'
+            }
+          />
           <SessionFact label="Capability" value={session.capability} />
         </dl>
         <CopyableId value={session.sessionId} label="session ID" prefix="Session" />
@@ -1057,6 +1294,18 @@ export function SupportSessionCard({
             </div>
           </StateBanner>
         ) : null}
+        {session.status === 'Expired' ? (
+          <StateBanner tone="critical">
+            No verified report arrived before expiry. Confirm relay contact and local support setup,
+            then retry with the same node, mode, and explicit profile.
+          </StateBanner>
+        ) : null}
+        {session.status === 'Cancelled' ? (
+          <StateBanner tone="caution">
+            This request was cancelled before verified completion. Its request context remains
+            available for a deliberate retry.
+          </StateBanner>
+        ) : null}
         {active ? (
           <StateBanner tone="caution" role="status" aria-live="polite">
             Waiting for a terminal result. This session updates automatically.
@@ -1064,6 +1313,28 @@ export function SupportSessionCard({
         ) : null}
         {session.result ? (
           <>
+            <StateBanner
+              tone={hasUnavailableEvidence(session.result.report) ? 'caution' : 'positive'}
+            >
+              {session.profileId === null ? (
+                <p>
+                  The profile was selected locally because the request omitted one. Choose an
+                  allowed profile explicitly before repeating this diagnostic when more than one
+                  local profile may exist.
+                </p>
+              ) : null}
+              {hasUnavailableEvidence(session.result.report) ? (
+                <p>
+                  Verified partial report. Missing evidence remains unavailable, and completion does
+                  not confirm remediation.
+                </p>
+              ) : (
+                <p>
+                  The node-signed report was verified. Completion confirms evidence collection; it
+                  does not confirm remediation.
+                </p>
+              )}
+            </StateBanner>
             <section aria-labelledby="verified-report-heading" className="grid min-w-0 gap-2">
               <h3 id="verified-report-heading" className="text-base font-semibold">
                 Verified report
@@ -1129,6 +1400,12 @@ function supportNodeLabel(nodeId: string, identities: ReadonlyArray<SupportIdent
   return (
     identities.find((identity) => identity.nodeId === nodeId)?.displayName ?? 'Unknown support node'
   );
+}
+
+function hasUnavailableEvidence(report: unknown): boolean {
+  if (typeof report !== 'object' || report === null || Array.isArray(report)) return false;
+  const unavailableEvidence = Reflect.get(report, 'unavailableEvidence');
+  return Array.isArray(unavailableEvidence) && unavailableEvidence.length > 0;
 }
 
 function prioritizeSessions(

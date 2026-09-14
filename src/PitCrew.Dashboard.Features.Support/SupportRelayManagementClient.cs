@@ -122,22 +122,39 @@ internal sealed class SupportRelayManagementClient(
     {
       return SupportRelayManagementStatus.Skipped;
     }
-    using var client = CreateClient();
-    using var response = await client.PostAsJsonAsync(
-        "/internal/support/v1/sessions",
-        new
-        {
-          session.TenantId,
-          session.NodeId,
-          session.SessionId,
-          session.ExpiresAt,
-          RequestEnvelope = JsonSerializer.Serialize(session.RequestEnvelope, _jsonOptions),
-        },
-        _jsonOptions,
-        cancellationToken);
-    return response.IsSuccessStatusCode
-        ? SupportRelayManagementStatus.Succeeded
-        : SupportRelayManagementStatus.Failed;
+    try
+    {
+      using var client = CreateClient();
+      using var response = await client.PostAsJsonAsync(
+          "/internal/support/v1/sessions",
+          new
+          {
+            session.TenantId,
+            session.NodeId,
+            session.SessionId,
+            session.ExpiresAt,
+            RequestEnvelope = JsonSerializer.Serialize(session.RequestEnvelope, _jsonOptions),
+          },
+          _jsonOptions,
+          cancellationToken);
+      if (response.IsSuccessStatusCode)
+      {
+        return SupportRelayManagementStatus.Succeeded;
+      }
+      return response.StatusCode == HttpStatusCode.Conflict ||
+          response.StatusCode == HttpStatusCode.NotFound
+              ? SupportRelayManagementStatus.Conflict
+              : SupportRelayManagementStatus.Unavailable;
+    }
+    catch (HttpRequestException)
+    {
+      return SupportRelayManagementStatus.Unavailable;
+    }
+    catch (TaskCanceledException)
+        when (!cancellationToken.IsCancellationRequested)
+    {
+      return SupportRelayManagementStatus.Unavailable;
+    }
   }
 
   public async Task<SupportRelayManagementStatus> CancelSessionAsync(
@@ -455,5 +472,7 @@ internal enum SupportRelayManagementStatus
 {
   Succeeded,
   Skipped,
+  Conflict,
+  Unavailable,
   Failed,
 }

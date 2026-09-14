@@ -12,6 +12,13 @@ internal sealed record RelaySessionEnqueueRequest(
     DateTimeOffset ExpiresAt,
     string RequestEnvelope);
 
+internal enum RelaySessionEnqueueStatus
+{
+  Succeeded,
+  NotFound,
+  Conflict,
+}
+
 internal sealed record RelayResultUploadRequest(string ResultEnvelope);
 
 internal sealed record RelayPollResponse(

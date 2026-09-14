@@ -5,10 +5,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider } from '@/core/auth';
 
+import fleetTrustScenarios from '../../../../../../test-assets/fleet-trust/fleet-trust-scenarios.v1.json';
+
 import SupportPage, {
+  clearPendingSupportIntent,
+  pendingSupportIntentTtlMilliseconds,
+  readPendingSupportIntent,
   SupportIdentityCard,
   SupportIdentityInventory,
   SupportSessionCard,
+  writePendingSupportIntent,
 } from './SupportPage';
 import { type SupportSession } from './supportApi';
 
@@ -56,6 +62,9 @@ const completedResult: NonNullable<SupportSession['result']> = {
     signatureAlgorithm: 'ES256-P1363',
   },
 };
+
+const firstIntentId = '11111111-1111-4111-8111-111111111111';
+const secondIntentId = '22222222-2222-4222-8222-222222222222';
 
 function supportSession(
   status: SupportSession['status'],
@@ -106,6 +115,55 @@ function renderSupportPage(initialPath = '/tenants/local/support') {
     </SessionProvider>,
   );
 }
+
+describe('support intent persistence', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('expires a pending intent after its bounded lifetime', () => {
+    const intent = writePendingSupportIntent('tenant-a', 'parameters-a', firstIntentId, 1_000);
+
+    expect(
+      readPendingSupportIntent(
+        'tenant-a',
+        'parameters-a',
+        1_000 + pendingSupportIntentTtlMilliseconds - 1,
+      ),
+    ).toEqual(intent);
+    expect(
+      readPendingSupportIntent(
+        'tenant-a',
+        'parameters-a',
+        1_000 + pendingSupportIntentTtlMilliseconds,
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects changed, cross-tenant, malformed, and unavailable storage', () => {
+    writePendingSupportIntent('tenant-a', 'parameters-a', firstIntentId, 1_000);
+    writePendingSupportIntent('tenant-b', 'parameters-a', secondIntentId, 1_000);
+    expect(readPendingSupportIntent('tenant-a', 'parameters-b', 1_001)).toBeNull();
+    expect(readPendingSupportIntent('tenant-b', 'parameters-a', 1_001)?.id).toBe(secondIntentId);
+    const key = sessionStorage.key(0);
+    if (key === null) throw new Error('Expected a stored support intent.');
+    sessionStorage.setItem(key, '{malformed');
+    expect(readPendingSupportIntent('tenant-b', 'parameters-a', 1_001)).toBeNull();
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage unavailable', 'SecurityError');
+    });
+    expect(() => readPendingSupportIntent('tenant-a', 'parameters-a', 1_001)).not.toThrow();
+  });
+
+  it('clears only the matching definitive request', () => {
+    const first = writePendingSupportIntent('tenant-a', 'parameters-a', firstIntentId, 1_000);
+    writePendingSupportIntent('tenant-a', 'parameters-b', secondIntentId, 1_001);
+
+    clearPendingSupportIntent('tenant-a', first);
+
+    expect(readPendingSupportIntent('tenant-a', 'parameters-b', 1_002)?.id).toBe(secondIntentId);
+  });
+});
 
 describe('SupportIdentityCard', () => {
   it('renders projected poll and result evidence for an active identity', () => {
@@ -451,6 +509,41 @@ describe('SupportPage', () => {
     expect(detailRequests).toBe(1);
   });
 
+  it('applies successful session progress without waiting for a slow sibling poll', async () => {
+    vi.useFakeTimers();
+    const slow = supportSession('Queued');
+    const progressing = supportSession('Dispatched', null, '44444444-4444-4444-8444-444444444444');
+    const completed = { ...progressing, status: 'Completed' as const, result: completedResult };
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return Promise.resolve(jsonResponse(ownerSession));
+      if (url.endsWith('/support/v1/identities')) {
+        return Promise.resolve(jsonResponse([activeIdentity]));
+      }
+      if (url.endsWith(`/support/v1/sessions/${slow.sessionId}`)) {
+        return new Promise<Response>(() => undefined);
+      }
+      if (url.endsWith(`/support/v1/sessions/${progressing.sessionId}`)) {
+        return Promise.resolve(jsonResponse(completed));
+      }
+      if (url.endsWith('/support/v1/sessions')) {
+        return Promise.resolve(jsonResponse([slow, progressing]));
+      }
+      return Promise.resolve(
+        jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404),
+      );
+    });
+    renderSupportPage(`/tenants/local/support/sessions/${progressing.sessionId}`);
+    await flushInitialSupportLoad();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(screen.getAllByText('Completed', { selector: 'span' })).toHaveLength(3);
+    expect(screen.getByText('Verified evidence')).toBeVisible();
+  });
+
   it('retries automatic refresh after a transient API failure', async () => {
     vi.useFakeTimers();
     const queued = supportSession('Queued');
@@ -475,9 +568,9 @@ describe('SupportPage', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Automatic session refresh failed: Temporary outage',
-    );
+    expect(
+      screen.getByText(/Automatic session refresh is partially unavailable/),
+    ).toHaveTextContent('Temporary outage');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
@@ -598,11 +691,166 @@ describe('SupportPage', () => {
     });
     renderSupportPage('/tenants/local/support/run');
 
-    await screen.findByRole('combobox', { name: 'Support node' });
+    await screen.findByRole('option', { name: 'Active node' });
     fireEvent.click(await screen.findByRole('button', { name: 'Request read-only diagnostics' }));
     await waitFor(() => {
       expect(requestBody?.expiresInSeconds).toBe(900);
     });
+  });
+
+  it('reuses one typed intent after uncertain session creation', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let createAttempts = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        createAttempts++;
+        return createAttempts === 1
+          ? jsonResponse(
+              {
+                error: {
+                  code: 'support_relay_unavailable',
+                  message: 'Relay acceptance is not yet confirmed.',
+                },
+              },
+              503,
+            )
+          : jsonResponse(supportSession('Queued'), 202);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Relay acceptance is not yet confirmed.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry request reconciliation' }));
+    await waitFor(() => {
+      expect(requestBodies).toHaveLength(2);
+    });
+
+    expect(requestBodies[0].intentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(requestBodies[1].intentId).toBe(requestBodies[0].intentId);
+  });
+
+  it('restores an uncertain request intent after remount', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    let createAttempts = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        createAttempts++;
+        if (createAttempts === 1) throw new TypeError('Connection closed after request upload.');
+        return jsonResponse(supportSession('Queued'), 202);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const firstRender = renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Connection closed after request upload.',
+    );
+    firstRender.unmount();
+    renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry request reconciliation' }));
+    await waitFor(() => {
+      expect(requestBodies).toHaveLength(2);
+    });
+    expect(requestBodies[1].intentId).toBe(requestBodies[0].intentId);
+  });
+
+  it('does not reuse a pending intent for changed parameters or another tenant', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        throw new TypeError('Connection closed after request upload.');
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const firstRender = renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    await screen.findByRole('alert');
+    firstRender.unmount();
+    const changedRender = renderSupportPage('/tenants/local/support/run?mode=CapacityMismatch');
+    await screen.findByRole('option', { name: 'Active node' });
+    expect(screen.getByRole('button', { name: 'Request read-only diagnostics' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    await waitFor(() => {
+      expect(requestBodies).toHaveLength(2);
+    });
+    expect(requestBodies[1].intentId).not.toBe(requestBodies[0].intentId);
+    changedRender.unmount();
+
+    renderSupportPage('/tenants/other/support/run');
+    await screen.findByRole('option', { name: 'Active node' });
+    expect(screen.getByRole('button', { name: 'Request read-only diagnostics' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    await waitFor(() => {
+      expect(requestBodies).toHaveLength(3);
+    });
+    expect(requestBodies[2].intentId).not.toBe(requestBodies[0].intentId);
+    expect(requestBodies[2].intentId).not.toBe(requestBodies[1].intentId);
+  });
+
+  it('clears a pending intent after a definitive domain response', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith('/support/v1/sessions') && init?.method === 'POST') {
+        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return jsonResponse(
+          {
+            error: {
+              code: 'invalid_support_session',
+              message: 'The support diagnostic session is invalid.',
+            },
+          },
+          400,
+        );
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+    const firstRender = renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    fireEvent.click(screen.getByRole('button', { name: 'Request read-only diagnostics' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The support diagnostic session is invalid.',
+    );
+    firstRender.unmount();
+    renderSupportPage('/tenants/local/support/run');
+
+    await screen.findByRole('option', { name: 'Active node' });
+    expect(screen.getByRole('button', { name: 'Request read-only diagnostics' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Retry request reconciliation' }),
+    ).not.toBeInTheDocument();
   });
 
   it('orders active sessions before history and restores a deep-linked detail', async () => {
@@ -633,6 +881,41 @@ describe('SupportPage', () => {
     expect(screen.getByRole('region', { name: 'Connector offline' })).toHaveTextContent(
       'Verified evidence',
     );
+  });
+
+  it('loads a selected completed session outside the bounded recent list', async () => {
+    const scenario = fleetTrustScenarios.supportDiagnostics.find(
+      (candidate) => candidate.id === 'leave-return-exact-result',
+    );
+    if (!scenario?.result) throw new Error('Expected exact-result fleet trust scenario.');
+    const selected = {
+      ...supportSession('Completed', completedResult, scenario.sessionId),
+      diagnosticMode: scenario.diagnosticMode,
+      profileId: scenario.profileId,
+      requestedAt: scenario.clocks.sourceObservedAt,
+      result: {
+        ...completedResult,
+        markdown: scenario.result.markdown,
+        report: JSON.parse(scenario.result.reportJson) as unknown,
+      },
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
+      if (url.endsWith('/support/v1/identities')) return jsonResponse([activeIdentity]);
+      if (url.endsWith(`/support/v1/sessions/${selected.sessionId}`)) {
+        return jsonResponse(selected);
+      }
+      if (url.endsWith('/support/v1/sessions')) return jsonResponse([]);
+      return jsonResponse({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    });
+
+    renderSupportPage(`/tenants/local/support/sessions/${selected.sessionId}`);
+
+    expect(
+      await screen.findByText(/Stored capacity evidence remains exact after navigation/),
+    ).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Session not found' })).not.toBeInTheDocument();
   });
 
   it('does not reorder a session row when automatic refresh makes it terminal', async () => {
@@ -754,6 +1037,81 @@ describe('SupportSessionCard', () => {
     expect(screen.getByText(/First dispatched/)).toBeVisible();
     expect(screen.getByText('broker-evidence-access-denied', { selector: 'code' })).toBeVisible();
     expect(screen.getByText('The broker cannot read the approved evidence set.')).toBeVisible();
+  });
+
+  it('uses the omitted-profile corpus to explain ambiguous local selection', () => {
+    const scenario = fleetTrustScenarios.supportDiagnostics.find(
+      (candidate) => candidate.id === 'omitted-profile-ambiguity',
+    );
+    if (!scenario?.result) throw new Error('Expected omitted-profile fleet trust scenario.');
+
+    render(
+      <SupportSessionCard
+        session={{
+          ...supportSession('Completed', completedResult, scenario.sessionId),
+          profileId: scenario.profileId,
+          result: {
+            ...completedResult,
+            markdown: scenario.result.markdown,
+            report: JSON.parse(scenario.result.reportJson) as unknown,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/profile was selected locally/i)).toBeVisible();
+    expect(screen.getByText(/choose an allowed profile/i)).toBeVisible();
+    expect(screen.queryByText('All configured profiles')).not.toBeInTheDocument();
+  });
+
+  it('distinguishes omitted-profile ambiguity from an explicit invalid profile', () => {
+    const rejected = supportSession('Rejected');
+
+    const { rerender } = render(
+      <SupportSessionCard
+        session={{
+          ...rejected,
+          profileId: null,
+          rejectionDisposition: 'broker-invalid-profile',
+        }}
+      />,
+    );
+    expect(screen.getByText(/could not select one local profile/i)).toBeVisible();
+
+    rerender(
+      <SupportSessionCard
+        session={{
+          ...rejected,
+          profileId: 'missing-profile',
+          rejectionDisposition: 'broker-invalid-profile',
+        }}
+      />,
+    );
+    expect(screen.getByText(/missing, invalid, or not allowlisted/i)).toBeVisible();
+  });
+
+  it('separates verified completion from remediation and identifies partial evidence', () => {
+    const scenario = fleetTrustScenarios.supportDiagnostics.find(
+      (candidate) => candidate.id === 'partial-evidence',
+    );
+    if (!scenario?.result) throw new Error('Expected partial-evidence fleet trust scenario.');
+
+    render(
+      <SupportSessionCard
+        session={{
+          ...supportSession('Completed', completedResult, scenario.sessionId),
+          profileId: scenario.profileId,
+          result: {
+            ...completedResult,
+            markdown: scenario.result.markdown,
+            report: JSON.parse(scenario.result.reportJson) as unknown,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/verified partial report/i)).toBeVisible();
+    expect(screen.getByText(/does not confirm remediation/i)).toBeVisible();
   });
 
   it('announces automatic updates for active sessions', () => {

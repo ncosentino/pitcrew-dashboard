@@ -172,9 +172,16 @@ internalApi.MapPost("/sessions", async (
   {
     return Results.BadRequest();
   }
-  return await relayStore.EnqueueSessionAsync(request, cancellationToken)
-      ? Results.Accepted($"/internal/support/v1/sessions/{request.SessionId:D}")
-      : Results.Conflict();
+  return await relayStore.EnqueueSessionAsync(
+      request,
+      cancellationToken) switch
+  {
+    RelaySessionEnqueueStatus.Succeeded =>
+        Results.Accepted(
+            $"/internal/support/v1/sessions/{request.SessionId:D}"),
+    RelaySessionEnqueueStatus.NotFound => Results.NotFound(),
+    _ => Results.Conflict(),
+  };
 });
 internalApi.MapPost("/sessions/{sessionId:guid}/cancel", async (
     HttpContext context,

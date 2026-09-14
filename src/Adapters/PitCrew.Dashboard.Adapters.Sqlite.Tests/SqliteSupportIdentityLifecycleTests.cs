@@ -318,6 +318,7 @@ public sealed class SqliteSupportIdentityLifecycleTests
           cancellationToken);
       var blockedSession = await context.Store.CreateSessionAsync(
           CreateSession("tenant-a", nodeId, context.Now),
+          Guid.NewGuid(),
           originalKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
           originalKeys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
           cancellationToken);
@@ -337,11 +338,13 @@ public sealed class SqliteSupportIdentityLifecycleTests
           cancellationToken);
       var acceptedSession = await context.Store.CreateSessionAsync(
           CreateSession("tenant-a", nodeId, context.Now.AddMinutes(3)),
+          Guid.NewGuid(),
           replacementKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
           replacementKeys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
           cancellationToken);
       var retiredKeySession = await context.Store.CreateSessionAsync(
           CreateSession("tenant-a", nodeId, context.Now.AddMinutes(4)),
+          Guid.NewGuid(),
           originalKeys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
           originalKeys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
           cancellationToken);

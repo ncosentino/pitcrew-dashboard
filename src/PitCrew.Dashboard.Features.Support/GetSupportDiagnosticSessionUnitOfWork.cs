@@ -6,7 +6,6 @@ namespace PitCrew.Dashboard.Features.Support;
 
 internal sealed class GetSupportDiagnosticSessionUnitOfWork(
     SupportPrincipalAuthorizer _authorizer,
-    PitCrew.Dashboard.Features.Access.IDiagnosticAccessScopeAccessor _diagnosticScopeAccessor,
     ISupportStore _supportStore,
     SupportRelayManagementClient _relayClient,
     SupportRelayResultIngestor _resultIngestor,
@@ -26,7 +25,6 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
     var decision = await _authorizer.CanRequestOrReadAsync(
         principal,
         tenantId,
-        session.NodeId,
         session.ProfileId,
         cancellationToken);
     if (!decision.Allowed)
@@ -76,27 +74,30 @@ internal sealed class GetSupportDiagnosticSessionUnitOfWork(
       string tenantId,
       CancellationToken cancellationToken)
   {
+    var decision = await _authorizer.CanListAsync(
+        principal,
+        tenantId,
+        cancellationToken);
+    if (!decision.Allowed)
+    {
+      return [];
+    }
     var sessions = (await _supportStore.GetSessionsAsync(
             tenantId,
             50,
             cancellationToken))
         .Select(WithCurrentLifecycle)
         .ToArray();
-    var scope = _diagnosticScopeAccessor.GetOrNull(principal);
+    var scope = decision.DiagnosticScope;
     if (scope is null)
     {
       return sessions;
     }
-    if (!string.Equals(scope.TenantId, tenantId, StringComparison.Ordinal))
-    {
-      return [];
-    }
     return sessions
         .Where(session =>
-            (scope.NodeIds.Count == 0 || scope.NodeIds.Contains(session.NodeId)) &&
-            (scope.ProfileIds.Count == 0 ||
+            scope.ProfileIds.Count == 0 ||
              session.ProfileId is not null &&
-             scope.ProfileIds.Contains(session.ProfileId, StringComparer.Ordinal)))
+             scope.ProfileIds.Contains(session.ProfileId, StringComparer.Ordinal))
         .ToArray();
   }
 

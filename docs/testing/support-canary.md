@@ -156,7 +156,11 @@ relay into Dashboard before completing a normal Dashboard-created session. The
 scenario requires queued, cancelled, expired, dispatched, protocol-rejected,
 broker-rejected, and completed state, retained first-dispatch evidence, both
 bounded rejection dispositions, and a verified result before the base workflow
-performs its independent signed diagnostic and cleanup.
+performs its independent signed diagnostic and cleanup. The broker rejection
+assertion also retains the explicitly invalid profile, while the successful
+omitted-profile request must remain omitted in Dashboard's pinned session
+contract. These checks exercise candidate binaries only in hosted canary runs;
+they do not broaden the canary's host-data artifact contract.
 
 ## Evidence and secrets
 

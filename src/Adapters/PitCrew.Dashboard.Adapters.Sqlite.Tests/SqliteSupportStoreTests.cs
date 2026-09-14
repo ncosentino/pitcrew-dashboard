@@ -80,6 +80,7 @@ public sealed class SqliteSupportStoreTests
           scenario.ProfileId);
       var sessionStatus = await supportStore.CreateSessionAsync(
           session,
+          session.SessionId,
           identity.NodeSigningPublicKeySpki,
           identity.NodeEncryptionPublicKeySpki,
           cancellationToken);
@@ -193,6 +194,7 @@ public sealed class SqliteSupportStoreTests
       var session = CreateSession("tenant-a", nodeId, now.AddMinutes(2));
       var staleKeySession = await supportStore.CreateSessionAsync(
           session,
+          session.SessionId,
           "retired-signing-key",
           "retired-encryption-key",
           cancellationToken);
@@ -204,6 +206,7 @@ public sealed class SqliteSupportStoreTests
           cancellationToken);
       var sessionStatus = await supportStore.CreateSessionAsync(
           session,
+          session.SessionId,
           identity.NodeSigningPublicKeySpki,
           identity.NodeEncryptionPublicKeySpki,
           cancellationToken);
@@ -273,17 +276,37 @@ public sealed class SqliteSupportStoreTests
           now.AddMinutes(1).AddSeconds(1));
       var created = await supportStore.CreateSessionAsync(
           session,
+          session.SessionId,
           keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
           keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
           cancellationToken);
       var rejectedCreated =
           await supportStore.CreateSessionAsync(
               rejectedSession,
+              rejectedSession.SessionId,
               keys.Signing
                   .PublicKeySubjectPublicKeyInfoBase64Url,
               keys.Encryption
                   .PublicKeySubjectPublicKeyInfoBase64Url,
               cancellationToken);
+      var intentRead = await supportStore.GetSessionByIntentOrNullAsync(
+          "tenant-a",
+          session.SessionId,
+          cancellationToken);
+      var wrongTenantIntentRead =
+          await supportStore.GetSessionByIntentOrNullAsync(
+              "tenant-b",
+              session.SessionId,
+              cancellationToken);
+      var duplicateIntent = await supportStore.CreateSessionAsync(
+          CreateSession(
+              "tenant-a",
+              nodeId,
+              now.AddMinutes(1).AddSeconds(2)),
+          session.SessionId,
+          keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+          keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
+          cancellationToken);
       var crossTenant = await supportStore.GetSessionOrNullAsync(
           "tenant-b",
           session.SessionId,
@@ -348,6 +371,11 @@ public sealed class SqliteSupportStoreTests
       await Assert.That(created).IsEqualTo(SupportMutationStatus.Succeeded);
       await Assert.That(rejectedCreated)
           .IsEqualTo(SupportMutationStatus.Succeeded);
+      await Assert.That(intentRead).IsNotNull();
+      await Assert.That(intentRead!.SessionId).IsEqualTo(session.SessionId);
+      await Assert.That(wrongTenantIntentRead).IsNull();
+      await Assert.That(duplicateIntent)
+          .IsEqualTo(SupportMutationStatus.Conflict);
       await Assert.That(crossTenant).IsNull();
       await Assert.That(cancelWrongTenant).IsEqualTo(SupportMutationStatus.Conflict);
       await Assert.That(dispatched)
@@ -371,6 +399,134 @@ public sealed class SqliteSupportStoreTests
           .IsEqualTo(
               SupportRequestRejectionDispositions
                   .BrokerEvidenceAccessDenied);
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
+  public async Task Migration_33_Backfills_Legacy_Session_Intent(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-support-intent-migration-{Guid.NewGuid():N}.db");
+    try
+    {
+      var factory = new SqliteConnectionFactory(
+          Options.Create(new SqliteFleetStoreOptions
+          {
+            DatabasePath = databasePath,
+          }));
+      await SqliteMigrationTestDatabase.ApplyThroughAsync(
+          factory,
+          32,
+          cancellationToken);
+      var accessStore = new SqliteAccessStore(factory);
+      var supportStore = new SqliteSupportStore(factory);
+      var now = DateTimeOffset.Parse(
+          "2026-08-01T00:00:00+00:00",
+          CultureInfo.InvariantCulture);
+      var owner = new DashboardUser("1", "owner", "Owner", null);
+      const string tenantId = "tenant-a";
+      await accessStore.EnsureTenantOwnerAsync(
+          tenantId,
+          "Tenant A",
+          owner,
+          now,
+          cancellationToken);
+      var nodeId = Guid.Parse(
+          "11111111-1111-1111-1111-111111111111",
+          CultureInfo.InvariantCulture);
+      var sessionId = Guid.Parse(
+          "33333333-3333-3333-3333-333333333333",
+          CultureInfo.InvariantCulture);
+      var keys = SupportKeyFactory.CreateNodeKeys();
+      await supportStore.CreateIdentityAsync(
+          new SupportIdentityWrite(
+              new SupportIdentity(
+                  tenantId,
+                  nodeId,
+                  "Support node",
+                  keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
+                  keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
+                  owner.GitHubUserId,
+                  now,
+                  null,
+                  null,
+                  null,
+                  null,
+                  1),
+              "transport-hash",
+              "enrollment-hash",
+              now.AddHours(1)),
+          cancellationToken);
+      await using (var connection = new SqliteConnection(
+          $"Data Source={databasePath}"))
+      {
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO support_sessions (
+                session_id,
+                tenant_id,
+                node_id,
+                diagnostic_mode,
+                profile_id,
+                package_id,
+                status,
+                requested_by_github_user_id,
+                requested_at,
+                expires_at,
+                request_envelope_json,
+                capability,
+                request_digest,
+                node_signing_key_fingerprint)
+            VALUES (
+                $sessionId,
+                $tenantId,
+                $nodeId,
+                'ConnectorOffline',
+                NULL,
+                'pitcrew.diagnostics.snapshot.v1',
+                'queued',
+                $actor,
+                $requestedAt,
+                $expiresAt,
+                '{}',
+                'pitcrew.diagnostics.snapshot.v1',
+                $requestDigest,
+                $fingerprint);
+            """;
+        command.Parameters.AddWithValue(
+            "$sessionId",
+            sessionId.ToString("D", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$tenantId", tenantId);
+        command.Parameters.AddWithValue(
+            "$nodeId",
+            nodeId.ToString("D", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$actor", owner.GitHubUserId);
+        command.Parameters.AddWithValue("$requestedAt", now.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue(
+            "$expiresAt",
+            now.AddMinutes(15).ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$requestDigest", new string('a', 64));
+        command.Parameters.AddWithValue("$fingerprint", new string('b', 64));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+      }
+
+      await new SqliteMigrationRunner(factory).ApplyAsync(cancellationToken);
+      var migrated = await supportStore.GetSessionByIntentOrNullAsync(
+          tenantId,
+          sessionId,
+          cancellationToken);
+
+      await Assert.That(migrated).IsNotNull();
+      await Assert.That(migrated!.SessionId).IsEqualTo(sessionId);
     }
     finally
     {
@@ -442,11 +598,83 @@ public sealed class SqliteSupportStoreTests
           "tenant-a",
           nodeId,
           now.AddMinutes(1));
-      await supportStore.CreateSessionAsync(
-          previous,
-          keys.Signing.PublicKeySubjectPublicKeyInfoBase64Url,
-          keys.Encryption.PublicKeySubjectPublicKeyInfoBase64Url,
-          cancellationToken);
+      await using (var connection = new SqliteConnection(
+          $"Data Source={databasePath}"))
+      {
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO support_sessions (
+                session_id,
+                tenant_id,
+                node_id,
+                diagnostic_mode,
+                profile_id,
+                package_id,
+                status,
+                requested_by_github_user_id,
+                requested_at,
+                expires_at,
+                request_envelope_json,
+                capability,
+                request_digest,
+                node_signing_key_fingerprint)
+            VALUES (
+                $sessionId,
+                $tenantId,
+                $nodeId,
+                $diagnosticMode,
+                $profileId,
+                $packageId,
+                'queued',
+                $actor,
+                $requestedAt,
+                $expiresAt,
+                $requestEnvelope,
+                $capability,
+                $requestDigest,
+                $fingerprint);
+            """;
+        command.Parameters.AddWithValue(
+            "$sessionId",
+            previous.SessionId.ToString("D", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$tenantId", previous.TenantId);
+        command.Parameters.AddWithValue(
+            "$nodeId",
+            previous.NodeId.ToString("D", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue(
+            "$diagnosticMode",
+            previous.DiagnosticMode);
+        command.Parameters.AddWithValue(
+            "$profileId",
+            (object?)previous.ProfileId ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$packageId",
+            previous.PackageId);
+        command.Parameters.AddWithValue(
+            "$actor",
+            previous.RequestedByGitHubUserId);
+        command.Parameters.AddWithValue(
+            "$requestedAt",
+            previous.RequestedAt.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue(
+            "$expiresAt",
+            previous.ExpiresAt.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue(
+            "$requestEnvelope",
+            JsonSerializer.Serialize(previous.RequestEnvelope));
+        command.Parameters.AddWithValue(
+            "$capability",
+            previous.Capability);
+        command.Parameters.AddWithValue(
+            "$requestDigest",
+            previous.RequestDigest);
+        command.Parameters.AddWithValue(
+            "$fingerprint",
+            previous.NodeSigningKeyFingerprint);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+      }
       var previousTransition =
           await supportStore.UpdateSessionLifecycleAsync(
               "tenant-a",
@@ -488,6 +716,7 @@ public sealed class SqliteSupportStoreTests
             now.AddMinutes(3));
         var created = await supportStore.CreateSessionAsync(
             session,
+            session.SessionId,
             keys.Signing
                 .PublicKeySubjectPublicKeyInfoBase64Url,
             keys.Encryption
