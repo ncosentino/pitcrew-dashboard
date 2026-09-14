@@ -10,6 +10,7 @@ RUN --mount=type=cache,target=/root/.npm \
         npm install --no-audit --no-fund; \
     fi
 COPY assets/ /assets/
+COPY test-assets/fleet-trust/fleet-trust-scenarios.v1.json /test-assets/fleet-trust/fleet-trust-scenarios.v1.json
 COPY src/PitCrew.Dashboard.WebApi/ClientApp/ ./
 RUN npm run build
 
