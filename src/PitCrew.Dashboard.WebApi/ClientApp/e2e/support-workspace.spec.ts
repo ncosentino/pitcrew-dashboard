@@ -3,6 +3,14 @@ import { expect, test } from '@playwright/test';
 import { viewports } from '../playwright.config';
 import { healthyScenario, tenantId } from './mocks/scenarios';
 import {
+  buildFleetNode,
+  buildFleetResponse,
+  buildIncident,
+  buildIncidentPage,
+  buildProfile,
+  nodeIds,
+} from './mocks/fixtures';
+import {
   buildSupportIdentity,
   buildSupportSession,
   supportNodeIds,
@@ -127,5 +135,68 @@ test.describe('support workspace', () => {
     await expect(page.getByRole('group', { name: 'Create node enrollment' })).toBeVisible();
     await expect(page.getByText('Revoked history (1)')).toBeVisible();
     expect((await measureDocumentOverflow(page)).overflowPx).toBe(0);
+  });
+
+  test('connects a scoped incident to exact support evidence and returns without implying remediation', async ({
+    page,
+  }) => {
+    const incident = buildIncident({
+      incidentId: 'f9000000-0000-4000-8000-000000000001',
+      nodeId: nodeIds.alpha,
+      profileId: 'build',
+      title: 'Build capacity unavailable',
+    });
+    const node = buildFleetNode({
+      nodeId: nodeIds.alpha,
+      displayName: 'Alpha build host',
+      isOnline: true,
+      profiles: [buildProfile('build')],
+    });
+    if (completedSession.result === null) {
+      throw new Error('The completed support fixture requires a verified result.');
+    }
+    const exactResult = {
+      ...completedSession,
+      sessionId: '20000000-0000-4000-8000-000000000099',
+      incidentId: incident.incidentId,
+      profileId: 'build',
+      diagnosticMode: 'CapacityMismatch',
+      result: {
+        ...completedSession.result,
+        markdown: 'Verified retained capacity evidence; remediation remains unproven.',
+      },
+    };
+    const connectedScenario = {
+      ...scenario,
+      fleet: buildFleetResponse([node], [incident]),
+      incidents: buildIncidentPage([incident]),
+      supportSessions: [exactResult],
+    };
+    const returnTo = `/tenants/${tenantId}/incidents?view=active&incident=${incident.incidentId}`;
+
+    await page.setViewportSize(viewports.desktop);
+    await setUpPage(page, connectedScenario, 'light');
+    await page.goto(`/tenants/${tenantId}/fleet`);
+    await page
+      .getByTestId(`fleet-node-${node.nodeId}`)
+      .getByRole('link', { name: 'Review 1 active incident' })
+      .click();
+    await expect(page).toHaveURL(
+      `/tenants/${tenantId}/incidents?view=active&nodeId=${node.nodeId}`,
+    );
+    await page.getByRole('link', { name: 'Request support diagnostics' }).click();
+    await expect(page.getByText(/Selected incident context is preserved/i)).toBeVisible();
+    await page.getByRole('combobox', { name: 'Support node' }).selectOption(supportNodeIds.active);
+    await page.getByRole('button', { name: 'Request read-only diagnostics' }).click();
+    const exactPath = `/tenants/${tenantId}/support/sessions/${exactResult.sessionId}?incidentId=${incident.incidentId}&returnTo=${encodeURIComponent(returnTo)}`;
+    await expect(page).toHaveURL(exactPath);
+    await expect(page.getByText(/remediation remains unproven/i)).toBeVisible();
+    await page.goto(`/tenants/${tenantId}/fleet`);
+    await page.goBack();
+    await expect(page).toHaveURL(exactPath);
+    await expect(page.getByRole('link', { name: 'Return to incident' })).toHaveAttribute(
+      'href',
+      returnTo,
+    );
   });
 });

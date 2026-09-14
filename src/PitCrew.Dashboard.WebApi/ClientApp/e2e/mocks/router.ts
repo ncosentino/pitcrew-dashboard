@@ -49,6 +49,7 @@ export interface MockApiOptions {
   /** Controls the `GET .../fleet/v1/nodes` response. Defaults to `'success'`. */
   readonly fleetOutcome?: FleetOutcome;
   readonly incidents: IncidentPage;
+  readonly incidentDetails?: ReadonlyArray<OperationalIncident>;
   readonly tenantMembers?: ReadonlyArray<TenantMember>;
   readonly availableUsers?: ReadonlyArray<DashboardUser>;
   readonly diagnosticCredentials?: ReadonlyArray<DiagnosticCredential>;
@@ -56,6 +57,7 @@ export interface MockApiOptions {
   readonly diagnosticCredentialCreated?: DiagnosticCredentialCreated;
   readonly supportIdentities?: ReadonlyArray<SupportIdentity>;
   readonly supportSessions?: ReadonlyArray<SupportSession>;
+  readonly supportSessionDetails?: ReadonlyArray<SupportSession>;
   readonly imageRecipeRegistrations?: ReadonlyArray<ImageRecipeRegistration>;
   readonly imageRecipeRegistrationsTruncated?: boolean;
   readonly imageBuildRequests?: ReadonlyArray<ImageBuildRequest>;
@@ -139,6 +141,19 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
   await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/incidents(\?.*)?$/, (route) =>
     fulfillJson(route, options.incidents),
   );
+  await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/incidents\/[^/]+$/, (route) => {
+    const incidentId = route.request().url().split('/').at(-1);
+    const incident = options.incidentDetails?.find(
+      (candidate) => candidate.incidentId === incidentId,
+    );
+    return incident
+      ? fulfillJson(route, { generatedAt: options.incidents.generatedAt, incident })
+      : route.fulfill({
+          status: 404,
+          headers: jsonHeaders,
+          body: errorBody('not_found', 'Incident not found.'),
+        });
+  });
   await page.route(/\/api\/tenants\/[^/]+\/fleet\/v1\/incidents\/[^/]+\/acknowledge$/, (route) =>
     mutationResponse(route, mutationOutcome, { acknowledged: true }),
   );
@@ -231,9 +246,10 @@ export async function installMockApi(page: Page, options: MockApiOptions): Promi
   );
   await page.route(/\/api\/tenants\/[^/]+\/support\/v1\/sessions\/[^/]+$/, (route) => {
     const sessionId = route.request().url().split('/').at(-1);
-    const supportSession = options.supportSessions?.find(
-      (candidate) => candidate.sessionId === sessionId,
-    );
+    const supportSession = [
+      ...(options.supportSessionDetails ?? []),
+      ...(options.supportSessions ?? []),
+    ].find((candidate) => candidate.sessionId === sessionId);
     if (!supportSession) {
       return route.fulfill({
         status: 404,

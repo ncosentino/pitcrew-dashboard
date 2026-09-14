@@ -286,6 +286,8 @@ export function ProfileDetailLayout() {
       {error ? <StateBanner tone="caution">Showing stale fleet data. {error}</StateBanner> : null}
       <ActiveIncidentSummary
         incidents={profileIncidents}
+        nodeId={node.nodeId}
+        profileId={profile.profileId}
         tenantId={tenantId}
         testId={`profile-active-incidents-${profile.profileId}`}
         truncated={fleet?.activeIncidentsTruncated}

@@ -59,6 +59,7 @@ export const supportRejectionDispositionSchema = z.enum([
 ]);
 export const supportSessionSchema = z.object({
   sessionId: dotNetGuidSchema,
+  incidentId: dotNetGuidSchema.nullable().optional().default(null),
   nodeId: z.string().uuid(),
   diagnosticMode: z.string(),
   profileId: z.string().nullable(),
@@ -83,6 +84,22 @@ export const createdSupportEnrollmentSchema = z.object({
 export type SupportIdentity = z.infer<typeof supportIdentitySchema>;
 export type SupportSession = z.infer<typeof supportSessionSchema>;
 export type CreatedSupportEnrollment = z.infer<typeof createdSupportEnrollmentSchema>;
+
+export function supportIntentParameters(
+  nodeId: string,
+  mode: string,
+  profileId: string | null,
+  incidentId: string | null,
+): string {
+  return JSON.stringify({
+    version: 2,
+    nodeId,
+    mode,
+    profileId,
+    incidentId: incidentId?.toLowerCase() ?? null,
+    expiresInSeconds: 900,
+  });
+}
 
 function client(): HttpClient {
   return new HttpClient({ baseUrl: globalThis.location.origin });
@@ -134,6 +151,7 @@ export async function createSupportSession(
   nodeId: string,
   diagnosticMode: string,
   profileId: string | null,
+  incidentId: string | null,
   antiforgeryToken: string,
 ): Promise<SupportSession> {
   return await client().request(
@@ -141,7 +159,7 @@ export async function createSupportSession(
     {
       method: 'POST',
       headers: { 'X-PitCrew-Antiforgery': antiforgeryToken },
-      body: { intentId, nodeId, diagnosticMode, profileId, expiresInSeconds: 900 },
+      body: { intentId, nodeId, diagnosticMode, profileId, incidentId, expiresInSeconds: 900 },
       schema: supportSessionSchema,
     },
   );

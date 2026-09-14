@@ -164,4 +164,17 @@ describe('support diagnostic request path', () => {
       '/tenants/local/support/run?mode=HostPressure',
     );
   });
+
+  it('carries exact incident context and its canonical return destination', () => {
+    const incidentId = '22222222-2222-4222-8222-222222222222';
+
+    expect(
+      buildSupportDiagnosticRequestPath('local', 'CapacityMismatch', 'default', {
+        incidentId,
+        returnTo: `/tenants/local/incidents?view=active&incident=${incidentId}`,
+      }),
+    ).toBe(
+      `/tenants/local/support/run?mode=CapacityMismatch&profileId=default&incidentId=${incidentId}&returnTo=%2Ftenants%2Flocal%2Fincidents%3Fview%3Dactive%26incident%3D${incidentId}`,
+    );
+  });
 });

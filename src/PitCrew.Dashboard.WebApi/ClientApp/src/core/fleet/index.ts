@@ -4,6 +4,7 @@ export { currentJobSchema, operationalIncidentSchema } from './fleetApi';
 export { getActiveIncidentPage, getFleet } from './fleetApi';
 export {
   buildDiagnosticsContext,
+  buildIncidentInvestigationPath,
   buildSupportDiagnosticRequestPath,
   diagnosticModes,
   diagnosticsContextSchema,

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PitCrew.Dashboard.Features.Access\PitCrew.Dashboard.Features.Access.csproj" />
+    <ProjectReference Include="..\PitCrew.Dashboard.Features.Fleet.Abstractions\PitCrew.Dashboard.Features.Fleet.Abstractions.csproj" />
     <ProjectReference Include="..\PitCrew.Dashboard.Features.Support.Abstractions\PitCrew.Dashboard.Features.Support.Abstractions.csproj" />
     <ProjectReference Include="..\PitCrew.Dashboard.Kernel.Authentication\PitCrew.Dashboard.Kernel.Authentication.csproj" />
     <ProjectReference Include="..\PitCrew.Dashboard.Kernel.DisplayNames\PitCrew.Dashboard.Kernel.DisplayNames.csproj" />

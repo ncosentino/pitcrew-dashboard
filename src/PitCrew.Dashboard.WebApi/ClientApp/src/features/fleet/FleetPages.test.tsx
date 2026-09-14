@@ -552,10 +552,7 @@ describe('fleet overview and node detail', () => {
       within(screen.getByTestId(`fleet-node-${alphaId}`)).getByRole('link', {
         name: 'Review 1 active incident',
       }),
-    ).toHaveAttribute(
-      'href',
-      `/tenants/local/incidents?view=active&incident=${response.activeIncidents[0].incidentId}`,
-    );
+    ).toHaveAttribute('href', `/tenants/local/incidents?view=active&nodeId=${alphaId}`);
     expect(screen.getByRole('region', { name: 'Fleet readiness' })).toHaveTextContent(
       'Critical incidents',
     );

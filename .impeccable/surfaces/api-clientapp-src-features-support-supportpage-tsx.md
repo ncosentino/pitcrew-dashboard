@@ -27,6 +27,18 @@ sessions use full-width operational rows; one selected session opens into a boun
 detail panel. Rare enrollment, revoked history, structured reports, attestation, and
 identifiers remain progressively disclosed.
 
+Incident-originated requests preserve exact incident, diagnostic mode, known profile,
+and canonical return context through session creation and exact retrieval. Route
+context preselects and reconnects work but never selects a support identity or grants
+authority. Dashboard validates and persists the tenant-owned incident correlation at
+session creation; list and exact responses return it. Return actions appear only when
+that authoritative metadata matches the route context. Pending request reconciliation
+also binds incident identity, with unscoped requests kept distinct. Persisted intent
+retries remain recoverable after incident history expires; changed correlation still
+conflicts. Terminal failures offer a corrected request, existing support setup, and a
+credential-free bounded escalation summary. Verified completion offers return to the
+incident while stating that evidence collection does not prove remediation.
+
 ## States and constraints
 
 Cover initial loading, unavailable API state, no active nodes, request progress,

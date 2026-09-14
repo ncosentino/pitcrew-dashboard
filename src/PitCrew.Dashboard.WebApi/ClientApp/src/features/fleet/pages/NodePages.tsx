@@ -371,6 +371,7 @@ export function NodeDetailLayout() {
       {error ? <StateBanner tone="caution">Showing stale fleet data. {error}</StateBanner> : null}
       <ActiveIncidentSummary
         incidents={nodeIncidents}
+        nodeId={node.nodeId}
         tenantId={tenantId}
         testId={`node-active-incidents-${node.nodeId}`}
         truncated={fleet?.activeIncidentsTruncated}

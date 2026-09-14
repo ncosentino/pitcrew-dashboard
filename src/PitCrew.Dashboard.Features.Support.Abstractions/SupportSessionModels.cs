@@ -17,7 +17,13 @@ public sealed record SupportDiagnosticSessionInput(
     Guid NodeId,
     string DiagnosticMode,
     string? ProfileId,
-    int ExpiresInSeconds);
+    int ExpiresInSeconds)
+{
+  /// <summary>
+  /// Gets the optional tenant-owned incident correlated at authorization time.
+  /// </summary>
+  public Guid? IncidentId { get; init; }
+}
 
 /// <summary>
 /// Persists one Dashboard-authorized support diagnostic session.
@@ -66,6 +72,11 @@ public sealed record SupportDiagnosticSession(
     string? Markdown,
     SupportResultAttestation? Attestation)
 {
+  /// <summary>
+  /// Gets the tenant-owned incident correlated when the session was authorized.
+  /// </summary>
+  public Guid? IncidentId { get; init; }
+
   /// <summary>
   /// Gets the Dashboard time when the relay result envelope was received.
   /// </summary>

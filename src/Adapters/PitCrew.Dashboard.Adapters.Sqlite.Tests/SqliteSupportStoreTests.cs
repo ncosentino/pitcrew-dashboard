@@ -255,6 +255,9 @@ public sealed class SqliteSupportStoreTests
       var nodeId = Guid.Parse(
           "11111111-1111-1111-1111-111111111111",
           CultureInfo.InvariantCulture);
+      var incidentId = Guid.Parse(
+          "22222222-2222-4222-8222-222222222222",
+          CultureInfo.InvariantCulture);
       var keys = SupportKeyFactory.CreateNodeKeys();
       await supportStore.CreateIdentityAsync(
           new SupportIdentityWrite(
@@ -275,7 +278,11 @@ public sealed class SqliteSupportStoreTests
               "enrollment-hash",
               now.AddHours(1)),
           cancellationToken);
-      var session = CreateSession("tenant-a", nodeId, now.AddMinutes(1));
+      var session = CreateSession(
+          "tenant-a",
+          nodeId,
+          now.AddMinutes(1),
+          incidentId: incidentId);
       var rejectedSession = CreateSession(
           "tenant-a",
           nodeId,
@@ -379,6 +386,7 @@ public sealed class SqliteSupportStoreTests
           .IsEqualTo(SupportMutationStatus.Succeeded);
       await Assert.That(intentRead).IsNotNull();
       await Assert.That(intentRead!.SessionId).IsEqualTo(session.SessionId);
+      await Assert.That(intentRead.IncidentId).IsEqualTo(incidentId);
       await Assert.That(wrongTenantIntentRead).IsNull();
       await Assert.That(duplicateIntent)
           .IsEqualTo(SupportMutationStatus.Conflict);
@@ -393,6 +401,7 @@ public sealed class SqliteSupportStoreTests
       await Assert.That(completed).IsEqualTo(SupportMutationStatus.Succeeded);
       await Assert.That(stored).IsNotNull();
       await Assert.That(stored!.Status).IsEqualTo(SupportDiagnosticSessionStatus.Completed);
+      await Assert.That(stored.IncidentId).IsEqualTo(incidentId);
       await Assert.That(stored.DispatchedAt)
           .IsEqualTo(dispatchedAt);
       await Assert.That(stored.Markdown).IsEqualTo("# Report");
@@ -414,7 +423,7 @@ public sealed class SqliteSupportStoreTests
   }
 
   [Test]
-  public async Task Migration_33_Backfills_Legacy_Session_Intent(
+  public async Task Migrations_33_And_36_Backfill_Intent_And_Keep_Legacy_Incident_Unscoped(
       CancellationToken cancellationToken)
   {
     var databasePath = Path.Combine(
@@ -533,6 +542,7 @@ public sealed class SqliteSupportStoreTests
 
       await Assert.That(migrated).IsNotNull();
       await Assert.That(migrated!.SessionId).IsEqualTo(sessionId);
+      await Assert.That(migrated.IncidentId).IsNull();
     }
     finally
     {
@@ -765,7 +775,8 @@ public sealed class SqliteSupportStoreTests
       DateTimeOffset requestedAt,
       Guid? sessionId = null,
       string diagnosticMode = SupportDiagnosticModes.Full,
-      string? profileId = null)
+      string? profileId = null,
+      Guid? incidentId = null)
   {
     var dashboardKeys = SupportKeyFactory.CreateDashboardKeys();
     var nodeKeys = SupportKeyFactory.CreateNodeKeys();
@@ -815,7 +826,10 @@ public sealed class SqliteSupportStoreTests
         null,
         null,
         null,
-        null);
+        null)
+    {
+      IncidentId = incidentId,
+    };
   }
 
   private static string ResultDigest(SupportDiagnosticSession session)

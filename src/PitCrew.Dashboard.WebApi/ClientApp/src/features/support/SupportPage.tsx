@@ -5,6 +5,7 @@ import { ConfirmActionDialog } from '@/components/ConfirmActionDialog';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/core/api/httpClient';
 import { useSession } from '@/core/auth';
+import { buildIncidentInvestigationPath, buildSupportDiagnosticRequestPath } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { ConfirmationSummary } from '@/core/ui/ConfirmationSummary';
 import { CopyableId } from '@/core/ui/CopyableId';
@@ -23,6 +24,7 @@ import {
   getSupportSession,
   getSupportSessions,
   revokeSupportIdentity,
+  supportIntentParameters,
   type CreatedSupportEnrollment,
   type SupportIdentity,
   type SupportSession,
@@ -65,6 +67,11 @@ function readRequestedMode(value: string | null): DiagnosticMode | null {
 type SupportSection = 'overview' | 'run' | 'sessions' | 'nodes';
 type SelectedSessionLoadState = 'idle' | 'loading' | 'not-found' | 'unavailable';
 
+export interface SupportInvestigationContext {
+  readonly incidentId: string;
+  readonly returnTo: string;
+}
+
 export interface PendingSupportIntent {
   readonly id: string;
   readonly parameters: string;
@@ -73,11 +80,12 @@ export interface PendingSupportIntent {
 
 export const pendingSupportIntentTtlMilliseconds = 15 * 60 * 1_000;
 
-const pendingIntentStoragePrefix = 'pitcrew.support.pending-intent.v1';
+const pendingIntentStoragePrefix = 'pitcrew.support.pending-intent.v2';
 const intentIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const guidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function pendingIntentStorageKey(tenantId: string): string {
-  return `${pendingIntentStoragePrefix}:${encodeURIComponent(tenantId)}`;
+function pendingIntentStorageKey(tenantId: string, parameters: string): string {
+  return `${pendingIntentStoragePrefix}:${encodeURIComponent(tenantId)}:${encodeURIComponent(parameters)}`;
 }
 
 function getSessionStorage(): Storage | null {
@@ -103,7 +111,7 @@ export function readPendingSupportIntent(
 ): PendingSupportIntent | null {
   const storage = getSessionStorage();
   if (!storage || tenantId.length === 0) return null;
-  const key = pendingIntentStorageKey(tenantId);
+  const key = pendingIntentStorageKey(tenantId, parameters);
   try {
     const value = storage.getItem(key);
     if (value === null) return null;
@@ -145,7 +153,7 @@ export function writePendingSupportIntent(
   const storage = getSessionStorage();
   if (!storage || tenantId.length === 0) return intent;
   try {
-    storage.setItem(pendingIntentStorageKey(tenantId), JSON.stringify(intent));
+    storage.setItem(pendingIntentStorageKey(tenantId, parameters), JSON.stringify(intent));
   } catch {
     // The in-memory intent still protects retries during this mount.
   }
@@ -155,7 +163,7 @@ export function writePendingSupportIntent(
 export function clearPendingSupportIntent(tenantId: string, intent: PendingSupportIntent): void {
   const storage = getSessionStorage();
   if (!storage || tenantId.length === 0) return;
-  const key = pendingIntentStorageKey(tenantId);
+  const key = pendingIntentStorageKey(tenantId, intent.parameters);
   try {
     const value = storage.getItem(key);
     if (value === null) return;
@@ -201,6 +209,8 @@ export default function SupportPage() {
   const [searchParams] = useSearchParams();
   const requestedMode = readRequestedMode(searchParams.get('mode'));
   const requestedProfileId = searchParams.get('profileId');
+  const investigationContext = readInvestigationContext(tenantId, searchParams);
+  const requiresExplicitTarget = investigationContext !== null;
   const { session } = useSession();
   const [identities, setIdentities] = useState<readonly SupportIdentity[]>([]);
   const [sessions, setSessions] = useState<readonly SupportSession[]>([]);
@@ -237,6 +247,10 @@ export default function SupportPage() {
   const latestPollAt = latestTimestamp(activeIdentities.map((identity) => identity.lastPollAt));
   const latestResultAt = latestTimestamp(activeIdentities.map((identity) => identity.lastResultAt));
   const supportBasePath = `/tenants/${tenantId}/support`;
+  const withInvestigationContext = useCallback(
+    (path: string) => appendInvestigationContext(path, investigationContext),
+    [investigationContext],
+  );
   const section = supportSection(pathname, supportBasePath);
   const selectedSessionId = supportSessionId(pathname, supportBasePath);
   const selectedSession =
@@ -251,23 +265,23 @@ export default function SupportPage() {
     {
       label: 'Overview',
       description: 'Readiness and current attention',
-      path: supportBasePath,
+      path: withInvestigationContext(supportBasePath),
     },
     {
       label: 'Run diagnostic',
       description: 'Request bounded read-only evidence',
-      path: `${supportBasePath}/run`,
+      path: withInvestigationContext(`${supportBasePath}/run`),
     },
     {
       label: 'Sessions',
       description: 'Follow active and recent requests',
-      path: `${supportBasePath}/sessions`,
+      path: withInvestigationContext(`${supportBasePath}/sessions`),
       badge: activeSessions.length > 0 ? String(activeSessions.length) : undefined,
     },
     {
       label: 'Support nodes',
       description: 'Enrollment and identity lifecycle',
-      path: `${supportBasePath}/nodes`,
+      path: withInvestigationContext(`${supportBasePath}/nodes`),
       badge: activeIdentities.length > 0 ? String(activeIdentities.length) : undefined,
     },
   ] as const;
@@ -301,10 +315,12 @@ export default function SupportPage() {
       setNodeId((current) =>
         activeIdentities.some((identity) => identity.nodeId === current)
           ? current
-          : (activeIdentities[0]?.nodeId ?? ''),
+          : requiresExplicitTarget
+            ? ''
+            : (activeIdentities[0]?.nodeId ?? ''),
       );
     },
-    [selectedSessionId, tenantId],
+    [requiresExplicitTarget, selectedSessionId, tenantId],
   );
 
   useEffect(() => {
@@ -409,11 +425,16 @@ export default function SupportPage() {
         return;
       }
       const normalizedProfileId = profileId.trim().length === 0 ? null : profileId.trim();
-      const parameters = JSON.stringify([nodeId, mode, normalizedProfileId, 900]);
+      const parameters = supportIntentParameters(
+        nodeId,
+        mode,
+        normalizedProfileId,
+        investigationContext?.incidentId ?? null,
+      );
       setPendingIntent(readPendingSupportIntent(tenantId, parameters));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [mode, nodeId, profileId, tenantId]);
+  }, [investigationContext?.incidentId, mode, nodeId, profileId, tenantId]);
 
   useEffect(() => {
     if (pendingIntent === null) return;
@@ -436,7 +457,12 @@ export default function SupportPage() {
   const requestSession = async () => {
     if (!session) return;
     const normalizedProfileId = profileId.trim().length === 0 ? null : profileId.trim();
-    const parameters = JSON.stringify([nodeId, mode, normalizedProfileId, 900]);
+    const parameters = supportIntentParameters(
+      nodeId,
+      mode,
+      normalizedProfileId,
+      investigationContext?.incidentId ?? null,
+    );
     const now = Date.now();
     const intent =
       pendingIntent?.parameters === parameters && pendingIntent.expiresAt > now
@@ -452,6 +478,7 @@ export default function SupportPage() {
         nodeId,
         mode,
         normalizedProfileId,
+        investigationContext?.incidentId ?? null,
         session.antiforgeryToken,
       );
       setSessions((current) =>
@@ -473,7 +500,7 @@ export default function SupportPage() {
             : 'The diagnostic session was created, but support status could not refresh.',
         );
       }
-      navigate(`${supportBasePath}/sessions/${created.sessionId}`);
+      navigate(withInvestigationContext(`${supportBasePath}/sessions/${created.sessionId}`));
     } catch (caught) {
       const uncertain =
         !(caught instanceof ApiError) || caught.status === 0 || caught.status >= 500;
@@ -651,6 +678,19 @@ export default function SupportPage() {
                     evidence.
                   </div>
                 ) : null}
+                {investigationContext ? (
+                  <StateBanner tone="caution" role="status">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="[overflow-wrap:anywhere]">
+                        Selected incident context is preserved for {investigationContext.incidentId}
+                        . It preselects this request and grants no support or fleet authority.
+                      </span>
+                      <Button asChild type="button" variant="outline" size="sm">
+                        <Link to={investigationContext.returnTo}>Return to incident</Link>
+                      </Button>
+                    </div>
+                  </StateBanner>
+                ) : null}
                 {loadFailed ? (
                   <StateBanner tone="critical">
                     Support identity state is unavailable. Reload this page before requesting a
@@ -661,7 +701,9 @@ export default function SupportPage() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <span>Enroll an active support node before requesting diagnostics.</span>
                       <Button asChild type="button" variant="outline" size="sm">
-                        <Link to={`${supportBasePath}/nodes`}>Manage support nodes</Link>
+                        <Link to={withInvestigationContext(`${supportBasePath}/nodes`)}>
+                          Manage support nodes
+                        </Link>
                       </Button>
                     </div>
                   </StateBanner>
@@ -687,6 +729,9 @@ export default function SupportPage() {
                       value={nodeId}
                       onChange={(event) => setNodeId(event.target.value)}
                     >
+                      {requiresExplicitTarget && activeIdentities.length > 0 ? (
+                        <option value="">Select the support node that will collect evidence</option>
+                      ) : null}
                       {!loaded || activeIdentities.length === 0 ? (
                         <option value="">
                           {loaded ? 'No active support nodes' : 'Loading support nodes…'}
@@ -736,6 +781,7 @@ export default function SupportPage() {
               selectedSessionId={selectedSessionId}
               identities={identities}
               supportBasePath={supportBasePath}
+              investigationContext={investigationContext}
               refreshError={sessionRefreshError}
               refreshLimited={activeSessions.length > maximumAutomaticallyRefreshedSessions}
               selectedSessionLoadState={selectedSessionLoadState}
@@ -826,6 +872,7 @@ interface SupportSessionsWorkspaceProps {
   readonly refreshError: string | null;
   readonly refreshLimited: boolean;
   readonly selectedSessionLoadState: SelectedSessionLoadState;
+  readonly investigationContext: SupportInvestigationContext | null;
 }
 
 function SupportSessionsWorkspace({
@@ -837,6 +884,7 @@ function SupportSessionsWorkspace({
   refreshError,
   refreshLimited,
   selectedSessionLoadState,
+  investigationContext,
 }: SupportSessionsWorkspaceProps) {
   const renderSessionList = () => (
     <OperationalList label="Support sessions">
@@ -847,6 +895,11 @@ function SupportSessionsWorkspace({
           nodeName={supportNodeLabel(candidate.nodeId, identities)}
           selected={candidate.sessionId === selectedSession?.sessionId}
           supportBasePath={supportBasePath}
+          investigationContext={
+            sessionMatchesInvestigation(candidate, investigationContext)
+              ? investigationContext
+              : null
+          }
         />
       ))}
     </OperationalList>
@@ -902,6 +955,12 @@ function SupportSessionsWorkspace({
             <SupportSessionCard
               session={selectedSession}
               nodeName={supportNodeLabel(selectedSession.nodeId, identities)}
+              investigationContext={
+                sessionMatchesInvestigation(selectedSession, investigationContext)
+                  ? investigationContext
+                  : null
+              }
+              supportBasePath={supportBasePath}
             />
           ) : selectedSessionId && selectedSessionLoadState === 'loading' ? (
             <DetailPanel
@@ -940,6 +999,7 @@ interface SupportSessionRowProps {
   readonly nodeName: string;
   readonly selected: boolean;
   readonly supportBasePath: string;
+  readonly investigationContext: SupportInvestigationContext | null;
 }
 
 function SupportSessionRow({
@@ -947,6 +1007,7 @@ function SupportSessionRow({
   nodeName,
   selected,
   supportBasePath,
+  investigationContext,
 }: SupportSessionRowProps) {
   const active = isActiveSession(session);
   return (
@@ -976,7 +1037,10 @@ function SupportSessionRow({
         <Button asChild type="button" variant={selected ? 'secondary' : 'outline'} size="sm">
           <Link
             aria-current={selected ? 'page' : undefined}
-            to={`${supportBasePath}/sessions/${session.sessionId}`}
+            to={appendInvestigationContext(
+              `${supportBasePath}/sessions/${session.sessionId}`,
+              investigationContext,
+            )}
           >
             {selected ? 'Selected' : 'View details'}
           </Link>
@@ -1237,11 +1301,15 @@ export function SupportIdentityCard({
 export interface SupportSessionCardProps {
   readonly session: SupportSession;
   readonly nodeName?: string;
+  readonly investigationContext?: SupportInvestigationContext | null;
+  readonly supportBasePath?: string;
 }
 
 export function SupportSessionCard({
   session,
   nodeName = 'Support node unavailable',
+  investigationContext = null,
+  supportBasePath = '',
 }: SupportSessionCardProps) {
   const active = isActiveSession(session);
   const rejectionExplanation =
@@ -1253,6 +1321,19 @@ export function SupportSessionCard({
         ? (rejectionGuidance[session.rejectionDisposition] ??
           'The support agent rejected this request before producing a verified report.')
         : null;
+  const retryPath = appendInvestigationContext(
+    buildSupportDiagnosticRequestPath(
+      investigationContext
+        ? tenantIdFromReturnPath(investigationContext.returnTo)
+        : tenantIdFromSupportBasePath(supportBasePath),
+      readRequestedMode(session.diagnosticMode) ?? 'Full',
+      session.profileId,
+      investigationContext ?? undefined,
+    ),
+    investigationContext,
+  );
+  const isTerminalFailure =
+    session.status === 'Rejected' || session.status === 'Expired' || session.status === 'Cancelled';
   return (
     <DetailPanel
       title={diagnosticModeLabel(session.diagnosticMode)}
@@ -1261,6 +1342,20 @@ export function SupportSessionCard({
         <span aria-live="polite">
           <StatusBadge status={session.status} tone={sessionTone(session)} />
         </span>
+      }
+      actions={
+        <>
+          {session.status === 'Completed' && investigationContext ? (
+            <Button asChild type="button" size="sm">
+              <Link to={investigationContext.returnTo}>Return to incident</Link>
+            </Button>
+          ) : null}
+          {isTerminalFailure && supportBasePath ? (
+            <Button asChild type="button" size="sm" variant="outline">
+              <Link to={retryPath}>Correct and retry request</Link>
+            </Button>
+          ) : null}
+        </>
       }
     >
       <div className="grid min-w-0 gap-4">
@@ -1305,6 +1400,32 @@ export function SupportSessionCard({
             This request was cancelled before verified completion. Its request context remains
             available for a deliberate retry.
           </StateBanner>
+        ) : null}
+        {isTerminalFailure ? (
+          <div className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+            <div className="flex flex-wrap gap-2">
+              {supportBasePath ? (
+                <Button asChild type="button" size="sm" variant="outline">
+                  <Link
+                    to={appendInvestigationContext(
+                      `${supportBasePath}/nodes`,
+                      investigationContext,
+                    )}
+                  >
+                    Review support setup
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+            <details>
+              <summary className="min-h-6 cursor-pointer text-sm font-medium">
+                Credential-free escalation summary
+              </summary>
+              <pre className="mt-3 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">
+                {supportEscalationSummary(session)}
+              </pre>
+            </details>
+          </div>
         ) : null}
         {active ? (
           <StateBanner tone="caution" role="status" aria-live="polite">
@@ -1370,6 +1491,62 @@ export function SupportSessionCard({
       </div>
     </DetailPanel>
   );
+}
+
+function readInvestigationContext(
+  tenantId: string,
+  searchParams: URLSearchParams,
+): SupportInvestigationContext | null {
+  const incidentId = searchParams.get('incidentId');
+  const returnTo = searchParams.get('returnTo');
+  if (!incidentId || !guidPattern.test(incidentId) || !returnTo) return null;
+  const canonicalReturn = buildIncidentInvestigationPath(tenantId, incidentId);
+  if (returnTo !== canonicalReturn) return null;
+  return { incidentId, returnTo };
+}
+
+function appendInvestigationContext(
+  path: string,
+  context: SupportInvestigationContext | null,
+): string {
+  if (!context) return path;
+  const [pathname, query = ''] = path.split('?', 2);
+  const parameters = new URLSearchParams(query);
+  parameters.set('incidentId', context.incidentId);
+  parameters.set('returnTo', context.returnTo);
+  return `${pathname}?${parameters.toString()}`;
+}
+
+function sessionMatchesInvestigation(
+  session: SupportSession,
+  context: SupportInvestigationContext | null,
+): boolean {
+  return (
+    context !== null &&
+    session.incidentId !== null &&
+    session.incidentId.toLowerCase() === context.incidentId.toLowerCase()
+  );
+}
+
+function tenantIdFromReturnPath(returnTo: string): string {
+  return decodeURIComponent(returnTo.split('/')[2] ?? '');
+}
+
+function tenantIdFromSupportBasePath(supportBasePath: string): string {
+  return decodeURIComponent(supportBasePath.split('/')[2] ?? '');
+}
+
+function supportEscalationSummary(session: SupportSession): string {
+  return [
+    `Session: ${session.sessionId}`,
+    `Status: ${session.status}`,
+    `Diagnostic mode: ${session.diagnosticMode}`,
+    `Profile: ${session.profileId ?? 'not specified'}`,
+    `Requested: ${session.requestedAt}`,
+    `Expires: ${session.expiresAt}`,
+    `First dispatched: ${session.dispatchedAt ?? 'not dispatched'}`,
+    `Disposition: ${session.rejectionDisposition ?? 'not reported'}`,
+  ].join('\n');
 }
 
 function SessionFact({ label, value }: { readonly label: string; readonly value: string }) {

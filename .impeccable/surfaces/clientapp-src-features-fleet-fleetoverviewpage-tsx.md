@@ -27,9 +27,18 @@ comparison remain available after the operational signal is clear.
 - Present incidents as one attention-ordered queue and one selected case file.
   Selection is URL-stable through the `incident` query parameter; a missing retained
   record produces an explicit recovery state and never substitutes another incident.
+- Fleet, node, and profile exception links open the actionable queue with explicit
+  node/profile route scope instead of selecting the first projected incident. Scope
+  remains visible, removable, deep-linkable context and grants no authority.
+- Scoped queues report matches found within the currently loaded global page. Global
+  totals and truncation remain visibly qualified as cross-scope source coverage and
+  are never labeled as authoritative matching counts for the client-applied scope.
 - Keep severity, lifecycle, reason, evidence, node/profile identity, timeline,
   incident-specific connector recovery or independent connector context, and the
   owning-route link in the selected case file.
+- Carry the exact incident ID, diagnostic mode, known profile, and canonical incident
+  return route into Support. Verified support evidence returns to this case file so
+  current evidence, authorization, and generation fences are evaluated again.
 - Acknowledgement records reversible operator ownership. It never implies resolution
   or healthy state.
 - Keep filter state and results visible, keep filter controls immediately reachable,

@@ -147,8 +147,22 @@ export function buildSupportDiagnosticRequestPath(
   tenantId: string,
   mode: DiagnosticMode,
   profileId?: string | null,
+  context?: {
+    readonly incidentId: string;
+    readonly returnTo: string;
+  },
 ): string {
   const query = new URLSearchParams({ mode });
   if (profileId) query.set('profileId', profileId);
+  if (context) {
+    query.set('incidentId', context.incidentId);
+    query.set('returnTo', context.returnTo);
+  }
   return `/tenants/${encodeURIComponent(tenantId)}/support/run?${query.toString()}`;
+}
+
+/** Builds the canonical exact incident case-file route used for investigation return. */
+export function buildIncidentInvestigationPath(tenantId: string, incidentId: string): string {
+  const query = new URLSearchParams({ view: 'active', incident: incidentId });
+  return `/tenants/${encodeURIComponent(tenantId)}/incidents?${query.toString()}`;
 }

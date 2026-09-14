@@ -249,7 +249,10 @@ public sealed class SupportCarterModule : ICarterModule
             request.NodeId,
             request.DiagnosticMode,
             request.ProfileId,
-            request.ExpiresInSeconds),
+            request.ExpiresInSeconds)
+        {
+          IncidentId = request.IncidentId,
+        },
         cancellationToken);
     return result.Status switch
     {
@@ -361,6 +364,7 @@ public sealed class SupportCarterModule : ICarterModule
                       session.Attestation.SignatureAlgorithm))
               : null)
     {
+      IncidentId = session.IncidentId?.ToString("D"),
       EvidenceClaims =
       [
         new EvidenceClaim(
