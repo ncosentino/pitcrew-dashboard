@@ -376,6 +376,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0015-claim-level-evidence-authority-and-freshness.md",
+        "title": "ADR-0015: Claim-level evidence authority and freshness",
+        "section": "Architecture decisions",
+        "order": 115,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",

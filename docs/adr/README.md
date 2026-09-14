@@ -19,3 +19,4 @@ and explicit supersession links.
 | [ADR-0012](adr-0012-bounded-relay-owned-support-session-lifecycle.md) | Accepted | Project authoritative relay dispatch and bounded agent rejection evidence into Dashboard session lifecycle. |
 | [ADR-0013](adr-0013-typed-profile-image-rollout.md) | Accepted | Apply one immutable candidate through a locally constrained, at-most-once typed profile operation. |
 | [ADR-0014](adr-0014-frozen-image-rollout-campaigns.md) | Accepted | Freeze campaign targets and sequence existing typed profile rollouts through explicit canary and wave approvals. |
+| [ADR-0015](adr-0015-claim-level-evidence-authority-and-freshness.md) | Accepted | Attach authority, clocks, freshness, coverage, and retention to individual evidence claims. |
