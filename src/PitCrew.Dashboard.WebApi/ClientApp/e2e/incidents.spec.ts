@@ -373,7 +373,7 @@ test('truncated fleet summary qualifies slice-derived severity counts', async ({
   await expect(incidentSummary.getByText('1 warning shown', { exact: true })).toBeVisible();
   await expect(incidentSummary.getByText('1 warning', { exact: true })).toHaveCount(0);
   await expect(
-    page.getByLabel('3 open incident records; highest unowned current severity critical'),
+    page.getByLabel('3 open incident records; highest unowned current severity warning'),
   ).toBeVisible();
 
   await expectNoOverflowAndAccessible(page, testInfo, 'truncated-fleet-summary');
