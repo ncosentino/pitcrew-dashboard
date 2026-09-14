@@ -71,6 +71,41 @@ public sealed class GetAlertsUnitOfWorkTests
     await Assert.That(oversized.Status).IsEqualTo(AlertQueryStatus.Invalid);
   }
 
+  [Test]
+  public async Task Query_Rejects_Cursor_From_Stale_Projection_Snapshot(
+      CancellationToken cancellationToken)
+  {
+    var options = new FleetDashboardOptions();
+    var cursor = new AlertIncidentCursor(0, Now, Guid.NewGuid())
+    {
+      SnapshotVersion = 1,
+    }.ToString();
+    var parsedCursor = AlertIncidentCursor.ParseOrNull(cursor);
+    var store = _mocks.Create<IAlertIncidentStore>();
+    store
+        .Setup(candidate => candidate.GetPageAsync(
+            "tenant",
+            AlertIncidentFilter.Active,
+            options.MaximumAlertIncidentsPerQuery,
+            parsedCursor,
+            Now,
+            It.IsAny<CancellationToken>()))
+        .ReturnsAsync(new AlertIncidentPage(Now, [], false)
+        {
+          CursorInvalidated = true,
+        });
+
+    var result = await CreateUnitOfWork(store, options).GetAsync(
+        "tenant",
+        new AlertQueryInput(null, null, cursor),
+        cancellationToken);
+
+    await Assert.That(result.Status).IsEqualTo(AlertQueryStatus.Invalid);
+    await Assert.That(result.Error)
+        .IsEqualTo("The incident cursor is stale; restart pagination.");
+    _mocks.VerifyAll();
+  }
+
   private static GetAlertsUnitOfWork CreateUnitOfWork(
       Mock<IAlertIncidentStore> store,
       FleetDashboardOptions options) =>

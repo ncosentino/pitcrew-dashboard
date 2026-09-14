@@ -29,6 +29,9 @@ internal sealed class AlertEvaluationUnitOfWork(
         now,
         now.AddDays(-options.AlertIncidentRetentionDays),
         options.MaximumResolvedAlertIncidentsPerTenant,
-        cancellationToken);
+        cancellationToken,
+        TimeSpan.FromDays(
+            options.AlertIncidentExpiryLocatorRetentionDays),
+        options.MaximumAlertIncidentExpiryLocatorsPerTenant);
   }
 }

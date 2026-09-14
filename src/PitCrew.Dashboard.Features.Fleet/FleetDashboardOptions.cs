@@ -99,6 +99,18 @@ public sealed class FleetDashboardOptions
   public int MaximumResolvedAlertIncidentsPerTenant { get; set; } = 10_000;
 
   /// <summary>
+  /// Gets or sets how long compacted incident expiry locators are retained.
+  /// </summary>
+  [Range(1, 3650)]
+  public int AlertIncidentExpiryLocatorRetentionDays { get; set; } = 90;
+
+  /// <summary>
+  /// Gets or sets the independent expiry-locator ceiling for one tenant.
+  /// </summary>
+  [Range(10, 1_000_000)]
+  public int MaximumAlertIncidentExpiryLocatorsPerTenant { get; set; } = 10_000;
+
+  /// <summary>
   /// Gets or sets the maximum visible incidents returned by one request.
   /// </summary>
   [Range(10, 1000)]

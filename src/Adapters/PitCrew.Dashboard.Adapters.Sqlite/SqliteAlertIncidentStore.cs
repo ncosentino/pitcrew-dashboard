@@ -6,7 +6,7 @@ using PitCrew.Dashboard.Features.Fleet.Abstractions;
 
 namespace PitCrew.Dashboard.Adapters.Sqlite;
 
-internal sealed class SqliteAlertIncidentStore(
+internal sealed partial class SqliteAlertIncidentStore(
     SqliteConnectionFactory _connectionFactory) : IAlertIncidentStore
 {
   public Task ReconcileAsync(
@@ -15,7 +15,9 @@ internal sealed class SqliteAlertIncidentStore(
       DateTimeOffset evaluatedAt,
       DateTimeOffset resolvedBefore,
       int maximumResolvedPerTenant,
-      CancellationToken cancellationToken) =>
+      CancellationToken cancellationToken,
+      TimeSpan? expiryLocatorRetention = null,
+      int maximumExpiryLocatorsPerTenant = 10_000) =>
       ReconcileAsync(
           candidates,
           [],
@@ -23,7 +25,9 @@ internal sealed class SqliteAlertIncidentStore(
           evaluatedAt,
           resolvedBefore,
           maximumResolvedPerTenant,
-          cancellationToken);
+          cancellationToken,
+          expiryLocatorRetention,
+          maximumExpiryLocatorsPerTenant);
 
   public async Task ReconcileAsync(
       IReadOnlyList<AlertCandidate> candidates,
@@ -32,7 +36,9 @@ internal sealed class SqliteAlertIncidentStore(
       DateTimeOffset evaluatedAt,
       DateTimeOffset resolvedBefore,
       int maximumResolvedPerTenant,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken,
+      TimeSpan? expiryLocatorRetention = null,
+      int maximumExpiryLocatorsPerTenant = 10_000)
   {
     ArgumentNullException.ThrowIfNull(candidates);
     ArgumentNullException.ThrowIfNull(clearances);
@@ -191,6 +197,10 @@ internal sealed class SqliteAlertIncidentStore(
         }
         else
         {
+          if (IsClearanceReplay(stale, clearance))
+          {
+            continue;
+          }
           await MarkEvidenceUnavailableAsync(
               connection,
               transaction,
@@ -214,16 +224,21 @@ internal sealed class SqliteAlertIncidentStore(
       }
       else
       {
-        await ResolveAsync(
+        await ApplyClearanceAsync(
             connection,
             transaction,
-            stale.IncidentId,
+            stale,
             clearance,
             evaluatedAt,
             cancellationToken);
       }
     }
 
+    await SynchronizeActionableProjectionAsync(
+        connection,
+        transaction,
+        evaluatedAt,
+        cancellationToken);
     await DeleteExpiredResolvedAsync(
         connection,
         transaction,
@@ -234,6 +249,16 @@ internal sealed class SqliteAlertIncidentStore(
         transaction,
         maximumResolvedPerTenant,
         cancellationToken);
+    await CompactActionableHistoryAsync(
+        connection,
+        transaction,
+        evaluatedAt,
+        resolvedBefore,
+        maximumResolvedPerTenant,
+        expiryLocatorRetention ??
+            evaluatedAt - resolvedBefore,
+        maximumExpiryLocatorsPerTenant,
+        cancellationToken);
     await transaction.CommitAsync(cancellationToken);
   }
 
@@ -243,7 +268,7 @@ internal sealed class SqliteAlertIncidentStore(
       int limit,
       DateTimeOffset generatedAt,
       CancellationToken cancellationToken) =>
-      await GetPageAsync(
+      await GetProjectedPageAsync(
           tenantId,
           filter,
           limit,
@@ -251,7 +276,7 @@ internal sealed class SqliteAlertIncidentStore(
           generatedAt,
           cancellationToken);
 
-  public async Task<AlertIncidentPage> GetPageAsync(
+  private async Task<AlertIncidentPage> GetLegacyPageAsync(
       string tenantId,
       AlertIncidentFilter filter,
       int limit,
@@ -437,7 +462,7 @@ internal sealed class SqliteAlertIncidentStore(
     };
   }
 
-  public async Task<AlertIncident?> GetByIdAsync(
+  private async Task<AlertIncident?> GetLegacyByIdAsync(
       string tenantId,
       Guid incidentId,
       CancellationToken cancellationToken)
@@ -573,7 +598,7 @@ internal sealed class SqliteAlertIncidentStore(
         Revision = row.Int32("incident_revision"),
       };
 
-  public async Task<AlertAcknowledgeStatus> AcknowledgeAsync(
+  private async Task<AlertAcknowledgeStatus> AcknowledgeLegacyAsync(
       string tenantId,
       Guid incidentId,
       string acknowledgedByGitHubUserId,
@@ -657,7 +682,7 @@ internal sealed class SqliteAlertIncidentStore(
     };
   }
 
-  public async Task<AlertUnacknowledgeStatus> UnacknowledgeAsync(
+  private async Task<AlertUnacknowledgeStatus> UnacknowledgeLegacyAsync(
       string tenantId,
       Guid incidentId,
       string unacknowledgedByGitHubUserId,
@@ -761,7 +786,11 @@ internal sealed class SqliteAlertIncidentStore(
             dashboard_received_at,
             last_confirmed_severity,
             operator_state,
-            condition_state
+            condition_state,
+            recovery_started_at,
+            recovery_sample_count,
+            recovery_source_observed_at,
+            recovery_dashboard_received_at
         FROM alert_incidents
         WHERE status IN ('pending', 'triggered', 'acknowledged')
         ORDER BY alert_key;
@@ -788,7 +817,11 @@ internal sealed class SqliteAlertIncidentStore(
               row.OptionalTime("dashboard_received_at"),
               row.String("last_confirmed_severity"),
               row.String("operator_state"),
-              row.String("condition_state")));
+              row.String("condition_state"),
+              row.OptionalTime("recovery_started_at"),
+              row.Int32("recovery_sample_count"),
+              row.OptionalTime("recovery_source_observed_at"),
+              row.OptionalTime("recovery_dashboard_received_at")));
     }
     return result;
   }
@@ -902,6 +935,16 @@ internal sealed class SqliteAlertIncidentStore(
             last_confirmed_severity,
             peak_severity,
             incident_revision,
+            rule_family,
+            rule_interpretation_version,
+            grouping_policy_version,
+            incident_family,
+            canonical_target_scope,
+            investigation_class,
+            evidence_dependency,
+            grouping_reasons,
+            recovery_started_at,
+            recovery_sample_count,
             created_at,
             updated_at)
         VALUES (
@@ -931,6 +974,16 @@ internal sealed class SqliteAlertIncidentStore(
             $severity,
             $severity,
             1,
+            $ruleFamily,
+            $ruleInterpretationVersion,
+            $groupingPolicyVersion,
+            $incidentFamily,
+            $canonicalTargetScope,
+            $investigationClass,
+            $evidenceDependency,
+            $groupingReasons,
+            NULL,
+            0,
             $createdAt,
             $updatedAt);
         """;
@@ -1038,6 +1091,10 @@ internal sealed class SqliteAlertIncidentStore(
                 WHEN $severity = 'critical' THEN 'critical'
                 ELSE peak_severity
             END,
+            recovery_started_at = NULL,
+            recovery_sample_count = 0,
+            recovery_source_observed_at = NULL,
+            recovery_dashboard_received_at = NULL,
             incident_revision = incident_revision
                 + CASE WHEN $materialEscalation = 1 THEN 1 ELSE 0 END,
             acknowledged_at = CASE
@@ -1111,6 +1168,34 @@ internal sealed class SqliteAlertIncidentStore(
             ? DBNull.Value
             : candidate.Evidence);
     command.Parameters.AddWithValue("$link", candidate.Link);
+    command.Parameters.AddWithValue(
+        "$ruleFamily",
+        candidate.RuleFamily ?? candidate.Kind);
+    command.Parameters.AddWithValue(
+        "$ruleInterpretationVersion",
+        candidate.RuleInterpretationVersion);
+    command.Parameters.AddWithValue(
+        "$groupingPolicyVersion",
+        candidate.GroupingPolicyVersion);
+    command.Parameters.AddWithValue(
+        "$incidentFamily",
+        candidate.IncidentFamily ?? candidate.Kind);
+    command.Parameters.AddWithValue(
+        "$canonicalTargetScope",
+        candidate.CanonicalTargetScope ?? $"condition:{candidate.Key}");
+    command.Parameters.AddWithValue(
+        "$investigationClass",
+        candidate.InvestigationClass ?? $"condition:{candidate.Kind}");
+    command.Parameters.AddWithValue(
+        "$evidenceDependency",
+        candidate.EvidenceDependency ?? $"condition:{candidate.Key}");
+    command.Parameters.AddWithValue(
+        "$groupingReasons",
+        string.Join(
+            "|",
+            candidate.GroupingReasons
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)));
   }
 
   private static async Task DeletePendingAsync(
@@ -1191,6 +1276,60 @@ internal sealed class SqliteAlertIncidentStore(
     command.Parameters.AddWithValue(
         "$dashboardReceivedAt",
         Utc(clearance.DashboardReceivedAt));
+    await command.ExecuteNonQueryAsync(cancellationToken);
+  }
+
+  private static async Task ApplyClearanceAsync(
+      SqliteConnection connection,
+      SqliteTransaction transaction,
+      OpenIncident incident,
+      AlertClearance clearance,
+      DateTimeOffset evaluatedAt,
+      CancellationToken cancellationToken)
+  {
+    var recoveryStartedAt = incident.RecoveryStartedAt ?? evaluatedAt;
+    var recoverySamples = incident.RecoverySampleCount + 1;
+    if (recoverySamples >= clearance.RequiredSamples &&
+        evaluatedAt - recoveryStartedAt >= clearance.RecoveryHysteresis)
+    {
+      await ResolveAsync(
+          connection,
+          transaction,
+          incident.IncidentId,
+          clearance,
+          evaluatedAt,
+          cancellationToken);
+      return;
+    }
+
+    await using var command = connection.CreateCommand();
+    command.Transaction = transaction;
+    command.CommandText =
+        """
+        UPDATE alert_incidents
+        SET condition_state = 'waiting-for-evidence',
+            current_severity = NULL,
+            recovery_started_at = $recoveryStartedAt,
+            recovery_sample_count = $recoverySamples,
+            recovery_source_observed_at = $sourceObservedAt,
+            recovery_dashboard_received_at = $dashboardReceivedAt,
+            evaluated_at = $evaluatedAt,
+            updated_at = $evaluatedAt
+        WHERE incident_id = $incidentId
+          AND status IN ('triggered', 'acknowledged');
+        """;
+    command.Parameters.AddWithValue("$incidentId", incident.IncidentId);
+    command.Parameters.AddWithValue(
+        "$recoveryStartedAt",
+        Utc(recoveryStartedAt));
+    command.Parameters.AddWithValue("$recoverySamples", recoverySamples);
+    command.Parameters.AddWithValue(
+        "$sourceObservedAt",
+        Utc(clearance.SourceObservedAt));
+    command.Parameters.AddWithValue(
+        "$dashboardReceivedAt",
+        Utc(clearance.DashboardReceivedAt));
+    command.Parameters.AddWithValue("$evaluatedAt", Utc(evaluatedAt));
     await command.ExecuteNonQueryAsync(cancellationToken);
   }
 
@@ -1389,6 +1528,10 @@ internal sealed class SqliteAlertIncidentStore(
         UPDATE alert_incidents
         SET condition_state = $conditionState,
             current_severity = NULL,
+            recovery_started_at = NULL,
+            recovery_sample_count = 0,
+            recovery_source_observed_at = NULL,
+            recovery_dashboard_received_at = NULL,
             evaluated_at = $evaluatedAt,
             updated_at = $evaluatedAt
         WHERE incident_id = $incidentId
@@ -1437,11 +1580,25 @@ internal sealed class SqliteAlertIncidentStore(
 
   private static bool IsFreshClearance(
       OpenIncident incident,
+      AlertClearance clearance)
+  {
+    var sourceObservedAt =
+        incident.RecoverySourceObservedAt ?? incident.SourceObservedAt;
+    var dashboardReceivedAt =
+        incident.RecoveryDashboardReceivedAt ??
+        incident.DashboardReceivedAt;
+    return sourceObservedAt is null ||
+        dashboardReceivedAt is null ||
+        (clearance.SourceObservedAt > sourceObservedAt &&
+         clearance.DashboardReceivedAt >= dashboardReceivedAt);
+  }
+
+  private static bool IsClearanceReplay(
+      OpenIncident incident,
       AlertClearance clearance) =>
-      incident.SourceObservedAt is null ||
-      incident.DashboardReceivedAt is null ||
-      (clearance.SourceObservedAt > incident.SourceObservedAt &&
-       clearance.DashboardReceivedAt >= incident.DashboardReceivedAt);
+      incident.RecoverySourceObservedAt == clearance.SourceObservedAt &&
+      incident.RecoveryDashboardReceivedAt ==
+          clearance.DashboardReceivedAt;
 
   private sealed record OpenIncident(
       string IncidentId,
@@ -1456,7 +1613,11 @@ internal sealed class SqliteAlertIncidentStore(
       DateTimeOffset? DashboardReceivedAt,
       string LastConfirmedSeverity,
       string OperatorState,
-      string ConditionState);
+      string ConditionState,
+      DateTimeOffset? RecoveryStartedAt,
+      int RecoverySampleCount,
+      DateTimeOffset? RecoverySourceObservedAt,
+      DateTimeOffset? RecoveryDashboardReceivedAt);
 
   private sealed record LatestResolution(
       DateTimeOffset? SourceObservedAt,

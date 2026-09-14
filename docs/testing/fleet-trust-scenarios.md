@@ -31,9 +31,12 @@ reported through one bounded `InvalidOperationException` boundary.
 - Fresh connector contact can coexist with stale manager evidence.
 - Credential-derived connector identity is authoritative. A disagreeing payload
   identity does not replace it.
-- The current incident decomposition uses one stable candidate key for one
-  persistent condition episode. Independent condition keys remain separate;
-  no cross-condition grouping is performed.
+- One stable candidate key remains one persistent condition episode. Activated
+  conditions project into deterministic actionable incident series using the
+  grouping policy version, closed incident family, canonical authoritative
+  target scope, investigation class, and evidence dependency. Compatible
+  visibility conditions group without deleting source conditions; independent
+  investigation classes remain separate.
 - Incident reads are bounded to 200 by default and expose authoritative tenant-
   scoped totals, current-severity counts, attention-ranked stable continuation
   cursors, and explicit truncation. Critical unowned incidents precede less
@@ -56,8 +59,10 @@ reported through one bounded `InvalidOperationException` boundary.
   revision and returns ownership to unowned without deleting prior audit events.
 - Incident contracts distinguish source observation, Dashboard receipt, rule
   evaluation, and response generation. Existing resolved rows without
-  verifiable clearing provenance are returned as `legacy-unverified`; no fresh
-  evidence is invented for them.
+  verifiable clearing provenance become reserved ordinal-0 history. Fresh
+  authoritative true evidence opens ordinal 1 with
+  `reopened-after-unverified-legacy-resolution`; unknown and false evidence do
+  not allocate a successor or invent recovery.
 - Completed support results are durably stored and exact tenant-scoped session
   reads return the same verified result after leaving and returning.
 - Omitted support profiles are accepted by the current report validator when the
@@ -96,6 +101,12 @@ incident outside the first page. Integrity scenario tests also cover explicit
 clock persistence, waiting and monitoring-ended projections, stale replay,
 restart/resume, node-scoped disconnect suppression, revisioned escalation,
 acknowledgement audit history, and duplicate-free attention pagination.
+Actionable projection tests additionally cover repeated corpus signals,
+order-independent grouping and display selection, tenant-isolated regrouping,
+independent investigations, replay-safe recovery hysteresis, concurrent open
+convergence, suppression expiry and bypass on material escalation, recurrence
+ordinals, exact pruned-history reads, expiry locators, and legacy ordinal-0
+compatibility.
 `SqliteSupportStoreTests`
 computes the expected result digest before persistence, creates a fresh store
 context, reads the exact tenant/session record again, and verifies both returned

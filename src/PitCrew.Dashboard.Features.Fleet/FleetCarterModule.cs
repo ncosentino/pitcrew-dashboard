@@ -230,11 +230,26 @@ public sealed class FleetCarterModule : ICarterModule
         tenantId,
         incidentId,
         cancellationToken);
-    return incident is null
-        ? Results.NotFound()
-        : Results.Ok(new AlertIncidentDetailResponse(
+    if (incident is not null)
+    {
+      return Results.Ok(new AlertIncidentDetailResponse(
             generatedAt,
             ToResponse(incident)));
+    }
+
+    var historyState = await incidentStore.GetHistoryStateAsync(
+        tenantId,
+        incidentId,
+        generatedAt,
+        cancellationToken);
+    var response = new AlertIncidentHistoryResponse(
+        generatedAt,
+        historyState);
+    return historyState == "history-expired"
+        ? Results.Json(
+            response,
+            statusCode: StatusCodes.Status410Gone)
+        : Results.NotFound(response);
   }
 
   private static async Task<IResult> GetNodeHistoryAsync(
@@ -683,5 +698,16 @@ public sealed class FleetCarterModule : ICarterModule
           incident.CurrentSeverity,
           incident.LastConfirmedSeverity,
           incident.PeakSeverity,
-          incident.Revision);
+          incident.Revision,
+          incident.SeriesId,
+          incident.EpisodeOrdinal,
+          incident.GroupingPolicyVersion,
+          incident.GroupingReasons,
+          incident.ConditionCount,
+          incident.HistoryState,
+          incident.PreviousIncidentId,
+          incident.PreviousHistoryState,
+          incident.Transition,
+          incident.SuppressionReason,
+          incident.SuppressedUntil);
 }

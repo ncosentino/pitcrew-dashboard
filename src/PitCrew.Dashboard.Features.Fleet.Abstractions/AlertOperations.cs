@@ -219,7 +219,48 @@ public sealed record AlertCandidate(
     string Summary,
     string Reason,
     string? Evidence,
-    string Link);
+    string Link)
+{
+  /// <summary>
+  /// Gets the stable rule family interpreted by this evaluation.
+  /// </summary>
+  public string? RuleFamily { get; init; }
+
+  /// <summary>
+  /// Gets the version of the active and clearing interpretation.
+  /// </summary>
+  public int RuleInterpretationVersion { get; init; } = 1;
+
+  /// <summary>
+  /// Gets the deterministic grouping policy version.
+  /// </summary>
+  public int GroupingPolicyVersion { get; init; } = 1;
+
+  /// <summary>
+  /// Gets the closed actionable incident family.
+  /// </summary>
+  public string? IncidentFamily { get; init; }
+
+  /// <summary>
+  /// Gets the canonical authoritative target scope used for grouping.
+  /// </summary>
+  public string? CanonicalTargetScope { get; init; }
+
+  /// <summary>
+  /// Gets the closed investigation class used for grouping.
+  /// </summary>
+  public string? InvestigationClass { get; init; }
+
+  /// <summary>
+  /// Gets the evidence dependency boundary used for grouping.
+  /// </summary>
+  public string? EvidenceDependency { get; init; }
+
+  /// <summary>
+  /// Gets the allowlisted reasons that explain grouping compatibility.
+  /// </summary>
+  public IReadOnlyList<string> GroupingReasons { get; init; } = [];
+}
 
 /// <summary>
 /// Carries fresh rule-specific evidence that one exact condition is no longer present.
@@ -230,7 +271,18 @@ public sealed record AlertCandidate(
 public sealed record AlertClearance(
     string Key,
     DateTimeOffset SourceObservedAt,
-    DateTimeOffset DashboardReceivedAt);
+    DateTimeOffset DashboardReceivedAt)
+{
+  /// <summary>
+  /// Gets the number of consecutive fresh clearing samples required.
+  /// </summary>
+  public int RequiredSamples { get; init; } = 1;
+
+  /// <summary>
+  /// Gets the continuous fresh clearing duration required.
+  /// </summary>
+  public TimeSpan RecoveryHysteresis { get; init; }
+}
 
 /// <summary>
 /// Prevents unavailable evidence from falsely resolving a previously triggered diagnosis.
@@ -350,6 +402,61 @@ public sealed record AlertIncident(
   /// Gets the monotonic incident revision acknowledged by operator state.
   /// </summary>
   public int Revision { get; init; } = 1;
+
+  /// <summary>
+  /// Gets the stable deterministic actionable incident series identifier.
+  /// </summary>
+  public Guid SeriesId { get; init; }
+
+  /// <summary>
+  /// Gets the monotonic episode ordinal within the stable series.
+  /// </summary>
+  public int EpisodeOrdinal { get; init; } = 1;
+
+  /// <summary>
+  /// Gets the grouping policy version that owns this episode.
+  /// </summary>
+  public int GroupingPolicyVersion { get; init; } = 1;
+
+  /// <summary>
+  /// Gets the allowlisted reasons explaining why member conditions investigate together.
+  /// </summary>
+  public IReadOnlyList<string> GroupingReasons { get; init; } = [];
+
+  /// <summary>
+  /// Gets the number of independent condition episodes represented.
+  /// </summary>
+  public int ConditionCount { get; init; } = 1;
+
+  /// <summary>
+  /// Gets whether full details are retained, pruned, or represented by an expiry locator.
+  /// </summary>
+  public string HistoryState { get; init; } = "retained";
+
+  /// <summary>
+  /// Gets the previous actionable incident episode when recurrence history is retained.
+  /// </summary>
+  public Guid? PreviousIncidentId { get; init; }
+
+  /// <summary>
+  /// Gets the typed history boundary that replaced an expired predecessor.
+  /// </summary>
+  public string? PreviousHistoryState { get; init; }
+
+  /// <summary>
+  /// Gets the closed transition from the previous episode, when present.
+  /// </summary>
+  public string? Transition { get; init; }
+
+  /// <summary>
+  /// Gets the active presentation suppression reason, when present.
+  /// </summary>
+  public string? SuppressionReason { get; init; }
+
+  /// <summary>
+  /// Gets the suppression expiry, when present.
+  /// </summary>
+  public DateTimeOffset? SuppressedUntil { get; init; }
 }
 
 /// <summary>
@@ -382,6 +489,11 @@ public sealed record AlertIncidentPage(
   /// Gets the opaque cursor for the next page, or <see langword="null"/>.
   /// </summary>
   public string? NextCursor { get; init; }
+
+  /// <summary>
+  /// Gets whether the supplied cursor belongs to an older mutable projection snapshot.
+  /// </summary>
+  public bool CursorInvalidated { get; init; }
 }
 
 /// <summary>
@@ -393,10 +505,28 @@ public sealed record AlertIncidentCursor(
     Guid IncidentId)
 {
   /// <summary>
+  /// Gets the tenant projection version captured by the first page.
+  /// </summary>
+  public long? SnapshotVersion { get; init; }
+
+  /// <summary>
+  /// Gets the dashboard time used for time-sensitive attention ranking.
+  /// </summary>
+  public DateTimeOffset? SnapshotAt { get; init; }
+
+  /// <summary>
   /// Formats the cursor for an HTTP query parameter.
   /// </summary>
   public override string ToString() =>
-      $"{AttentionRank.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{SortAt.ToUniversalTime():O}|{IncidentId:D}";
+      (SnapshotVersion, SnapshotAt) switch
+      {
+        (long version, DateTimeOffset snapshotAt) =>
+            $"v3|{version.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{snapshotAt.ToUniversalTime():O}|{AttentionRank.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{SortAt.ToUniversalTime():O}|{IncidentId:D}",
+        (long version, null) =>
+            $"v2|{version.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{AttentionRank.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{SortAt.ToUniversalTime():O}|{IncidentId:D}",
+        _ =>
+            $"{AttentionRank.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{SortAt.ToUniversalTime():O}|{IncidentId:D}",
+      };
 
   /// <summary>
   /// Parses a previously returned cursor.
@@ -408,6 +538,84 @@ public sealed record AlertIncidentCursor(
     {
       return null;
     }
+    if (value.StartsWith("v3|", StringComparison.Ordinal))
+    {
+      var parts = value.Split('|');
+      if (parts.Length != 6 ||
+          !long.TryParse(
+              parts[1],
+              System.Globalization.NumberStyles.None,
+              System.Globalization.CultureInfo.InvariantCulture,
+              out var snapshotVersion) ||
+          snapshotVersion < 0 ||
+          !DateTimeOffset.TryParse(
+              parts[2],
+              System.Globalization.CultureInfo.InvariantCulture,
+              System.Globalization.DateTimeStyles.RoundtripKind,
+              out var snapshotAt) ||
+          !int.TryParse(
+              parts[3],
+              System.Globalization.NumberStyles.None,
+              System.Globalization.CultureInfo.InvariantCulture,
+              out var versionedAttentionRank) ||
+          versionedAttentionRank is < 0 or > 7 ||
+          !DateTimeOffset.TryParse(
+              parts[4],
+              System.Globalization.CultureInfo.InvariantCulture,
+              System.Globalization.DateTimeStyles.RoundtripKind,
+              out var versionedSortAt) ||
+          !Guid.TryParse(
+              parts[5],
+              System.Globalization.CultureInfo.InvariantCulture,
+              out var versionedIncidentId))
+      {
+        return null;
+      }
+      return new AlertIncidentCursor(
+          versionedAttentionRank,
+          versionedSortAt,
+          versionedIncidentId)
+      {
+        SnapshotVersion = snapshotVersion,
+        SnapshotAt = snapshotAt,
+      };
+    }
+    if (value.StartsWith("v2|", StringComparison.Ordinal))
+    {
+      var parts = value.Split('|');
+      if (parts.Length != 5 ||
+          !long.TryParse(
+              parts[1],
+              System.Globalization.NumberStyles.None,
+              System.Globalization.CultureInfo.InvariantCulture,
+              out var snapshotVersion) ||
+          snapshotVersion < 0 ||
+          !int.TryParse(
+              parts[2],
+              System.Globalization.NumberStyles.None,
+              System.Globalization.CultureInfo.InvariantCulture,
+              out var versionedAttentionRank) ||
+          versionedAttentionRank is < 0 or > 7 ||
+          !DateTimeOffset.TryParse(
+              parts[3],
+              System.Globalization.CultureInfo.InvariantCulture,
+              System.Globalization.DateTimeStyles.RoundtripKind,
+              out var versionedSortAt) ||
+          !Guid.TryParse(
+              parts[4],
+              System.Globalization.CultureInfo.InvariantCulture,
+              out var versionedIncidentId))
+      {
+        return null;
+      }
+      return new AlertIncidentCursor(
+          versionedAttentionRank,
+          versionedSortAt,
+          versionedIncidentId)
+      {
+        SnapshotVersion = snapshotVersion,
+      };
+    }
     var firstSeparator = value.IndexOf('|');
     var lastSeparator = value.LastIndexOf('|');
     if (firstSeparator <= 0 ||
@@ -417,7 +625,7 @@ public sealed record AlertIncidentCursor(
             System.Globalization.NumberStyles.None,
             System.Globalization.CultureInfo.InvariantCulture,
             out var attentionRank) ||
-        attentionRank is < 0 or > 6 ||
+        attentionRank is < 0 or > 7 ||
         !DateTimeOffset.TryParse(
             value[(firstSeparator + 1)..lastSeparator],
             System.Globalization.CultureInfo.InvariantCulture,
@@ -466,6 +674,8 @@ public interface IAlertIncidentStore
   /// <param name="resolvedBefore">Resolved incidents older than this time may be deleted.</param>
   /// <param name="maximumResolvedPerTenant">Hard retained resolved-history ceiling per tenant.</param>
   /// <param name="cancellationToken">Token that cancels reconciliation.</param>
+  /// <param name="expiryLocatorRetention">How long compacted history locators remain addressable.</param>
+  /// <param name="maximumExpiryLocatorsPerTenant">Hard expiry-locator ceiling per tenant.</param>
   /// <returns>A task that completes after the atomic reconciliation.</returns>
   Task ReconcileAsync(
       IReadOnlyList<AlertCandidate> candidates,
@@ -474,7 +684,9 @@ public interface IAlertIncidentStore
       DateTimeOffset evaluatedAt,
       DateTimeOffset resolvedBefore,
       int maximumResolvedPerTenant,
-      CancellationToken cancellationToken);
+      CancellationToken cancellationToken,
+      TimeSpan? expiryLocatorRetention = null,
+      int maximumExpiryLocatorsPerTenant = 10_000);
 
   /// <summary>
   /// Loads bounded visible incidents for one tenant.
@@ -512,6 +724,15 @@ public interface IAlertIncidentStore
       CancellationToken cancellationToken);
 
   /// <summary>
+  /// Resolves the explicit retained, expired, or unavailable state of an exact incident link.
+  /// </summary>
+  Task<string> GetHistoryStateAsync(
+      string tenantId,
+      Guid incidentId,
+      DateTimeOffset evaluatedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
   /// Acknowledges one active incident without resolving or deleting it.
   /// </summary>
   /// <param name="tenantId">Tenant that owns the incident.</param>
@@ -542,5 +763,23 @@ public interface IAlertIncidentStore
       Guid incidentId,
       string unacknowledgedByGitHubUserId,
       DateTimeOffset unacknowledgedAt,
+      CancellationToken cancellationToken);
+
+  /// <summary>
+  /// Applies or clears presentation suppression without changing incident truth.
+  /// </summary>
+  /// <param name="tenantId">Tenant that owns the incident.</param>
+  /// <param name="incidentId">Incident whose presentation policy changes.</param>
+  /// <param name="reason">Closed suppression reason, or <see langword="null"/> to clear.</param>
+  /// <param name="expiresAt">Optional suppression expiry.</param>
+  /// <param name="changedAt">Dashboard time of the policy change.</param>
+  /// <param name="cancellationToken">Token that cancels the operation.</param>
+  /// <returns><see langword="true"/> when the active incident exists.</returns>
+  Task<bool> SetSuppressionAsync(
+      string tenantId,
+      Guid incidentId,
+      string? reason,
+      DateTimeOffset? expiresAt,
+      DateTimeOffset changedAt,
       CancellationToken cancellationToken);
 }

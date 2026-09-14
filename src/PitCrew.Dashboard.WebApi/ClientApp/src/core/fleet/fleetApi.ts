@@ -1222,6 +1222,7 @@ export const operationalIncidentSchema = z
       .enum([
         'confirmed',
         'waiting-for-evidence',
+        'recovering',
         'monitoring-ended',
         'resolved',
         'legacy-unverified',
@@ -1232,6 +1233,23 @@ export const operationalIncidentSchema = z
     lastConfirmedSeverity: z.enum(['warning', 'critical']).optional(),
     peakSeverity: z.enum(['warning', 'critical']).optional(),
     revision: z.number().int().positive().optional(),
+    seriesId: z.string().uuid().optional(),
+    episodeOrdinal: z.number().int().nonnegative().optional(),
+    groupingPolicyVersion: z.number().int().positive().optional(),
+    groupingReasons: z.array(z.string().min(1).max(64)).optional(),
+    conditionCount: z.number().int().positive().optional(),
+    historyState: z.enum(['retained', 'history-pruned']).optional(),
+    previousIncidentId: z.string().uuid().nullable().optional(),
+    previousHistoryState: z
+      .enum(['history-expired', 'legacy-resolution-history-expired'])
+      .nullable()
+      .optional(),
+    transition: z
+      .enum(['recurrence', 'reopened-after-unverified-legacy-resolution'])
+      .nullable()
+      .optional(),
+    suppressionReason: z.string().min(1).max(64).nullable().optional(),
+    suppressedUntil: offsetDateTimeSchema.nullable().optional(),
   })
   .transform((incident) => {
     const conditionState =

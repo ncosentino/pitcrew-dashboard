@@ -51,16 +51,19 @@ internal sealed class GetAlertsUnitOfWork(
     }
 
     var now = _timeProvider.GetUtcNow();
-    return new AlertQueryResult(
-        AlertQueryStatus.Succeeded,
-        null,
-        await _incidentStore.GetPageAsync(
+    var page = await _incidentStore.GetPageAsync(
             tenantId,
             filter.Value,
             limit,
             cursor,
             now,
-            cancellationToken));
+            cancellationToken);
+    return page.CursorInvalidated
+        ? Invalid("The incident cursor is stale; restart pagination.")
+        : new AlertQueryResult(
+            AlertQueryStatus.Succeeded,
+            null,
+            page);
   }
 
   private static AlertQueryResult Invalid(string error) =>
