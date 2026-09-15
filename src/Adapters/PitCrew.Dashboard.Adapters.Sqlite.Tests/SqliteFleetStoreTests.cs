@@ -14,6 +14,70 @@ namespace PitCrew.Dashboard.Adapters.Sqlite.Tests;
 public sealed class SqliteFleetStoreTests
 {
   [Test]
+  public async Task Incomplete_Nonempty_Profile_Inventory_Upserts_Observed_Profile(
+      CancellationToken cancellationToken)
+  {
+    var databasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"pitcrew-profile-inventory-partial-{Guid.NewGuid():N}.db");
+    try
+    {
+      var observedAt = new DateTimeOffset(
+          2026,
+          9,
+          15,
+          12,
+          0,
+          0,
+          TimeSpan.Zero);
+      var (connectionFactory, store, nodeId) =
+          await CreateEnrolledStoreAsync(
+              databasePath,
+              observedAt,
+              cancellationToken);
+      var profile = CreateProfile(
+          "default",
+          "manager-instance",
+          observedAt);
+
+      await FleetStorageTestTransactions.ApplySyncAsync(
+          store,
+          connectionFactory,
+          nodeId,
+          "12.39.0",
+          observedAt,
+          [profile],
+          new ConnectorCredentialUpdate(
+              ConnectorCredentialUpdateKind.None,
+              string.Empty),
+          cancellationToken,
+          new ConnectorProfileInventory(
+              "partial",
+              observedAt,
+              "source-partial"));
+
+      var fleet = await store.GetFleetAsync(
+          "tenant",
+          observedAt,
+          TimeSpan.FromMinutes(1),
+          cancellationToken);
+
+      await Assert.That(fleet.Nodes).HasSingleItem();
+      await Assert.That(fleet.Nodes[0].Profiles).HasSingleItem()
+          .Because("accepted partial inventory still carries authoritative observed profiles");
+      await Assert.That(fleet.Nodes[0].Profiles[0].ProfileId)
+          .IsEqualTo("default");
+      await Assert.That(fleet.Nodes[0].ProfileInventory?.Coverage)
+          .IsEqualTo("partial");
+    }
+    finally
+    {
+      SqliteConnection.ClearAllPools();
+      DashboardTestCleanup.DeleteDatabase(databasePath);
+    }
+  }
+
+  [Test]
   public async Task Incomplete_Empty_Profile_Inventory_Preserves_Last_Known_Profile(
       CancellationToken cancellationToken)
   {

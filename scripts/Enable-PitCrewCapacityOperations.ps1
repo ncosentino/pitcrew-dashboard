@@ -412,7 +412,7 @@ function Wait-WindowsConnectorSynchronization {
                         [Globalization.CultureInfo]::InvariantCulture,
                         [Globalization.DateTimeStyles]::RoundtripKind,
                         [ref]$lastSuccess) -and
-                    [string]$snapshot.state -eq 'healthy' -and
+                        [string]$snapshot.state -in @('healthy', 'degraded') -and
                     $lastSuccess -ge $StartedAt) {
                     return
                 }

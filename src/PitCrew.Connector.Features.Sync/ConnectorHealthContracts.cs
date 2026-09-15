@@ -17,6 +17,7 @@ internal static class ConnectorHealthEventKinds
   public const string ProcessStarted = "process-started";
   public const string ProcessStopping = "process-stopping";
   public const string SynchronizationSucceeded = "synchronization-succeeded";
+  public const string SynchronizationAccepted = "synchronization-accepted";
   public const string SynchronizationFailed = "synchronization-failed";
   public const string ObservationIncomplete = "observation-incomplete";
   public const string EnrollmentFailed = "enrollment-failed";

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PitCrew.Protocol;
 
 /// <summary>
@@ -5,6 +7,7 @@ namespace PitCrew.Protocol;
 /// </summary>
 public sealed record ManagerSourceObservations(
     ManagerSourceObservation LocalRuntime,
+    [property: JsonPropertyName("githubScaleSet")]
     ManagerSourceObservation GitHubScaleSet,
     ManagerSourceObservation ResourceTelemetry,
     ManagerSourceObservation HostHardware,

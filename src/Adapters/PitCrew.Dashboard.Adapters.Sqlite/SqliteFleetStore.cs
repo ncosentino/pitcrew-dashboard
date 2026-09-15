@@ -385,6 +385,15 @@ internal sealed class SqliteFleetStore(
         "$nodeId",
         nodeId.ToString("D"));
 
+    var profileParameters = new string[profiles.Count];
+    for (var index = 0; index < profiles.Count; index++)
+    {
+      profileParameters[index] = $"$profileId{index}";
+      profileCommand.Parameters.AddWithValue(
+          profileParameters[index],
+          profiles[index].ProfileId);
+    }
+
     var completeInventory = profileInventory is null ||
         string.Equals(
             profileInventory.Coverage,
@@ -398,15 +407,6 @@ internal sealed class SqliteFleetStore(
         (profileInventory is not null ||
          acceptedProfileIds.Count > 0))
     {
-      var profileParameters = new string[profiles.Count];
-      for (var index = 0; index < profiles.Count; index++)
-      {
-        profileParameters[index] = $"$profileId{index}";
-        profileCommand.Parameters.AddWithValue(
-            profileParameters[index],
-            profiles[index].ProfileId);
-      }
-
       sql.AppendLine(
           $"DELETE FROM profiles WHERE node_id = $nodeId AND profile_id NOT IN ({string.Join(", ", profileParameters)});");
     }

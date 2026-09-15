@@ -259,12 +259,10 @@ internal sealed partial class ConnectorWorker(
             LogSynchronized(
                 observedState.Profiles.Count,
                 nextDelay);
-            if (observedState.IsComplete)
-            {
-              await _healthJournal.RecordSynchronizationSucceededAsync(
-                  _timeProvider.GetUtcNow(),
-                  stoppingToken);
-            }
+            await _healthJournal.RecordSynchronizationAcceptedAsync(
+                _timeProvider.GetUtcNow(),
+                observedState.IsComplete,
+                stoppingToken);
             if (ShouldScheduleImmediateHealthReplay(
                 observedState.IsComplete,
                 replayedActiveOutage))

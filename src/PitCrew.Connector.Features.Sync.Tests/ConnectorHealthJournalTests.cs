@@ -8,6 +8,59 @@ namespace PitCrew.Connector.Features.Sync.Tests;
 public sealed class ConnectorHealthJournalTests
 {
   [Test]
+  public async Task Accepted_Partial_Synchronization_Advances_Success_Without_Hiding_Outage(
+      CancellationToken cancellationToken)
+  {
+    var root = CreateTemporaryDirectory();
+    try
+    {
+      var journal = CreateJournal(root);
+      var startedAt = new DateTimeOffset(
+          2026,
+          9,
+          15,
+          12,
+          0,
+          0,
+          TimeSpan.Zero);
+      await journal.RecordProcessStartedAsync(startedAt, cancellationToken);
+      await journal.RecordFailureAsync(
+          ConnectorHealthEventKinds.ObservationIncomplete,
+          new ConnectorHealthFailure(
+              ConnectorHealthFailureCategories.ProfileStateUnreadable,
+              "Connector observation is incomplete."),
+          1,
+          TimeSpan.FromSeconds(30),
+          startedAt.AddSeconds(1),
+          cancellationToken);
+
+      await journal.RecordSynchronizationAcceptedAsync(
+          startedAt.AddSeconds(2),
+          observationIsComplete: false,
+          cancellationToken);
+
+      var snapshot = await ReadSnapshotAsync(root, cancellationToken);
+      var events = await ReadEventsAsync(root, cancellationToken);
+
+      await Assert.That(snapshot.State)
+          .IsEqualTo(ConnectorHealthStates.Degraded);
+      await Assert.That(snapshot.LastSuccessAt)
+          .IsEqualTo(startedAt.AddSeconds(2));
+      await Assert.That(snapshot.ActiveOutageId).IsNotNull();
+      await Assert.That(snapshot.ConsecutiveFailures).IsEqualTo(1);
+      await Assert.That(events).Count().IsEqualTo(3);
+      await Assert.That(events[^1].Kind)
+          .IsEqualTo(ConnectorHealthEventKinds.SynchronizationAccepted);
+      await Assert.That(events[^1].State)
+          .IsEqualTo(ConnectorHealthStates.Degraded);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
   public async Task Failure_And_Recovery_Are_Durable_And_Redacted(
       CancellationToken cancellationToken)
   {
