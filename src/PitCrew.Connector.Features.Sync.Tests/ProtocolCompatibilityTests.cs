@@ -140,10 +140,47 @@ public sealed class ProtocolCompatibilityTests
     await Assert.That(profile!.SourceObservations).IsNotNull();
     await Assert.That(profile.SourceObservations!.Workload.Coverage)
         .IsEqualTo("complete");
+    await Assert.That(profile.SourceObservations.GitHubScaleSet.Source)
+        .IsEqualTo("github-scale-set");
+    await Assert.That(profile.SourceObservations.GitHubScaleSet.Coverage)
+        .IsEqualTo("unavailable");
     await Assert.That(profile.SourceObservations.HostHardware.Retention)
         .IsEqualTo("last-known");
     await Assert.That(profile.SourceObservations.ResourceTelemetry.ObservedAt)
         .IsNull();
+
+    var request = new ConnectorSyncRequest(
+        12,
+        "12.39.0",
+        new DateTimeOffset(
+            2026,
+            8,
+            20,
+            2,
+            0,
+            1,
+            TimeSpan.Zero),
+        [profile]);
+    var serialized = JsonSerializer.Serialize(
+        request,
+        PitCrewProtocolJsonContext.Default.ConnectorSyncRequest);
+    using var document = JsonDocument.Parse(serialized);
+    var sourceObservations = document.RootElement
+        .GetProperty("profiles")[0]
+        .GetProperty("sourceObservations");
+
+    await Assert.That(sourceObservations.TryGetProperty(
+            "githubScaleSet",
+            out var githubScaleSet))
+        .IsTrue()
+        .Because("the manager contract uses the exact githubScaleSet wire name");
+    await Assert.That(githubScaleSet.GetProperty("source").GetString())
+        .IsEqualTo("github-scale-set");
+    await Assert.That(sourceObservations.TryGetProperty(
+            "gitHubScaleSet",
+            out _))
+        .IsFalse()
+        .Because("acronym casing must not create a second incompatible wire name");
   }
 
   [Test]

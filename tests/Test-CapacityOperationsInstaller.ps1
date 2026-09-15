@@ -250,6 +250,13 @@ try {
             $installerPath,
             [ref]$tokens,
             [ref]$parseErrors)
+        $synchronizationFunction = $installerAst.Find(
+            {
+                param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'Wait-WindowsConnectorSynchronization'
+            },
+            $true)
         $diagnosticFunction = $installerAst.Find(
             {
                 param($node)
@@ -259,8 +266,40 @@ try {
             $true)
         Add-Check (
             $parseErrors.Count -eq 0 -and
+            $null -ne $synchronizationFunction -and
             $null -ne $diagnosticFunction
-        ) 'The bounded Windows service diagnostic helper is missing or invalid.'
+        ) 'The Windows synchronization or bounded diagnostic helper is missing or invalid.'
+        if ($null -ne $synchronizationFunction) {
+            Invoke-Expression $synchronizationFunction.Extent.Text
+            $partialHealthRoot = Join-Path $testRoot 'partial-health-data'
+            $partialHealthDirectory = Join-Path $partialHealthRoot 'health'
+            New-Item `
+                -ItemType Directory `
+                -Path $partialHealthDirectory `
+                -Force |
+                Out-Null
+            $verificationStartedAt = [DateTimeOffset]::UtcNow.AddMinutes(-1)
+            @{
+                state = 'degraded'
+                lastSuccessAt = [DateTimeOffset]::UtcNow.ToString('O')
+            } |
+                ConvertTo-Json |
+                Set-Content `
+                    -LiteralPath (Join-Path $partialHealthDirectory 'connector-health.json') `
+                    -Encoding UTF8
+            $acceptedPartialSynchronization = $true
+            try {
+                Wait-WindowsConnectorSynchronization `
+                    -DataRoot $partialHealthRoot `
+                    -StartedAt $verificationStartedAt `
+                    -TimeoutSeconds 1
+            } catch {
+                $acceptedPartialSynchronization = $false
+            }
+            Add-Check (
+                $acceptedPartialSynchronization
+            ) 'The Windows update gate rejected a fresh accepted partial synchronization.'
+        }
         $installerText = Get-Content `
             -LiteralPath $installerPath `
             -Raw `

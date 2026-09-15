@@ -96,6 +96,11 @@ internal sealed class SqliteMigrationRunner(
       migrationCommand.Transaction = transaction;
       migrationCommand.CommandText = migration.Sql;
       await migrationCommand.ExecuteNonQueryAsync(cancellationToken);
+      await ValidateRequiredSchemaObjectsAsync(
+          connection,
+          transaction,
+          migration,
+          cancellationToken);
 
       await using var recordCommand = connection.CreateCommand();
       recordCommand.Transaction = transaction;
@@ -128,6 +133,51 @@ internal sealed class SqliteMigrationRunner(
               CultureInfo.InvariantCulture));
       await recordCommand.ExecuteNonQueryAsync(cancellationToken);
       await transaction.CommitAsync(cancellationToken);
+    }
+
+    foreach (var migration in SqliteMigrationCatalog.All)
+    {
+      await ValidateRequiredSchemaObjectsAsync(
+          connection,
+          transaction: null,
+          migration,
+          cancellationToken);
+    }
+  }
+
+  private static async Task ValidateRequiredSchemaObjectsAsync(
+      SqliteConnection connection,
+      SqliteTransaction? transaction,
+      SqliteMigration migration,
+      CancellationToken cancellationToken)
+  {
+    if (migration.RequiredSchemaObjects is null)
+    {
+      return;
+    }
+
+    foreach (var expected in migration.RequiredSchemaObjects)
+    {
+      await using var command = connection.CreateCommand();
+      command.Transaction = transaction;
+      command.CommandText =
+          """
+          SELECT type
+          FROM sqlite_master
+          WHERE name = $name
+          LIMIT 1;
+          """;
+      command.Parameters.AddWithValue("$name", expected.Name);
+      var actualType = await command.ExecuteScalarAsync(cancellationToken)
+          as string;
+      if (!string.Equals(
+          actualType,
+          expected.Type,
+          StringComparison.Ordinal))
+      {
+        throw new InvalidOperationException(
+            $"SQLite migration '{migration.Version}' requires {expected.Type} '{expected.Name}', but the applied schema does not contain it.");
+      }
     }
   }
 

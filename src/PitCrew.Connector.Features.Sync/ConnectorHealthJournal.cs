@@ -106,6 +106,28 @@ internal sealed partial class ConnectorHealthJournal(
         cancellationToken);
   }
 
+  public Task RecordSynchronizationAcceptedAsync(
+      DateTimeOffset occurredAt,
+      bool observationIsComplete,
+      CancellationToken cancellationToken) =>
+      observationIsComplete
+          ? RecordSynchronizationSucceededAsync(
+              occurredAt,
+              cancellationToken)
+          : RecordBestEffortAsync(
+              token => UpdateAsync(
+                  occurredAt,
+                  ConnectorHealthEventKinds.SynchronizationAccepted,
+                  snapshot => snapshot with
+                  {
+                    UpdatedAt = occurredAt,
+                    LastAttemptAt = occurredAt,
+                    LastSuccessAt = occurredAt,
+                  },
+                  null,
+                  token),
+              cancellationToken);
+
   public Task RecordSynchronizationSucceededAsync(
       DateTimeOffset occurredAt,
       CancellationToken cancellationToken) =>
