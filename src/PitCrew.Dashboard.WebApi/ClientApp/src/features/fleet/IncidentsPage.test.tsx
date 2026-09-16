@@ -87,14 +87,18 @@ describe('IncidentsPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders a compact active incident with a direct evidence link', async () => {
+  it('renders a compact active incident without duplicating shared page requests', async () => {
+    let fleetRequestCount = 0;
+    let incidentRequestCount = 0;
     renderPage(async (input) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith('/api/session')) return jsonResponse(ownerSession);
       if (url.endsWith('/fleet/v1/nodes')) {
+        fleetRequestCount += 1;
         return jsonResponse({ generatedAt: '2026-07-28T01:03:00+00:00', nodes: [] });
       }
       if (url.includes('/fleet/v1/incidents?status=active')) {
+        incidentRequestCount += 1;
         return jsonResponse({
           ...page(),
           truncated: true,
@@ -124,6 +128,10 @@ describe('IncidentsPage', () => {
       screen.getByText(/showing 1 of 2 authoritative matching incidents/i),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Load more incidents' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fleetRequestCount).toBe(1);
+      expect(incidentRequestCount).toBe(1);
+    });
   });
 
   it('ignores a late continuation response after the active query changes', async () => {

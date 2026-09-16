@@ -75,6 +75,9 @@ public sealed partial class SqliteAlertIncidentStoreTests
           .IsEqualTo("triggered");
       await Assert.That(triggered.Incidents[0].TriggeredAt)
           .IsEqualTo(Origin.AddMinutes(2));
+      await Assert.That(triggered.TotalCount).IsEqualTo(1);
+      await Assert.That(triggered.CriticalCount).IsEqualTo(0);
+      await Assert.That(triggered.WarningCount).IsEqualTo(1);
     }
     finally
     {
