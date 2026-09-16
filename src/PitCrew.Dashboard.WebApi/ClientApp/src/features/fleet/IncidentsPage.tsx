@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/core/auth';
-import { getFleet, type FleetNode } from '@/core/fleet';
+import { useFleet, type FleetNode } from '@/core/fleet';
 import { formatTime } from '@/core/formatting/formatters';
 import { EmptyState } from '@/core/ui/EmptyState';
 import type { FilterChipDescriptor } from '@/core/ui/FilterChips';
@@ -53,22 +53,12 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-interface IncidentEnrichmentState {
-  readonly tenantId: string;
-  readonly nodes: ReadonlyArray<FleetNode>;
-  readonly status: IncidentEnrichmentStatus;
-}
-
 /** Renders active incidents and bounded resolved history without crowding fleet status pages. */
 export default function IncidentsPage() {
   const { tenantId = '' } = useParams();
   const { session } = useSession();
+  const { fleet, error: fleetError, isLoading: isFleetLoading } = useFleet();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [enrichment, setEnrichment] = useState<IncidentEnrichmentState>({
-    tenantId,
-    nodes: [],
-    status: 'loading',
-  });
   const [page, setPage] = useState<IncidentPage | null>(null);
   const [exactIncident, setExactIncident] = useState<OperationalIncident | null>(null);
   const [loadedFilter, setLoadedFilter] = useState<IncidentFilter | null>(null);
@@ -88,10 +78,13 @@ export default function IncidentsPage() {
   const pendingSelectionFocus = useRef<string | null>(null);
   const isDesktopWorkspace = useMediaQuery(desktopIncidentWorkspaceQuery);
   const isExpandedFilterLayout = useMediaQuery(expandedIncidentFilterQuery);
-  const currentEnrichment =
-    enrichment.tenantId === tenantId
-      ? enrichment
-      : { tenantId, nodes: [], status: 'loading' as const };
+  const enrichmentStatus: IncidentEnrichmentStatus = fleet
+    ? fleetError
+      ? 'stale'
+      : 'available'
+    : isFleetLoading
+      ? 'loading'
+      : 'unavailable';
   const tenant = session?.tenants.find((candidate) => candidate.tenantId === tenantId);
   const canAcknowledge = tenant?.role === 'administrator' || tenant?.role === 'owner';
   const antiforgeryToken = session?.antiforgeryToken ?? '';
@@ -122,14 +115,6 @@ export default function IncidentsPage() {
       const version = ++requestVersion.current;
       setIsLoading(true);
       try {
-        const requestSignal = signal ?? new AbortController().signal;
-        const fleetPromise = getFleet(tenantId, requestSignal)
-          .then((nextFleet) => ({ status: 'available' as const, nodes: nextFleet.nodes }))
-          .catch((caught: unknown) => {
-            if (caught instanceof DOMException && caught.name === 'AbortError') return null;
-            console.warn('Connector health evidence is unavailable on the incident page.', caught);
-            return { status: 'unavailable' as const, nodes: [] };
-          });
         const next = await getIncidents(tenantId, sourceFilter, signal);
         if (version !== requestVersion.current) return;
         const selected =
@@ -142,19 +127,6 @@ export default function IncidentsPage() {
         setExactIncident(selected);
         setLoadedFilter(sourceFilter);
         setError(null);
-        void fleetPromise.then((result) => {
-          if (version !== requestVersion.current || result == null) return;
-          if (result.status === 'available') {
-            setEnrichment({ tenantId, nodes: result.nodes, status: 'available' });
-            return;
-          }
-          setEnrichment((current) =>
-            current.tenantId === tenantId &&
-            (current.status === 'available' || current.status === 'stale')
-              ? { ...current, status: 'stale' }
-              : { tenantId, nodes: [], status: 'unavailable' },
-          );
-        });
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
         if (version !== requestVersion.current) return;
@@ -192,8 +164,8 @@ export default function IncidentsPage() {
   }, [continuationQuery]);
 
   const nodesById = useMemo(
-    () => new Map(currentEnrichment.nodes.map((node) => [node.nodeId, node] as const)),
-    [currentEnrichment.nodes],
+    () => new Map((fleet?.nodes ?? []).map((node) => [node.nodeId, node] as const)),
+    [fleet?.nodes],
   );
   const currentPage = loadedFilter === sourceFilter ? page : null;
   const hasRouteScope = scopedNodeId !== null;
@@ -737,7 +709,7 @@ export default function IncidentsPage() {
                 <IncidentQueue
                   incidents={visibleIncidents}
                   nodesById={nodesById}
-                  enrichmentStatus={currentEnrichment.status}
+                  enrichmentStatus={enrichmentStatus}
                   searchParams={searchParams}
                   selectedIncidentId={selectedIncident?.incidentId ?? null}
                   onSelect={selectIncident}
@@ -759,7 +731,7 @@ export default function IncidentsPage() {
                 incident={selectedIncident}
                 node={selectedNode}
                 tenantId={tenantId}
-                enrichmentStatus={currentEnrichment.status}
+                enrichmentStatus={enrichmentStatus}
                 isVisible={selectedIncidentIsVisible}
                 canAcknowledge={canAcknowledge}
                 canRequestSupportDiagnostics={canAcknowledge}

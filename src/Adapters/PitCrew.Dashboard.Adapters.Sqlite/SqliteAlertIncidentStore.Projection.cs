@@ -428,7 +428,7 @@ internal sealed partial class SqliteAlertIncidentStore
         connection,
         transaction,
         tenantId,
-        statusClause,
+        filter,
         cancellationToken);
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
@@ -1969,24 +1969,30 @@ internal sealed partial class SqliteAlertIncidentStore
       SqliteConnection connection,
       SqliteTransaction transaction,
       string tenantId,
-      string statusClause,
+      AlertIncidentFilter filter,
       CancellationToken cancellationToken)
   {
+    var statusClause = filter switch
+    {
+      AlertIncidentFilter.Active =>
+          "episode.status IN ('active', 'waiting-for-evidence', 'recovering', 'monitoring-ended')",
+      AlertIncidentFilter.Resolved =>
+          "episode.status IN ('resolved', 'legacy-resolution-unverified') AND episode.history_state = 'retained'",
+      AlertIncidentFilter.All => "1 = 1",
+      _ => throw new ArgumentOutOfRangeException(nameof(filter)),
+    };
     await using var command = connection.CreateCommand();
     command.Transaction = transaction;
     command.CommandText =
         $"""
-        WITH projected AS (
-            {ProjectionSelect}
-        )
         SELECT
             COUNT(*),
             COALESCE(SUM(CASE
-                WHEN current_severity = 'critical' THEN 1 ELSE 0 END), 0),
+                WHEN episode.current_severity = 'critical' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE
-                WHEN current_severity = 'warning' THEN 1 ELSE 0 END), 0)
-        FROM projected
-        WHERE projected.tenant_id = $tenantId
+                WHEN episode.current_severity = 'warning' THEN 1 ELSE 0 END), 0)
+        FROM actionable_incident_episodes AS episode
+        WHERE episode.tenant_id = $tenantId
           AND {statusClause};
         """;
     command.Parameters.AddWithValue("$tenantId", tenantId);

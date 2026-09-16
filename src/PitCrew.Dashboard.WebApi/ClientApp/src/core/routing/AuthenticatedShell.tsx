@@ -278,9 +278,12 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
     () => matchRoutePresentation(features, pathname),
     [features, pathname],
   );
+  const isIncidentRoute = /^\/tenants\/[^/]+\/incidents(?:\/|$)/.test(pathname);
   const usesFleetData =
     selectedTenant !== null &&
-    /^\/tenants\/[^/]+\/(?:fleet(?:\/|$)|nodes(?:\/|$)|runners(?:\/|$))/.test(pathname);
+    /^\/tenants\/[^/]+\/(?:fleet(?:\/|$)|incidents(?:\/|$)|nodes(?:\/|$)|runners(?:\/|$))/.test(
+      pathname,
+    );
 
   const pageTitle = formatRouteLabel(
     routePresentation.presentation.title,
@@ -296,7 +299,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
   }, [pathname]);
 
   useEffect(() => {
-    if (!selectedTenant) {
+    if (!selectedTenant || isIncidentRoute) {
       return;
     }
     const controller = new AbortController();
@@ -337,7 +340,7 @@ export function AuthenticatedShell({ features }: AuthenticatedShellProps) {
       controller.abort();
       globalThis.clearInterval(timer);
     };
-  }, [selectedTenant]);
+  }, [isIncidentRoute, selectedTenant]);
 
   if (!session) return null;
 
