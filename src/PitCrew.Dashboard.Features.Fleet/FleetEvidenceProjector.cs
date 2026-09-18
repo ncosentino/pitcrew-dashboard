@@ -13,6 +13,28 @@ internal static class FleetEvidenceProjector
       TimeSpan connectorFreshness,
       TimeSpan managerFreshness)
   {
+    var projected = ProjectProfileEvidence(
+        node,
+        generatedAt,
+        managerFreshness);
+    return projected with
+    {
+      EvidenceClaims =
+      [
+        ProjectConnectorClaim(
+            projected,
+            generatedAt,
+            connectorFreshness),
+        ProjectInventoryClaim(projected, generatedAt),
+      ],
+    };
+  }
+
+  public static FleetNode ProjectProfileEvidence(
+      FleetNode node,
+      DateTimeOffset generatedAt,
+      TimeSpan managerFreshness)
+  {
     var profileReceipts = node.ProfileEvidence.ToDictionary(
         profile => profile.ProfileId,
         StringComparer.OrdinalIgnoreCase);
@@ -35,14 +57,6 @@ internal static class FleetEvidenceProjector
 
     return node with
     {
-      EvidenceClaims =
-      [
-        ProjectConnectorClaim(
-            node,
-            generatedAt,
-            connectorFreshness),
-        ProjectInventoryClaim(node, generatedAt),
-      ],
       ProfileEvidence = projectedProfiles,
     };
   }

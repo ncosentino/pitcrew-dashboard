@@ -47,9 +47,15 @@ GET /api/diagnostics/v1/tenants/{tenantId}/fleet/nodes/{nodeId}/profiles/{profil
 ```
 
 Current fleet reads use a maximum page size of 100 and an `afterNodeId`
-cursor. History uses the same advertised range, point, event, and diagnostic
-limits as the browser UI. Each credential is limited to 120 diagnostic reads
-per minute.
+cursor. Each returned profile includes claim-level evidence evaluated with the
+same Dashboard-owned freshness boundary as the browser fleet projection.
+`profileEvidence[].claims` keeps the manager source observation, Dashboard
+receipt, response generation, coverage, retention, and freshness clocks
+separate. A current connector response or newly generated API response never
+refreshes stale manager evidence.
+
+History uses the same advertised range, point, event, and diagnostic limits as
+the browser UI. Each credential is limited to 120 diagnostic reads per minute.
 
 Node and profile restrictions are enforced before returning current or
 historical data. Empty restrictions mean every node or profile in the one

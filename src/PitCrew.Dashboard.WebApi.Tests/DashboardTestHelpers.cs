@@ -596,6 +596,59 @@ internal static class DashboardTestHelpers
     };
   }
 
+  /// <summary>
+  /// Creates sanitized complete manager contract 21 source provenance.
+  /// </summary>
+  public static ManagerObservedState CreateContractTwentyOneObservedState(
+      string profileId,
+      string repository)
+  {
+    var baseline = CreateContractNineteenObservedState(
+        profileId,
+        repository);
+    return baseline with
+    {
+      ManagerContractVersion = 21,
+      SourceObservations = new ManagerSourceObservations(
+          CreateSourceObservation(
+              "local-runtime",
+              baseline),
+          CreateSourceObservation(
+              "github-scale-set",
+              baseline),
+          CreateSourceObservation(
+              "resource-telemetry",
+              baseline),
+          CreateSourceObservation(
+              "host-hardware",
+              baseline),
+          CreateSourceObservation(
+              "host-admission",
+              baseline),
+          CreateSourceObservation(
+              "subsystem-health",
+              baseline),
+          CreateSourceObservation(
+              "capacity",
+              baseline),
+          CreateSourceObservation(
+              "workload",
+              baseline)),
+    };
+  }
+
+  private static ManagerSourceObservation CreateSourceObservation(
+      string source,
+      ManagerObservedState state) =>
+      new(
+          "pitcrew-manager",
+          source,
+          state.ManagerInstanceId,
+          state.ObservedAt,
+          "complete",
+          "live",
+          null);
+
   public static string CreateDatabasePath() =>
       CreatePath(
           Path.Combine(

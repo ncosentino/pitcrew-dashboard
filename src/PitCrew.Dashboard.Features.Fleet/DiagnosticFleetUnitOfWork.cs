@@ -94,9 +94,10 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
       afterNodeId = parsed;
     }
 
+    var generatedAt = _timeProvider.GetUtcNow();
     var fleet = await _fleetStore.GetFleetAsync(
         tenantId,
-        _timeProvider.GetUtcNow(),
+        generatedAt,
         TimeSpan.FromSeconds(
             _options.Value.NodeOfflineAfterSeconds),
         cancellationToken);
@@ -113,21 +114,29 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
             afterNodeId is null ||
             node.NodeId.CompareTo(afterNodeId.Value) > 0)
         .OrderBy(node => node.NodeId)
-        .Select(node => node with
+        .Select(node =>
         {
-          Profiles = node.Profiles
-              .Where(profile =>
-                  allowedProfiles is null ||
-                  allowedProfiles.Contains(profile.ProfileId))
-              .Select(profile => allowedProfiles is null
-                  ? profile
-                  : profile with { Host = null })
-              .ToArray(),
-          Hardware = allowedProfiles is null
-              ? node.Hardware
-              : null,
-          CapacityControls = [],
-          RecoveryControls = [],
+          var scopedNode = node with
+          {
+            Profiles = node.Profiles
+                .Where(profile =>
+                    allowedProfiles is null ||
+                    allowedProfiles.Contains(profile.ProfileId))
+                .Select(profile => allowedProfiles is null
+                    ? profile
+                    : profile with { Host = null })
+                .ToArray(),
+            Hardware = allowedProfiles is null
+                ? node.Hardware
+                : null,
+            CapacityControls = [],
+            RecoveryControls = [],
+          };
+          return FleetEvidenceProjector.ProjectProfileEvidence(
+              scopedNode,
+              generatedAt,
+              TimeSpan.FromSeconds(
+                  _options.Value.AlertManagerStaleAfterSeconds));
         })
         .Where(node =>
             allowedProfiles is null ||

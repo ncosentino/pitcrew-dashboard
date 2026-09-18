@@ -479,13 +479,15 @@ public sealed class HostingTests
           "Diagnostic Node One",
           firstCode.Code,
           cancellationToken);
+      var firstObservedState =
+          DashboardTestHelpers.CreateContractTwentyOneObservedState(
+              "default",
+              "https://github.com/example/project");
       await DashboardTestHelpers.SynchronizeAsync(
           administrator,
           firstNode.Credential,
           "2.0.0",
-          DashboardTestHelpers.CreateContractFourteenObservedState(
-              "default",
-              "https://github.com/example/project"),
+          firstObservedState,
           cancellationToken);
       var secondCode = await DashboardTestHelpers.CreateEnrollmentCodeAsync(
           administrator,
@@ -592,6 +594,25 @@ public sealed class HostingTests
           .HasSingleItem();
       await Assert.That(currentFleet.Nodes[0].Profiles[0].ProfileId)
           .IsEqualTo("default");
+      await Assert.That(currentFleet.Nodes[0].ProfileEvidence)
+          .HasSingleItem();
+      var admissionClaim =
+          currentFleet.Nodes[0].ProfileEvidence[0].Claims.Single(
+              claim => claim.Name == "host-admission");
+      await Assert.That(admissionClaim.Freshness)
+          .IsEqualTo("current");
+      await Assert.That(admissionClaim.Coverage)
+          .IsEqualTo("complete");
+      await Assert.That(admissionClaim.Retention)
+          .IsEqualTo("live");
+      await Assert.That(admissionClaim.Value)
+          .IsEqualTo("available");
+      await Assert.That(admissionClaim.SourceObservedAt)
+          .IsEqualTo(firstObservedState.ObservedAt);
+      await Assert.That(admissionClaim.DashboardReceivedAt)
+          .IsNotNull();
+      await Assert.That(admissionClaim.ResponseGeneratedAt)
+          .IsEqualTo(currentFleet.GeneratedAt);
       await Assert.That(
           currentFleet.Nodes[0].Profiles[0].Slots[0].RunnerNameHash)
           .IsNotNull();
