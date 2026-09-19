@@ -672,7 +672,11 @@ internal static class AlertRuleEvaluator
     }
     if (journal.MissedEvents > 0 ||
         journal.EpochResets > 0 ||
-        journal.ManagerDroppedEvents > 0)
+        (string.Equals(
+            journal.Status,
+            "truncated",
+            StringComparison.Ordinal) &&
+         journal.ManagerDroppedEvents > 0))
     {
       candidates.Add(Create(
           node,

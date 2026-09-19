@@ -440,7 +440,7 @@ public sealed record ProfileTelemetryRollup(
 /// <param name="ManagerHighestSequence">Highest sequence the manager reported retaining.</param>
 /// <param name="StoredLowestSequence">Lowest durable sequence the dashboard retained.</param>
 /// <param name="StoredHighestSequence">Highest durable sequence the dashboard retained.</param>
-/// <param name="ManagerDroppedEvents">Entries the manager reported discarding from its window.</param>
+/// <param name="ManagerDroppedEvents">Compatibility total the manager reported dropping; status distinguishes current eviction from discontinuity.</param>
 /// <param name="MissedEvents">Durable sequences the manager advanced past without delivering them.</param>
 /// <param name="UndeliveredEvents">Retained manager sequences above the highest delivered sequence.</param>
 /// <param name="Epoch">Local durable journal generation, incremented whenever a manager sequence regression proves the journal was lost.</param>

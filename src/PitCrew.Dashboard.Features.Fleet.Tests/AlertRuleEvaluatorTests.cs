@@ -372,6 +372,33 @@ public sealed class AlertRuleEvaluatorTests
         .IsEqualTo(1);
   }
 
+  [Test]
+  public async Task Current_Manager_Eviction_Alone_Does_Not_Create_Discontinuity()
+  {
+    var profile = new AlertProfileEvidence(
+        CreateProfile(Now),
+        new AlertJournalEvidence(
+            "current",
+            7,
+            0,
+            0,
+            0,
+            0,
+            null),
+        [],
+        null,
+        null);
+
+    var candidates = AlertRuleEvaluator.Evaluate(
+        CreateSnapshot(profile, Now),
+        CreateOptions(),
+        Now).Candidates;
+
+    await Assert.That(candidates.Any(
+        candidate => candidate.Kind == "journal-discontinuity"))
+        .IsFalse();
+  }
+
   private static FleetDashboardOptions CreateOptions() =>
       new()
       {

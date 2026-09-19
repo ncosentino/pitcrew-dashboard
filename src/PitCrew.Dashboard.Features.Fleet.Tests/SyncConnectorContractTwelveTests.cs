@@ -59,6 +59,39 @@ public sealed class SyncConnectorContractTwelveTests
   }
 
   [Test]
+  public async Task IsValidProfile_Requires_Classified_Journal_Retention_For_Contract_Twenty_Two()
+  {
+    var journal = new ManagerOperationJournal(
+        "current",
+        64,
+        12,
+        7,
+        [Event()],
+        EvictedEvents: 5,
+        RejectedEvents: 0,
+        UnclassifiedEvents: 2);
+
+    await Assert.That(ManagerDiagnosticsValidator.IsValidJournal(journal, 22))
+        .IsTrue();
+    await Assert.That(ManagerDiagnosticsValidator.IsValidJournal(
+            journal with { EvictedEvents = null },
+            22))
+        .IsFalse();
+    await Assert.That(ManagerDiagnosticsValidator.IsValidJournal(
+            journal with { DroppedEvents = 8 },
+            22))
+        .IsFalse();
+    await Assert.That(ManagerDiagnosticsValidator.IsValidJournal(
+            journal with { RejectedEvents = 1 },
+            22))
+        .IsFalse();
+    await Assert.That(ManagerDiagnosticsValidator.IsValidJournal(
+            journal with { Status = "truncated" },
+            22))
+        .IsFalse();
+  }
+
+  [Test]
   public async Task IsValidProfile_Accepts_Unavailable_Stale_And_Measured_Zero_Evidence()
   {
     var profile = CreateAutoscaledProfile();

@@ -118,12 +118,16 @@ internal static partial class ManagerDiagnosticsValidator
       return false;
     }
 
-    return IsValidJournal(profile.OperationJournal) &&
+    return IsValidJournal(
+            profile.OperationJournal,
+            profile.ManagerContractVersion) &&
         IsValidSubsystemHealth(profile.SubsystemHealth) &&
         IsValidCapacityEvidence(profile);
   }
 
-  private static bool IsValidJournal(ManagerOperationJournal? journal)
+  internal static bool IsValidJournal(
+      ManagerOperationJournal? journal,
+      int managerContractVersion)
   {
     if (journal is null)
     {
@@ -153,6 +157,41 @@ internal static partial class ManagerDiagnosticsValidator
         journal.HighestSequence is null)
     {
       return false;
+    }
+    var hasClassifiedRetention =
+        journal.EvictedEvents is not null ||
+        journal.RejectedEvents is not null ||
+        journal.UnclassifiedEvents is not null;
+    if (managerContractVersion >= 22 &&
+        (journal.EvictedEvents is null ||
+         journal.RejectedEvents is null ||
+         journal.UnclassifiedEvents is null))
+    {
+      return false;
+    }
+    if (hasClassifiedRetention)
+    {
+      if (journal.EvictedEvents is null ||
+          journal.RejectedEvents is null ||
+          journal.UnclassifiedEvents is null)
+      {
+        return false;
+      }
+      var evictedEvents = journal.EvictedEvents.Value;
+      var rejectedEvents = journal.RejectedEvents.Value;
+      var unclassifiedEvents = journal.UnclassifiedEvents.Value;
+      if (evictedEvents < 0 ||
+          rejectedEvents < 0 ||
+          unclassifiedEvents < 0 ||
+          journal.DroppedEvents !=
+              evictedEvents +
+              rejectedEvents +
+              unclassifiedEvents ||
+          (journal.Status is "current" && rejectedEvents != 0) ||
+          (journal.Status is "truncated" && rejectedEvents < 1))
+      {
+        return false;
+      }
     }
 
     var sequences = new HashSet<long>();
