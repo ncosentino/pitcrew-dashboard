@@ -158,9 +158,7 @@ function managerEventScope(event: ManagerEvent): string {
   return `${event.subsystem}\u0000${event.operation}\u0000${event.target ?? ''}`;
 }
 
-function unresolvedManagerEvents(
-  events: ReadonlyArray<ManagerEvent>,
-): ReadonlyArray<ManagerEvent> {
+function unresolvedManagerEvents(events: ReadonlyArray<ManagerEvent>): ReadonlyArray<ManagerEvent> {
   const unresolved = new Map<string, ManagerEvent>();
   [...events]
     .sort((left, right) => left.sequence - right.sequence)
