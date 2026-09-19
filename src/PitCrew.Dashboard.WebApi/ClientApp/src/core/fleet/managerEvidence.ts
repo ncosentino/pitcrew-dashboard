@@ -103,17 +103,18 @@ export function describeJournalAvailability(
         'The manager could not read or restore its durable journal, so retained operations are unavailable rather than absent.',
     };
   }
+  const evictedEvents = journal.evictedEvents;
+  const rejectedEvents = journal.rejectedEvents;
+  const unclassifiedEvents = journal.unclassifiedEvents;
+  const classified =
+    evictedEvents != null && rejectedEvents != null && unclassifiedEvents != null;
   if (journal.status === 'truncated') {
-    const classified =
-      journal.evictedEvents != null &&
-      journal.rejectedEvents != null &&
-      journal.unclassifiedEvents != null;
     const description = classified
-      ? `The manager rejected ${formatEntries(journal.rejectedEvents)} it could not validate${
-          journal.unclassifiedEvents === 0
+      ? `The manager rejected ${formatEntries(rejectedEvents)} it could not validate${
+          unclassifiedEvents === 0
             ? ''
-            : ` and retains ${formatEntries(journal.unclassifiedEvents)} from legacy discarded evidence whose cause is unclassified`
-        }. It also evicted ${formatEntries(journal.evictedEvents)} through bounded retention and retains at most ${journal.capacity} events.`
+            : ` and retains ${formatEntries(unclassifiedEvents)} from legacy discarded evidence whose cause is unclassified`
+        }. It also evicted ${formatEntries(evictedEvents)} through bounded retention and retains at most ${journal.capacity} events.`
       : `The manager discarded ${journal.droppedEvents} entries but this older contract does not distinguish expected eviction from rejected evidence. The journal retains at most ${journal.capacity} events.`;
     return {
       availability: 'truncated',
@@ -122,21 +123,17 @@ export function describeJournalAvailability(
       description,
     };
   }
-  const classified =
-    journal.evictedEvents != null &&
-    journal.rejectedEvents != null &&
-    journal.unclassifiedEvents != null;
-  if (classified && (journal.evictedEvents > 0 || journal.unclassifiedEvents > 0)) {
-    const legacyVerb = journal.unclassifiedEvents === 1 ? 'predates' : 'predate';
+  if (classified && (evictedEvents > 0 || unclassifiedEvents > 0)) {
+    const legacyVerb = unclassifiedEvents === 1 ? 'predates' : 'predate';
     const legacy =
-      journal.unclassifiedEvents === 0
+      unclassifiedEvents === 0
         ? ''
-        : ` ${formatEntries(journal.unclassifiedEvents)} from legacy discarded evidence ${legacyVerb} classified retention accounting.`;
+        : ` ${formatEntries(unclassifiedEvents)} from legacy discarded evidence ${legacyVerb} classified retention accounting.`;
     return {
       availability: 'current',
       status: 'available',
       label: 'Current',
-      description: `The retained window is current and holds at most ${journal.capacity} events. The manager evicted ${formatEntries(journal.evictedEvents)} through expected bounded retention.${legacy}`,
+      description: `The retained window is current and holds at most ${journal.capacity} events. The manager evicted ${formatEntries(evictedEvents)} through expected bounded retention.${legacy}`,
     };
   }
   return {
