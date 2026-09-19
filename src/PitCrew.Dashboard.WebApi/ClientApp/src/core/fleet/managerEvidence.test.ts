@@ -88,7 +88,7 @@ describe('describeJournalAvailability', () => {
         unclassifiedEvents: 2,
       }),
       'current',
-      'evicted 7 older entries',
+      'evicted 7 entries',
     ],
     [
       journal({
