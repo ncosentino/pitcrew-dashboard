@@ -36,6 +36,9 @@ function journal(overrides: Partial<ManagerOperationJournal> = {}): ManagerOpera
     capacity: 32,
     highestSequence: 41,
     droppedEvents: 0,
+    evictedEvents: null,
+    rejectedEvents: null,
+    unclassifiedEvents: null,
     events: [event()],
     ...overrides,
   };
@@ -71,7 +74,33 @@ describe('describeJournalAvailability', () => {
       'unavailable',
       'could not read or restore',
     ],
-    [journal({ status: 'truncated', droppedEvents: 6 }), 'truncated', 'discarded 6 older'],
+    [
+      journal({ status: 'truncated', droppedEvents: 6 }),
+      'truncated',
+      'does not distinguish expected eviction',
+    ],
+    [
+      journal({
+        status: 'current',
+        droppedEvents: 9,
+        evictedEvents: 7,
+        rejectedEvents: 0,
+        unclassifiedEvents: 2,
+      }),
+      'current',
+      'evicted 7 older entries',
+    ],
+    [
+      journal({
+        status: 'truncated',
+        droppedEvents: 3,
+        evictedEvents: 1,
+        rejectedEvents: 2,
+        unclassifiedEvents: 0,
+      }),
+      'truncated',
+      'rejected 2 entries',
+    ],
     [journal({ events: [] }), 'current', 'no notable operation'],
   ])('describes %#', (value, availability, message) => {
     const summary = describeJournalAvailability(value);
@@ -277,18 +306,33 @@ describe('summarizeManagerOperations', () => {
     const summary = summarizeManagerOperations(
       journal({
         events: [
-          event({ sequence: 41, outcome: 'timed-out', reason: 'timeout' }),
-          event({ sequence: 40, outcome: 'blocked', reason: 'capacity-ceiling' }),
-          event({ sequence: 39, outcome: 'succeeded', reason: 'none' }),
+          event({
+            sequence: 41,
+            target: 'repo-default-000001',
+            outcome: 'timed-out',
+            reason: 'timeout',
+          }),
+          event({
+            sequence: 40,
+            target: 'repo-default-000002',
+            outcome: 'blocked',
+            reason: 'capacity-ceiling',
+          }),
+          event({
+            sequence: 39,
+            target: 'repo-default-000003',
+            outcome: 'succeeded',
+            reason: 'none',
+          }),
         ],
       }),
     );
 
     expect(summary.eventCount).toBe(3);
-    expect(summary.adverseCount).toBe(2);
+    expect(summary.unresolvedCount).toBe(2);
     expect(summary.status).toBe('degraded');
-    expect(summary.label).toBe('2 adverse events');
-    expect(summary.description).toContain('2 adverse events it did not complete');
+    expect(summary.label).toBe('2 unresolved operations');
+    expect(summary.description).toContain('no later success or recovery');
   });
 
   it('counts a scheduled retry as adverse and a recovery as complete', () => {
@@ -301,9 +345,9 @@ describe('summarizeManagerOperations', () => {
       journal({ events: [event({ sequence: 41, outcome: 'recovered', reason: 'recovered' })] }),
     );
 
-    expect(retry.adverseCount).toBe(1);
-    expect(retry.label).toBe('1 adverse event');
-    expect(recovered.adverseCount).toBe(0);
+    expect(retry.unresolvedCount).toBe(1);
+    expect(retry.label).toBe('1 unresolved operation');
+    expect(recovered.unresolvedCount).toBe(0);
     expect(recovered.status).toBe('available');
     expect(recovered.label).toBe('Current');
   });
@@ -326,7 +370,7 @@ describe('summarizeManagerOperations', () => {
       }),
     );
 
-    expect(summary.adverseCount).toBe(0);
+    expect(summary.unresolvedCount).toBe(0);
     expect(summary.status).toBe('available');
     expect(summary.label).toBe('Current');
   });
@@ -337,7 +381,7 @@ describe('summarizeManagerOperations', () => {
     );
 
     expect(summary.status).toBe('unavailable');
-    expect(summary.adverseCount).toBe(0);
+    expect(summary.unresolvedCount).toBe(0);
   });
 });
 

@@ -59,6 +59,55 @@ public sealed class SyncConnectorContractTwelveTests
   }
 
   [Test]
+  public async Task IsValidProfile_Requires_Classified_Journal_Retention_For_Contract_Twenty_Two()
+  {
+    var contractTwentyTwo = CreateAutoscaledProfile() with
+    {
+      ManagerContractVersion = 22,
+      OperationJournal = new ManagerOperationJournal(
+          "current",
+          64,
+          12,
+          7,
+          [Event()],
+          EvictedEvents: 5,
+          RejectedEvents: 0,
+          UnclassifiedEvents: 2),
+    };
+
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(contractTwentyTwo))
+        .IsTrue();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(contractTwentyTwo with
+    {
+      OperationJournal = contractTwentyTwo.OperationJournal! with
+      {
+        EvictedEvents = null,
+      },
+    })).IsFalse();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(contractTwentyTwo with
+    {
+      OperationJournal = contractTwentyTwo.OperationJournal! with
+      {
+        DroppedEvents = 8,
+      },
+    })).IsFalse();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(contractTwentyTwo with
+    {
+      OperationJournal = contractTwentyTwo.OperationJournal! with
+      {
+        RejectedEvents = 1,
+      },
+    })).IsFalse();
+    await Assert.That(SyncConnectorUnitOfWork.IsValidProfile(contractTwentyTwo with
+    {
+      OperationJournal = contractTwentyTwo.OperationJournal! with
+      {
+        Status = "truncated",
+      },
+    })).IsFalse();
+  }
+
+  [Test]
   public async Task IsValidProfile_Accepts_Unavailable_Stale_And_Measured_Zero_Evidence()
   {
     var profile = CreateAutoscaledProfile();

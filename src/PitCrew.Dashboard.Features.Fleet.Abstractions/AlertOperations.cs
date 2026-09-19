@@ -133,7 +133,7 @@ public sealed record AlertProfileEvidence(
 /// Carries the durable journal state needed to diagnose current history availability.
 /// </summary>
 /// <param name="Status">Latest manager journal status.</param>
-/// <param name="ManagerDroppedEvents">Entries the manager reported discarding.</param>
+/// <param name="ManagerDroppedEvents">Compatibility total the manager reported dropping; journal status distinguishes current eviction from discontinuity.</param>
 /// <param name="MissedEvents">Durable sequences the dashboard knows were not delivered.</param>
 /// <param name="UndeliveredEvents">Manager-retained sequences above the highest delivered sequence.</param>
 /// <param name="EpochResets">Detected manager journal resets.</param>

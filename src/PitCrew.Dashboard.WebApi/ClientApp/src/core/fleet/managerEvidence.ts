@@ -27,8 +27,8 @@ export interface ManagerEvidenceSummary {
 export interface ManagerOperationSummary extends ManagerEvidenceSummary {
   /** Retained events after deduplication by durable sequence. */
   readonly eventCount: number;
-  /** Retained events the manager reported as an adverse outcome. */
-  readonly adverseCount: number;
+  /** Operation scopes whose latest retained outcome remains adverse. */
+  readonly unresolvedCount: number;
 }
 
 /** One capacity-deficit projection with the scope the manager measured it against. */
@@ -60,6 +60,10 @@ function formatDuration(milliseconds: number | null): string {
   return milliseconds < 1_000
     ? `${milliseconds} ms`
     : formatSeconds(Math.round(milliseconds / 1_000));
+}
+
+function formatEntries(count: number): string {
+  return `${count} ${count === 1 ? 'entry' : 'entries'}`;
 }
 
 /**
@@ -100,11 +104,39 @@ export function describeJournalAvailability(
     };
   }
   if (journal.status === 'truncated') {
+    const classified =
+      journal.evictedEvents != null &&
+      journal.rejectedEvents != null &&
+      journal.unclassifiedEvents != null;
+    const description = classified
+      ? `The manager rejected ${formatEntries(journal.rejectedEvents)} it could not validate${
+          journal.unclassifiedEvents === 0
+            ? ''
+            : ` and retains ${formatEntries(journal.unclassifiedEvents)} from legacy discarded evidence whose cause is unclassified`
+        }. It also evicted ${formatEntries(journal.evictedEvents)} through bounded retention and retains at most ${journal.capacity} events.`
+      : `The manager discarded ${journal.droppedEvents} entries but this older contract does not distinguish expected eviction from rejected evidence. The journal retains at most ${journal.capacity} events.`;
     return {
       availability: 'truncated',
       status: 'partial',
-      label: 'Truncated',
-      description: `The manager discarded ${journal.droppedEvents} older or rejected entries, so this chronology has gaps and retains at most ${journal.capacity} events.`,
+      label: classified ? 'Rejected evidence' : 'Unclassified gaps',
+      description,
+    };
+  }
+  const classified =
+    journal.evictedEvents != null &&
+    journal.rejectedEvents != null &&
+    journal.unclassifiedEvents != null;
+  if (classified && (journal.evictedEvents > 0 || journal.unclassifiedEvents > 0)) {
+    const legacyVerb = journal.unclassifiedEvents === 1 ? 'predates' : 'predate';
+    const legacy =
+      journal.unclassifiedEvents === 0
+        ? ''
+        : ` ${formatEntries(journal.unclassifiedEvents)} from legacy discarded evidence ${legacyVerb} classified retention accounting.`;
+    return {
+      availability: 'current',
+      status: 'available',
+      label: 'Current',
+      description: `The retained window is current and holds at most ${journal.capacity} events. The manager evicted ${formatEntries(journal.evictedEvents)} through expected bounded retention.${legacy}`,
     };
   }
   return {
@@ -126,33 +158,55 @@ export function isAdverseManagerOutcome(outcome: string): boolean {
   return adverseOutcomes.has(outcome);
 }
 
+function managerEventScope(event: ManagerEvent): string {
+  return `${event.subsystem}\u0000${event.operation}\u0000${event.target ?? ''}`;
+}
+
+function unresolvedManagerEvents(events: ReadonlyArray<ManagerEvent>): ReadonlyArray<ManagerEvent> {
+  const unresolved = new Map<string, ManagerEvent>();
+  [...events]
+    .sort((left, right) => left.sequence - right.sequence)
+    .forEach((event) => {
+      const scope = managerEventScope(event);
+      if (isAdverseManagerOutcome(event.outcome)) {
+        unresolved.set(scope, event);
+      } else if (event.outcome === 'succeeded' || event.outcome === 'recovered') {
+        unresolved.delete(scope);
+      }
+    });
+  return [...unresolved.values()];
+}
+
 /**
  * Summarizes the bounded journal for a collapsed disclosure. The summary reports adverse manager
- * outcomes rather than presenting a readable journal as a healthy one.
+ * operation scopes that have no later retained success or recovery.
  */
 export function summarizeManagerOperations(
   journal: ManagerOperationJournal | null | undefined,
 ): ManagerOperationSummary {
   const availability = describeJournalAvailability(journal);
   const events = orderedManagerEvents(journal);
-  const adverse = events.filter((event) => isAdverseManagerOutcome(event.outcome));
-  if (adverse.length === 0) {
+  const unresolved = unresolvedManagerEvents(events);
+  if (unresolved.length === 0) {
     return {
       status: availability.status,
       label: availability.label,
       description: availability.description,
       eventCount: events.length,
-      adverseCount: 0,
+      unresolvedCount: 0,
     };
   }
 
-  const adverseLabel = `${adverse.length} adverse ${adverse.length === 1 ? 'event' : 'events'}`;
+  const unresolvedLabel = `${unresolved.length} unresolved ${
+    unresolved.length === 1 ? 'operation' : 'operations'
+  }`;
+  const unresolvedVerb = unresolved.length === 1 ? 'has' : 'have';
   return {
     status: 'degraded',
-    label: adverseLabel,
-    description: `${availability.description} The manager reported ${adverseLabel} it did not complete.`,
+    label: unresolvedLabel,
+    description: `${availability.description} ${unresolvedLabel} ${unresolvedVerb} an adverse latest outcome with no later success or recovery in the retained window.`,
     eventCount: events.length,
-    adverseCount: adverse.length,
+    unresolvedCount: unresolved.length,
   };
 }
 

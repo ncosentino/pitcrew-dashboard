@@ -51,6 +51,9 @@ when the distinction is known.
 | **Unknown** | The contract supports the concept, but the value cannot be determined from available evidence. | Use sparingly and explain what evidence is missing. |
 | **Measured zero** | The source explicitly measured a numeric value of zero. | Render `0`; do not label it unavailable. |
 | **Inferred** | A conclusion derived from another signal rather than authoritative evidence. | Do not present inferred workload, registration, identity, or health as fact. |
+| **Rolling eviction** | Older manager events deliberately removed to preserve a bounded current window. | Present as expected retention information, not a chronology failure or priority signal. |
+| **Rejected evidence** | Manager evidence that could not be validated as readable and internally consistent. | Present as a partial chronology and keep the rejected count visible. |
+| **Unresolved operation** | An operation scope whose latest retained outcome is failed, timed out, blocked, or retrying with no later retained success or recovery. | Prioritize the current unresolved scope, not every historical adverse event. |
 
 ## Incident lifecycle
 

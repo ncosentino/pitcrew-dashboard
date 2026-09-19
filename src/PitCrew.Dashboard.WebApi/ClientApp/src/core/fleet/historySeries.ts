@@ -821,7 +821,7 @@ export function describeHistoryJournal(history: ProfileHistory): HistoryAvailabi
       `${journal.undeliveredEvents} sequences the manager still retains have not been delivered yet`,
     );
   }
-  if (journal.managerDroppedEvents > 0) {
+  if (journal.status === 'truncated' && journal.managerDroppedEvents > 0) {
     gaps.push(`the manager discarded ${journal.managerDroppedEvents} entries from its own window`);
   }
   if (history.eventsTruncated) {

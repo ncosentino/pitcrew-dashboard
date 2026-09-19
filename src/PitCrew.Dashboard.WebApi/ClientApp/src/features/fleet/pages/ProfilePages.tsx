@@ -446,7 +446,7 @@ export function ProfileOverviewPage() {
     {
       label: 'Manager operations',
       description:
-        operations.adverseCount > 0
+        operations.unresolvedCount > 0
           ? operations.label
           : `${operations.eventCount} retained ${operations.eventCount === 1 ? 'event' : 'events'}`,
       status: operations.status,

@@ -635,6 +635,12 @@ public sealed class ProtocolCompatibilityTests
         .IsEqualTo("truncated");
     await Assert.That(reserialized.OperationJournal.DroppedEvents)
         .IsEqualTo(9);
+    await Assert.That(reserialized.OperationJournal.EvictedEvents)
+        .IsNull();
+    await Assert.That(reserialized.OperationJournal.RejectedEvents)
+        .IsNull();
+    await Assert.That(reserialized.OperationJournal.UnclassifiedEvents)
+        .IsNull();
     await Assert.That(reserialized.OperationJournal.Events.Count)
         .IsEqualTo(2);
     await Assert.That(reserialized.OperationJournal.Events[0].DurationMilliseconds)
@@ -652,6 +658,33 @@ public sealed class ProtocolCompatibilityTests
     await Assert.That(reserialized.CapacityEvidence.Fixed!.EligibleWorkers)
         .IsNull();
     await Assert.That(reserialized.CapacityEvidence.Targets).IsEmpty();
+  }
+
+  [Test]
+  public async Task Contract_Twenty_Two_Journal_Classification_Uses_Canonical_Wire_Names()
+  {
+    var journal = new ManagerOperationJournal(
+        "current",
+        64,
+        80,
+        16,
+        [],
+        EvictedEvents: 12,
+        RejectedEvents: 0,
+        UnclassifiedEvents: 4);
+
+    var json = JsonSerializer.Serialize(
+        journal,
+        PitCrewProtocolJsonContext.Default.ManagerOperationJournal);
+    var roundTripped = JsonSerializer.Deserialize(
+        json,
+        PitCrewProtocolJsonContext.Default.ManagerOperationJournal);
+
+    await Assert.That(json).Contains("\"evictedEvents\":12");
+    await Assert.That(json).Contains("\"rejectedEvents\":0");
+    await Assert.That(json).Contains("\"unclassifiedEvents\":4");
+    await Assert.That(json).DoesNotContain("\"EvictedEvents\"");
+    await Assert.That(roundTripped).IsEqualTo(journal);
   }
 
   [Test]

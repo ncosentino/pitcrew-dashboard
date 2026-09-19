@@ -392,6 +392,9 @@ const managerOperationJournalSchema = z.object({
   capacity: z.number().int().positive().max(64),
   highestSequence: z.number().int().positive().nullable(),
   droppedEvents: z.number().int().nonnegative(),
+  evictedEvents: z.number().int().nonnegative().nullable().optional(),
+  rejectedEvents: z.number().int().nonnegative().nullable().optional(),
+  unclassifiedEvents: z.number().int().nonnegative().nullable().optional(),
   events: z.array(managerEventSchema).max(64),
 });
 
@@ -1153,6 +1156,44 @@ export const managerObservedStateSchema = z
           message: 'A truncated journal must report the discarded entries.',
           path: ['operationJournal', 'droppedEvents'],
         });
+      }
+      const classified = [
+        journal.evictedEvents,
+        journal.rejectedEvents,
+        journal.unclassifiedEvents,
+      ];
+      if (
+        profile.managerContractVersion >= 22 &&
+        classified.some((value) => value == null)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Manager contract 22 requires classified journal retention counters.',
+          path: ['operationJournal'],
+        });
+      }
+      if (classified.every((value): value is number => value != null)) {
+        const [evictedEvents, rejectedEvents, unclassifiedEvents] = classified;
+        if (
+          journal.droppedEvents !==
+          evictedEvents + rejectedEvents + unclassifiedEvents
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Classified journal retention must equal droppedEvents.',
+            path: ['operationJournal', 'droppedEvents'],
+          });
+        }
+        if (
+          (journal.status === 'current' && rejectedEvents !== 0) ||
+          (journal.status === 'truncated' && rejectedEvents < 1)
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Journal status must reflect rejected evidence.',
+            path: ['operationJournal', 'status'],
+          });
+        }
       }
     }
 

@@ -1453,7 +1453,7 @@ describe('profile detail routes', () => {
     [
       'truncated',
       { status: 'truncated', droppedEvents: 4 },
-      'discarded 4 older or rejected entries',
+      'does not distinguish expected eviction from rejected evidence',
     ],
     [
       'unavailable',
@@ -1565,20 +1565,27 @@ describe('profile detail routes', () => {
     ).toHaveTextContent('unavailable rather than zero');
   });
 
-  it('surfaces adverse manager outcomes and degraded subsystems in the collapsed summaries', async () => {
+  it('surfaces unresolved manager operations and degraded subsystems in the collapsed summaries', async () => {
     renderProfile(
       contractTwelveFleet({
         operationJournal: operationJournal({
           events: [
-            managerEvent({ sequence: 41, outcome: 'timed-out', reason: 'timeout' }),
+            managerEvent({
+              sequence: 41,
+              target: 'repo-default-000001',
+              outcome: 'timed-out',
+              reason: 'timeout',
+            }),
             managerEvent({
               sequence: 40,
+              target: 'repo-default-000002',
               outcome: 'blocked',
               reason: 'capacity-ceiling',
               retryAt: null,
             }),
             managerEvent({
               sequence: 39,
+              target: 'repo-default-000003',
               outcome: 'recovered',
               reason: 'recovered',
               retryAt: null,
@@ -1591,10 +1598,10 @@ describe('profile detail routes', () => {
     );
 
     expect(
-      await screen.findByTestId('profile-operations-adverse-default', {}, { timeout: 5_000 }),
-    ).toHaveTextContent('2 adverse events');
+      await screen.findByTestId('profile-operations-unresolved-default', {}, { timeout: 5_000 }),
+    ).toHaveTextContent('2 unresolved operations');
     expect(screen.getByTestId('profile-operations-availability-default')).toHaveTextContent(
-      '2 adverse events it did not complete',
+      'no later success or recovery',
     );
     expect(
       screen.getByTestId('profile-operation-outcome-default-41').firstElementChild,

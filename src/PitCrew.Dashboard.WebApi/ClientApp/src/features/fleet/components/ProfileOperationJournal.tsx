@@ -27,8 +27,8 @@ export function ProfileOperationJournal({ profile }: { readonly profile: Manager
           <span>
             {events.length} {events.length === 1 ? 'event' : 'events'}
           </span>
-          {operations.adverseCount === 0 ? null : (
-            <span data-testid={`profile-operations-adverse-${profile.profileId}`}>
+          {operations.unresolvedCount === 0 ? null : (
+            <span data-testid={`profile-operations-unresolved-${profile.profileId}`}>
               {operations.label}
             </span>
           )}

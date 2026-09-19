@@ -582,6 +582,36 @@ describe('describeHistoryJournal', () => {
     expect(journal.description).toContain('2 sequences');
   });
 
+  it('does not treat expected current-window eviction as a chronology gap', () => {
+    const journal = describeHistoryJournal(
+      history({
+        journal: {
+          ...history().journal,
+          status: 'current',
+          managerDroppedEvents: 7,
+        },
+      }),
+    );
+
+    expect(journal.status).toBe('available');
+    expect(journal.description).not.toContain('manager discarded');
+  });
+
+  it('keeps rejected manager evidence as an explicit chronology gap', () => {
+    const journal = describeHistoryJournal(
+      history({
+        journal: {
+          ...history().journal,
+          status: 'truncated',
+          managerDroppedEvents: 2,
+        },
+      }),
+    );
+
+    expect(journal.status).toBe('partial');
+    expect(journal.description).toContain('manager discarded 2 entries');
+  });
+
   it('reports a manager journal sequence reset as an explicit gap', () => {
     const journal = describeHistoryJournal(
       history({ journal: { ...history().journal, epoch: 1, epochResets: 1 } }),
