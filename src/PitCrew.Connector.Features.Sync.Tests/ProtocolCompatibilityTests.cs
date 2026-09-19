@@ -684,7 +684,16 @@ public sealed class ProtocolCompatibilityTests
     await Assert.That(json).Contains("\"rejectedEvents\":0");
     await Assert.That(json).Contains("\"unclassifiedEvents\":4");
     await Assert.That(json).DoesNotContain("\"EvictedEvents\"");
-    await Assert.That(roundTripped).IsEqualTo(journal);
+    await Assert.That(roundTripped).IsNotNull();
+    await Assert.That(roundTripped!.Status).IsEqualTo(journal.Status);
+    await Assert.That(roundTripped.Capacity).IsEqualTo(journal.Capacity);
+    await Assert.That(roundTripped.HighestSequence).IsEqualTo(journal.HighestSequence);
+    await Assert.That(roundTripped.DroppedEvents).IsEqualTo(journal.DroppedEvents);
+    await Assert.That(roundTripped.EvictedEvents).IsEqualTo(journal.EvictedEvents);
+    await Assert.That(roundTripped.RejectedEvents).IsEqualTo(journal.RejectedEvents);
+    await Assert.That(roundTripped.UnclassifiedEvents)
+        .IsEqualTo(journal.UnclassifiedEvents);
+    await Assert.That(roundTripped.Events).IsEmpty();
   }
 
   [Test]

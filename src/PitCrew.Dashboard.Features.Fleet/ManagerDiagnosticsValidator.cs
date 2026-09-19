@@ -125,7 +125,7 @@ internal static partial class ManagerDiagnosticsValidator
         IsValidCapacityEvidence(profile);
   }
 
-  private static bool IsValidJournal(
+  internal static bool IsValidJournal(
       ManagerOperationJournal? journal,
       int managerContractVersion)
   {
