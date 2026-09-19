@@ -308,6 +308,29 @@ describe('summarizeManagerOperations', () => {
     expect(recovered.label).toBe('Current');
   });
 
+  it('does not keep an adverse episode unresolved after a later recovery', () => {
+    const summary = summarizeManagerOperations(
+      journal({
+        events: [
+          event({
+            sequence: 40,
+            outcome: 'failed',
+            reason: 'docker-failed',
+          }),
+          event({
+            sequence: 41,
+            outcome: 'recovered',
+            reason: 'recovered',
+          }),
+        ],
+      }),
+    );
+
+    expect(summary.adverseCount).toBe(0);
+    expect(summary.status).toBe('available');
+    expect(summary.label).toBe('Current');
+  });
+
   it('keeps an unavailable journal unavailable rather than adverse', () => {
     const summary = summarizeManagerOperations(
       journal({ status: 'unavailable', events: [], highestSequence: null }),
