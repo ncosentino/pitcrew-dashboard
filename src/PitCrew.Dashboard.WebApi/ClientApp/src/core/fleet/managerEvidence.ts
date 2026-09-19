@@ -106,8 +106,7 @@ export function describeJournalAvailability(
   const evictedEvents = journal.evictedEvents;
   const rejectedEvents = journal.rejectedEvents;
   const unclassifiedEvents = journal.unclassifiedEvents;
-  const classified =
-    evictedEvents != null && rejectedEvents != null && unclassifiedEvents != null;
+  const classified = evictedEvents != null && rejectedEvents != null && unclassifiedEvents != null;
   if (journal.status === 'truncated') {
     const description = classified
       ? `The manager rejected ${formatEntries(rejectedEvents)} it could not validate${
@@ -159,7 +158,9 @@ function managerEventScope(event: ManagerEvent): string {
   return `${event.subsystem}\u0000${event.operation}\u0000${event.target ?? ''}`;
 }
 
-function unresolvedManagerEvents(events: ReadonlyArray<ManagerEvent>): ReadonlyArray<ManagerEvent> {
+function unresolvedManagerEvents(
+  events: ReadonlyArray<ManagerEvent>,
+): ReadonlyArray<ManagerEvent> {
   const unresolved = new Map<string, ManagerEvent>();
   [...events]
     .sort((left, right) => left.sequence - right.sequence)

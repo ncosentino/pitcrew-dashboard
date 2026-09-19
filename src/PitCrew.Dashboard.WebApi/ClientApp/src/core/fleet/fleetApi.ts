@@ -1162,10 +1162,7 @@ export const managerObservedStateSchema = z
         journal.rejectedEvents,
         journal.unclassifiedEvents,
       ];
-      if (
-        profile.managerContractVersion >= 22 &&
-        classified.some((value) => value == null)
-      ) {
+      if (profile.managerContractVersion >= 22 && classified.some((value) => value == null)) {
         context.addIssue({
           code: 'custom',
           message: 'Manager contract 22 requires classified journal retention counters.',
@@ -1174,10 +1171,7 @@ export const managerObservedStateSchema = z
       }
       if (classified.every((value): value is number => value != null)) {
         const [evictedEvents, rejectedEvents, unclassifiedEvents] = classified;
-        if (
-          journal.droppedEvents !==
-          evictedEvents + rejectedEvents + unclassifiedEvents
-        ) {
+        if (journal.droppedEvents !== evictedEvents + rejectedEvents + unclassifiedEvents) {
           context.addIssue({
             code: 'custom',
             message: 'Classified journal retention must equal droppedEvents.',
