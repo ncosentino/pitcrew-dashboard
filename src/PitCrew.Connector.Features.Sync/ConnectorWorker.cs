@@ -32,18 +32,28 @@ internal sealed partial class ConnectorWorker(
   protected override async Task ExecuteAsync(
       CancellationToken stoppingToken)
   {
+    var workerExecution = RunWithHealthLifecycleAsync(stoppingToken);
     try
     {
-      await _healthJournal.RecordProcessStartedAsync(
-          _timeProvider.GetUtcNow(),
-          stoppingToken);
-      await RunAsync(stoppingToken);
+      await workerExecution;
     }
     catch (Exception) when (!stoppingToken.IsCancellationRequested)
     {
       LogFatalWorkerFailure();
       _processLifetime.Fail();
       throw;
+    }
+  }
+
+  private async Task RunWithHealthLifecycleAsync(
+      CancellationToken stoppingToken)
+  {
+    try
+    {
+      await _healthJournal.RecordProcessStartedAsync(
+          _timeProvider.GetUtcNow(),
+          stoppingToken);
+      await RunAsync(stoppingToken);
     }
     finally
     {
