@@ -1,27 +1,24 @@
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
 using Microsoft.Extensions.Options;
 
-using NexusLabs.Needlr;
-
 using PitCrew.Protocol;
 
 namespace PitCrew.Connector.Features.Sync;
 
-[DoNotAutoRegister]
 internal sealed class ConnectorApiClient(
-    HttpClient _httpClient,
+    IHttpClientFactory _httpClientFactory,
     IOptions<ConnectorOptions> _options)
 {
   public async Task<ConnectorEnrollmentResponse> EnrollAsync(
       ConnectorEnrollmentRequest request,
       CancellationToken cancellationToken)
   {
+    using var client = _httpClientFactory.CreateClient("PitCrewConnector");
     using var message = new HttpRequestMessage(
         HttpMethod.Post,
-        "api/connectors/v1/enroll")
+        new Uri(new Uri(_options.Value.DashboardUrl), "api/connectors/v1/enroll"))
     {
       Content = JsonContent.Create(
             request,
@@ -30,7 +27,7 @@ internal sealed class ConnectorApiClient(
     message.Headers.Add(
         "X-PitCrew-Enrollment-Code",
         _options.Value.EnrollmentCode);
-    using var response = await _httpClient.SendAsync(
+    using var response = await client.SendAsync(
         message,
         HttpCompletionOption.ResponseHeadersRead,
         cancellationToken);
@@ -42,14 +39,15 @@ internal sealed class ConnectorApiClient(
             "Dashboard enrollment response was empty.");
   }
 
-  public async Task<ConnectorSyncResponse> SyncAsync(
+  public async Task<ConnectorSyncAttempt> SyncAsync(
       string credential,
       ConnectorSyncRequest request,
       CancellationToken cancellationToken)
   {
+    using var client = _httpClientFactory.CreateClient("PitCrewConnector");
     using var message = new HttpRequestMessage(
         HttpMethod.Post,
-        "api/connectors/v1/sync")
+        new Uri(new Uri(_options.Value.DashboardUrl), "api/connectors/v1/sync"))
     {
       Content = JsonContent.Create(
             request,
@@ -58,30 +56,32 @@ internal sealed class ConnectorApiClient(
     message.Headers.Authorization = new AuthenticationHeaderValue(
         "Bearer",
         credential);
-    using var response = await _httpClient.SendAsync(
+    using var response = await client.SendAsync(
         message,
         HttpCompletionOption.ResponseHeadersRead,
         cancellationToken);
-    if (response.StatusCode == HttpStatusCode.Unauthorized)
+    if (!response.IsSuccessStatusCode)
     {
-      throw new HttpRequestException(
-          "The dashboard rejected the connector credential.",
-          null,
-          HttpStatusCode.Unauthorized);
+      var reason = ConnectorSyncRejectionReason.Unspecified;
+      if (response.Headers.TryGetValues("X-PitCrew-Sync-Rejection", out var values))
+      {
+        var value = values.Take(2).ToArray();
+        if (value.Length == 1 &&
+            value[0].Length <= 64 &&
+            Enum.TryParse<ConnectorSyncRejectionReason>(value[0], out var parsed) &&
+            Enum.IsDefined(parsed) &&
+            string.Equals(parsed.ToString(), value[0], StringComparison.Ordinal))
+        {
+          reason = parsed;
+        }
+      }
+      return new ConnectorSyncAttempt(response.StatusCode, null, reason);
     }
-    if ((int)response.StatusCode is >= 400 and < 500 &&
-        response.StatusCode != HttpStatusCode.TooManyRequests)
-    {
-      throw new HttpRequestException(
-          $"Dashboard rejected the synchronization payload with status {(int)response.StatusCode}.",
-          null,
-          response.StatusCode);
-    }
-    response.EnsureSuccessStatusCode();
-    return await response.Content.ReadFromJsonAsync(
+    var result = await response.Content.ReadFromJsonAsync(
         PitCrewProtocolJsonContext.Default.ConnectorSyncResponse,
         cancellationToken) ??
         throw new InvalidOperationException(
             "Dashboard synchronization response was empty.");
+    return new ConnectorSyncAttempt(response.StatusCode, result);
   }
 }

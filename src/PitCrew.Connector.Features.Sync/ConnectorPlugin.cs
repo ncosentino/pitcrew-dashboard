@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 using NexusLabs.Needlr;
 
@@ -31,21 +30,6 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<RecoveryCommandExecutor>();
     options.Services.AddSingleton<ConnectorHealthJournal>();
     options.Services.AddSingleton<ConnectorHealthReplayStore>();
-    options.Services.AddHttpClient<ConnectorApiClient>(
-        static (services, client) =>
-        {
-          var connectorOptions = services
-                  .GetRequiredService<IOptions<ConnectorOptions>>()
-                  .Value;
-          if (Uri.TryCreate(
-              connectorOptions.DashboardUrl,
-              UriKind.Absolute,
-              out var dashboardUri))
-          {
-            client.BaseAddress = dashboardUri;
-          }
-          client.Timeout = TimeSpan.FromSeconds(30);
-        });
     options.Services.AddHostedService<ConnectorWorker>();
   }
 }

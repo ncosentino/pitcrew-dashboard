@@ -7,4 +7,9 @@
     <NeedlrAutoGenerate>false</NeedlrAutoGenerate>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="PitCrew.Dashboard.Features.Fleet" />
+    <InternalsVisibleTo Include="PitCrew.Dashboard.Features.Fleet.Tests" />
+  </ItemGroup>
+
 </Project>

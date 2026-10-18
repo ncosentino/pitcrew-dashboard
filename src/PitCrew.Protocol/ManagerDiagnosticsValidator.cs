@@ -1,8 +1,6 @@
 using System.Text.RegularExpressions;
 
-using PitCrew.Protocol;
-
-namespace PitCrew.Dashboard.Features.Fleet;
+namespace PitCrew.Protocol;
 
 /// <summary>
 /// Validates manager contract 12 subsystem health, durable operation journal, and capacity-deficit
@@ -197,7 +195,8 @@ internal static partial class ManagerDiagnosticsValidator
     var sequences = new HashSet<long>();
     foreach (var managerEvent in journal.Events)
     {
-      if (!IsValidEvent(managerEvent) ||
+      if (managerEvent is null ||
+          !IsValidEvent(managerEvent) ||
           !sequences.Add(managerEvent.Sequence) ||
           managerEvent.Sequence > journal.HighestSequence)
       {
@@ -324,7 +323,8 @@ internal static partial class ManagerDiagnosticsValidator
       // A deficit key is bounded and trimmed by the manager, and per-target evidence and the
       // autoscaling projection are measured independently, so neither the key nor the target
       // slots are required to match a reported activation target exactly.
-      if (string.IsNullOrWhiteSpace(deficit.Key) ||
+      if (deficit is null ||
+          string.IsNullOrWhiteSpace(deficit.Key) ||
           deficit.Key.Length > MaximumTargetKeyLength ||
           deficit.Repository?.Length > 2048 ||
           !targetKeys.Add(deficit.Key) ||

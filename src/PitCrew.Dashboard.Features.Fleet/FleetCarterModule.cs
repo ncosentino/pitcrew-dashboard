@@ -155,6 +155,11 @@ public sealed class FleetCarterModule : ICarterModule
             request.ImageRolloutCommandOutcome,
             request.ProfileInventory),
         cancellationToken);
+    if (result.Status == ConnectorSyncStatus.Invalid)
+    {
+      context.Response.Headers["X-PitCrew-Sync-Rejection"] =
+          result.RejectionReason.ToString();
+    }
     return result.Status switch
     {
       ConnectorSyncStatus.Accepted => Results.Ok(result.Response),

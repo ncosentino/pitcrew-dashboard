@@ -95,6 +95,11 @@ internal sealed partial class ConnectorHealthJournal(
               LastFailureCategory = safeFailure.Category,
               LastFailureProfileId = safeFailure.ProfileId,
               LastFailureDetail = safeFailure.Detail,
+              LastFailureHttpStatusCode = safeFailure.HttpStatusCode,
+              LastFailureRejectionReason =
+                  safeFailure.RejectionReason == ConnectorSyncRejectionReason.Unspecified
+                      ? null
+                      : safeFailure.RejectionReason.ToString(),
               ConsecutiveFailures = consecutiveFailures,
               NextRetryAt = retryDelay is null
                   ? null
@@ -718,7 +723,12 @@ internal sealed partial class ConnectorHealthJournal(
                 (int)Math.Ceiling(
                     (snapshot.NextRetryAt.Value - occurredAt)
                         .TotalSeconds)),
-        failure?.Detail);
+        failure?.Detail,
+        failure?.HttpStatusCode,
+        failure is null ||
+            failure.RejectionReason == ConnectorSyncRejectionReason.Unspecified
+                ? null
+                : failure.RejectionReason.ToString());
   }
 
   private ConnectorHealthSnapshot CreateInitialSnapshot(
@@ -773,49 +783,15 @@ internal sealed partial class ConnectorHealthJournal(
       ConnectorHealthFailure failure) =>
       new(
           failure.Category,
-          failure.Category switch
-          {
-            ConnectorHealthFailureCategories.StateRootMissing =>
-                "PitCrew state root is unavailable.",
-            ConnectorHealthFailureCategories.StateRootUnreadable =>
-                "PitCrew state root could not be enumerated.",
-            ConnectorHealthFailureCategories.ProfileDirectoryUnreadable =>
-                "Profile state directory could not be inspected.",
-            ConnectorHealthFailureCategories.ProfileStateInvalid =>
-                "Profile observed state is invalid.",
-            ConnectorHealthFailureCategories.ProfileStateUnreadable =>
-                "Profile observed state could not be read.",
-            ConnectorHealthFailureCategories.SynchronizationNetwork =>
-                "Connector synchronization could not reach Dashboard.",
-            ConnectorHealthFailureCategories.SynchronizationTimeout =>
-                "Dashboard synchronization timed out.",
-            ConnectorHealthFailureCategories.SynchronizationRateLimited =>
-                "Dashboard rate-limited connector synchronization.",
-            ConnectorHealthFailureCategories.SynchronizationServer =>
-                "Dashboard returned a transient server error during synchronization.",
-            ConnectorHealthFailureCategories.SynchronizationIo =>
-                "Connector synchronization could not read or write local state.",
-            ConnectorHealthFailureCategories.PayloadRejected =>
-                "Dashboard permanently rejected the synchronization payload.",
-            ConnectorHealthFailureCategories.CredentialRejected =>
-                "Dashboard rejected the connector credential.",
-            ConnectorHealthFailureCategories.EnrollmentRejected =>
-                "Dashboard rejected connector enrollment.",
-            ConnectorHealthFailureCategories.EnrollmentNetwork =>
-                "Connector enrollment could not reach Dashboard.",
-            ConnectorHealthFailureCategories.EnrollmentTimeout =>
-                "Connector enrollment timed out.",
-            ConnectorHealthFailureCategories.EnrollmentRateLimited =>
-                "Dashboard rate-limited connector enrollment.",
-            ConnectorHealthFailureCategories.EnrollmentServer =>
-                "Dashboard returned a transient server error during enrollment.",
-            ConnectorHealthFailureCategories.ConfigurationInvalid =>
-                "Connector configuration is invalid.",
-            ConnectorHealthFailureCategories.EnrollmentConfiguration =>
-                "Connector enrollment configuration is incomplete.",
-            _ => "Connector operation failed.",
-          },
-          NormalizeProfileId(failure.ProfileId));
+          ConnectorHealthReplayContract.GetFailureDetail(failure.Category) ??
+              "Connector operation failed.",
+          NormalizeProfileId(failure.ProfileId),
+          failure.HttpStatusCode is >= 100 and <= 599
+              ? failure.HttpStatusCode
+              : null,
+          Enum.IsDefined(failure.RejectionReason)
+              ? failure.RejectionReason
+              : ConnectorSyncRejectionReason.Unspecified);
 
   private sealed record PendingUpdate(
       Func<CancellationToken, Task> Update,

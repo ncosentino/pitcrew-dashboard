@@ -439,19 +439,12 @@ public static class ConnectorHealthReplayContract
   private static bool IsOptionalProfileId(string? profileId) =>
       profileId is null || PitCrewProfileId.IsValid(profileId);
 
-  private static bool IsFailure(
-      string? category,
-      string? detail)
+  /// <summary>Returns the canonical, credential-free detail for a known failure category.</summary>
+  /// <param name="category">Stable connector failure category.</param>
+  /// <returns>The replay-compatible fixed detail, or null for an unknown category.</returns>
+  public static string? GetFailureDetail(string category)
   {
-    if (category is null)
-    {
-      return detail is null;
-    }
-    if (!IsFailureCategory(category))
-    {
-      return false;
-    }
-    var expectedDetail = category switch
+    return category switch
     {
       "state-root-missing" =>
           "PitCrew state root is unavailable.",
@@ -493,6 +486,21 @@ public static class ConnectorHealthReplayContract
           "Connector enrollment configuration is incomplete.",
       _ => null,
     };
+  }
+
+  private static bool IsFailure(
+      string? category,
+      string? detail)
+  {
+    if (category is null)
+    {
+      return detail is null;
+    }
+    if (!IsFailureCategory(category))
+    {
+      return false;
+    }
+    var expectedDetail = GetFailureDetail(category);
     return detail is null ||
         string.Equals(
             detail,

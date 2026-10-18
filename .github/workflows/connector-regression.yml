@@ -1,0 +1,50 @@
+name: Connector regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connector-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  connector-regression:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'ci:connector-regression'))
+    runs-on: [self-hosted, linux, x64, general-purpose]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Validate guidance contract
+        shell: pwsh
+        run: |
+          ./tests/Test-Guidance.ps1
+          ./tests/Test-ConnectorRegressionWorkflow.ps1
+      - name: Build and run connector and Fleet regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in PitCrew.Connector.Features.Sync.Tests PitCrew.Dashboard.Features.Fleet.Tests; do
+            dotnet build "src/$project/$project.csproj" --configuration Release
+            dotnet exec "src/$project/bin/Release/net10.0/$project.dll" \
+              --report-trx --report-trx-filename "$project.trx" \
+              --results-directory "$GITHUB_WORKSPACE/TestResults"
+          done
+      - name: Upload regression results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: connector-regression-results
+          path: TestResults
+          if-no-files-found: error

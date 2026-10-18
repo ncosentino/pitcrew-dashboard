@@ -133,7 +133,10 @@ public sealed class ObservedStateReaderTests
   }
 
   [Test]
+  [Arguments("static-profile.json")]
+  [Arguments("desired-capacity.json")]
   public async Task ReadAsync_Missing_Profile_State_After_Restart_Is_Unavailable(
+      string markerName,
       CancellationToken cancellationToken)
   {
     var root = CreateTemporaryDirectory();
@@ -175,6 +178,10 @@ public sealed class ObservedStateReaderTests
       var restartedReader = new ObservedStateReader(
           options,
           NullLogger<ObservedStateReader>.Instance);
+      await File.WriteAllTextAsync(
+          Path.Combine(profileDirectory.FullName, markerName),
+          "{}",
+          cancellationToken);
       File.Delete(observedStatePath);
 
       var missing = await restartedReader.ReadAsync(cancellationToken);
