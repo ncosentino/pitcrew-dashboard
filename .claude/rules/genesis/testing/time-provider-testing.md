@@ -38,6 +38,9 @@ registration race.
   `DisposeAsync`.
 - `Task.Delay(delay, provider, token)`, provider-backed
   `CancellationTokenSource`, and provider timers remain controlled by the fake clock.
+- `Task.Delay` truncates positive delays to whole milliseconds before registering
+  its timer. Compare observed timer delays with that exact projection of a planned
+  timestamp, not tick-for-tick equality or an arbitrary tolerance.
 
 ## DI override
 

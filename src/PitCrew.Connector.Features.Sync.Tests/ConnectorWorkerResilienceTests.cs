@@ -46,8 +46,13 @@ public sealed class ConnectorWorkerResilienceTests
     await Assert.That(failure.LastFailureCategory).IsEqualTo(category);
     await Assert.That(failure.LastFailureHttpStatusCode).IsEqualTo((int)status);
     await Assert.That(failure.LastFailureRejectionReason).IsEqualTo("Profile");
-    await Assert.That(failure.NextRetryAt)
-        .IsEqualTo(context.Clock.GetUtcNow().Add(retry));
+    await Assert.That(failure.NextRetryAt).IsNotNull();
+    var scheduledDelayMilliseconds =
+        (failure.NextRetryAt!.Value - context.Clock.GetUtcNow()).Ticks /
+        TimeSpan.TicksPerMillisecond;
+    await Assert.That(retry)
+        .IsEqualTo(TimeSpan.FromMilliseconds(scheduledDelayMilliseconds))
+        .Because("Task.Delay truncates jittered delays to whole milliseconds before timer registration");
     await Assert.That(retry).IsGreaterThan(TimeSpan.Zero)
         .Because("HTTP rejection must back off instead of spinning");
     await Assert.That(context.Worker.ExecuteTask!.IsCompleted).IsFalse()
