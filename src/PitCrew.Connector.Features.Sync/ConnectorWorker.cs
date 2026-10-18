@@ -20,6 +20,7 @@ internal sealed partial class ConnectorWorker(
     ImageRolloutCommandExecutor _imageRolloutCommandExecutor,
     ConnectorHealthJournal _healthJournal,
     ConnectorHealthReplayStore _healthReplayStore,
+    IConnectorProcessLifetime _processLifetime,
     IOptions<ConnectorOptions> _options,
     TimeProvider _timeProvider,
     ILogger<ConnectorWorker> _logger) : BackgroundService
@@ -31,11 +32,27 @@ internal sealed partial class ConnectorWorker(
   protected override async Task ExecuteAsync(
       CancellationToken stoppingToken)
   {
-    await _healthJournal.RecordProcessStartedAsync(
-        _timeProvider.GetUtcNow(),
-        stoppingToken);
+    var workerExecution = RunWithHealthLifecycleAsync(stoppingToken);
     try
     {
+      await workerExecution;
+    }
+    catch (Exception) when (!stoppingToken.IsCancellationRequested)
+    {
+      LogFatalWorkerFailure();
+      _processLifetime.Fail();
+      throw;
+    }
+  }
+
+  private async Task RunWithHealthLifecycleAsync(
+      CancellationToken stoppingToken)
+  {
+    try
+    {
+      await _healthJournal.RecordProcessStartedAsync(
+          _timeProvider.GetUtcNow(),
+          stoppingToken);
       await RunAsync(stoppingToken);
     }
     finally
@@ -160,7 +177,7 @@ internal sealed partial class ConnectorWorker(
             await _healthJournal.RecordSynchronizationAttemptAsync(
                 now,
                 stoppingToken);
-            var response = await _apiClient.SyncAsync(
+            var attempt = await _apiClient.SyncAsync(
                 identity.Credential!,
                 new ConnectorSyncRequest(
                     PitCrewProtocol.Version,
@@ -186,90 +203,123 @@ internal sealed partial class ConnectorWorker(
                             now,
                             observedState.Failure?.Category)),
                 stoppingToken);
-            pendingCapacityOutcome = null;
-            pendingRecoveryProgress = null;
-            pendingRecoveryOutcome = null;
-            pendingImageRolloutProgress = null;
-            pendingImageRolloutOutcome = null;
-            if (response.CredentialRotation is not null)
+            if (attempt.Response is { } response)
             {
-              identity = identity with
+              pendingCapacityOutcome = null;
+              pendingRecoveryProgress = null;
+              pendingRecoveryOutcome = null;
+              pendingImageRolloutProgress = null;
+              pendingImageRolloutOutcome = null;
+              if (response.CredentialRotation is not null)
               {
-                Credential =
-                    response.CredentialRotation.Credential,
-              };
-              await _identityStore.SaveAsync(
-                  identity,
+                identity = identity with
+                {
+                  Credential =
+                      response.CredentialRotation.Credential,
+                };
+                await _identityStore.SaveAsync(
+                    identity,
+                    stoppingToken);
+                LogCredentialRotated();
+              }
+              if (response.ConnectorHealthAcknowledgement?.EventIds is
+                  { } acknowledgedEventIds)
+              {
+                await _healthReplayStore.AcknowledgeAsync(
+                    acknowledgedEventIds,
+                    stoppingToken);
+              }
+              lastSentHash = observedState.AggregateHash;
+              lastSentAt = now;
+              successfulPollDelay = TimeSpan.FromSeconds(
+                  Math.Clamp(
+                      response.NextPollSeconds,
+                      5,
+                      3600));
+              if (observedState.IsComplete)
+              {
+                consecutiveFailures = 0;
+                nextDelay = successfulPollDelay;
+              }
+              if (response.CapacityCommand is not null)
+              {
+                pendingCapacityOutcome =
+                    await _capacityCommandExecutor.ExecuteAsync(
+                        response.CapacityCommand,
+                        stoppingToken);
+                lastSentHash = string.Empty;
+                lastSentAt = DateTimeOffset.MinValue;
+                nextDelay = TimeSpan.Zero;
+              }
+              if (response.RecoveryCommand is not null)
+              {
+                var report =
+                    await _recoveryCommandExecutor.ExecuteAsync(
+                        response.RecoveryCommand,
+                        stoppingToken);
+                pendingRecoveryProgress = report.Progress;
+                pendingRecoveryOutcome = report.Outcome;
+                lastSentHash = string.Empty;
+                lastSentAt = DateTimeOffset.MinValue;
+                nextDelay = TimeSpan.Zero;
+              }
+              if (response.ImageRolloutCommand is not null)
+              {
+                var report =
+                    await _imageRolloutCommandExecutor.ExecuteAsync(
+                        response.ImageRolloutCommand,
+                        stoppingToken);
+                pendingImageRolloutProgress = report.Progress;
+                pendingImageRolloutOutcome = report.Outcome;
+                lastSentHash = string.Empty;
+                lastSentAt = DateTimeOffset.MinValue;
+                nextDelay = TimeSpan.Zero;
+              }
+              LogSynchronized(
+                  observedState.Profiles.Count,
+                  nextDelay);
+              await _healthJournal.RecordSynchronizationAcceptedAsync(
+                  _timeProvider.GetUtcNow(),
+                  observedState.IsComplete,
                   stoppingToken);
-              LogCredentialRotated();
+              if (ShouldScheduleImmediateHealthReplay(
+                  observedState.IsComplete,
+                  replayedActiveOutage))
+              {
+                lastSentHash = string.Empty;
+                lastSentAt = DateTimeOffset.MinValue;
+                nextDelay = TimeSpan.Zero;
+              }
             }
-            if (response.ConnectorHealthAcknowledgement?.EventIds is
-                { } acknowledgedEventIds)
+            else
             {
-              await _healthReplayStore.AcknowledgeAsync(
-                  acknowledgedEventIds,
+              consecutiveFailures++;
+              nextDelay = CalculateJitteredDelay(
+                  CalculateBackoff(consecutiveFailures));
+              delayIsJittered = true;
+              var failure = ClassifySynchronizationRejection(attempt);
+              await _healthJournal.RecordFailureAsync(
+                  failure.Category is (
+                      ConnectorHealthFailureCategories.PayloadRejected or
+                      ConnectorHealthFailureCategories.CredentialRejected)
+                      ? ConnectorHealthEventKinds.Rejected
+                      : ConnectorHealthEventKinds.SynchronizationFailed,
+                  failure,
+                  consecutiveFailures,
+                  nextDelay,
+                  _timeProvider.GetUtcNow(),
                   stoppingToken);
-            }
-            lastSentHash = observedState.AggregateHash;
-            lastSentAt = now;
-            successfulPollDelay = TimeSpan.FromSeconds(
-                Math.Clamp(
-                    response.NextPollSeconds,
-                    5,
-                    3600));
-            if (observedState.IsComplete)
-            {
-              consecutiveFailures = 0;
-              nextDelay = successfulPollDelay;
-            }
-            if (response.CapacityCommand is not null)
-            {
-              pendingCapacityOutcome =
-                  await _capacityCommandExecutor.ExecuteAsync(
-                      response.CapacityCommand,
-                      stoppingToken);
-              lastSentHash = string.Empty;
-              lastSentAt = DateTimeOffset.MinValue;
-              nextDelay = TimeSpan.Zero;
-            }
-            if (response.RecoveryCommand is not null)
-            {
-              var report =
-                  await _recoveryCommandExecutor.ExecuteAsync(
-                      response.RecoveryCommand,
-                      stoppingToken);
-              pendingRecoveryProgress = report.Progress;
-              pendingRecoveryOutcome = report.Outcome;
-              lastSentHash = string.Empty;
-              lastSentAt = DateTimeOffset.MinValue;
-              nextDelay = TimeSpan.Zero;
-            }
-            if (response.ImageRolloutCommand is not null)
-            {
-              var report =
-                  await _imageRolloutCommandExecutor.ExecuteAsync(
-                      response.ImageRolloutCommand,
-                      stoppingToken);
-              pendingImageRolloutProgress = report.Progress;
-              pendingImageRolloutOutcome = report.Outcome;
-              lastSentHash = string.Empty;
-              lastSentAt = DateTimeOffset.MinValue;
-              nextDelay = TimeSpan.Zero;
-            }
-            LogSynchronized(
-                observedState.Profiles.Count,
-                nextDelay);
-            await _healthJournal.RecordSynchronizationAcceptedAsync(
-                _timeProvider.GetUtcNow(),
-                observedState.IsComplete,
-                stoppingToken);
-            if (ShouldScheduleImmediateHealthReplay(
-                observedState.IsComplete,
-                replayedActiveOutage))
-            {
-              lastSentHash = string.Empty;
-              lastSentAt = DateTimeOffset.MinValue;
-              nextDelay = TimeSpan.Zero;
+              LogPayloadRejected(
+                  (int)attempt.StatusCode,
+                  attempt.RejectionReason,
+                  nextDelay);
+              if (attempt.StatusCode == System.Net.HttpStatusCode.Unauthorized &&
+                  !string.IsNullOrWhiteSpace(_options.Value.EnrollmentCode))
+              {
+                identity = await ReEnrollAsync(identity, stoppingToken);
+                lastSentHash = string.Empty;
+                lastSentAt = DateTimeOffset.MinValue;
+              }
             }
           }
           else if (observedState.IsComplete)
@@ -278,53 +328,6 @@ internal sealed partial class ConnectorWorker(
             nextDelay = successfulPollDelay;
           }
         }
-      }
-      catch (HttpRequestException exception)
-          when (exception.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-      {
-        LogCredentialRejected();
-        await _healthJournal.RecordFailureAsync(
-            ConnectorHealthEventKinds.Rejected,
-            new ConnectorHealthFailure(
-                ConnectorHealthFailureCategories.CredentialRejected,
-                "Dashboard rejected the connector credential."),
-            consecutiveFailures + 1,
-            null,
-            _timeProvider.GetUtcNow(),
-            stoppingToken);
-        if (string.IsNullOrWhiteSpace(
-            _options.Value.EnrollmentCode))
-        {
-          throw new InvalidOperationException(
-              "The connector credential was revoked; configure a new one-time enrollment code and restart to re-enroll.",
-              exception);
-        }
-        identity = await ReEnrollAsync(
-            identity,
-            stoppingToken);
-        consecutiveFailures = 0;
-        lastSentHash = string.Empty;
-        lastSentAt = DateTimeOffset.MinValue;
-        nextDelay = successfulPollDelay;
-      }
-      catch (HttpRequestException exception)
-          when (exception.StatusCode is not null &&
-              (int)exception.StatusCode.Value is >= 400 and < 500 &&
-              exception.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
-      {
-        LogPayloadRejected(exception.Message);
-        await _healthJournal.RecordFailureAsync(
-            ConnectorHealthEventKinds.Rejected,
-            new ConnectorHealthFailure(
-                ConnectorHealthFailureCategories.PayloadRejected,
-                "Dashboard permanently rejected the synchronization payload."),
-            consecutiveFailures + 1,
-            null,
-            _timeProvider.GetUtcNow(),
-            stoppingToken);
-        throw new InvalidOperationException(
-            "The dashboard permanently rejected the connector payload.",
-            exception);
       }
       catch (HttpRequestException exception)
       {
@@ -584,9 +587,18 @@ internal sealed partial class ConnectorWorker(
 
   internal static ConnectorHealthFailure ClassifyHttpFailure(
       HttpRequestException exception,
+      bool enrollment) =>
+      ClassifyHttpFailure(exception.StatusCode, enrollment);
+
+  private static ConnectorHealthFailure ClassifyHttpFailure(
+      System.Net.HttpStatusCode? statusCode,
       bool enrollment)
   {
-    if (exception.StatusCode ==
+    if (statusCode == System.Net.HttpStatusCode.RequestTimeout)
+    {
+      return ClassifyTimeout(enrollment);
+    }
+    if (statusCode ==
         System.Net.HttpStatusCode.TooManyRequests)
     {
       return new ConnectorHealthFailure(
@@ -597,8 +609,8 @@ internal sealed partial class ConnectorWorker(
               ? "Dashboard rate-limited connector enrollment."
               : "Dashboard rate-limited connector synchronization.");
     }
-    if (exception.StatusCode is not null &&
-        (int)exception.StatusCode.Value >= 500)
+    if (statusCode is not null &&
+        (int)statusCode.Value >= 500)
     {
       return new ConnectorHealthFailure(
           enrollment
@@ -627,6 +639,33 @@ internal sealed partial class ConnectorWorker(
               ? "Connector enrollment timed out."
               : "Dashboard synchronization timed out.");
 
+  internal static ConnectorHealthFailure ClassifySynchronizationRejection(
+      ConnectorSyncAttempt attempt)
+  {
+    var failure = attempt.StatusCode == System.Net.HttpStatusCode.Unauthorized
+        ? new ConnectorHealthFailure(
+            ConnectorHealthFailureCategories.CredentialRejected,
+            "Dashboard rejected the connector credential.")
+        : (int)attempt.StatusCode is >= 400 and < 500 &&
+        attempt.StatusCode is not (
+            System.Net.HttpStatusCode.RequestTimeout or
+            System.Net.HttpStatusCode.TooManyRequests)
+        ? new ConnectorHealthFailure(
+            ConnectorHealthFailureCategories.PayloadRejected,
+            "Dashboard rejected the synchronization payload.")
+        : ClassifyHttpFailure(attempt.StatusCode, enrollment: false);
+    return failure with
+    {
+      HttpStatusCode = (int)attempt.StatusCode,
+      RejectionReason = attempt.RejectionReason,
+    };
+  }
+
+  [LoggerMessage(
+      Level = LogLevel.Critical,
+      Message = "Connector worker failed unexpectedly; terminating with a nonzero exit status.")]
+  private partial void LogFatalWorkerFailure();
+
   [LoggerMessage(
       Level = LogLevel.Information,
       Message = "Enrolled connector as node {NodeId}.")]
@@ -652,19 +691,17 @@ internal sealed partial class ConnectorWorker(
       TimeSpan nextDelay);
 
   [LoggerMessage(
-      Level = LogLevel.Warning,
-      Message = "Dashboard rejected this connector credential.")]
-  private partial void LogCredentialRejected();
-
-  [LoggerMessage(
       Level = LogLevel.Information,
       Message = "Persisted a rotated connector credential.")]
   private partial void LogCredentialRotated();
 
   [LoggerMessage(
-      Level = LogLevel.Critical,
-      Message = "Dashboard permanently rejected the synchronization payload: {Reason}")]
-  private partial void LogPayloadRejected(string reason);
+      Level = LogLevel.Error,
+      Message = "Dashboard rejected synchronization with HTTP {StatusCode}, reason {RejectionReason}; retrying in {NextDelay}.")]
+  private partial void LogPayloadRejected(
+      int statusCode,
+      ConnectorSyncRejectionReason rejectionReason,
+      TimeSpan nextDelay);
 
   [LoggerMessage(
       Level = LogLevel.Critical,

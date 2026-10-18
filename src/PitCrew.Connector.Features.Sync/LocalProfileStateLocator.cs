@@ -86,6 +86,35 @@ internal sealed partial class LocalProfileStateLocator(
   }
 
   /// <summary>
+  /// Identifies configured profile state without interpreting auxiliary directories as profiles.
+  /// </summary>
+  public static bool HasProfileStateFiles(string profileDirectory)
+  {
+    foreach (var name in new[]
+    {
+      "observed-state.json",
+      "static-profile.json",
+      "desired-capacity.json",
+    })
+    {
+      try
+      {
+        File.GetAttributes(Path.Combine(profileDirectory, name));
+        return true;
+      }
+      catch (FileNotFoundException)
+      {
+        // Missing markers are expected in auxiliary state directories.
+      }
+      catch (DirectoryNotFoundException)
+      {
+        // The directory can disappear during a supported profile removal.
+      }
+    }
+    return false;
+  }
+
+  /// <summary>
   /// Reads one bounded local state document.
   /// </summary>
   /// <param name="path">State document path.</param>

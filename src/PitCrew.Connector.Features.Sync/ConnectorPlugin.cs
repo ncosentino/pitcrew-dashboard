@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 using NexusLabs.Needlr;
 
@@ -10,6 +9,8 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
 {
   public void Configure(ServiceCollectionPluginOptions options)
   {
+    // Needlr's generic-host bootstrap does not invoke generated options registrars.
+    Generated.TypeRegistry.RegisterOptions(options.Services, options.Config);
     if (OperatingSystem.IsWindows())
     {
       options.Services.AddWindowsService(service =>
@@ -17,9 +18,6 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
         service.ServiceName = "PitCrewConnector";
       });
     }
-    options.Services
-        .AddOptions<ConnectorOptions>()
-        .BindConfiguration("PitCrew:Connector");
     options.Services.AddSingleton(TimeProvider.System);
     options.Services.AddSingleton<IHostExecutionEnvironment, HostExecutionEnvironment>();
     options.Services.AddSingleton<ISetupProcessRunner, SetupProcessRunner>();
@@ -31,21 +29,6 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
     options.Services.AddSingleton<RecoveryCommandExecutor>();
     options.Services.AddSingleton<ConnectorHealthJournal>();
     options.Services.AddSingleton<ConnectorHealthReplayStore>();
-    options.Services.AddHttpClient<ConnectorApiClient>(
-        static (services, client) =>
-        {
-          var connectorOptions = services
-                  .GetRequiredService<IOptions<ConnectorOptions>>()
-                  .Value;
-          if (Uri.TryCreate(
-              connectorOptions.DashboardUrl,
-              UriKind.Absolute,
-              out var dashboardUri))
-          {
-            client.BaseAddress = dashboardUri;
-          }
-          client.Timeout = TimeSpan.FromSeconds(30);
-        });
     options.Services.AddHostedService<ConnectorWorker>();
   }
 }

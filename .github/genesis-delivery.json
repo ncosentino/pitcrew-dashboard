@@ -51,6 +51,15 @@
   "componentWorkflows": [
     {
       "source": "repository",
+      "path": ".github/workflows/connector-regression.yml",
+      "roles": [
+        "draft-optional"
+      ],
+      "draftBehavior": "full",
+      "requiredChecks": []
+    },
+    {
+      "source": "repository",
       "path": ".github/workflows/browser-ux.yml",
       "roles": [
         "merge-gate",

@@ -54,6 +54,7 @@ observed.
 | `lastAttemptAt`, `lastSuccessAt` | Most recent synchronization attempt and accepted synchronization |
 | `activeOutageId`, `activeOutageStartedAt` | Durable active outage identity and interval start |
 | `lastFailureAt`, `lastFailureCategory`, `lastFailureProfileId`, `lastFailureDetail` | Most recent sanitized failure evidence |
+| `lastFailureHttpStatusCode`, `lastFailureRejectionReason` | Optional numeric HTTP status and allowlisted synchronization rejection reason |
 | `consecutiveFailures`, `nextRetryAt` | Retry state derived from the connector's actual scheduled delay |
 | `lastRecoveredOutageId`, `lastRecoveredOutageStartedAt`, `lastRecoveredAt`, `lastRecoveredFailureCategory` | Most recently recovered outage interval |
 
@@ -64,6 +65,7 @@ Each `connector-events.jsonl` line contains:
 | `eventId`, `kind`, `occurredAt`, `state` | Event identity, type, time, and resulting connector state |
 | `outageId`, `outageStartedAt` | Related active or recovered outage |
 | `failureCategory`, `profileId`, `detail` | Sanitized bounded failure evidence |
+| `httpStatusCode`, `rejectionReason` | Optional HTTP rejection metadata; never response bodies or arbitrary server text |
 | `consecutiveFailures`, `retryDelaySeconds` | Retry evidence at the time of the event |
 
 Event kinds are `process-started`, `process-stopping`,
@@ -75,6 +77,54 @@ network, timeout, rate-limit, server, local-I/O, payload, credential,
 enrollment, and configuration failures. Category values are stable
 machine-readable identifiers such as `profile-state-invalid`,
 `synchronization-network`, and `credential-rejected`.
+
+## Observation isolation and recovery
+
+Profile discovery uses `static-profile.json`, `desired-capacity.json`, or
+`observed-state.json` as durable profile markers. Auxiliary state directories
+without those markers are not profiles. A configured profile with missing or
+invalid observed state still makes inventory partial or unavailable, including
+after connector restart; a missing file is not evidence that the profile was
+removed.
+
+Connector preflight and Dashboard ingestion share the same semantic observation
+validator. Only validated observations enter the last-good cache. Invalid
+profiles retain validated cached evidence when available while healthy profiles
+continue synchronizing. Incomplete inventory does not advertise remote operation
+capabilities.
+
+HTTP rejection is a synchronization outcome, not a reason to terminate the
+worker. Rejections are journaled with a scheduled, jittered retry so corrected
+state or a repaired endpoint can recover without a service restart. HTTP 408 is
+a timeout, 429 is rate limiting, and 5xx responses remain retryable server
+failures. Revoked credentials remain degraded; explicit re-enrollment still
+requires a locally configured one-time enrollment code.
+
+The generic-host composition invokes the feature's generated transport registrar,
+so native and container connectors resolve the same pooled `PitCrewConnector`
+client. Its timeout defaults to 30 seconds and can be overridden through
+`PitCrew:Connector:HttpClient:Timeout`. The same registrar owns connector options
+binding and validation; binding again would append duplicate operator allowlist
+and recipe entries, causing installed-service startup validation to fail.
+
+New Dashboards return the bounded `X-PitCrew-Sync-Rejection` header, identifying
+the rejected contract family without including profile values. Older Dashboards
+remain compatible: the connector records the HTTP status with no specific
+reason. Unknown, numeric, or arbitrary header values are not retained. These
+optional diagnostic fields are local-only; health replay stays compatible with
+the existing protocol and does not forward response bodies.
+
+Unexpected worker failures terminate an installed Windows service with a
+nonzero process exit before a normal service-stop notification can bypass SCM
+failure recovery. Console and container hosts also receive a nonzero exit
+status. Intentional operator shutdown remains a clean stop. Payload and
+credential rejections do not create an SCM restart loop.
+
+The `Connector regression` workflow runs focused connector and Fleet tests on
+the PitCrew general-purpose pool, either by manual dispatch or the explicit
+`ci:connector-regression` label on a same-repository PR. It does not run
+untrusted fork code and does not add another default PR test matrix. It does
+not replace the full armed-PR or installed-service release qualification.
 
 ## Retention and durability
 

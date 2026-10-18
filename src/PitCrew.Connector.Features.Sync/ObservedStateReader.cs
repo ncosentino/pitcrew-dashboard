@@ -118,6 +118,11 @@ internal sealed partial class ObservedStateReader(
           LogSkippedLinkedProfileDirectory(profileDirectory);
           continue;
         }
+        if (!_lastGood.ContainsKey(profileDirectory) &&
+            !LocalProfileStateLocator.HasProfileStateFiles(profileDirectory))
+        {
+          continue;
+        }
       }
       catch (IOException exception)
       {
@@ -229,7 +234,7 @@ internal sealed partial class ObservedStateReader(
             bytes,
             PitCrewProtocolJsonContext.Default.ManagerObservedState);
         if (profile is null ||
-            profile.SchemaVersion != 1 ||
+            !ManagerObservedStateValidator.IsValid(profile) ||
             !string.Equals(
                 profile.ProfileId,
                 Path.GetFileName(profileDirectory),
@@ -382,9 +387,11 @@ internal sealed partial class ObservedStateReader(
   {
     using var document = JsonDocument.Parse(bytes);
     var root = document.RootElement;
-    if (!root.TryGetProperty(
+    if (root.ValueKind != JsonValueKind.Object ||
+        !root.TryGetProperty(
             "managerContractVersion",
             out var contractElement) ||
+        contractElement.ValueKind != JsonValueKind.Number ||
         !contractElement.TryGetInt32(out var contractVersion))
     {
       return false;

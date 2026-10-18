@@ -51,7 +51,9 @@ internal static class ConnectorHealthFailureCategories
 internal sealed record ConnectorHealthFailure(
     string Category,
     string Detail,
-    string? ProfileId = null);
+    string? ProfileId = null,
+    int? HttpStatusCode = null,
+    ConnectorSyncRejectionReason RejectionReason = ConnectorSyncRejectionReason.Unspecified);
 
 internal sealed record ConnectorHealthEvent(
     [property: JsonRequired] int SchemaVersion,
@@ -65,7 +67,9 @@ internal sealed record ConnectorHealthEvent(
     [property: JsonRequired] string? ProfileId,
     [property: JsonRequired] int ConsecutiveFailures,
     [property: JsonRequired] int? RetryDelaySeconds,
-    [property: JsonRequired] string? Detail);
+    [property: JsonRequired] string? Detail,
+    int? HttpStatusCode = null,
+    string? RejectionReason = null);
 
 internal sealed record ConnectorHealthSnapshot(
     [property: JsonRequired] int SchemaVersion,
@@ -85,7 +89,9 @@ internal sealed record ConnectorHealthSnapshot(
     [property: JsonRequired] Guid? LastRecoveredOutageId,
     [property: JsonRequired] DateTimeOffset? LastRecoveredOutageStartedAt,
     [property: JsonRequired] DateTimeOffset? LastRecoveredAt,
-    [property: JsonRequired] string? LastRecoveredFailureCategory);
+    [property: JsonRequired] string? LastRecoveredFailureCategory,
+    int? LastFailureHttpStatusCode = null,
+    string? LastFailureRejectionReason = null);
 
 internal sealed record ConnectorHealthAcknowledgementState(
     [property: JsonRequired] int SchemaVersion,
