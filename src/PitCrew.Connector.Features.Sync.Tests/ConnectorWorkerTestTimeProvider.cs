@@ -6,7 +6,7 @@ namespace PitCrew.Connector.Features.Sync.Tests;
 
 internal sealed class ConnectorWorkerTestTimeProvider(DateTimeOffset now) : FakeTimeProvider(now)
 {
-  private readonly Channel<TimeSpan> _delays = Channel.CreateUnbounded<TimeSpan>();
+  private readonly Channel<TimeSpan> _delays = Channel.CreateBounded<TimeSpan>(1);
 
   public override ITimer CreateTimer(
       TimerCallback callback,
@@ -23,7 +23,7 @@ internal sealed class ConnectorWorkerTestTimeProvider(DateTimeOffset now) : Fake
     if (!_delays.Writer.TryWrite(dueTime))
     {
       timer.Dispose();
-      throw new InvalidOperationException("The test timer registration channel is closed.");
+      throw new InvalidOperationException("The test must consume each worker timer registration before another is scheduled.");
     }
     return timer;
   }

@@ -115,7 +115,7 @@ public sealed class ConnectorWorkerResilienceTests
     context.ProcessLifetime.Setup(value => value.Fail());
     await context.Worker.StartAsync(cancellationToken);
     await Assert.ThrowsAsync<InvalidOperationException>(
-        async () => await context.Worker.ExecuteTask!);
+        async () => await context.Worker.ExecuteTask!.WaitAsync(cancellationToken));
     context.ProcessLifetime.Verify(value => value.Fail(), Times.Once);
     var snapshot = await context.ReadSnapshotAsync(cancellationToken);
     await Assert.That(snapshot.LastFailureCategory)
