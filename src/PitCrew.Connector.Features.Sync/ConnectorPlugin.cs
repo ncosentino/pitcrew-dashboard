@@ -18,9 +18,6 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
         service.ServiceName = "PitCrewConnector";
       });
     }
-    options.Services
-        .AddOptions<ConnectorOptions>()
-        .BindConfiguration("PitCrew:Connector");
     options.Services.AddSingleton(TimeProvider.System);
     options.Services.AddSingleton<IHostExecutionEnvironment, HostExecutionEnvironment>();
     options.Services.AddSingleton<ISetupProcessRunner, SetupProcessRunner>();

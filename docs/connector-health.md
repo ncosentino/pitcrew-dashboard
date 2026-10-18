@@ -103,7 +103,9 @@ requires a locally configured one-time enrollment code.
 The generic-host composition invokes the feature's generated transport registrar,
 so native and container connectors resolve the same pooled `PitCrewConnector`
 client. Its timeout defaults to 30 seconds and can be overridden through
-`PitCrew:Connector:HttpClient:Timeout`.
+`PitCrew:Connector:HttpClient:Timeout`. The same registrar owns connector options
+binding and validation; binding again would append duplicate operator allowlist
+and recipe entries, causing installed-service startup validation to fail.
 
 New Dashboards return the bounded `X-PitCrew-Sync-Rejection` header, identifying
 the rejected contract family without including profile values. Older Dashboards
