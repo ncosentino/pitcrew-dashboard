@@ -36,8 +36,8 @@ registration race.
 - Never override `FakeTimeProvider.CreateTimer` to complete immediately (NLF0028).
 - Observation wrappers call `base.CreateTimer` and forward `Change`, `Dispose`, and
   `DisposeAsync`.
-- Provider-backed delays, cancellation, and timers remain fake-clock controlled.
-- `Task.Delay` truncates positive delays to whole milliseconds; assert that exact projection, not tick equality or arbitrary tolerance.
+- `Task.Delay(delay, provider, token)`, provider-backed
+  `CancellationTokenSource`, and provider timers remain controlled by the fake clock.
 
 ## DI override
 
