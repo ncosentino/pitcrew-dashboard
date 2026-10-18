@@ -100,6 +100,11 @@ a timeout, 429 is rate limiting, and 5xx responses remain retryable server
 failures. Revoked credentials remain degraded; explicit re-enrollment still
 requires a locally configured one-time enrollment code.
 
+The generic-host composition invokes the feature's generated transport registrar,
+so native and container connectors resolve the same pooled `PitCrewConnector`
+client. Its timeout defaults to 30 seconds and can be overridden through
+`PitCrew:Connector:HttpClient:Timeout`.
+
 New Dashboards return the bounded `X-PitCrew-Sync-Rejection` header, identifying
 the rejected contract family without including profile values. Older Dashboards
 remain compatible: the connector records the HTTP status with no specific

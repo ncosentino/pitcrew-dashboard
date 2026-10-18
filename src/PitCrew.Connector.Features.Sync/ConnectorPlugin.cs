@@ -9,6 +9,8 @@ internal sealed class ConnectorPlugin : IServiceCollectionPlugin
 {
   public void Configure(ServiceCollectionPluginOptions options)
   {
+    // Needlr's generic-host bootstrap does not invoke generated options registrars.
+    Generated.TypeRegistry.RegisterOptions(options.Services, options.Config);
     if (OperatingSystem.IsWindows())
     {
       options.Services.AddWindowsService(service =>
