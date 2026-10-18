@@ -10,6 +10,9 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="Microsoft.PowerShell.SDK" />
+    <!-- PowerShell still requests vulnerable crypto packages; keep the patched versions explicit. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+    <PackageReference Include="System.Security.Cryptography.Xml" />
     <ProjectReference Include="..\PitCrew.Support.Protocol\PitCrew.Support.Protocol.csproj" />
     <ProjectReference Include="..\PitCrew.Protocol\PitCrew.Protocol.csproj" />
     <EmbeddedResource
