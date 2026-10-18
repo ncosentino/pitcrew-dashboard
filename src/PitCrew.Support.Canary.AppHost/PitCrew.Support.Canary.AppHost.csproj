@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Aspire's transitive graph still requests MessagePack 2.5.302. -->
+    <PackageReference Include="MessagePack" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\PitCrew.Dashboard.WebApi\PitCrew.Dashboard.WebApi.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\PitCrew.Support.Relay.App\PitCrew.Support.Relay.App.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\PitCrew.Support.Canary.Contracts\PitCrew.Support.Canary.Contracts.csproj" IsAspireProjectResource="false" />
