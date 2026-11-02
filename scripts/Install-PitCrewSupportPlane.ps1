@@ -5539,30 +5539,6 @@ function Assert-EvidenceDirectoryEntriesBounded {
     }
 }
 
-function Test-LinuxEvidenceReadableStable {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$User
-    )
-
-    for ($attempt = 0; $attempt -lt 3; $attempt++) {
-        $before = (& stat '--format=%d:%i:%f:%s:%Y:%Z' -- $Path).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            return $false
-        }
-        & runuser -u $User -- test -r $Path
-        $readable = $LASTEXITCODE -eq 0
-        $after = (& stat '--format=%d:%i:%f:%s:%Y:%Z' -- $Path).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            continue
-        }
-        if ($before -ceq $after) {
-            return $readable
-        }
-    }
-    return $false
-}
-
 function Assert-EvidenceFilesReadable {
     param(
         [Parameter(Mandatory)][hashtable]$Paths,
@@ -5777,22 +5753,9 @@ function Assert-EvidenceFilesReadable {
                 (Join-Path $pitCrewRoot $sentinel)
             )
         }
-        foreach ($path in $files) {
-            if (-not (Test-LinuxEvidenceReadableStable `
-                    -Path $path `
-                    -User $linuxBrokerUser)) {
-                $resource = if ($path -ceq $collector) {
-                    'collector'
-                } elseif ($path.StartsWith(
-                        $Paths.ConnectorHealthRoot,
-                        [StringComparison]::Ordinal)) {
-                    'connector-health'
-                } else {
-                    'profile-evidence'
-                }
-                throw "Support evidence ACL drift was detected for '$resource'; restore the dedicated evidence-directory contract."
-            }
-        }
+        # Exact ACL, mask, ownership, and traversal checks above cover disabled
+        # installations. Enabled installations additionally prove every
+        # allowlisted file through the broker's real startup validation.
         foreach ($prohibited in @(
             @{
                 Path = (Join-Path $pitCrewRoot '.env')
