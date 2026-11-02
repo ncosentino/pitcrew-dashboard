@@ -648,6 +648,12 @@ try {
         (Join-Path $pitCrewRoot '.env'),
         'PROHIBITED=fixture',
         [Text.UTF8Encoding]::new($false))
+    if ($IsLinux) {
+        & chmod 0600 (Join-Path $pitCrewRoot '.env')
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not protect the prohibited environment fixture.'
+        }
+    }
     foreach ($healthFile in @(
         'connector-health.json',
         'connector-events.jsonl',
