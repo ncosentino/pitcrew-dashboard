@@ -41,6 +41,7 @@ The dedicated API exposes only:
 
 ```text
 GET /api/diagnostics/v1/tenants/{tenantId}/fleet/nodes
+GET /api/diagnostics/v1/tenants/{tenantId}/fleet/nodes/{nodeId}/profiles/{profileId}/status
 GET /api/diagnostics/v1/tenants/{tenantId}/fleet/history/capabilities
 GET /api/diagnostics/v1/tenants/{tenantId}/fleet/nodes/{nodeId}/history
 GET /api/diagnostics/v1/tenants/{tenantId}/fleet/nodes/{nodeId}/profiles/{profileId}/history
@@ -53,6 +54,24 @@ same Dashboard-owned freshness boundary as the browser fleet projection.
 receipt, response generation, coverage, retention, and freshness clocks
 separate. A current connector response or newly generated API response never
 refreshes stale manager evidence.
+
+The exact profile-status route separates configuration from current runtime
+capacity. A retained profile projection is `configured` even when it has zero
+target and active runners. Profile absence is `not-configured` only when the
+node is online and its connector reports complete inventory coverage; partial,
+unavailable, unsupported, or stale inventory returns `unknown`.
+
+Healthy autoscaling with a positive configured maximum, zero minimum idle,
+zero target, and zero active slots returns:
+
+```text
+CONFIGURED · AUTOSCALED · IDLE (SCALE-TO-ZERO)
+```
+
+The response also includes the closed runtime state, stable reason code,
+inventory authority metadata, manager evidence time, and separate configured
+maximum, target, active, idle, busy, and draining counts. An acknowledged
+Dashboard zero-capacity pause returns `paused`, not `idle-scale-to-zero`.
 
 History uses the same advertised range, point, event, and diagnostic limits as
 the browser UI. Each credential is limited to 120 diagnostic reads per minute.

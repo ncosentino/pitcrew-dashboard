@@ -26,6 +26,9 @@ public sealed class DiagnosticCarterModule : ICarterModule
         .AddDiagnosticRateLimit();
     diagnostics.MapGet("/nodes", GetFleetAsync);
     diagnostics.MapGet(
+        "/nodes/{nodeId:guid}/profiles/{profileId}/status",
+        GetProfileStatusAsync);
+    diagnostics.MapGet(
         "/history/capabilities",
         GetHistoryCapabilities);
     diagnostics.MapGet(
@@ -59,6 +62,23 @@ public sealed class DiagnosticCarterModule : ICarterModule
   {
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(unitOfWork.GetCapabilities());
+  }
+
+  private static async Task<IResult> GetProfileStatusAsync(
+      HttpContext context,
+      string tenantId,
+      Guid nodeId,
+      string profileId,
+      IGetDiagnosticProfileStatusUnitOfWork unitOfWork,
+      CancellationToken cancellationToken)
+  {
+    context.Response.Headers.CacheControl = "no-store";
+    return Result(await unitOfWork.GetAsync(
+        context.User,
+        tenantId,
+        nodeId,
+        profileId,
+        cancellationToken));
   }
 
   private static async Task<IResult> GetNodeHistoryAsync(
@@ -158,4 +178,57 @@ public sealed class DiagnosticCarterModule : ICarterModule
             statusCode: StatusCodes.Status500InternalServerError,
             title: "Unsupported diagnostic query result."),
       };
+
+  private static IResult Result(
+      DiagnosticProfileStatusQueryResult result) =>
+      result.Status switch
+      {
+        DiagnosticQueryStatus.Succeeded
+            when result.ProfileStatus is not null =>
+            Results.Ok(MapProfileStatusResponse(
+                result.ProfileStatus)),
+        DiagnosticQueryStatus.Invalid => Results.BadRequest(new
+        {
+          error = new
+          {
+            code = "invalid_diagnostic_query",
+            message = result.Error,
+          },
+        }),
+        DiagnosticQueryStatus.Forbidden => Results.Forbid(),
+        DiagnosticQueryStatus.NotFound => Results.NotFound(),
+        _ => Results.Problem(
+            statusCode: StatusCodes.Status500InternalServerError,
+            title: "Unsupported diagnostic profile status result."),
+      };
+
+  private static ProfileOperationalStatusResponse MapProfileStatusResponse(
+      ProfileOperationalStatusResult result) =>
+      new(
+          result.GeneratedAt,
+          result.NodeId,
+          result.ProfileId,
+          result.InventoryCoverage,
+          result.InventoryAuthoritative,
+          result.InventoryObservedAt,
+          result.InventoryReceivedAt,
+          result.InventoryUnavailableReason,
+          result.ConfigurationState,
+          result.RuntimeState,
+          result.ReasonCode,
+          result.Summary,
+          result.NodeOnline,
+          result.NodeLastSeenAt,
+          result.ManagerStatus,
+          result.ManagerObservedAt,
+          result.CapacityMode,
+          result.ExplicitlyPaused,
+          result.ConfiguredMaximum,
+          result.MinimumIdleSlots,
+          result.TargetSlots,
+          result.ActiveSlots,
+          result.IdleRunners,
+          result.BusyRunners,
+          result.DrainingSlots,
+          result.AutoscalingStatus);
 }
