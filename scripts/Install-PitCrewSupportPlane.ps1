@@ -5753,20 +5753,23 @@ function Assert-EvidenceFilesReadable {
                 (Join-Path $pitCrewRoot $sentinel)
             )
         }
-        foreach ($path in $files) {
-            & runuser -u $linuxBrokerUser -- test -r $path
-            if ($LASTEXITCODE -ne 0) {
-                throw 'Support evidence ACL drift was detected; restore the dedicated evidence-directory contract.'
-            }
-        }
+        # Exact ACL, mask, ownership, and traversal checks above cover disabled
+        # installations. Enabled installations additionally prove every
+        # allowlisted file through the broker's real startup validation.
         foreach ($prohibited in @(
-            (Join-Path $pitCrewRoot '.env'),
-            '/var/run/docker.sock'
+            @{
+                Path = (Join-Path $pitCrewRoot '.env')
+                Resource = 'pitcrew-environment'
+            }
+            @{
+                Path = '/var/run/docker.sock'
+                Resource = 'docker-socket'
+            }
         )) {
-            if (Test-Path -LiteralPath $prohibited) {
-                & runuser -u $linuxBrokerUser -- test -r $prohibited
+            if (Test-Path -LiteralPath $prohibited.Path) {
+                & runuser -u $linuxBrokerUser -- test -r $prohibited.Path
                 if ($LASTEXITCODE -eq 0) {
-                    throw 'The broker can read a prohibited local resource.'
+                    throw "The broker can read prohibited local resource '$($prohibited.Resource)'."
                 }
             }
         }

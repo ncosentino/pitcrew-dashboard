@@ -69,7 +69,10 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
       DiagnosticFleetQueryInput input,
       CancellationToken cancellationToken)
   {
-    var scope = GetScopeOrNull(principal, tenantId);
+    var scope = DiagnosticFleetAccess.GetScopeOrNull(
+        _scopeAccessor,
+        principal,
+        tenantId);
     if (scope is null)
     {
       return Forbidden();
@@ -104,7 +107,7 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
     var allowedNodes = scope.NodeIds.Count == 0
         ? null
         : scope.NodeIds.ToHashSet();
-    var allowedProfiles = CreateProfileRestrictionSet(
+    var allowedProfiles = DiagnosticFleetAccess.CreateProfileRestrictionSet(
         scope.ProfileIds);
     var nodes = fleet.Nodes
         .Where(node =>
@@ -164,9 +167,12 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
       HistoryQueryInput input,
       CancellationToken cancellationToken)
   {
-    var scope = GetScopeOrNull(principal, tenantId);
+    var scope = DiagnosticFleetAccess.GetScopeOrNull(
+        _scopeAccessor,
+        principal,
+        tenantId);
     if (scope is null ||
-        !AllowsNode(scope, nodeId) ||
+        !DiagnosticFleetAccess.AllowsNode(scope, nodeId) ||
         scope.ProfileIds.Count > 0)
     {
       return Forbidden();
@@ -199,10 +205,13 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
       HistoryQueryInput input,
       CancellationToken cancellationToken)
   {
-    var scope = GetScopeOrNull(principal, tenantId);
+    var scope = DiagnosticFleetAccess.GetScopeOrNull(
+        _scopeAccessor,
+        principal,
+        tenantId);
     if (scope is null ||
-        !AllowsNode(scope, nodeId) ||
-        !AllowsProfile(scope, profileId))
+        !DiagnosticFleetAccess.AllowsNode(scope, nodeId) ||
+        !DiagnosticFleetAccess.AllowsProfile(scope, profileId))
     {
       return Forbidden();
     }
@@ -228,50 +237,6 @@ internal sealed class GetDiagnosticFleetUnitOfWork(
 
   public HistoryCapabilities GetCapabilities() =>
       _historyUnitOfWork.GetCapabilities();
-
-  private DiagnosticAccessScope? GetScopeOrNull(
-      ClaimsPrincipal principal,
-      string tenantId)
-  {
-    var scope = _scopeAccessor.GetOrNull(principal);
-    return scope is not null &&
-        string.Equals(
-            scope.TenantId,
-            tenantId,
-            StringComparison.Ordinal)
-        ? scope
-        : null;
-  }
-
-  private static bool AllowsNode(
-      DiagnosticAccessScope scope,
-      Guid nodeId) =>
-      scope.NodeIds.Count == 0 ||
-      scope.NodeIds.Contains(nodeId);
-
-  private static bool AllowsProfile(
-      DiagnosticAccessScope scope,
-      string profileId) =>
-      scope.ProfileIds.Count == 0 ||
-      scope.ProfileIds.Contains(
-          profileId,
-          StringComparer.Ordinal);
-
-  private static HashSet<string>? CreateProfileRestrictionSet(
-      IReadOnlyList<string> profileIds)
-  {
-    if (profileIds.Count == 0)
-    {
-      return null;
-    }
-    // Profile IDs are schema-canonical lowercase identifiers. Ordinal matching
-    // rejects malformed case instead of broadening a credential restriction.
-#pragma warning disable NLF0016
-    return new HashSet<string>(
-        profileIds,
-        StringComparer.Ordinal);
-#pragma warning restore NLF0016
-  }
 
   private static int? ParseLimitOrNull(string? value)
   {

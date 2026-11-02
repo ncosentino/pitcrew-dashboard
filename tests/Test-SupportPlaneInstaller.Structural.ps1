@@ -1295,7 +1295,7 @@ foreach ($uninstallOperation in @(
 }
 Add-Check (
     $hostTest.Contains(
-        'Invoke-InstalledBrokerNetworkDenialProbe',
+        'Invoke-InstalledBrokerBoundaryProbe',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         "[Net.Dns]::GetHostAddresses('example.com')",
@@ -1304,7 +1304,13 @@ Add-Check (
         'Test-PublicTcpConnection -Address $address -Port $port',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
-        'ExecStart=/usr/bin/python3 $probePath $resultPath $($controlEndpoint.Address) $($controlEndpoint.Port)',
+        'ExecStart=/usr/bin/python3 $probePath $resultPath $($controlEndpoint.Address) $($controlEndpoint.Port) $OperationalFilePath',
+        [StringComparison]::Ordinal) -and
+    $hostTest.Contains(
+        'with open(sys.argv[4], "rb")',
+        [StringComparison]::Ordinal) -and
+    $hostTest.Contains(
+        '$boundaryProbe.OperationalFileDenied',
         [StringComparison]::Ordinal) -and
     $hostTest.Contains(
         '--address `"$($controlEndpoint.Address)`"',

@@ -267,14 +267,24 @@ try:
 except OSError:
     pass
 
+file_result = "denied"
+try:
+    with open(sys.argv[4], "rb"):
+        file_result = "readable"
+except OSError:
+    pass
+
 with open(sys.argv[1], "w", encoding="ascii") as output:
-    output.write(result)
+    output.write(result + "|" + file_result)
 '@,
         [Text.UTF8Encoding]::new($false))
 }
 
-function Invoke-InstalledBrokerNetworkDenialProbe {
-    param([Parameter(Mandatory)][hashtable]$Paths)
+function Invoke-InstalledBrokerBoundaryProbe {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][string]$OperationalFilePath
+    )
 
     $controlEndpoint = Get-PublicTcpControlEndpoint
     $probeFileName = 'network-denial-probe.py'
@@ -371,7 +381,7 @@ function Invoke-InstalledBrokerNetworkDenialProbe {
                 @"
 [Service]
 ExecStart=
-ExecStart=/usr/bin/python3 $probePath $resultPath $($controlEndpoint.Address) $($controlEndpoint.Port)
+ExecStart=/usr/bin/python3 $probePath $resultPath $($controlEndpoint.Address) $($controlEndpoint.Port) $OperationalFilePath
 Restart=no
 "@,
                 [Text.UTF8Encoding]::new($false))
@@ -412,7 +422,17 @@ Restart=no
       } else {
           ''
       }
-      return $result.Trim() -eq 'denied'
+      $outcomes = $result.Trim().Split('|')
+      return [pscustomobject]@{
+          NetworkDenied = $outcomes.Count -ge 1 -and
+              $outcomes[0] -ceq 'denied'
+          OperationalFileDenied = if ($IsWindows) {
+              $true
+          } else {
+              $outcomes.Count -eq 2 -and
+                  $outcomes[1] -ceq 'denied'
+          }
+      }
     } finally {
         Remove-Item `
             -LiteralPath $probePath, $resultPath `
@@ -648,6 +668,12 @@ try {
         (Join-Path $pitCrewRoot '.env'),
         'PROHIBITED=fixture',
         [Text.UTF8Encoding]::new($false))
+    if ($IsLinux) {
+        & chmod 0600 (Join-Path $pitCrewRoot '.env')
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not protect the prohibited environment fixture.'
+        }
+    }
     foreach ($healthFile in @(
         'connector-health.json',
         'connector-events.jsonl',
@@ -906,9 +932,19 @@ try {
         ) 'A filesystem-broadening systemd drop-in passed effective-boundary verification.'
     }
 
+    $operationalProjectionPath = Join-Path $profileRoot 'observed-state.json'
+    $projectionPath = Join-Path $profileEvidenceRoot 'observed-state.json'
+    $boundaryProbe = Invoke-InstalledBrokerBoundaryProbe `
+        -Paths $paths `
+        -OperationalFilePath $operationalProjectionPath
     Add-Check (
-        Invoke-InstalledBrokerNetworkDenialProbe -Paths $paths
+        $boundaryProbe.NetworkDenied
     ) 'The installed broker context established an outbound public TCP connection.'
+    if ($IsLinux) {
+        Add-Check (
+            $boundaryProbe.OperationalFileDenied
+        ) 'The Linux broker can read operational profile state outside support-evidence.'
+    }
     Invoke-Installer -LifecycleAction 'Verify'
 
     Invoke-Installer -LifecycleAction 'Disable'
@@ -929,8 +965,6 @@ try {
         -Raw |
         ConvertFrom-Json -Depth 10
     $brokerSettings = $brokerConfiguration.PitCrewSupport.Broker
-    $operationalProjectionPath = Join-Path $profileRoot 'observed-state.json'
-    $projectionPath = Join-Path $profileEvidenceRoot 'observed-state.json'
     if ($IsWindows) {
         $operationalBrokerRules = @(
             (Get-Acl -LiteralPath $operationalProjectionPath).GetAccessRules(
@@ -965,11 +999,6 @@ try {
         Add-Check (
             $protectedAgentRules.Count -eq 1
         ) 'A protected Windows evidence file did not receive one explicit agent denial.'
-    } else {
-        & runuser -u pitcrew-support-broker -- test -r $operationalProjectionPath
-        Add-Check (
-            $LASTEXITCODE -ne 0
-        ) 'The Linux broker can read operational profile state outside support-evidence.'
     }
 
     $replacementPath = Join-Path $profileEvidenceRoot '.observed-state.test.tmp'
