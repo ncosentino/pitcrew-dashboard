@@ -21,7 +21,7 @@ internal sealed class ForwardOnlyErrorResponseStream(byte[] bytes) : Stream
   }
   public override async ValueTask<int> ReadAsync(
       Memory<byte> buffer,
-      CancellationToken cancellationToken = default)
+      CancellationToken cancellationToken)
   {
     var read = await _inner.ReadAsync(buffer, cancellationToken);
     BytesRead += read;
