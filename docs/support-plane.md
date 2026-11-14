@@ -809,6 +809,31 @@ remain stopped/disabled. Connector telemetry alone is not support acceptance.
 | Target `committed` | Source is quiesced; target is still fenced. Retry `MigrationActivate` with the same files and acknowledgement to finalize. Local commit and finalization interruptions recover without a second rotation. |
 | Target `active` | Only target polls. Exact activation retries verify startup. Source CNG material remains for explicit recovery; no automatic source rollback or reenrollment occurs. |
 
+For a binary patch while source preparation is uncertain, retain the original
+offer, target request, identity/replay roots, and enabled manifest. Use the
+**patched** packaged installer and pinned verified archives for `Update`.
+An installed target request without a valid `active` migration phase suppresses
+both service starts during update **and rollback**, even when the enabled
+manifest still describes automatic startup. It does not clear the agent-only
+fence or change the exact request. Confirm both services remain stopped, then
+retry `MigrationPrepare` with the same exchange; do not rerun offer/staging,
+disable an enabled preparing manifest, re-enroll, or run normal polling.
+The one-shot prepare still uses the unchanged owning service identity. Only
+successful prepare stops/disables both services and publishes the capsule and
+acknowledgement. Update a staged native target with the same patched installer
+without replacing its existing stage or generating another request.
+
+Source prepare distinguishes `source-prepare-http-rejected-<status-code>`,
+`source-prepare-response-invalid`, `source-prepare-transport-failed`,
+`source-prepare-http-timeout`, and `source-prepare-metadata-mismatch`.
+These are bounded diagnostics, not proof that preparation had no side effect.
+Target finalization uses the corresponding `target-finalization-` dispositions.
+Endpoint comparison parses both values through the existing allowed-origin
+policy before comparing their canonical absolute URI. A missing origin trailing
+slash is equivalent; changed host, scheme or non-default port, any non-root
+path, query, fragment or user information remains rejected. No trust key,
+credential, node, request or rotation comparison is relaxed.
+
 Failures emit only bounded phases/dispositions and exception types through the
 existing startup/installer status files. Do not print identity, exchange,
 credential, or replay contents. Replay transfer is limited to 16,384 files and

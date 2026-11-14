@@ -201,8 +201,8 @@ internal sealed class SupportIdentityMigration(
         request.OfferDigest != Digest(offer) ||
         source.NodeId != offer!.NodeId || source.TenantId != offer.TenantId ||
         source.DisplayName != offer.DisplayName ||
-        source.DashboardUrl.AbsoluteUri != offer.DashboardUrl ||
-        source.RelayUrl.AbsoluteUri != offer.RelayUrl ||
+        !AreAllowedOriginsEquivalent(source.DashboardUrl.AbsoluteUri, offer.DashboardUrl) ||
+        !AreAllowedOriginsEquivalent(source.RelayUrl.AbsoluteUri, offer.RelayUrl) ||
         source.DashboardAuthorizationSigningPublicKeySpki !=
             offer.DashboardAuthorizationSigningPublicKeySpki ||
         source.DashboardResultEncryptionPublicKeySpki !=
@@ -273,7 +273,7 @@ internal sealed class SupportIdentityMigration(
         new SupportIdentityMigrationState(
             1, request.RotationId, requestDigest, "preparing"),
         cancellationToken);
-    var completion = await _dashboard.PrepareRotationAsync(
+    var response = await _dashboard.PrepareRotationWithOutcomeAsync(
         new SupportIdentityRotationPlan(
             request.RotationId,
             source.NodeId,
@@ -284,16 +284,21 @@ internal sealed class SupportIdentityMigration(
             request.TargetSigningPublicKeySpki,
             request.TargetEncryptionPublicKeySpki),
         cancellationToken);
-    if (completion is null || completion.NodeId != source.NodeId ||
+    var completion = response.Completion;
+    if (completion is null)
+    {
+      return $"source-prepare-{response.FailureDisposition}";
+    }
+    if (completion.NodeId != source.NodeId ||
         completion.DisplayName != offer.DisplayName ||
         completion.TransportCredential != credential ||
-        completion.RelayUrl != offer.RelayUrl ||
+        !AreAllowedOriginsEquivalent(completion.RelayUrl, offer.RelayUrl) ||
         completion.DashboardAuthorizationSigningPublicKeySpki !=
             offer.DashboardAuthorizationSigningPublicKeySpki ||
         completion.DashboardResultEncryptionPublicKeySpki !=
             offer.DashboardResultEncryptionPublicKeySpki)
     {
-      return "source-prepare-pending";
+      return "source-prepare-metadata-mismatch";
     }
     var replay = SupportIdentityMigrationReplay.Read(source.ReplayRoot);
     if (replay is null)
@@ -404,7 +409,7 @@ internal sealed class SupportIdentityMigration(
           transfer.Completion.NodeId != offer.NodeId ||
           transfer.Completion.DisplayName != offer.DisplayName ||
           transfer.Completion.TransportCredential != target.TransportCredential ||
-          transfer.Completion.RelayUrl != offer.RelayUrl ||
+          !AreAllowedOriginsEquivalent(transfer.Completion.RelayUrl, offer.RelayUrl) ||
           transfer.Completion.DashboardAuthorizationSigningPublicKeySpki !=
               offer.DashboardAuthorizationSigningPublicKeySpki ||
           transfer.Completion.DashboardResultEncryptionPublicKeySpki !=
@@ -433,19 +438,28 @@ internal sealed class SupportIdentityMigration(
       }
       return "target-finalization-pending";
     }
-    var completed = await _dashboard.FinalizeRotationAsync(pending, cancellationToken);
+    var finalization = await _dashboard.FinalizeRotationWithOutcomeAsync(
+        pending, cancellationToken);
+    var completed = finalization.Completion;
+    if (completed is null)
+    {
+      return $"target-finalization-{finalization.FailureDisposition}";
+    }
     var committed = await _store.LoadMigrationSourceAsync(cancellationToken);
-    if (completed is null || completed.NodeId != pending.NodeId ||
+    if (completed.NodeId != pending.NodeId ||
         completed.TransportCredential != pending.CurrentTransportCredential ||
         committed is null ||
         completed.DisplayName != committed.DisplayName ||
-        completed.RelayUrl != committed.RelayUrl.AbsoluteUri ||
+        !AreAllowedOriginsEquivalent(completed.RelayUrl, committed.RelayUrl.AbsoluteUri) ||
         completed.DashboardAuthorizationSigningPublicKeySpki !=
             committed.DashboardAuthorizationSigningPublicKeySpki ||
         completed.DashboardResultEncryptionPublicKeySpki !=
-            committed.DashboardResultEncryptionPublicKeySpki ||
-        !await _store.CompleteRotationFinalizationAsync(
-            pending.RotationId, cancellationToken))
+            committed.DashboardResultEncryptionPublicKeySpki)
+    {
+      return "target-finalization-metadata-mismatch";
+    }
+    if (!await _store.CompleteRotationFinalizationAsync(
+        pending.RotationId, cancellationToken))
     {
       return "target-finalization-pending";
     }
@@ -557,6 +571,13 @@ internal sealed class SupportIdentityMigration(
 
   private static string Digest<T>(T value) =>
       Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, _json)));
+
+  private static bool AreAllowedOriginsEquivalent(string left, string right) =>
+      Uri.TryCreate(left, UriKind.Absolute, out var leftUri) &&
+      Uri.TryCreate(right, UriKind.Absolute, out var rightUri) &&
+      SupportAgentBootstrapOptions.IsAllowedOrigin(leftUri) &&
+      SupportAgentBootstrapOptions.IsAllowedOrigin(rightUri) &&
+      string.Equals(leftUri.AbsoluteUri, rightUri.AbsoluteUri, StringComparison.Ordinal);
 
   private static bool IsOfferValid(SupportIdentityMigrationOffer? offer)
   {
