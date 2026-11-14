@@ -15,6 +15,12 @@ internal sealed class SupportNodeIdentityProvisioner(
   {
     await using var operationLock =
         await _store.AcquireOperationLockAsync(cancellationToken);
+    if (_store.IsMigrationFenced)
+    {
+      return new(
+          SupportAgentProvisioningStatus.IdentityLifecycleUnavailable,
+          null);
+    }
     var status = await _store.GetStatusAsync(cancellationToken);
     if (status.Lifecycle == SupportNodeIdentityLifecycle.Active)
     {

@@ -8,6 +8,42 @@ namespace PitCrew.Support.Agent.App.Tests;
 public sealed class SupportNodeIdentityProvisionerTests
 {
   [Test]
+  public async Task Migration_Fence_Prevents_Competing_Enrollment(
+      CancellationToken cancellationToken)
+  {
+    var root = CreateRoot();
+    Directory.CreateDirectory(root);
+    try
+    {
+      await File.WriteAllTextAsync(
+          Path.Combine(root, SupportNodeIdentityStore.MigrationFenceFileName),
+          "{}",
+          cancellationToken);
+      var requests = 0;
+      var provisioner = CreateProvisioner(
+          root,
+          "pcs_enroll_fixture-code-abcdefghijklmnopqrstuvwxyz",
+          _ =>
+          {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.Conflict);
+          });
+      var result = await provisioner.GetRuntimeOptionsAsync(cancellationToken);
+
+      await Assert.That(result.Status)
+          .IsEqualTo(SupportAgentProvisioningStatus.IdentityLifecycleUnavailable);
+      await Assert.That(result.Options).IsNull();
+      await Assert.That(requests).IsEqualTo(0);
+      await Assert.That(Directory.Exists(Path.Combine(root, "identity")))
+          .IsFalse().Because("migration cannot silently create a competing node");
+    }
+    finally
+    {
+      DeleteRoot(root);
+    }
+  }
+
+  [Test]
   public async Task Missing_Identity_Without_Enrollment_Reports_Legacy_Unavailable(
       CancellationToken cancellationToken)
   {

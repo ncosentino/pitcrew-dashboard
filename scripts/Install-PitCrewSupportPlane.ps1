@@ -20,6 +20,10 @@ param(
         'Uninstall',
         'Rollback',
         'FinalizeEnrollment',
+        'MigrationOffer',
+        'MigrationStage',
+        'MigrationPrepare',
+        'MigrationActivate',
         'RepairEvidenceAcl',
         'Verify',
         'DiagnoseFailure'
@@ -45,6 +49,10 @@ param(
 
     [string]$BrokerChecksumPath = '',
 
+    [string]$MigrationExchangePath = '',
+
+    [switch]$AcknowledgeSourceQuiesced,
+
     [ValidateSet('PreserveKeys', 'DeleteKeys')]
     [string]$IdentityHandling = 'PreserveKeys',
 
@@ -58,7 +66,7 @@ if ($Action -eq 'Uninstall' -and
     -not $PSBoundParameters.ContainsKey('IdentityHandling')) {
     throw 'Uninstall requires an explicit -IdentityHandling choice.'
 }
-if ($Action -eq 'FinalizeEnrollment' -and
+if (($Action -eq 'FinalizeEnrollment' -or $Action.StartsWith('Migration')) -and
     @(
         'Version',
         'PitCrewRoot',
@@ -70,7 +78,18 @@ if ($Action -eq 'FinalizeEnrollment' -and
         'BrokerChecksumPath',
         'IdentityHandling'
     ).Where({ $PSBoundParameters.ContainsKey($_) }).Count -gt 0) {
-    throw 'FinalizeEnrollment does not accept install, update, or removal inputs.'
+    throw 'This lifecycle action does not accept install, update, or removal inputs.'
+}
+if ($Action -eq 'MigrationActivate' -and -not $AcknowledgeSourceQuiesced) {
+    throw 'MigrationActivate requires explicit source-quiescence acknowledgement.'
+}
+if (-not $Action.StartsWith('Migration') -and
+    ($PSBoundParameters.ContainsKey('MigrationExchangePath') -or
+     $PSBoundParameters.ContainsKey('AcknowledgeSourceQuiesced'))) {
+    throw 'Migration inputs are accepted only by typed migration actions.'
+}
+if ($AcknowledgeSourceQuiesced -and $Action -ne 'MigrationActivate') {
+    throw 'Source-quiescence acknowledgement belongs only to target activation.'
 }
 
 $windowsAgentService = 'PitCrewSupportAgent'
@@ -448,6 +467,10 @@ function Get-InstallerFailureRecord {
             'Uninstall',
             'Rollback',
             'FinalizeEnrollment',
+            'MigrationOffer',
+            'MigrationStage',
+            'MigrationPrepare',
+            'MigrationActivate',
             'RepairEvidenceAcl',
             'Verify'
         ) -or
@@ -2059,7 +2082,27 @@ function Write-AgentEnrollmentFinalizationRequest {
         [string]$Operation
     )
 
-    $requestPath = Get-AgentFinalizationRequestPath -Paths $Paths
+    Write-AgentLifecycleRequest -Paths $Paths `
+        -RequestFileName 'enrollment-finalization-request.json' `
+        -Operation $Operation
+}
+
+function Write-AgentLifecycleRequest {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'enrollment-finalization-request.json',
+            'identity-migration-request.json')]
+        [string]$RequestFileName,
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'finalize-enrollment', 'rollback-enrollment',
+            'offer', 'stage', 'prepare', 'activate')]
+        [string]$Operation
+    )
+
+    $requestPath = Join-Path $Paths.AgentStateRoot $RequestFileName
     $temporaryPath = "$requestPath.$([Guid]::NewGuid().ToString('N')).tmp"
     if (Test-Path -LiteralPath $requestPath) {
         throw 'A support enrollment-finalization request is already pending.'
@@ -2100,6 +2143,20 @@ function Wait-AgentEnrollmentFinalization {
         [int]$TimeoutSeconds = 30
     )
 
+    Wait-AgentLifecycleResult -Paths $Paths `
+        -Phase 'enrollment-finalization' `
+        -TimeoutSeconds $TimeoutSeconds
+}
+
+function Wait-AgentLifecycleResult {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)]
+        [ValidateSet('enrollment-finalization', 'identity-migration')]
+        [string]$Phase,
+        [int]$TimeoutSeconds = 30
+    )
+
     $statusPath = Get-AgentStartupStatusPath -Paths $Paths
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
@@ -2112,7 +2169,7 @@ function Wait-AgentEnrollmentFinalization {
                     -Encoding UTF8 |
                     ConvertFrom-Json
                 if ($status.schemaVersion -eq 1 -and
-                    $status.phase -ceq 'enrollment-finalization' -and
+                    $status.phase -ceq $Phase -and
                     [string]$status.disposition -match
                         '^[a-z][a-z0-9-]{0,63}$' -and
                     (
@@ -6098,6 +6155,218 @@ function Invoke-RepairEvidenceAcl {
         -Settings $brokerSettings
 }
 
+function Copy-MigrationExchangeFile {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'identity-migration-offer.json',
+            'identity-migration-target.json',
+            'identity-migration-transfer.json',
+            'identity-migration-source-quiesced.json')]
+        [string]$Name,
+        [switch]$Import
+    )
+
+    $exchangeFile = Join-Path $MigrationExchangePath $Name
+    $agentFile = Join-Path $Paths.AgentStateRoot $Name
+    $source = if ($Import) { $exchangeFile } else { $agentFile }
+    $destination = if ($Import) { $agentFile } else { $exchangeFile }
+    $limit = if ($Name -eq 'identity-migration-transfer.json') {
+        67108864
+    } else { 32768 }
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or
+        (Get-Item -LiteralPath $source -Force).Length -gt $limit -or
+        (Test-LinkedPathComponent `
+            -Root ([IO.Path]::GetPathRoot($source)) -Path $source) -or
+        (Test-LinkedPathComponent `
+            -Root ([IO.Path]::GetPathRoot($destination)) -Path $destination)) {
+        throw 'A bounded migration exchange file is missing, oversized, or linked.'
+    }
+    Copy-Item -LiteralPath $source -Destination $destination -Force
+    if ($IsLinux) {
+        $owner = if ($Import) {
+            "$linuxAgentUser`:$linuxAgentUser"
+        } else { 'root:root' }
+        Invoke-Checked chown @($owner, $destination)
+        Invoke-Checked chmod @('600', $destination)
+    }
+}
+
+function Invoke-IdentityMigration {
+    param(
+        [Parameter(Mandatory)][hashtable]$Paths,
+        [Parameter(Mandatory)][object]$Manifest
+    )
+
+    $operation = switch ($Action) {
+        'MigrationOffer' { 'offer' }
+        'MigrationStage' { 'stage' }
+        'MigrationPrepare' { 'prepare' }
+        'MigrationActivate' { 'activate' }
+    }
+    if (($operation -in @('offer', 'prepare') -and -not $IsWindows) -or
+        ($operation -in @('stage', 'activate') -and -not $IsLinux)) {
+        throw 'Migration requires a Windows CNG source and native Linux target.'
+    }
+    if (-not (Test-Path -LiteralPath $MigrationExchangePath -PathType Container)) {
+        New-Item -ItemType Directory -Path $MigrationExchangePath | Out-Null
+    }
+    $allowedExchangeNames = @(
+        'identity-migration-offer.json',
+        'identity-migration-target.json',
+        'identity-migration-transfer.json',
+        'identity-migration-source-quiesced.json'
+    )
+    if (@(Get-ChildItem -LiteralPath $MigrationExchangePath -Force).Where({
+        $_.PSIsContainer -or $_.Name -cnotin $allowedExchangeNames
+    }).Count -gt 0) {
+        throw 'The dedicated migration exchange directory contains unexpected entries.'
+    }
+    if ($IsWindows) {
+        # Reuse the protected installer-directory ACL contract. The exchange
+        # carries public metadata and opaque ciphertext, never source keys.
+        Set-WindowsProtectedDirectoryAcl `
+            -Path $MigrationExchangePath -ServiceSid 'S-1-5-18' `
+            -ServiceRights 'F' -Recurse
+    } else {
+        Invoke-Checked chown @('root:root', $MigrationExchangePath)
+        Invoke-Checked chmod @('700', $MigrationExchangePath)
+    }
+    foreach ($name in @(
+        'identity-delete-request.json',
+        'enrollment-finalization-request.json',
+        'identity-migration-request.json'
+    )) {
+        if (Test-Path -LiteralPath (Join-Path $Paths.AgentStateRoot $name)) {
+            throw 'Another local support lifecycle request is pending.'
+        }
+    }
+    if ($operation -eq 'prepare' -and -not [bool]$Manifest.enabled) {
+        $installedRequest = Join-Path $Paths.AgentStateRoot `
+            'identity-migration-target.json'
+        $incomingRequest = Join-Path $MigrationExchangePath `
+            'identity-migration-target.json'
+        if ((Get-FileHash -LiteralPath $installedRequest -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $incomingRequest -Algorithm SHA256).Hash) {
+            throw 'A quiesced source accepts only the identical migration request.'
+        }
+        Publish-MigrationSourceTransfer -Paths $Paths
+        [ordered]@{ schemaVersion = 1; phase = 'source-prepared' } |
+            ConvertTo-Json -Compress
+        return
+    }
+    Stop-SupportAgentOnly
+    switch ($operation) {
+        'stage' {
+            Copy-MigrationExchangeFile -Paths $Paths `
+                -Name 'identity-migration-offer.json' -Import
+        }
+        'prepare' {
+            Copy-MigrationExchangeFile -Paths $Paths `
+                -Name 'identity-migration-target.json' -Import
+        }
+        'activate' {
+            foreach ($name in @(
+                'identity-migration-transfer.json',
+                'identity-migration-source-quiesced.json'
+            )) {
+                Copy-MigrationExchangeFile -Paths $Paths -Name $name -Import
+            }
+        }
+    }
+    $statusPath = Get-AgentStartupStatusPath -Paths $Paths
+    if (Test-Path -LiteralPath $statusPath) {
+        Remove-Item -LiteralPath $statusPath -Force
+    }
+    Write-AgentLifecycleRequest -Paths $Paths `
+        -RequestFileName 'identity-migration-request.json' `
+        -Operation $operation
+    Start-SupportAgentOnly -OneShot
+    $disposition = Wait-AgentLifecycleResult -Paths $Paths `
+        -Phase 'identity-migration' -TimeoutSeconds 180
+    Wait-SupportAgentStopped
+    $expected = switch ($operation) {
+        'offer' { 'offer-created' }
+        'stage' { 'target-staged' }
+        'prepare' { 'source-prepared' }
+        'activate' { 'target-active' }
+    }
+    if ($disposition -cne $expected) {
+        throw "Migration stopped with bounded disposition '$disposition'. Source polling is never automatically resumed after prepare."
+    }
+    switch ($operation) {
+        'offer' {
+            Copy-MigrationExchangeFile -Paths $Paths `
+                -Name 'identity-migration-offer.json'
+            Start-SupportAgentOnly
+        }
+        'stage' {
+            Copy-MigrationExchangeFile -Paths $Paths `
+                -Name 'identity-migration-target.json'
+        }
+        'prepare' {
+            # The durable agent fence was persisted before prepare; now stop
+            # and disable both owning source services before publication.
+            Invoke-Disable -Paths $Paths -Manifest $Manifest
+            Publish-MigrationSourceTransfer -Paths $Paths
+        }
+        'activate' {
+            # Use the existing service/ACL verification and startup contract;
+            # no second systemd, socket, or evidence policy is introduced.
+            if ([bool]$Manifest.enabled) {
+                Start-SupportAgentOnly
+            } else {
+                Invoke-Enable -Paths $Paths -Manifest $Manifest
+            }
+            Wait-AgentAcceptedPoll -Paths $Paths
+            Invoke-Verify -Paths $Paths -Manifest (Get-InstallManifest -Paths $Paths)
+        }
+    }
+    [ordered]@{ schemaVersion = 1; phase = $expected } |
+        ConvertTo-Json -Compress
+}
+
+function Publish-MigrationSourceTransfer {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    foreach ($name in @($windowsAgentService, $windowsBrokerService)) {
+        $service = Get-Service -Name $name
+        try {
+            if ($service.Status -ne
+                [ServiceProcess.ServiceControllerStatus]::Stopped -or
+                $service.StartType -ne
+                [ServiceProcess.ServiceStartMode]::Disabled) {
+                throw 'Both source services must be stopped and disabled before transfer.'
+            }
+        } finally { $service.Dispose() }
+    }
+    $statePath = Join-Path $Paths.AgentStateRoot `
+        'identity-migration-state.json'
+    $state = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
+    if ($state.schemaVersion -ne 1 -or $state.phase -cne 'prepared' -or
+        [string]$state.requestDigest -cnotmatch '^[A-F0-9]{64}$' -or
+        [Guid]::Parse([string]$state.rotationId) -eq [Guid]::Empty) {
+        throw 'The source migration acknowledgement state is invalid.'
+    }
+    $state.phase = 'source-quiesced'
+    [IO.File]::WriteAllText(
+        (Join-Path $MigrationExchangePath `
+            'identity-migration-source-quiesced.json'),
+        ($state | ConvertTo-Json -Compress),
+        [Text.UTF8Encoding]::new($false))
+    Copy-MigrationExchangeFile -Paths $Paths `
+        -Name 'identity-migration-transfer.json'
+}
+
+if ($Action.StartsWith('Migration') -and
+    (-not [IO.Path]::IsPathFullyQualified($MigrationExchangePath) -or
+     (Test-LinkedPathComponent `
+        -Root ([IO.Path]::GetPathRoot($MigrationExchangePath)) `
+        -Path $MigrationExchangePath))) {
+    throw 'Migration requires an approved absolute non-linked exchange directory.'
+}
+
 if (-not ($IsWindows -or $IsLinux)) {
     throw 'The support-plane installer supports Windows and Linux only.'
 }
@@ -6110,6 +6379,10 @@ $mutatingActions = @(
     'Uninstall',
     'Rollback',
     'FinalizeEnrollment',
+    'MigrationOffer',
+    'MigrationStage',
+    'MigrationPrepare',
+    'MigrationActivate',
     'RepairEvidenceAcl'
 )
 if ($Action -in $mutatingActions) {
@@ -6243,6 +6516,17 @@ try {
                 -Operation 'uninstall-support-plane'
             if ($null -eq $manifest) {
                 throw 'Uninstall requires an existing managed support installation.'
+            }
+            { $_ -in @(
+                'MigrationOffer', 'MigrationStage',
+                'MigrationPrepare', 'MigrationActivate'
+            ) } {
+                Set-InstallerFailureContext -Phase 'identity-migration' `
+                    -Operation 'typed-migration-dispatch'
+                if ($null -eq $manifest) {
+                    throw 'Migration requires an existing managed support installation.'
+                }
+                Invoke-IdentityMigration -Paths $paths -Manifest $manifest
             }
             Invoke-Uninstall -Paths $paths
             $removeInstallerStateAfterUnlock = $true

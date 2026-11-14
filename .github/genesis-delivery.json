@@ -51,6 +51,13 @@
   "componentWorkflows": [
     {
       "source": "repository",
+      "path": ".github/workflows/support-identity-regression.yml",
+      "roles": ["draft-optional"],
+      "draftBehavior": "full",
+      "requiredChecks": []
+    },
+    {
+      "source": "repository",
       "path": ".github/workflows/connector-regression.yml",
       "roles": [
         "draft-optional"

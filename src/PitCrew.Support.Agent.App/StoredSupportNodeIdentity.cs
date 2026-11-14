@@ -11,6 +11,7 @@ internal sealed class StoredSupportNodeIdentity(
   public string TenantId => _manifest.TenantId!;
 
   public Guid NodeId => _manifest.NodeId!.Value;
+  internal string DisplayName => _manifest.DisplayName!;
 
   public Uri DashboardUrl => new(_manifest.DashboardUrl!, UriKind.Absolute);
 

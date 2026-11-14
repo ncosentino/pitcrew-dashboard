@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -11,6 +12,205 @@ namespace PitCrew.Support.Agent.App.Tests;
 
 public sealed class SupportNodeIdentityStoreTests
 {
+  [Test]
+  public async Task Migration_Preserves_Cng_Source_And_Replay_And_Requires_Quiescence(
+      CancellationToken cancellationToken)
+  {
+    if (!OperatingSystem.IsWindows())
+    {
+      return;
+    }
+    var root = CreateRoot();
+    var sourceRoot = Path.Combine(root, "source");
+    var targetRoot = Path.Combine(root, "target");
+    Directory.CreateDirectory(sourceRoot);
+    Directory.CreateDirectory(targetRoot);
+    var sourceStore = new SupportNodeIdentityStore(
+        Path.Combine(sourceRoot, "identity-state"),
+        new WindowsCngSupportNodeKeyProvider());
+    var targetStore = CreateLinuxStore(
+        Path.Combine(targetRoot, "identity-state"),
+        new FakeUnixFilePermissions());
+    try
+    {
+      var source = await CreateActiveIdentityAsync(
+          sourceStore, sourceRoot, cancellationToken);
+      var sourceReplay = new AgentReplayCache(source.ReplayRoot);
+      var sessionId = Guid.NewGuid();
+      var rejectedSessionId = Guid.NewGuid();
+      using var signing = source.OpenSigningKey();
+      using var encryption = SupportKeyFactory.ImportRsaPublicKey(
+          source.DashboardResultEncryptionPublicKeySpki);
+      var cached = SupportEnvelopeCryptography.Seal(
+          [1, 2, 3], encryption, signing,
+          source.NodeId.ToString("N"), "dashboard-result-v1");
+      sourceReplay.ClaimNonce("migration-fixture-nonce");
+      sourceReplay.StoreResult(sessionId, cached);
+      sourceReplay.StoreRejection(
+          rejectedSessionId, SupportRequestRejectionDispositions.BrokerTimeout);
+      string? replacementCredential = null;
+      var requests = 0;
+      var client = new SupportDashboardIdentityClient(
+          new TestHttpClientFactory(
+              SupportDashboardIdentityHttpClientOptions.ClientName,
+              _ =>
+              {
+                requests++;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                  Content = JsonContent.Create(new SupportIdentityCompletionResponse(
+                      source.NodeId.ToString("D"),
+                      source.DisplayName,
+                      replacementCredential,
+                      source.RelayUrl.AbsoluteUri,
+                      source.DashboardAuthorizationSigningPublicKeySpki,
+                      source.DashboardResultEncryptionPublicKeySpki)),
+                };
+              }));
+      var sourceOptions = new SupportAgentBootstrapOptions(
+          sourceStore.RootPath, source.ReplayRoot,
+          "support-pipe", "/run/pitcrew-support/broker.sock",
+          null, null, null, null, false);
+      var targetOptions = sourceOptions with
+      {
+        IdentityRoot = targetStore.RootPath,
+        ReplayRoot = Path.Combine(targetRoot, "replay"),
+      };
+      var sourceMigration = new SupportIdentityMigration(
+          sourceStore, client, sourceOptions, sourceRoot);
+      var targetMigration = new SupportIdentityMigration(
+          targetStore, client, targetOptions, targetRoot);
+      var offered = await sourceMigration.ExecuteAsync("offer", cancellationToken);
+      File.Copy(
+          Path.Combine(sourceRoot, SupportIdentityMigration.OfferFileName),
+          Path.Combine(targetRoot, SupportIdentityMigration.OfferFileName));
+      var staged = await targetMigration.ExecuteAsync("stage", cancellationToken);
+      var stagedAgain = await targetMigration.ExecuteAsync("stage", cancellationToken);
+      var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+      var targetState = JsonSerializer.Deserialize<SupportIdentityMigrationState>(
+          await File.ReadAllTextAsync(
+              Path.Combine(targetRoot, SupportIdentityMigration.StateFileName),
+              cancellationToken),
+          jsonOptions)!;
+      var target = await targetStore.LoadMigrationTargetAsync(
+          targetState.RotationId, cancellationToken);
+      replacementCredential = target!.TransportCredential;
+      File.Copy(
+          Path.Combine(targetRoot, SupportIdentityMigration.TargetRequestFileName),
+          Path.Combine(sourceRoot, SupportIdentityMigration.TargetRequestFileName));
+      var requestPath = Path.Combine(
+          sourceRoot, SupportIdentityMigration.TargetRequestFileName);
+      var originalRequest = await File.ReadAllTextAsync(requestPath, cancellationToken);
+      var request = JsonSerializer.Deserialize<SupportIdentityMigrationRequest>(
+          originalRequest, jsonOptions)!;
+      using var alteredEncryption = RSA.Create(3072);
+      await File.WriteAllTextAsync(
+          requestPath,
+          JsonSerializer.Serialize(
+              request with
+              {
+                TargetEncryptionPublicKeySpki =
+                    SupportBase64Url.Encode(alteredEncryption.ExportSubjectPublicKeyInfo()),
+              }, jsonOptions),
+          cancellationToken);
+      var alteredProof = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+      var sourceBeforePrepare = await sourceStore.LoadActiveAsync(cancellationToken);
+      await File.WriteAllTextAsync(requestPath, originalRequest, cancellationToken);
+      var prepared = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+      var preparedAgain = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+      var fencedSource = await sourceStore.LoadActiveAsync(cancellationToken);
+      var retainedSource = await sourceStore.LoadMigrationSourceAsync(cancellationToken);
+      var blockedRotation = await sourceStore.StageRotationAsync(cancellationToken);
+      File.Copy(
+          Path.Combine(sourceRoot, SupportIdentityMigration.TransferFileName),
+          Path.Combine(targetRoot, SupportIdentityMigration.TransferFileName));
+      var withoutAcknowledgement =
+          await targetMigration.ExecuteAsync("activate", cancellationToken);
+      await File.WriteAllTextAsync(
+          Path.Combine(targetRoot, "identity-migration-source-quiesced.json"),
+          JsonSerializer.Serialize(
+              targetState with { Phase = "source-quiesced" }, jsonOptions),
+          cancellationToken);
+      var activated = await targetMigration.ExecuteAsync("activate", cancellationToken);
+      var activatedAgain = await targetMigration.ExecuteAsync("activate", cancellationToken);
+      var native = await targetStore.LoadActiveAsync(cancellationToken);
+      var nativeReplay = new AgentReplayCache(targetOptions.ReplayRoot);
+
+      await Assert.That(offered).IsEqualTo("offer-created");
+      await Assert.That(staged).IsEqualTo("target-staged");
+      await Assert.That(stagedAgain).IsEqualTo("target-staged");
+      await Assert.That(prepared).IsEqualTo("source-prepared");
+      await Assert.That(alteredProof).IsEqualTo("target-proof-invalid");
+      await Assert.That(sourceBeforePrepare!.NodeId).IsEqualTo(source.NodeId);
+      await Assert.That(preparedAgain).IsEqualTo("source-prepared");
+      await Assert.That(fencedSource).IsNull();
+      await Assert.That(retainedSource!.NodeId).IsEqualTo(source.NodeId);
+      await Assert.That(blockedRotation).IsNull();
+      await Assert.That(withoutAcknowledgement).IsEqualTo("source-quiescence-required");
+      await Assert.That(activated).IsEqualTo("target-active");
+      await Assert.That(activatedAgain).IsEqualTo("target-active");
+      await Assert.That(native!.NodeId).IsEqualTo(source.NodeId);
+      await Assert.That(native.TenantId).IsEqualTo(source.TenantId);
+      await Assert.That(nativeReplay.GetResultOrNull(sessionId)).IsEqualTo(cached);
+      await Assert.That(nativeReplay.HasNonce("migration-fixture-nonce"))
+          .IsTrue().Because("source nonce tombstones must survive provider replacement");
+      await Assert.That(nativeReplay.GetRejectionOrNull(rejectedSessionId))
+          .IsEqualTo(SupportRequestRejectionDispositions.BrokerTimeout);
+      await Assert.That(requests).IsEqualTo(2);
+      await Assert.That(sourceStore.IsMigrationFenced)
+          .IsTrue().Because("the retained CNG source must never become a second authority");
+      await Assert.That(targetStore.IsMigrationFenced)
+          .IsFalse().Because("only exact finalized target activation removes its local fence");
+    }
+    finally
+    {
+      await sourceStore.RemoveAsync(
+          SupportIdentityKeyRemovalChoice.DeleteKeys, CancellationToken.None);
+      DeleteRoot(root);
+    }
+  }
+
+  [Test]
+  public async Task Migration_Replay_Rejects_Traversal_And_Conflicting_State()
+  {
+    var root = CreateRoot();
+    try
+    {
+      var provider = new LinuxFileSupportNodeKeyProvider(new FakeUnixFilePermissions());
+      var traversal = SupportIdentityMigrationReplay.Write(
+          root,
+          new Dictionary<string, string>
+          {
+            ["support-results/../identity.json"] = Convert.ToBase64String([1]),
+          },
+          provider);
+      var sessionId = Guid.NewGuid();
+      var path = $"support-rejections/{sessionId:N}.txt";
+      var first = SupportIdentityMigrationReplay.Write(
+          root,
+          new Dictionary<string, string> { [path] = Convert.ToBase64String([1]) },
+          provider);
+      var conflict = SupportIdentityMigrationReplay.Write(
+          root,
+          new Dictionary<string, string> { [path] = Convert.ToBase64String([2]) },
+          provider);
+      var bytes = File.ReadAllBytes(Path.Combine(
+          root, "support-rejections", $"{sessionId:N}.txt"));
+
+      await Assert.That(traversal).IsFalse()
+          .Because("opaque transfer filenames cannot expand the read/write allowlist");
+      await Assert.That(first).IsTrue()
+          .Because("a fresh allowlisted replay entry is accepted");
+      await Assert.That(conflict).IsFalse()
+          .Because("a replay transfer may not replace an existing terminal outcome");
+      await Assert.That(bytes).IsEquivalentTo(new byte[] { 1 });
+    }
+    finally
+    {
+      DeleteRoot(root);
+    }
+  }
+
   [Test]
   public async Task DeleteKeys_Is_Idempotent_When_Identity_Is_Missing(
       CancellationToken cancellationToken)

@@ -19,8 +19,12 @@ var identityDeletionRequestPresent =
 var enrollmentFinalizationRequestPresent =
     SupportEnrollmentFinalizationRequestWorker.IsRequestPresent(
         builder.Environment.ContentRootPath);
-if (identityDeletionRequestPresent &&
-    enrollmentFinalizationRequestPresent)
+var identityMigrationRequestPresent =
+    SupportIdentityMigrationRequestWorker.IsRequestPresent(
+        builder.Environment.ContentRootPath);
+if ((identityDeletionRequestPresent ? 1 : 0) +
+    (enrollmentFinalizationRequestPresent ? 1 : 0) +
+    (identityMigrationRequestPresent ? 1 : 0) > 1)
 {
   throw new InvalidOperationException(
       "Conflicting local support lifecycle requests are present.");
@@ -55,6 +59,11 @@ builder.Services.AddHttpClient(
     .ConfigurePrimaryHttpMessageHandler(CreateHttpHandler);
 builder.Services.AddSingleton<SupportDashboardIdentityClient>();
 builder.Services.AddSingleton<SupportNodeIdentityProvisioner>();
+builder.Services.AddSingleton(services => new SupportIdentityMigration(
+    identityManager.Store,
+    services.GetRequiredService<SupportDashboardIdentityClient>(),
+    bootstrapOptions,
+    builder.Environment.ContentRootPath));
 builder.Services.AddSingleton<SupportRelayTransportClient>();
 builder.Services.AddSingleton<SupportAgentStartupStatusWriter>();
 builder.Services.AddWindowsService(service =>
@@ -64,12 +73,14 @@ builder.Services.AddWindowsService(service =>
 if (!rotateMode && !finalizeEnrollmentMode)
 {
   if (!identityDeletionRequestPresent &&
-      !enrollmentFinalizationRequestPresent)
+      !enrollmentFinalizationRequestPresent &&
+      !identityMigrationRequestPresent)
   {
     builder.Services.AddHostedService<SupportAgentWorker>();
   }
   builder.Services.AddHostedService<SupportEnrollmentFinalizationRequestWorker>();
   builder.Services.AddHostedService<SupportIdentityDeletionRequestWorker>();
+  builder.Services.AddHostedService<SupportIdentityMigrationRequestWorker>();
 }
 using var host = builder.Build();
 if (rotateMode)
