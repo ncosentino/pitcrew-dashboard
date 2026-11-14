@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 namespace PitCrew.Connector.Features.Sync.Tests;
 
@@ -598,7 +599,8 @@ public sealed class ConnectorHealthJournalTests
     var root = CreateTemporaryDirectory();
     try
     {
-      var journal = CreateJournal(root);
+      var timeProvider = new FakeTimeProvider();
+      var journal = CreateJournal(root, timeProvider);
       var release = new CancellationTokenSource();
       var started = new TaskCompletionSource(
           TaskCreationOptions.RunContinuationsAsynchronously);
@@ -628,6 +630,8 @@ public sealed class ConnectorHealthJournalTests
           },
           cancellationToken);
       await started.Task.WaitAsync(cancellationToken);
+      await Assert.That(firstUpdate.IsCompleted).IsFalse();
+      timeProvider.Advance(TimeSpan.FromSeconds(1));
       await firstUpdate;
       var failureUpdate = journal.RecordFailureAsync(
           ConnectorHealthEventKinds.SynchronizationFailed,
@@ -688,14 +692,19 @@ public sealed class ConnectorHealthJournalTests
   }
 
   private static ConnectorHealthJournal CreateJournal(
-      string root)
+      string root) =>
+      CreateJournal(root, new FakeTimeProvider());
+
+  private static ConnectorHealthJournal CreateJournal(
+      string root,
+      TimeProvider timeProvider)
   {
     var options = ConnectorTestData.CreateOptions(
         Path.Combine(root, "state"),
         Path.Combine(root, "identity.json"));
     return new ConnectorHealthJournal(
         Options.Create(options),
-        TimeProvider.System,
+        timeProvider,
         NullLogger<ConnectorHealthJournal>.Instance);
   }
 
