@@ -620,6 +620,19 @@ internal sealed class SupportNodeIdentityStore
         : new SupportIdentityMigrationTarget(path, manifest.Keys, credential);
   }
 
+  internal async Task<bool> IsMigrationFinalizedAsync(
+      CancellationToken cancellationToken)
+  {
+    var manifest = await ReadManifestOrNullAsync(IdentityPath, cancellationToken);
+    return manifest is
+        {
+          Lifecycle: SupportNodeIdentityLifecycle.Active,
+          RotationId: null,
+          RotationAccepted: false,
+        } &&
+        IsManifestValid(IdentityPath, manifest);
+  }
+
   private void EnsureRoot()
   {
     Directory.CreateDirectory(_rootPath);

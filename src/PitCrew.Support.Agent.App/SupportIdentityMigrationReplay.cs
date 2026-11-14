@@ -120,6 +120,11 @@ internal static partial class SupportIdentityMigrationReplay
 
   private static bool HasLinkedComponent(string path)
   {
+    if ((File.Exists(path) || Directory.Exists(path)) &&
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+    {
+      return true;
+    }
     var current = new FileInfo(Path.GetFullPath(path));
     if (current.Exists &&
         (current.Attributes & FileAttributes.ReparsePoint) != 0)

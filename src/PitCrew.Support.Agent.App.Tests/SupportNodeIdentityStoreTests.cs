@@ -61,7 +61,7 @@ public sealed class SupportNodeIdentityStoreTests
                   Content = JsonContent.Create(new SupportIdentityCompletionResponse(
                       source.NodeId.ToString("D"),
                       source.DisplayName,
-                      replacementCredential,
+                      replacementCredential!,
                       source.RelayUrl.AbsoluteUri,
                       source.DashboardAuthorizationSigningPublicKeySpki,
                       source.DashboardResultEncryptionPublicKeySpki)),

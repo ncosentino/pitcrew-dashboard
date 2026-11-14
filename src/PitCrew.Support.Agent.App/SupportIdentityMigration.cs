@@ -344,6 +344,10 @@ internal sealed class SupportIdentityMigration(
     }
     if (state.Phase == "active")
     {
+      if (!await IsCompletedTargetAsync(state, cancellationToken))
+      {
+        return "target-phase-invalid";
+      }
       File.Delete(Path.Combine(_store.RootPath, SupportNodeIdentityStore.MigrationFenceFileName));
       return "target-active";
     }
@@ -414,14 +418,7 @@ internal sealed class SupportIdentityMigration(
     var pending = await _store.GetPendingRotationFinalizationAsync(cancellationToken);
     if (pending is null || pending.RotationId != state.RotationId)
     {
-      var active = await _store.LoadMigrationSourceAsync(cancellationToken);
-      var currentStatus = await _store.GetStatusAsync(cancellationToken);
-      var request = await ReadAsync<SupportIdentityMigrationRequest>(
-          TargetRequestFileName, 32_768, cancellationToken);
-      if (active is not null && request is not null &&
-          state.RequestDigest == Digest(request) &&
-          currentStatus.NodeSigningPublicKeySpki == request.TargetSigningPublicKeySpki &&
-          currentStatus.NodeEncryptionPublicKeySpki == request.TargetEncryptionPublicKeySpki)
+      if (await IsCompletedTargetAsync(state, cancellationToken))
       {
         await WriteAsync(StateFileName, state with { Phase = "active" }, cancellationToken);
         File.Delete(Path.Combine(_store.RootPath, SupportNodeIdentityStore.MigrationFenceFileName));
@@ -455,6 +452,25 @@ internal sealed class SupportIdentityMigration(
       await ReadPathAsync<SupportIdentityMigrationState>(
           Path.Combine(_store.RootPath, SupportNodeIdentityStore.MigrationFenceFileName),
           1024, cancellationToken);
+
+  private async Task<bool> IsCompletedTargetAsync(
+      SupportIdentityMigrationState state,
+      CancellationToken cancellationToken)
+  {
+    if (!await _store.IsMigrationFinalizedAsync(cancellationToken))
+    {
+      return false;
+    }
+    var active = await _store.LoadMigrationSourceAsync(cancellationToken);
+    var currentStatus = await _store.GetStatusAsync(cancellationToken);
+    var request = await ReadAsync<SupportIdentityMigrationRequest>(
+        TargetRequestFileName, 32_768, cancellationToken);
+    return active is not null && request is not null &&
+        request.RotationId == state.RotationId &&
+        state.RequestDigest == Digest(request) &&
+        currentStatus.NodeSigningPublicKeySpki == request.TargetSigningPublicKeySpki &&
+        currentStatus.NodeEncryptionPublicKeySpki == request.TargetEncryptionPublicKeySpki;
+  }
 
   private Task WriteFenceAsync(
       SupportIdentityMigrationState state,
