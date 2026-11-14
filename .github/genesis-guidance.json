@@ -390,6 +390,13 @@
         "owner": "repository"
       },
       {
+        "path": "docs/adr/adr-0017-cross-provider-support-identity-handoff.md",
+        "title": "ADR-0017: Cross-provider support identity handoff",
+        "section": "Architecture decisions",
+        "order": 117,
+        "owner": "repository"
+      },
+      {
         "path": "docs/support-plane.md",
         "title": "Support plane v1",
         "section": "Fleet operations and evidence",

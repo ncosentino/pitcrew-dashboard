@@ -1,0 +1,51 @@
+name: Support identity regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: support-identity-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'ci:support-identity'))
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Validate support lifecycle and guidance contracts
+        shell: pwsh
+        run: |
+          .\tests\Test-Guidance.ps1
+          .\tests\Test-SupportPlaneInstaller.Structural.ps1
+      - name: Build and run support identity regressions
+        shell: pwsh
+        run: |
+          $project = 'src\PitCrew.Support.Agent.App.Tests\PitCrew.Support.Agent.App.Tests.csproj'
+          dotnet build $project --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet exec src\PitCrew.Support.Agent.App.Tests\bin\Release\net10.0\PitCrew.Support.Agent.App.Tests.dll `
+            --report-trx --report-trx-filename support-identity.trx `
+            --results-directory "$env:GITHUB_WORKSPACE/TestResults"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload identity results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: support-identity-results
+          path: TestResults
+          if-no-files-found: error

@@ -426,8 +426,9 @@ installations that overlap its fixed service names or product roots.
 
 The package-owned
 `support-evidence-policy-v0.10.18.json` is the shared runtime, installer, and test
-contract, verified against PitCrew v0.10.18 commit
-`3c6106cb9ab45870897853522e5eb926250a29d6` and collector
+contract. Its filename identifies the unchanged ACL contract introduced in
+v0.10.18; the qualified release pin is PitCrew v0.10.37 commit
+`cb3204e16167100ae6cc9ba3b22f080ab5850325`, with the same collector
 SHA-256
 `898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf`.
 Installer and runtime canonicalize UTF-8 line endings to LF before hashing, so
@@ -658,6 +659,165 @@ Production packages run the agent and broker under separate service identities.
 Windows uses a protected named-pipe ACL plus exact agent SID validation. Linux
 uses an owner-controlled Unix socket plus `SO_PEERCRED`, and the broker service
 has no network namespace.
+
+## Windows-service to Linux identity migration
+
+Use the packaged installer's typed migration actions, not `rotate` under an
+administrator account. A Windows virtual-service account's persisted CNG keys
+are user-scoped and non-exportable. The owning agent service must decrypt the
+target authorization and sign the transfer; neither the installer nor the
+administrator exports a source private key. The Linux provider generates new
+P-256/RSA-3072 keys and a replacement credential locally. Existing Dashboard
+rotation preserves the node, tenant, policies, trust keys, and generation
+history. No enrollment code is used and no competing node is registered.
+
+### Prerequisites and source elevation
+
+Both node packages must contain these migration actions. An older installed
+Windows agent must first be updated through the existing installer to the
+qualified migration release, retaining `NT SERVICE\PitCrewSupportAgent`, its
+identity root, replay root, and original service settings. An administrator
+running the executable directly is **not** the service identity.
+
+Open an already elevated PowerShell session explicitly; the installer never
+opens UAC, a browser, or an interactive logon. Download and verify the pinned
+agent/broker packages using the [release rollout](hosting/support-plane-rollout.md).
+Set `$SupportVersion` to that qualified release, then update the source:
+
+```powershell
+.\Install-PitCrewSupportPlane.ps1 -Action Update -Version $SupportVersion `
+  -AgentArchivePath .\agent.zip -AgentChecksumPath .\agent.sha256 `
+  -BrokerArchivePath .\broker.zip -BrokerChecksumPath .\broker.sha256 `
+  -AllowMachineChanges
+
+.\Install-PitCrewSupportPlane.ps1 -Action MigrationOffer `
+  -MigrationExchangePath 'C:\ProgramData\PitCrew\Support\Migration' `
+  -AllowMachineChanges
+```
+
+The offer contains only source public identity/trust metadata. Treat it as
+private operational metadata and transfer it without printing it. This phase
+temporarily stops the agent, runs one bounded request through its existing SCM
+service identity, and resumes the source agent after success. The broker is
+unchanged. The exchange directory must be dedicated: only the four fixed
+migration files are accepted.
+
+### Native prerequisites and staging
+
+The target requires supported native Linux, systemd, PowerShell, `getfacl` and
+`setfacl`, plus the existing installer prerequisites. Use the ordinary native
+installer to create separate agent/broker users, agent-only protected state,
+the broker's network isolation and trusted Unix socket. Configure only native
+identity/replay roots and local IPC in `native-agent.json`; do not copy the
+Windows settings, include enrollment material, or supply legacy private keys.
+
+```powershell
+sudo pwsh ./Install-PitCrewSupportPlane.ps1 -Action Install `
+  -Version $SupportVersion -PitCrewRoot '<pitcrew-root>' `
+  -Profiles @('<profile-id>') -AgentSettingsPath ./native-agent.json `
+  -AgentArchivePath ./agent.tar.gz -AgentChecksumPath ./agent.sha256 `
+  -BrokerArchivePath ./broker.tar.gz -BrokerChecksumPath ./broker.sha256 `
+  -AllowMachineChanges
+```
+
+Transfer `identity-migration-offer.json` from the source exchange into the
+root-owned target exchange `/var/lib/pitcrew/support-migration`. For WSL, the
+administrator performs the explicit Windows-to-distro copy; the Windows service
+never opens the distro root. Then:
+
+```powershell
+sudo pwsh ./Install-PitCrewSupportPlane.ps1 -Action MigrationStage `
+  -MigrationExchangePath /var/lib/pitcrew/support-migration `
+  -AllowMachineChanges
+```
+
+Staging does not poll or enroll. The target persists replacement keys,
+credential, exact rotation ID, and a target-signed authorization encrypted to
+the source CNG public key. Copy only `identity-migration-target.json` back into
+the source exchange. Do not transfer Linux private keys to Windows.
+
+The native installer's existing evidence ACL contract grants broker-only
+traversal at the profile root and default/read ACLs only in each stable
+`support-evidence` directory and connector-health directory. The four
+allowlisted projections retain those ACLs during atomic publication. Do not
+grant recursive profile-root read, remove agent denial, or relax socket peer
+checks. Owner-only relocated profile directories are expected; the installer
+applies the bounded evidence permissions afterward.
+
+### Prepare, quiesce, transfer, and activate
+
+Drain all queued/dispatched support sessions before prepare. Dashboard refuses
+rotation while any such session exists and blocks new sessions after preparation.
+Prepare is fenced **before** the network side effect; a timeout does not imply
+that Dashboard rejected it.
+
+```powershell
+.\Install-PitCrewSupportPlane.ps1 -Action MigrationPrepare `
+  -MigrationExchangePath 'C:\ProgramData\PitCrew\Support\Migration' `
+  -AllowMachineChanges
+```
+
+The owning source service authenticates the exact replacement public keys and
+credential through existing rotation preparation. While holding the shared
+polling/identity lock, it snapshots the three fixed replay stores (nonce
+tombstones, sealed results, and rejection outcomes). It signs and encrypts the
+bounded snapshot plus preparation completion to the target RSA key. The source
+identity and CNG keys are retained behind a durable polling fence.
+
+After the one-shot exits, the installer stops and disables **both** source
+services, verifies their stopped/disabled state, and only then publishes
+`identity-migration-source-quiesced.json` and
+`identity-migration-transfer.json`. Copy these two opaque files into the target
+exchange after this successful quiescence. This is an explicit administrator
+handoff, not proof obtained remotely from the source host.
+
+```powershell
+sudo pwsh ./Install-PitCrewSupportPlane.ps1 -Action MigrationActivate `
+  -MigrationExchangePath /var/lib/pitcrew/support-migration `
+  -AcknowledgeSourceQuiesced -AllowMachineChanges
+```
+
+The target verifies the original source-public-key pin, signature, exact
+request/rotation binding, credential, and unchanged Dashboard trust. It validates
+every replay filename before writing anything, refuses conflicting existing
+state, commits the same node locally, and resumes exact Dashboard/relay
+finalization. Only finalization removes the target polling fence. The installer
+uses the existing startup, accepted-poll, evidence ACL, network, and socket
+verification helpers before reporting success.
+
+Cached results remain byte-for-byte sealed under the original signing key and
+Dashboard encryption key. They are not re-signed with replacement keys.
+Authenticated polling replays the first cached envelope by immutable session ID
+before attempting retired request-key decryption. Dashboard's terminal session
+and attestation remain immutable; a new session uses the replacement public
+keys. The migration does not decrypt or rewrite old reports.
+
+After cutover, create a fresh tenant-scoped support diagnostic session using the
+existing support API/operations skill. Require the **same** node ID, a completed
+result verified against the new session's fingerprint, broker allowlisted
+evidence, and fresh accepted support polling. Recheck that the Windows services
+remain stopped/disabled. Connector telemetry alone is not support acceptance.
+
+### Durable phases and recovery
+
+| Phase | Authority and permitted recovery |
+| --- | --- |
+| Offer | Source remains authoritative. Retry `MigrationOffer`; no rotation was prepared. |
+| Target `staging` / `staged` | Source is authoritative; target cannot poll or enroll. Retry `MigrationStage` with the same offer. A partially generated unpublished stage can be regenerated under the same rotation ID. Published conflicting material is rejected. |
+| Source `preparing` | Source is fenced; target is inactive. Retry `MigrationPrepare` with the identical request. Never clear the fence after a timeout. If active sessions blocked prepare, let them expire and project their terminal state through Dashboard before retrying. |
+| Source `prepared` | Source keys/replay remain protected and retained, but cannot poll. Repeat source preparation/publication with the identical request. An interrupted stop/disable requires completing source quiescence, not starting the target. |
+| Target `committed` | Source is quiesced; target is still fenced. Retry `MigrationActivate` with the same files and acknowledgement to finalize. Local commit and finalization interruptions recover without a second rotation. |
+| Target `active` | Only target polls. Exact activation retries verify startup. Source CNG material remains for explicit recovery; no automatic source rollback or reenrollment occurs. |
+
+Failures emit only bounded phases/dispositions and exception types through the
+existing startup/installer status files. Do not print identity, exchange,
+credential, or replay contents. Replay transfer is limited to 16,384 files and
+16 MiB of original file bytes; oversized or malformed stores stop migration
+without truncation or cache loss. An ambiguous, mismatched, revoked, or
+conflicting rotation requires operator investigation; it never enables another
+authority. Returning to the source after preparation/finalization requires a
+separate explicitly authorized reverse rotation, not deleting fences or enabling
+the old credential.
 
 ## Packaging
 

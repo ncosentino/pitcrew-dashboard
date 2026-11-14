@@ -183,6 +183,27 @@ internal sealed class WindowsInstalledCanaryNode : IInstalledCanaryNode
     VerifyBootstrapRemoved();
     await VerifyAsync(cancellationToken);
     await UpdateAsync(cancellationToken);
+    var exchangeRoot = Path.Combine(
+        _context.RunRoot, "scenario", "windows-installed", "migration-exchange");
+    exitCode = await RunInstallerAsync(
+        [
+            "-Action",
+            "MigrationOffer",
+            "-MigrationExchangePath",
+            exchangeRoot,
+            "-AllowMachineChanges",
+        ],
+        TimeSpan.FromMinutes(2),
+        cancellationToken);
+    var offer = new FileInfo(Path.Combine(
+        exchangeRoot, "identity-migration-offer.json"));
+    if (exitCode != 0 || !offer.Exists || offer.Length is <= 0 or > 16_384)
+    {
+      throw new CanaryScenarioFailureException(
+          "service-owned-cng-migration-offer-rejected");
+    }
+    await WaitForAcceptedPollAsync(cancellationToken);
+    await VerifyAsync(cancellationToken);
   }
 
   public async Task DeleteKeysAndUninstallAsync(

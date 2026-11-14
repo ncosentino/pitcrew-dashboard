@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.5.2">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Aspire's transitive graph still requests MessagePack 2.5.302. -->
+    <!-- Keep the transitive MessagePack dependency pinned centrally. -->
     <PackageReference Include="MessagePack" />
   </ItemGroup>
 

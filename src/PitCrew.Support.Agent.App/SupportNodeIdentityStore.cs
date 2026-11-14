@@ -18,6 +18,15 @@ internal sealed class SupportNodeIdentityStore
       new(JsonSerializerDefaults.Web);
   private readonly string _rootPath;
   private readonly ISupportNodeKeyProvider _keyProvider;
+  internal const string MigrationFenceFileName = "identity-migration-fence.json";
+  internal ISupportNodeKeyProvider KeyProvider => _keyProvider;
+  internal string RootPath => _rootPath;
+  internal bool IsMigrationFenced =>
+      File.Exists(Path.Combine(_rootPath, MigrationFenceFileName)) ||
+      Directory.Exists(Path.Combine(_rootPath, MigrationFenceFileName));
+  internal bool HasRotationStages =>
+      Directory.Exists(_rootPath) &&
+      Directory.EnumerateDirectories(_rootPath, $"{RotationPrefix}*").Any();
 
   public SupportNodeIdentityStore(
       string rootPath,
@@ -203,6 +212,14 @@ internal sealed class SupportNodeIdentityStore
   public async Task<StoredSupportNodeIdentity?> LoadActiveAsync(
       CancellationToken cancellationToken)
   {
+    return IsMigrationFenced
+        ? null
+        : await LoadMigrationSourceAsync(cancellationToken);
+  }
+
+  internal async Task<StoredSupportNodeIdentity?> LoadMigrationSourceAsync(
+      CancellationToken cancellationToken)
+  {
     if (!await RecoverAsync(cancellationToken))
     {
       return null;
@@ -287,6 +304,7 @@ internal sealed class SupportNodeIdentityStore
         if (Directory.Exists(_rootPath))
         {
           await DeleteRotationStagesAsync(cancellationToken);
+          File.Delete(Path.Combine(_rootPath, MigrationFenceFileName));
         }
         return true;
       }
@@ -304,6 +322,7 @@ internal sealed class SupportNodeIdentityStore
           IdentityPath,
           manifest.Keys.KeySetId);
       DeleteDirectoryIfExists(IdentityPath);
+      File.Delete(Path.Combine(_rootPath, MigrationFenceFileName));
       return true;
     }
     var preserved = manifest with
@@ -363,6 +382,10 @@ internal sealed class SupportNodeIdentityStore
   public async Task<SupportIdentityRotationPlan?> StageRotationAsync(
       CancellationToken cancellationToken)
   {
+    if (IsMigrationFenced)
+    {
+      return null;
+    }
     if (!await RecoverAsync(cancellationToken))
     {
       return null;
@@ -530,6 +553,88 @@ internal sealed class SupportNodeIdentityStore
   }
 
   private string IdentityPath => Path.Combine(_rootPath, IdentityDirectoryName);
+
+  internal async Task<bool> StageMigrationTargetAsync(
+      SupportIdentityMigrationOffer offer,
+      Guid rotationId,
+      SupportAgentBootstrapOptions options,
+      CancellationToken cancellationToken)
+  {
+    var stagePath = RotationPath(rotationId);
+    if (!await RecoverAsync(cancellationToken) ||
+        Directory.Exists(IdentityPath) ||
+        Directory.EnumerateDirectories(_rootPath, $"{RotationPrefix}*")
+            .Any(path => !string.Equals(path, stagePath, StringComparison.Ordinal)))
+    {
+      return false;
+    }
+    if (Directory.Exists(stagePath))
+    {
+      var partial = await ReadManifestOrNullAsync(stagePath, cancellationToken);
+      if (partial?.RotationAccepted == true)
+      {
+        return false;
+      }
+      _keyProvider.DeleteKeySet(stagePath, rotationId.ToString("N"));
+      Directory.Delete(stagePath, recursive: true);
+    }
+    Directory.CreateDirectory(stagePath);
+    _keyProvider.SecureDirectory(stagePath);
+    var keys = _keyProvider.Generate(stagePath, rotationId.ToString("N"));
+    _keyProvider.WriteCredential(stagePath, keys, CreateTransportCredential());
+    await WriteManifestAsync(
+        stagePath,
+        new StoredSupportNodeIdentityManifest(
+            SchemaVersion,
+            SupportNodeIdentityLifecycle.RotationStaged,
+            keys,
+            offer.TenantId,
+            offer.NodeId,
+            offer.DisplayName,
+            offer.DashboardUrl,
+            offer.RelayUrl,
+            offer.DashboardAuthorizationSigningPublicKeySpki,
+            offer.DashboardResultEncryptionPublicKeySpki,
+            options.ReplayRoot,
+            options.PipeName,
+            rotationId,
+            false,
+            null),
+        cancellationToken);
+    return true;
+  }
+
+  internal async Task<SupportIdentityMigrationTarget?> LoadMigrationTargetAsync(
+      Guid rotationId,
+      CancellationToken cancellationToken)
+  {
+    var path = RotationPath(rotationId);
+    var manifest = await ReadManifestOrNullAsync(path, cancellationToken);
+    if (manifest is null ||
+        manifest.Lifecycle != SupportNodeIdentityLifecycle.RotationStaged ||
+        manifest.RotationId != rotationId ||
+        !IsManifestValid(path, manifest))
+    {
+      return null;
+    }
+    var credential = _keyProvider.ReadCredential(path, manifest.Keys);
+    return string.IsNullOrWhiteSpace(credential)
+        ? null
+        : new SupportIdentityMigrationTarget(path, manifest.Keys, credential);
+  }
+
+  internal async Task<bool> IsMigrationFinalizedAsync(
+      CancellationToken cancellationToken)
+  {
+    var manifest = await ReadManifestOrNullAsync(IdentityPath, cancellationToken);
+    return manifest is
+        {
+          Lifecycle: SupportNodeIdentityLifecycle.Active,
+          RotationId: null,
+          RotationAccepted: false,
+        } &&
+        IsManifestValid(IdentityPath, manifest);
+  }
 
   private void EnsureRoot()
   {

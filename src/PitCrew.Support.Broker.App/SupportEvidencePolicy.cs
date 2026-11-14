@@ -37,11 +37,11 @@ internal static class SupportEvidencePolicy
     if (policy.SchemaVersion != 3 ||
         !string.Equals(
             policy.PitCrewVersion,
-            "0.10.18",
+            "0.10.37",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.PitCrewCommit,
-            "3c6106cb9ab45870897853522e5eb926250a29d6",
+            "cb3204e16167100ae6cc9ba3b22f080ab5850325",
             StringComparison.Ordinal) ||
         !string.Equals(
             policy.CollectorRelativePath,
