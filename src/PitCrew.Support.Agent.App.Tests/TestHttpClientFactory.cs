@@ -2,9 +2,16 @@ namespace PitCrew.Support.Agent.App.Tests;
 
 internal sealed class TestHttpClientFactory(
     string _expectedName,
-    Func<HttpRequestMessage, HttpResponseMessage> _respond) :
+    Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _respond) :
     IHttpClientFactory
 {
+  public TestHttpClientFactory(
+      string expectedName,
+      Func<HttpRequestMessage, HttpResponseMessage> respond)
+      : this(expectedName, (request, _) => Task.FromResult(respond(request)))
+  {
+  }
+
   public HttpClient CreateClient(string name)
   {
     if (!string.Equals(
@@ -19,7 +26,7 @@ internal sealed class TestHttpClientFactory(
   }
 
   private sealed class Handler(
-      Func<HttpRequestMessage, HttpResponseMessage> _respond) :
+      Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _respond) :
       HttpMessageHandler
   {
     protected override Task<HttpResponseMessage> SendAsync(
@@ -27,7 +34,7 @@ internal sealed class TestHttpClientFactory(
         CancellationToken cancellationToken)
     {
       cancellationToken.ThrowIfCancellationRequested();
-      return Task.FromResult(_respond(request));
+      return _respond(request, cancellationToken);
     }
   }
 }

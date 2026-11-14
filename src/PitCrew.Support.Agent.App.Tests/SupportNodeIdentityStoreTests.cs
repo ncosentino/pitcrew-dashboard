@@ -56,12 +56,19 @@ public sealed class SupportNodeIdentityStoreTests
       var finalizationRelayUrl = relayUrl;
       var responseStatus = HttpStatusCode.OK;
       var requests = 0;
+      var preparationRequests = new List<string>();
       var client = new SupportDashboardIdentityClient(
           new TestHttpClientFactory(
               SupportDashboardIdentityHttpClientOptions.ClientName,
-              httpRequest =>
+              async (httpRequest, token) =>
               {
                 requests++;
+                if (!httpRequest.RequestUri!.AbsolutePath.EndsWith(
+                    "/finalize", StringComparison.Ordinal))
+                {
+                  preparationRequests.Add(
+                      await httpRequest.Content!.ReadAsStringAsync(token));
+                }
                 return new HttpResponseMessage(responseStatus)
                 {
                   Content = JsonContent.Create(new SupportIdentityCompletionResponse(
@@ -252,6 +259,11 @@ public sealed class SupportNodeIdentityStoreTests
       await Assert.That(nativeReplay.GetRejectionOrNull(rejectedSessionId))
           .IsEqualTo(SupportRequestRejectionDispositions.BrokerTimeout);
       await Assert.That(requests).IsEqualTo(12);
+      await Assert.That(preparationRequests.Count).IsEqualTo(10);
+      foreach (var preparationRequest in preparationRequests)
+      {
+        await Assert.That(preparationRequest).IsEqualTo(preparationRequests[0]);
+      }
       await Assert.That(sourceStore.IsMigrationFenced)
           .IsTrue().Because("the retained CNG source must never become a second authority");
       await Assert.That(targetStore.IsMigrationFenced)
