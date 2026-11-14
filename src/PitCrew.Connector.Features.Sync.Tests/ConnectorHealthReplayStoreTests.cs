@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 namespace PitCrew.Connector.Features.Sync.Tests;
 
@@ -306,7 +307,7 @@ public sealed class ConnectorHealthReplayStoreTests
         Path.Combine(root, "identity.json"));
     return new ConnectorHealthJournal(
         Options.Create(options),
-        TimeProvider.System,
+        new FakeTimeProvider(),
         NullLogger<ConnectorHealthJournal>.Instance);
   }
 
@@ -318,7 +319,8 @@ public sealed class ConnectorHealthReplayStoreTests
         Path.Combine(root, "identity.json"));
     return new ConnectorHealthReplayStore(
         Options.Create(options),
-        TimeProvider.System,
+        new FakeTimeProvider(
+            new DateTimeOffset(2026, 11, 14, 12, 0, 0, TimeSpan.Zero)),
         NullLogger<ConnectorHealthReplayStore>.Instance);
   }
 
