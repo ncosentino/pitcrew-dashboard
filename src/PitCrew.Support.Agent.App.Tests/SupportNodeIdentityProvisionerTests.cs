@@ -196,7 +196,8 @@ public sealed class SupportNodeIdentityProvisionerTests
         new SupportDashboardIdentityClient(
             new TestHttpClientFactory(
                 SupportDashboardIdentityHttpClientOptions.ClientName,
-                respond)),
+                respond),
+            TimeProvider.System),
         bootstrap,
         new ConfigurationBuilder().Build());
   }

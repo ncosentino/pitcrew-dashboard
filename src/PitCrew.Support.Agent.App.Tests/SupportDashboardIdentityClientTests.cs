@@ -87,7 +87,8 @@ public sealed class SupportDashboardIdentityClientTests
             _ => new HttpResponseMessage((HttpStatusCode)statusCode)
             {
               Content = new StringContent("{invalid-json"),
-            }));
+            }),
+        TimeProvider.System);
     var plan = new SupportIdentityRotationPlan(
         Guid.NewGuid(), Guid.NewGuid(), "tenant-a",
         "https://dashboard.example.com/",
@@ -106,6 +107,84 @@ public sealed class SupportDashboardIdentityClientTests
     await Assert.That(prepared.FailureDisposition).IsEqualTo(expectedDisposition);
     await Assert.That(finalized.Completion).IsNull();
     await Assert.That(finalized.FailureDisposition).IsEqualTo(expectedDisposition);
+  }
+
+  [Test]
+  [Arguments(409, """{"error":{"code":"support_identity_revoked","message":"private-response-canary"}}""",
+      "http-rejected-409-identity-revoked")]
+  [Arguments(409, """{"error":{"code":"support_identity_conflict","message":"private-response-canary"}}""",
+      "http-rejected-409-identity-conflict")]
+  [Arguments(400, """{"error":{"code":"invalid_support_identity_request"}}""",
+      "http-rejected-400-identity-request-invalid")]
+  [Arguments(409, """{"error":{"code":"private-response-canary"}}""", "http-rejected-409")]
+  [Arguments(503, """{"error":{"code":"support_identity_conflict"}}""", "http-rejected-503")]
+  [Arguments(409, """{"error":{"code":"support_identity_conflict","code":"support_identity_revoked"}}""",
+      "http-rejected-409")]
+  [Arguments(409, """{"error":{"code":"support_identity_conflict"},"error":{"code":"support_identity_revoked"}}""",
+      "http-rejected-409")]
+  public async Task Rotation_Classifies_Only_Closed_Status_Matched_Error_Codes(
+      int statusCode,
+      string body,
+      string expectedDisposition,
+      CancellationToken cancellationToken)
+  {
+    var client = new SupportDashboardIdentityClient(
+        new TestHttpClientFactory(
+            SupportDashboardIdentityHttpClientOptions.ClientName,
+            _ => new HttpResponseMessage((HttpStatusCode)statusCode)
+            {
+              Content = new StringContent(body),
+            }),
+        TimeProvider.System);
+    var plan = new SupportIdentityRotationPlan(
+        Guid.NewGuid(), Guid.NewGuid(), "tenant-a", "https://dashboard.example.com/",
+        "current-credential-abcdefghijklmnopqrstuvwxyz",
+        "replacement-credential-abcdefghijklmnopqrstuvwxyz", "signing-key", "encryption-key");
+
+    var prepared = await client.PrepareRotationWithOutcomeAsync(plan, cancellationToken);
+    var finalized = await client.FinalizeRotationWithOutcomeAsync(
+        new PendingSupportIdentityRotation(
+            plan.RotationId, plan.NodeId, plan.TenantId, plan.DashboardUrl,
+            plan.CurrentTransportCredential),
+        cancellationToken);
+
+    await Assert.That(prepared.Completion).IsNull();
+    await Assert.That(prepared.FailureDisposition).IsEqualTo(expectedDisposition);
+    await Assert.That(finalized.Completion).IsNull();
+    await Assert.That(finalized.FailureDisposition).IsEqualTo(expectedDisposition);
+  }
+
+  [Test]
+  public async Task Rotation_Bounds_Forward_Only_Error_Body_Without_Buffering_The_Response(
+      CancellationToken cancellationToken)
+  {
+    var streams = new List<ForwardOnlyErrorResponseStream>();
+    var client = new SupportDashboardIdentityClient(
+        new TestHttpClientFactory(
+            SupportDashboardIdentityHttpClientOptions.ClientName,
+            _ =>
+            {
+              var stream = new ForwardOnlyErrorResponseStream(
+                  System.Text.Encoding.UTF8.GetBytes(
+                      """{"error":{"code":"support_identity_conflict"}}""" + new string(' ', 4096)));
+              streams.Add(stream);
+              return new HttpResponseMessage(HttpStatusCode.Conflict)
+              {
+                Content = new StreamContent(stream),
+              };
+            }),
+        TimeProvider.System);
+    var plan = new SupportIdentityRotationPlan(
+        Guid.NewGuid(), Guid.NewGuid(), "tenant-a", "https://dashboard.example.com/",
+        "current-credential-abcdefghijklmnopqrstuvwxyz",
+        "replacement-credential-abcdefghijklmnopqrstuvwxyz", "signing-key", "encryption-key");
+
+    var prepared = await client.PrepareRotationWithOutcomeAsync(plan, cancellationToken);
+
+    await Assert.That(prepared.Completion).IsNull();
+    await Assert.That(prepared.FailureDisposition).IsEqualTo("http-rejected-409");
+    await Assert.That(streams).Count().IsEqualTo(1);
+    await Assert.That(streams[0].BytesRead).IsEqualTo(1025);
   }
 
   [Test]
@@ -142,7 +221,8 @@ public sealed class SupportDashboardIdentityClientTests
               _ => new HttpResponseMessage(HttpStatusCode.OK)
               {
                 Content = JsonContent.Create(response),
-              }));
+              }),
+          TimeProvider.System);
 
   private static SupportNodeKeyDescriptor CreateNodeKeys() =>
       new(

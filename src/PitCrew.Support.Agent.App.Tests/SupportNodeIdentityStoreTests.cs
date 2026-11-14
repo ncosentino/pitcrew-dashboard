@@ -82,7 +82,8 @@ public sealed class SupportNodeIdentityStoreTests
                       source.DashboardAuthorizationSigningPublicKeySpki,
                       source.DashboardResultEncryptionPublicKeySpki)),
                 };
-              }));
+              }),
+          TimeProvider.System);
       var sourceOptions = new SupportAgentBootstrapOptions(
           sourceStore.RootPath, source.ReplayRoot,
           "support-pipe", "/run/pitcrew-support/broker.sock",
