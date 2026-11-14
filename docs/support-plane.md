@@ -490,6 +490,26 @@ against inherited named/default ACLs, ownership exclusion, and safe-mode policy.
 Group mode is represented by the POSIX ACL mask and is compared through the exact
 ACL contract instead of the metadata hash.
 
+Linux ACL lifecycle scans do not follow linked entries. Concurrent manager
+publication outside the dedicated evidence directory is also accounted for:
+only the fixed state publisher's dot-prefixed final-name, decimal nonce, and
+`.tmp` staging leaf directly inside a profile state directory may disappear
+between enumeration, ACL inspection/mutation, and ownership/mode inspection.
+Dedicated projection staging uses the same fixed-name decimal nonce; connector
+health staging uses its fixed final name and 32-character lowercase hexadecimal
+nonce. A failure is tolerated only after confirming that qualified leaf is
+absent and its unlinked parent still exists. Existing staging files outside
+dedicated evidence retain ordinary deny-ACL validation.
+
+Missing stable or required evidence, unknown staging names, linked entries,
+unexpected persistent files/directories, and ACL/tool failures on existing
+objects remain terminal. Directory denial defaults are established before leaf
+ACL mutations so new publications inherit protection. Deterministic injected
+removal tests cover both metadata boundaries and ACL mutation without sleeps,
+timeout increases, or retrying the same failed verification. This does not grant
+broker read outside dedicated evidence or change migration fences and staged
+requests.
+
 ## Install and lifecycle
 
 Prepare an agent `appsettings.json` through the support identity workflow, then

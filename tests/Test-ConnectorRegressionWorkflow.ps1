@@ -31,7 +31,8 @@ foreach ($required in @(
     'command -v setfacl',
     'command -v getfacl',
     'PitCrew.Connector.Features.Sync.Tests PitCrew.Dashboard.Features.Fleet.Tests',
-    './tests/Test-Guidance.ps1'
+    './tests/Test-Guidance.ps1',
+    './tests/Test-SupportPlaneInstaller.LinuxAclRace.ps1'
 )) {
     if (-not $workflow.Contains($required, [StringComparison]::Ordinal)) {
         throw "Connector regression workflow is missing required contract: $required"

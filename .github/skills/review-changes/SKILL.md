@@ -78,6 +78,10 @@ workflows, and delivery metadata before choosing commands.
 - A focused pass does not supersede a disclosed full-suite failure. For timing-related
   failures, require a root-cause fix plus repeated evidence under the declared parallel
   command; do not accept a timeout increase or green rerun as the fix.
+- For evidence ACL enumeration races, require deterministic removal at inspection,
+  mutation, and metadata boundaries. Tolerance must prove a fixed-publisher staging
+  leaf is absent with its unlinked parent intact; stable missing paths, existing-file
+  ACL failures, links, and unknown names must still fail.
 - Run `tests/Test-Guidance.ps1` for guidance, docs-map, ADR, Impeccable, or mirror
   changes.
 - Do not invent a command or tool absent from repository code, docs, manifests, or

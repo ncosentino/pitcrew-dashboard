@@ -82,6 +82,8 @@ Add-Check (
     $parseErrors.Count -eq 0
 ) 'The support-plane installer has PowerShell syntax errors.'
 
+& (Join-Path $PSScriptRoot 'Test-SupportPlaneInstaller.LinuxAclRace.ps1')
+
 $functions = @(
     $ast.FindAll(
         {
@@ -334,6 +336,9 @@ foreach ($requiredFunction in @(
     'Assert-WindowsEvidenceAclsExact',
     'Get-WindowsEvidenceTreeItems',
     'Assert-LinuxEvidenceAclsExact',
+    'Get-LinuxEvidenceTreeItems',
+    'Set-LinuxEvidenceAcl',
+    'Test-LinuxAtomicStagingFileMissing',
     'Assert-LinuxEvidenceMetadataExact',
     'Assert-LinuxProductGroupsRemovable',
     'Revoke-WindowsEvidenceAccess',

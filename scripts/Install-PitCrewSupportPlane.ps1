@@ -2517,29 +2517,22 @@ function Deny-LinuxTreeAccess {
     param(
         [Parameter(Mandatory)][string]$Root,
         [Parameter(Mandatory)][uint]$AgentUid,
-        [Parameter(Mandatory)][uint]$BrokerUid
+        [Parameter(Mandatory)][uint]$BrokerUid,
+        [Parameter(Mandatory)][hashtable]$TransientContext
     )
 
-    Invoke-Checked setfacl @(
-        '-R',
-        '-m',
-        "u:$AgentUid`:---,u:$BrokerUid`:---",
-        $Root
-    )
-    $directories = @(
-        Get-Item -LiteralPath $Root -Force
-        Get-ChildItem `
-            -LiteralPath $Root `
-            -Directory `
-            -Recurse `
-            -Force
-    )
-    foreach ($directory in $directories) {
-        Invoke-Checked setfacl @(
-            '-m',
-            "d:u:$AgentUid`:---,d:u:$BrokerUid`:---",
-            $directory.FullName
-        )
+    $items = @(Get-LinuxEvidenceTreeItems -ScanRoot $Root)
+    # Set defaults before leaves so concurrent publication inherits denial.
+    foreach ($item in @($items | Where-Object PSIsContainer)) {
+        Set-LinuxEvidenceAcl -Item $item -Operation '-m' -Entries (
+            "u:$AgentUid`:---,u:$BrokerUid`:---," +
+            "d:u:$AgentUid`:---,d:u:$BrokerUid`:---"
+        ) -TransientContext $TransientContext
+    }
+    foreach ($item in @($items | Where-Object { -not $_.PSIsContainer })) {
+        Set-LinuxEvidenceAcl -Item $item -Operation '-m' -Entries (
+            "u:$AgentUid`:---,u:$BrokerUid`:---"
+        ) -TransientContext $TransientContext
     }
 }
 
@@ -2553,6 +2546,11 @@ function Grant-LinuxBrokerEvidence {
     )
 
     $policy = Get-EvidencePolicy
+    $transientContext = @{
+        PitCrewRoot = $ResolvedPitCrewRoot
+        ConnectorHealthRoot = $Paths.ConnectorHealthRoot
+        Policy = $policy
+    }
     Grant-LinuxTraverse `
         -Path $ResolvedPitCrewRoot `
         -User ([string]$BrokerUid) `
@@ -2560,7 +2558,8 @@ function Grant-LinuxBrokerEvidence {
     Deny-LinuxTreeAccess `
         -Root $ResolvedPitCrewRoot `
         -AgentUid $AgentUid `
-        -BrokerUid $BrokerUid
+        -BrokerUid $BrokerUid `
+        -TransientContext $transientContext
     Invoke-Checked setfacl @(
         '-m',
         "u:$BrokerUid`:--x",
@@ -2609,11 +2608,9 @@ function Grant-LinuxBrokerEvidence {
                     [IO.FileAttributes]::ReparsePoint) -ne 0) {
                 throw 'Linked support evidence is prohibited.'
             }
-            Invoke-Checked setfacl @(
-                '-m',
-                "u:$BrokerUid`:r--",
-                $item.FullName
-            )
+            Set-LinuxEvidenceAcl -Item $item -Operation '-m' `
+                -Entries "u:$BrokerUid`:r--" `
+                -TransientContext $transientContext
         }
     }
     $collector = Join-Path (
@@ -2639,7 +2636,8 @@ function Grant-LinuxBrokerEvidence {
         Deny-LinuxTreeAccess `
             -Root $connectorRoot `
             -AgentUid $AgentUid `
-            -BrokerUid $BrokerUid
+            -BrokerUid $BrokerUid `
+            -TransientContext $transientContext
         Invoke-Checked setfacl @(
             '-m',
             "u:$BrokerUid`:--x",
@@ -2667,11 +2665,9 @@ function Grant-LinuxBrokerEvidence {
                     [IO.FileAttributes]::ReparsePoint) -ne 0) {
                 throw 'Linked connector-health evidence is prohibited.'
             }
-            Invoke-Checked setfacl @(
-                '-m',
-                "u:$BrokerUid`:r--",
-                $item.FullName
-            )
+            Set-LinuxEvidenceAcl -Item $item -Operation '-m' `
+                -Entries "u:$BrokerUid`:r--" `
+                -TransientContext $transientContext
         }
     }
 }
@@ -4245,39 +4241,29 @@ function Revoke-LinuxEvidenceAccess {
         $brokerUid -notmatch '^[0-9]+$') {
         throw 'Installed Linux support identity metadata is invalid.'
     }
+    $transientContext = @{
+        PitCrewRoot = [string]$Settings.PitCrewRoot
+        ConnectorHealthRoot = $Paths.ConnectorHealthRoot
+        Policy = Get-EvidencePolicy
+    }
     foreach ($root in $roots) {
-        Invoke-Checked setfacl @(
-            '-R',
-            '-x',
-            "u:$agentUid,u:$brokerUid",
-            $root
-        )
-        $directories = @(
-            Get-Item -LiteralPath $root -Force
-            Get-ChildItem `
-                -LiteralPath $root `
-                -Directory `
-                -Recurse `
-                -Force `
-                -ErrorAction Stop
-        )
-        foreach ($directory in $directories) {
-            Invoke-Checked setfacl @(
-                '-x',
-                "d:u:$agentUid,d:u:$brokerUid",
-                $directory.FullName
-            )
+        $items = @(Get-LinuxEvidenceTreeItems -ScanRoot $root)
+        foreach ($item in @($items | Where-Object PSIsContainer)) {
+            Set-LinuxEvidenceAcl -Item $item -Operation '-x' -Entries (
+                "u:$agentUid,u:$brokerUid,d:u:$agentUid,d:u:$brokerUid"
+            ) -TransientContext $transientContext
         }
-        $items = @(
-            Get-Item -LiteralPath $root -Force
-            Get-ChildItem `
-                -LiteralPath $root `
-                -Recurse `
-                -Force `
-                -ErrorAction Stop
-        )
+        foreach ($item in @($items | Where-Object { -not $_.PSIsContainer })) {
+            Set-LinuxEvidenceAcl -Item $item -Operation '-x' `
+                -Entries "u:$agentUid,u:$brokerUid" `
+                -TransientContext $transientContext
+        }
         foreach ($item in $items) {
-            $entries = Get-LinuxAclEntries -Path $item.FullName
+            $entries = Get-LinuxAclEntries -Path $item.FullName -Item $item `
+                -TransientContext $transientContext
+            if ($null -eq $entries) {
+                continue
+            }
             if ($entries.ContainsKey(
                     "user:$([string]$Settings.ExpectedAgentUid)") -or
                 $entries.ContainsKey(
@@ -5166,8 +5152,152 @@ function Assert-WindowsEvidenceAclsExact {
     }
 }
 
+function Get-LinuxEvidenceTreeItems {
+    param([Parameter(Mandatory)][string]$ScanRoot)
+
+    $pending = [Collections.Generic.Queue[object]]::new()
+    $pending.Enqueue((Get-Item -LiteralPath $ScanRoot -Force -ErrorAction Stop))
+    while ($pending.Count -gt 0) {
+        $item = $pending.Dequeue()
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked Linux evidence entries are prohibited.'
+        }
+        $item
+        if ($item.PSIsContainer) {
+            foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName `
+                    -Force -ErrorAction Stop)) {
+                $pending.Enqueue($child)
+            }
+        }
+    }
+}
+
+function Test-LinuxAtomicStagingFile {
+    param(
+        [Parameter(Mandatory)][object]$Item,
+        [Parameter(Mandatory)][hashtable]$TransientContext
+    )
+
+    if ($Item.PSIsContainer -or
+        ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $Item.Name -cnotmatch
+            '^\.(?<destination>[a-z][a-z0-9.-]*)\.(?<token>[0-9]{1,10}|[0-9a-f]{32})\.tmp$') {
+        return $false
+    }
+    $destination = $Matches.destination
+    $token = $Matches.token
+    $parent = Split-Path ([IO.Path]::GetFullPath($Item.FullName)) -Parent
+    $stateRoot = Join-Path $TransientContext.PitCrewRoot '.pitcrew-state'
+    $relative = [IO.Path]::GetRelativePath($stateRoot, $parent)
+    $segments = $relative.Split([IO.Path]::DirectorySeparatorChar)
+    $isProfile = $segments[0] -cmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$'
+    if ($isProfile -and $segments.Count -eq 1 -and $token -cmatch '^[0-9]{1,10}$') {
+        # Fixed Go state publisher names, not arbitrary dot-prefixed files.
+        return $destination -cin @(
+            'desired-capacity.json', 'last-valid-capacity.json',
+            'acknowledged-capacity.json', 'observed-state.json',
+            'static-profile.json', 'host-hardware.json', 'retiring-targets.json',
+            'host-admission-recovery.json', 'registration-access-retry.json',
+            'github-control-plane-retry.json', 'manager-shutdown.json'
+        )
+    }
+    if ($isProfile -and $segments.Count -eq 2 -and
+        $segments[1] -ceq [string]$TransientContext.Policy.profileEvidenceDirectory -and
+        $token -cmatch '^[0-9]{1,10}$') {
+        return $destination -cin @($TransientContext.Policy.profileProjectionFiles)
+    }
+    if ($parent -ceq [IO.Path]::GetFullPath($TransientContext.ConnectorHealthRoot) -and
+        $token -cmatch '^[0-9a-f]{32}$') {
+        return $destination -cin @($TransientContext.Policy.connectorHealthFiles)
+    }
+    return $false
+}
+
+function Test-LinuxAtomicStagingFileMissing {
+    param(
+        [AllowNull()][object]$Item,
+        [AllowNull()][hashtable]$TransientContext
+    )
+
+    if ($null -eq $Item -or $null -eq $TransientContext -or
+        -not (Test-LinuxAtomicStagingFile -Item $Item -TransientContext $TransientContext)) {
+        return $false
+    }
+    try {
+        [IO.File]::GetAttributes($Item.FullName) | Out-Null
+        return $false
+    } catch [IO.FileNotFoundException] {
+        $parent = Get-Item -LiteralPath (Split-Path $Item.FullName -Parent) `
+            -Force -ErrorAction Stop
+        if (-not $parent.PSIsContainer -or
+            (Test-LinkedPathComponent -Root ([IO.Path]::GetPathRoot($parent.FullName)) `
+                -Path $parent.FullName)) {
+            throw 'An atomic evidence staging parent is not an unlinked directory.'
+        }
+        # Only the qualified disposable leaf vanished; its stable parent remains.
+        return $true
+    }
+}
+
+function Test-LinuxEvidenceItemPresent {
+    param(
+        [Parameter(Mandatory)][object]$Item,
+        [AllowNull()][hashtable]$TransientContext
+    )
+
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Linked Linux evidence entries are prohibited.'
+    }
+    try {
+        $attributes = [IO.File]::GetAttributes($Item.FullName)
+    } catch [IO.FileNotFoundException] {
+        if (Test-LinuxAtomicStagingFileMissing -Item $Item -TransientContext $TransientContext) {
+            return $false
+        }
+        throw
+    }
+    if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        (($attributes -band [IO.FileAttributes]::Directory) -ne 0) -ne
+            [bool]$Item.PSIsContainer) {
+        throw 'A Linux evidence entry changed file type or became linked.'
+    }
+    return $true
+}
+
+function Set-LinuxEvidenceAcl {
+    param(
+        [Parameter(Mandatory)][object]$Item,
+        [Parameter(Mandatory)][ValidateSet('-m', '-x')][string]$Operation,
+        [Parameter(Mandatory)][string]$Entries,
+        [Parameter(Mandatory)][hashtable]$TransientContext
+    )
+
+    if (-not (Test-LinuxEvidenceItemPresent -Item $Item -TransientContext $TransientContext)) {
+        return
+    }
+    try {
+        Invoke-Checked setfacl @($Operation, $Entries, '--', $Item.FullName)
+    } catch [InvalidOperationException] {
+        if ($_.Exception.Data.Contains('NativeExitCode') -and
+            (Test-LinuxAtomicStagingFileMissing -Item $Item -TransientContext $TransientContext)) {
+            # Same-directory rename/removal raced this exact leaf, not ACL drift.
+            return
+        }
+        throw
+    }
+}
+
 function Get-LinuxAclEntries {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [AllowNull()][object]$Item = $null,
+        [AllowNull()][hashtable]$TransientContext = $null
+    )
+
+    if ($null -ne $Item -and
+        -not (Test-LinuxEvidenceItemPresent -Item $Item -TransientContext $TransientContext)) {
+        return $null
+    }
 
     $output = & getfacl `
         '--absolute-names' `
@@ -5176,7 +5306,14 @@ function Get-LinuxAclEntries {
         '--' `
         $Path
     if ($LASTEXITCODE -ne 0) {
-        throw 'Could not inspect an evidence ACL.'
+        $exitCode = $LASTEXITCODE
+        if (Test-LinuxAtomicStagingFileMissing -Item $Item -TransientContext $TransientContext) {
+            # A qualified publisher staging leaf is absent, never a stable path.
+            return $null
+        }
+        $exception = [InvalidOperationException]::new('Could not inspect an evidence ACL.')
+        $exception.Data['NativeExitCode'] = $exitCode
+        throw $exception
     }
     $entries = [Collections.Generic.Dictionary[string, string]]::new(
         [StringComparer]::Ordinal)
@@ -5432,6 +5569,11 @@ function Assert-LinuxEvidenceAclsExact {
     $agentUid = [string]$Settings.ExpectedAgentUid
     $brokerUid = [string]$Settings.BrokerUid
     $ipcGroupGid = [string]$Settings.IpcGroupGid
+    $transientContext = @{
+        PitCrewRoot = $pitCrewRoot
+        ConnectorHealthRoot = $Paths.ConnectorHealthRoot
+        Policy = Get-EvidencePolicy
+    }
     $productGroupIds = @(
         $linuxAgentUser,
         $linuxBrokerUser,
@@ -5467,14 +5609,7 @@ function Assert-LinuxEvidenceAclsExact {
         $scanRoots.Add($connectorRoot)
     }
     foreach ($scanRoot in $scanRoots) {
-        $items = @(
-            Get-Item -LiteralPath $scanRoot -Force
-            Get-ChildItem `
-                -LiteralPath $scanRoot `
-                -Recurse `
-                -Force `
-                -ErrorAction Stop
-        )
+        $items = @(Get-LinuxEvidenceTreeItems -ScanRoot $scanRoot)
         foreach ($item in $items) {
             $fullPath = [IO.Path]::GetFullPath($item.FullName)
             $parentPath = Split-Path $fullPath -Parent
@@ -5488,12 +5623,8 @@ function Assert-LinuxEvidenceAclsExact {
             }
             $isTransientEvidenceFile =
                 $isInheritedFile -and
-                $item.Name.StartsWith(
-                    '.',
-                    [StringComparison]::Ordinal) -and
-                $item.Name.EndsWith(
-                    '.tmp',
-                    [StringComparison]::Ordinal)
+                (Test-LinuxAtomicStagingFile -Item $item `
+                    -TransientContext $transientContext)
             if ($isInheritedFile -and
                 -not $isTransientEvidenceFile -and
                 $item.Name -cnotin @($inheritedRoots[$parentPath])) {
@@ -5502,14 +5633,10 @@ function Assert-LinuxEvidenceAclsExact {
             if ($isTransientEvidenceFile) {
                 continue
             }
-            try {
-                $entries = Get-LinuxAclEntries -Path $fullPath
-            } catch {
-                if ($isInheritedFile -and
-                    -not (Test-Path -LiteralPath $fullPath)) {
-                    continue
-                }
-                throw
+            $entries = Get-LinuxAclEntries -Path $fullPath -Item $item `
+                -TransientContext $transientContext
+            if ($null -eq $entries) {
+                continue
             }
             $brokerKey = "user:$brokerUid"
             $agentKey = "user:$agentUid"
@@ -5568,10 +5695,16 @@ function Assert-LinuxEvidenceAclsExact {
                     throw 'Default Linux evidence ACL drift was detected.'
                 }
             }
-            $metadata = (& stat '--format=%u:%g:%a' -- $fullPath).Trim()
+            $metadata = & stat '--format=%u:%g:%a' -- $fullPath
             if ($LASTEXITCODE -ne 0) {
+                if (Test-LinuxAtomicStagingFileMissing -Item $item `
+                        -TransientContext $transientContext) {
+                    # Publication can finish after ACL inspection but before stat.
+                    continue
+                }
                 throw 'Could not inspect evidence ownership and mode.'
             }
+            $metadata = ([string]$metadata).Trim()
             $metadataParts = $metadata.Split(':')
             $mode = if ($metadataParts.Count -eq 3) {
                 [Convert]::ToInt32($metadataParts[2], 8)

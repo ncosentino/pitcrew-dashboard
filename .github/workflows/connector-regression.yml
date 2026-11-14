@@ -31,6 +31,7 @@ jobs:
         run: |
           ./tests/Test-Guidance.ps1
           ./tests/Test-ConnectorRegressionWorkflow.ps1
+          ./tests/Test-SupportPlaneInstaller.LinuxAclRace.ps1
       - name: Build and run connector and Fleet regressions
         env:
           PITCREW_CONNECTOR_ACL_TESTS: "1"
