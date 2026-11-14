@@ -200,6 +200,13 @@ internal sealed class SupportIdentityMigration(
         request.SchemaVersion != 1 || request.RotationId == Guid.Empty ||
         request.OfferDigest != Digest(offer) ||
         source.NodeId != offer!.NodeId || source.TenantId != offer.TenantId ||
+        source.DisplayName != offer.DisplayName ||
+        source.DashboardUrl.AbsoluteUri != offer.DashboardUrl ||
+        source.RelayUrl.AbsoluteUri != offer.RelayUrl ||
+        source.DashboardAuthorizationSigningPublicKeySpki !=
+            offer.DashboardAuthorizationSigningPublicKeySpki ||
+        source.DashboardResultEncryptionPublicKeySpki !=
+            offer.DashboardResultEncryptionPublicKeySpki ||
         status.NodeSigningPublicKeySpki != offer.SourceSigningPublicKeySpki ||
         status.NodeEncryptionPublicKeySpki != offer.SourceEncryptionPublicKeySpki ||
         request.CredentialEnvelope.SenderKeyId != request.RotationId.ToString("N") ||

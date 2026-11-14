@@ -116,6 +116,45 @@ public sealed class SupportNodeIdentityStoreTests
       var alteredProof = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
       var sourceBeforePrepare = await sourceStore.LoadActiveAsync(cancellationToken);
       await File.WriteAllTextAsync(requestPath, originalRequest, cancellationToken);
+      var offerPath = Path.Combine(sourceRoot, SupportIdentityMigration.OfferFileName);
+      var originalOffer = await File.ReadAllTextAsync(offerPath, cancellationToken);
+      var substitutedOffer = JsonSerializer.Deserialize<SupportIdentityMigrationOffer>(
+          originalOffer, jsonOptions)! with
+      {
+        DashboardUrl = "https://substituted-dashboard.invalid/",
+      };
+      var substitutedDigest = Convert.ToHexString(SHA256.HashData(
+          JsonSerializer.SerializeToUtf8Bytes(substitutedOffer, jsonOptions)));
+      using var sourceEncryption = SupportKeyFactory.ImportRsaPublicKey(
+          substitutedOffer.SourceEncryptionPublicKeySpki);
+      using var targetSigning = targetStore.KeyProvider.OpenSigningKey(
+          target.DirectoryPath, target.Keys);
+      var substitutedEnvelope = SupportEnvelopeCryptography.Seal(
+          JsonSerializer.SerializeToUtf8Bytes(
+              new SupportIdentityMigrationAuthorization(
+                  request.RotationId, substitutedDigest,
+                  request.TargetSigningPublicKeySpki,
+                  request.TargetEncryptionPublicKeySpki,
+                  replacementCredential), jsonOptions),
+          sourceEncryption, targetSigning,
+          request.RotationId.ToString("N"), source.NodeId.ToString("N"));
+      await File.WriteAllTextAsync(
+          offerPath, JsonSerializer.Serialize(substitutedOffer, jsonOptions),
+          cancellationToken);
+      await File.WriteAllTextAsync(
+          requestPath,
+          JsonSerializer.Serialize(
+              request with
+              {
+                OfferDigest = substitutedDigest,
+                CredentialEnvelope = substitutedEnvelope,
+              }, jsonOptions),
+          cancellationToken);
+      var substitutedOrigin =
+          await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+      var fencedBySubstitution = sourceStore.IsMigrationFenced;
+      await File.WriteAllTextAsync(offerPath, originalOffer, cancellationToken);
+      await File.WriteAllTextAsync(requestPath, originalRequest, cancellationToken);
       var prepared = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
       var preparedAgain = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
       var fencedSource = await sourceStore.LoadActiveAsync(cancellationToken);
@@ -141,6 +180,9 @@ public sealed class SupportNodeIdentityStoreTests
       await Assert.That(stagedAgain).IsEqualTo("target-staged");
       await Assert.That(prepared).IsEqualTo("source-prepared");
       await Assert.That(alteredProof).IsEqualTo("target-proof-invalid");
+      await Assert.That(substitutedOrigin).IsEqualTo("source-request-invalid");
+      await Assert.That(fencedBySubstitution).IsFalse()
+          .Because("even a valid target proof cannot substitute the source Dashboard origin");
       await Assert.That(sourceBeforePrepare!.NodeId).IsEqualTo(source.NodeId);
       await Assert.That(preparedAgain).IsEqualTo("source-prepared");
       await Assert.That(fencedSource).IsNull();
