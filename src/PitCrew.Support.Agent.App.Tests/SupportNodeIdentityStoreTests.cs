@@ -55,6 +55,7 @@ public sealed class SupportNodeIdentityStoreTests
       var responseRelayUrl = relayUrl;
       var finalizationRelayUrl = relayUrl;
       var responseStatus = HttpStatusCode.OK;
+      string? responseErrorCode = null;
       var requests = 0;
       var preparationRequests = new List<string>();
       var client = new SupportDashboardIdentityClient(
@@ -71,7 +72,12 @@ public sealed class SupportNodeIdentityStoreTests
                 }
                 return new HttpResponseMessage(responseStatus)
                 {
-                  Content = JsonContent.Create(new SupportIdentityCompletionResponse(
+                  Content = responseErrorCode is not null
+                      ? JsonContent.Create(new
+                      {
+                        error = new { code = responseErrorCode, message = "private-response-canary" },
+                      })
+                      : JsonContent.Create(new SupportIdentityCompletionResponse(
                       source.NodeId.ToString("D"),
                       source.DisplayName,
                       replacementCredential!,
@@ -175,6 +181,24 @@ public sealed class SupportNodeIdentityStoreTests
       responseStatus = HttpStatusCode.ServiceUnavailable;
       var rejectedHttp = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
       await Assert.That(rejectedHttp).IsEqualTo("source-prepare-http-rejected-503");
+      responseStatus = HttpStatusCode.Conflict;
+      foreach (var (code, classification) in new[]
+      {
+        ("support_identity_revoked", "identity-revoked"),
+        ("support_identity_conflict", "identity-conflict"),
+      })
+      {
+        responseErrorCode = code;
+        var rejectedConflict = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+        await Assert.That(rejectedConflict)
+            .IsEqualTo($"source-prepare-http-rejected-409-{classification}");
+        await Assert.That(sourceStore.IsMigrationFenced)
+            .IsTrue().Because("classified server rejection must preserve the exact source fence");
+        await Assert.That(File.Exists(
+            Path.Combine(sourceRoot, SupportIdentityMigration.TransferFileName)))
+            .IsFalse().Because("classified server rejection cannot publish a capsule");
+      }
+      responseErrorCode = null;
       responseStatus = HttpStatusCode.OK;
       foreach (var mismatchedRelayUrl in new[]
       {
@@ -259,8 +283,8 @@ public sealed class SupportNodeIdentityStoreTests
           .IsTrue().Because("source nonce tombstones must survive provider replacement");
       await Assert.That(nativeReplay.GetRejectionOrNull(rejectedSessionId))
           .IsEqualTo(SupportRequestRejectionDispositions.BrokerTimeout);
-      await Assert.That(requests).IsEqualTo(12);
-      await Assert.That(preparationRequests.Count).IsEqualTo(10);
+      await Assert.That(requests).IsEqualTo(14);
+      await Assert.That(preparationRequests.Count).IsEqualTo(12);
       foreach (var preparationRequest in preparationRequests)
       {
         await Assert.That(preparationRequest).IsEqualTo(preparationRequests[0]);

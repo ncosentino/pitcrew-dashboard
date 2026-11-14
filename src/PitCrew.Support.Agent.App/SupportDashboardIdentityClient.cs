@@ -186,10 +186,15 @@ internal sealed class SupportDashboardIdentityClient(
           memory[..count], new JsonDocumentOptions { MaxDepth = 4 });
       var root = document.RootElement;
       if (root.ValueKind != JsonValueKind.Object ||
-          root.EnumerateObject().Count(property => property.NameEquals("error")) != 1 ||
           !root.TryGetProperty("error", out var error) ||
-          error.ValueKind != JsonValueKind.Object ||
-          error.EnumerateObject().Count(property => property.NameEquals("code")) != 1 ||
+          error.ValueKind != JsonValueKind.Object)
+      {
+        return null;
+      }
+      using var rootProperties = root.EnumerateObject();
+      using var errorProperties = error.EnumerateObject();
+      if (rootProperties.Count(property => property.NameEquals("error")) != 1 ||
+          errorProperties.Count(property => property.NameEquals("code")) != 1 ||
           !error.TryGetProperty("code", out var code) ||
           code.ValueKind != JsonValueKind.String)
       {
