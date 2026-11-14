@@ -92,6 +92,134 @@ $functions = @(
     ) |
         Select-Object -ExpandProperty Name
 )
+$migrationUpdateModule = New-Module -ArgumentList @(
+    ($ast.Find({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq 'Test-PendingIdentityMigration'
+    }, $true)).Extent.Text,
+    ($ast.Find({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq 'Invoke-InstallOrUpdate'
+    }, $true)).Extent.Text
+) -ScriptBlock {
+    param([string]$PendingText, [string]$UpdateText)
+
+    . ([scriptblock]::Create($PendingText))
+    # Select the Windows service boundary without mutating host services.
+    . ([scriptblock]::Create($UpdateText.Replace('$IsWindows', '$script:fixtureIsWindows')))
+    $script:fixtureIsWindows = $true
+    function Set-InstallerFailureContext {}
+    function Assert-InstallInputs {}
+    function Assert-InstalledSupportVersion {}
+    function Test-LinkedPathComponent { return $false }
+    function Copy-AgentSettings {}
+    function Get-IdentityPreservationMarkerPath { return 'absent-preservation-marker' }
+    function Stage-Release {
+        return @{ AgentVersionRoot = 'absent-agent'; BrokerVersionRoot = 'absent-broker' }
+    }
+    function Stop-WindowsSupportServices { $script:stops++ }
+    function Start-WindowsSupportServices { $script:starts++ }
+    function Set-WindowsSupportStartup { throw 'Enabled fixture must not change startup policy.' }
+    function Initialize-WindowsInstallation { $script:initializations++ }
+    function Remove-ObsoleteSupportVersions {
+        if ($script:failFinalization) {
+            throw [IO.IOException]::new('Injected update interruption.')
+        }
+    }
+    function Get-InstallerNativeExitCode { return $null }
+    function Write-InstallManifest {
+        param($Paths, $CurrentVersion, $PreviousVersion, $Enabled)
+        $script:manifestEnabled = $Enabled
+    }
+    function Invoke-MigrationUpdateFixture {
+        param([string]$Root, [bool]$Fail)
+
+        $script:stops = 0
+        $script:starts = 0
+        $script:initializations = 0
+        $script:failFinalization = $Fail
+        $script:manifestEnabled = $null
+        $script:installerFailurePhase = 'fixture'
+        $script:installerFailureOperation = 'fixture'
+        $script:AgentSettingsPath = ''
+        $script:PitCrewRoot = $Root
+        $script:Profiles = @('fixture-profile')
+        $script:Version = '0.0.2'
+        $paths = @{
+            AgentStateRoot = $Root
+            BrokerStateRoot = $Root
+        }
+        $failed = $false
+        try {
+            Invoke-InstallOrUpdate -Paths $paths -IsUpdate $true -Manifest (
+                [PSCustomObject]@{ currentVersion = '0.0.1'; enabled = $true }
+            )
+        } catch [IO.IOException] {
+            $failed = $true
+        }
+        return [PSCustomObject]@{
+            Starts = $script:starts
+            Stops = $script:stops
+            Initializations = $script:initializations
+            Enabled = $script:manifestEnabled
+            Failed = $failed
+        }
+    }
+    Export-ModuleMember -Function Invoke-MigrationUpdateFixture
+}
+$migrationFixtureRoot = Join-Path $repositoryRoot (
+    'artifacts/support-migration-update-' + [Guid]::NewGuid().ToString('N')
+)
+try {
+    New-Item -ItemType Directory -Path $migrationFixtureRoot -Force | Out-Null
+    [IO.File]::WriteAllText(
+        (Join-Path $migrationFixtureRoot 'appsettings.json'),
+        (@{ PitCrewSupport = @{ Broker = @{
+            PitCrewRoot = $migrationFixtureRoot
+            AllowedProfiles = 'fixture-profile'
+        } } } | ConvertTo-Json -Depth 5))
+    $targetPath = Join-Path $migrationFixtureRoot 'identity-migration-target.json'
+    $statePath = Join-Path $migrationFixtureRoot 'identity-migration-state.json'
+    [IO.File]::WriteAllText($targetPath, 'opaque-retained-fixture')
+    $pending = & $migrationUpdateModule {
+        param($Root)
+        Invoke-MigrationUpdateFixture -Root $Root -Fail $false
+    } $migrationFixtureRoot
+    $interrupted = & $migrationUpdateModule {
+        param($Root)
+        Invoke-MigrationUpdateFixture -Root $Root -Fail $true
+    } $migrationFixtureRoot
+    Add-Check (
+        $pending.Starts -eq 0 -and $pending.Stops -eq 1 -and
+        $pending.Enabled -eq $true -and
+        $interrupted.Starts -eq 0 -and $interrupted.Failed -and
+        $interrupted.Initializations -eq 2 -and
+        [IO.File]::ReadAllText($targetPath) -ceq 'opaque-retained-fixture'
+    ) 'A preparing migration update or rollback resumed services or changed the retained request.'
+    foreach ($phase in @('staged', 'prepared', 'active', 'invalid')) {
+        [IO.File]::WriteAllText($statePath, (@{
+            schemaVersion = 1
+            phase = $phase
+            rotationId = [Guid]::NewGuid().ToString('D')
+            requestDigest = 'A' * 64
+        } | ConvertTo-Json -Compress))
+        $result = & $migrationUpdateModule {
+            param($Root)
+            Invoke-MigrationUpdateFixture -Root $Root -Fail $false
+        } $migrationFixtureRoot
+        $expectedStarts = if ($phase -ceq 'active') { 1 } else { 0 }
+        Add-Check (
+            $result.Starts -eq $expectedStarts -and $result.Enabled -eq $true
+        ) "Binary update did not preserve the '$phase' migration service boundary."
+    }
+} finally {
+    Remove-Module $migrationUpdateModule
+    if (Test-Path -LiteralPath $migrationFixtureRoot) {
+        Remove-Item -LiteralPath $migrationFixtureRoot -Recurse -Force
+    }
+}
 $setWindowsBrokerFirewallText = (
     $ast.Find(
         {

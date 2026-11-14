@@ -61,57 +61,81 @@ internal sealed class SupportDashboardIdentityClient(
 
   public async Task<SupportIdentityCompletionData?> PrepareRotationAsync(
       SupportIdentityRotationPlan rotation,
-      CancellationToken cancellationToken)
-  {
-    using var client = _httpClientFactory.CreateClient(
-        SupportDashboardIdentityHttpClientOptions.ClientName);
-    using var response = await client.PostAsJsonAsync(
-        new Uri(
-            new Uri(rotation.DashboardUrl, UriKind.Absolute),
-            $"/api/support-agent/v1/identities/{rotation.NodeId:D}/rotate"),
-        new
-        {
-          rotation.RotationId,
-          rotation.TenantId,
-          rotation.CurrentTransportCredential,
-          rotation.ReplacementTransportCredential,
-          rotation.NodeSigningPublicKeySpki,
-          rotation.NodeEncryptionPublicKeySpki,
-        },
-        cancellationToken);
-    if (!response.IsSuccessStatusCode)
-    {
-      return null;
-    }
-    return await ReadIdentityCompletionOrNullAsync(
-        response.Content,
-        cancellationToken);
-  }
+      CancellationToken cancellationToken) =>
+      (await PrepareRotationWithOutcomeAsync(rotation, cancellationToken)).Completion;
+
+  internal Task<SupportIdentityRotationResponse> PrepareRotationWithOutcomeAsync(
+      SupportIdentityRotationPlan rotation,
+      CancellationToken cancellationToken) =>
+      PostRotationAsync(
+          new Uri(
+              new Uri(rotation.DashboardUrl, UriKind.Absolute),
+              $"/api/support-agent/v1/identities/{rotation.NodeId:D}/rotate"),
+          new
+          {
+            rotation.RotationId,
+            rotation.TenantId,
+            rotation.CurrentTransportCredential,
+            rotation.ReplacementTransportCredential,
+            rotation.NodeSigningPublicKeySpki,
+            rotation.NodeEncryptionPublicKeySpki,
+          },
+          cancellationToken);
 
   public async Task<SupportIdentityCompletionData?> FinalizeRotationAsync(
       PendingSupportIdentityRotation rotation,
+      CancellationToken cancellationToken) =>
+      (await FinalizeRotationWithOutcomeAsync(rotation, cancellationToken)).Completion;
+
+  internal Task<SupportIdentityRotationResponse> FinalizeRotationWithOutcomeAsync(
+      PendingSupportIdentityRotation rotation,
+      CancellationToken cancellationToken) =>
+      PostRotationAsync(
+          new Uri(
+              new Uri(rotation.DashboardUrl, UriKind.Absolute),
+              $"/api/support-agent/v1/identities/{rotation.NodeId:D}/rotate/finalize"),
+          new
+          {
+            rotation.RotationId,
+            rotation.TenantId,
+            rotation.CurrentTransportCredential,
+          },
+          cancellationToken);
+
+  private async Task<SupportIdentityRotationResponse> PostRotationAsync<T>(
+      Uri endpoint,
+      T request,
       CancellationToken cancellationToken)
   {
     using var client = _httpClientFactory.CreateClient(
         SupportDashboardIdentityHttpClientOptions.ClientName);
-    using var response = await client.PostAsJsonAsync(
-        new Uri(
-            new Uri(rotation.DashboardUrl, UriKind.Absolute),
-            $"/api/support-agent/v1/identities/{rotation.NodeId:D}/rotate/finalize"),
-        new
-        {
-          rotation.RotationId,
-          rotation.TenantId,
-          rotation.CurrentTransportCredential,
-        },
-        cancellationToken);
-    if (!response.IsSuccessStatusCode)
+    try
     {
-      return null;
+      using var response = await client.PostAsJsonAsync(
+          endpoint, request, cancellationToken);
+      if (!response.IsSuccessStatusCode)
+      {
+        var statusCode = (int)response.StatusCode;
+        return new(null, statusCode is >= 100 and <= 599
+            ? $"http-rejected-{statusCode.ToString(CultureInfo.InvariantCulture)}"
+            : "http-rejected");
+      }
+      var completion = await ReadIdentityCompletionOrNullAsync(
+          response.Content, cancellationToken);
+      return new(completion, completion is null ? "response-invalid" : null);
     }
-    return await ReadIdentityCompletionOrNullAsync(
-        response.Content,
-        cancellationToken);
+    catch (HttpRequestException)
+    {
+      return new(null, "transport-failed");
+    }
+    catch (IOException)
+    {
+      return new(null, "transport-failed");
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+    {
+      return new(null, "http-timeout");
+    }
   }
 
   private static async Task<SupportIdentityCompletionData?>

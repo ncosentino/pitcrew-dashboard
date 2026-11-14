@@ -3681,6 +3681,41 @@ function Copy-AgentSettings {
         -Force
 }
 
+function Test-PendingIdentityMigration {
+    param([Parameter(Mandatory)][hashtable]$Paths)
+
+    # Public/opaque lifecycle filenames and bounded phase metadata are enough
+    # to preserve quiescence; the installer never opens the agent-only fence.
+    $requestPath = Join-Path $Paths.AgentStateRoot 'identity-migration-target.json'
+    $statePath = Join-Path $Paths.AgentStateRoot 'identity-migration-state.json'
+    if (-not (Test-Path -LiteralPath $requestPath) -and
+        -not (Test-Path -LiteralPath $statePath)) {
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return $true
+    }
+    $stateFile = Get-Item -LiteralPath $statePath -Force
+    if ($stateFile.Length -le 0 -or $stateFile.Length -gt 1024 -or
+        (Test-LinkedPathComponent `
+            -Root ([IO.Path]::GetPathRoot($statePath)) -Path $statePath)) {
+        return $true
+    }
+    try {
+        $state = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
+        $rotationId = [Guid]::Empty
+        return -not (
+            $state.schemaVersion -eq 1 -and $state.phase -ceq 'active' -and
+            [string]$state.requestDigest -cmatch '^[A-F0-9]{64}$' -and
+            [Guid]::TryParse([string]$state.rotationId, [ref]$rotationId) -and
+            $rotationId -ne [Guid]::Empty
+        )
+    } catch {
+        # Unreadable or malformed lifecycle metadata must never resume services.
+        return $true
+    }
+}
+
 function Invoke-InstallOrUpdate {
     param(
         [Parameter(Mandatory)][hashtable]$Paths,
@@ -3739,6 +3774,9 @@ function Invoke-InstallOrUpdate {
             -InstalledVersion $previousVersion
     }
     $wasEnabled = $null -eq $Manifest -or [bool]$Manifest.enabled
+    $resumeServices = $wasEnabled -and -not (
+        $IsUpdate -and (Test-PendingIdentityMigration -Paths $Paths)
+    )
     $brokerSettingsPath = Join-Path $Paths.BrokerStateRoot 'appsettings.json'
     $previousBrokerSettings = if (
         Test-Path -LiteralPath $brokerSettingsPath -PathType Leaf
@@ -3807,7 +3845,7 @@ function Invoke-InstallOrUpdate {
                 -ResolvedPitCrewRoot $resolvedPitCrewRoot `
                 -AllowedProfiles $Profiles
         }
-        if ($wasEnabled) {
+        if ($resumeServices) {
             Set-InstallerFailureContext `
                 -Phase 'service-startup' `
                 -Operation 'start-support-services'
@@ -3821,9 +3859,9 @@ function Invoke-InstallOrUpdate {
                 )
                 Start-LinuxSupportServices
             }
-        } elseif ($IsWindows) {
+        } elseif (-not $wasEnabled -and $IsWindows) {
             Set-WindowsSupportStartup -Enabled $false
-        } else {
+        } elseif (-not $wasEnabled) {
             Invoke-Checked systemctl @(
                 'disable',
                 $linuxBrokerService,
@@ -3880,9 +3918,9 @@ function Invoke-InstallOrUpdate {
                         -SelectedVersion $previousVersion `
                         -ResolvedPitCrewRoot $resolvedPitCrewRoot `
                         -AllowedProfiles $Profiles
-                    if ($wasEnabled) {
+                    if ($resumeServices) {
                         Start-WindowsSupportServices
-                    } else {
+                    } elseif (-not $wasEnabled) {
                         Set-WindowsSupportStartup -Enabled $false
                     }
                 } else {
@@ -3891,7 +3929,7 @@ function Invoke-InstallOrUpdate {
                         -SelectedVersion $previousVersion `
                         -ResolvedPitCrewRoot $resolvedPitCrewRoot `
                         -AllowedProfiles $Profiles
-                    if ($wasEnabled) {
+                    if ($resumeServices) {
                         Start-LinuxSupportServices
                     }
                 }

@@ -12,7 +12,7 @@ The current release pair is:
 | Surface | Required release | Verified identity |
 | --- | --- | --- |
 | PitCrew node and diagnostics client | `v0.10.37` | commit `cb3204e16167100ae6cc9ba3b22f080ab5850325` |
-| Dashboard, support relay, agent, broker, and installer | `v0.12.45` | exact commit referenced by the published tag |
+| Dashboard, support relay, agent, broker, and installer | `v0.12.46` | exact commit referenced by the published tag |
 | Support evidence policy | schema 3 | `support-evidence-policy-v0.10.18.json` |
 | Diagnostics collector | UTF-8/LF SHA-256 | `898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf` |
 
@@ -31,7 +31,7 @@ versions.
 
 Complete this phase before accessing either host.
 
-1. Resolve the full commit referenced by Dashboard tag `v0.12.45`.
+1. Resolve the full commit referenced by Dashboard tag `v0.12.46`.
 2. Dispatch the read-only `Verify published release` workflow with that tag and
    commit:
 
@@ -39,7 +39,7 @@ Complete this phase before accessing either host.
    gh workflow run verify-published-release.yml `
        --repo ncosentino/pitcrew-dashboard `
        --ref main `
-       -f release_tag=v0.12.45 `
+       -f release_tag=v0.12.46 `
        -f release_sha=<full-release-sha>
    ```
 
@@ -100,7 +100,7 @@ Apply one boundary at a time.
 Follow the complete [hosted support relay](support-relay.md) and
 [hosted deployment](../hosted-deployment.md) procedures.
 
-1. Pre-pull only the `0.12.45` Dashboard and support-relay images with
+1. Pre-pull only the `0.12.46` Dashboard and support-relay images with
    process-scoped version overrides.
 2. Stop the complete scoped model.
 3. Create and verify independent timestamped backups of the Dashboard and relay
@@ -117,7 +117,7 @@ scoped services with standalone containers.
 
 ### 2. PitCrew node
 
-After PitCrew `v0.10.37` is verified, download the `v0.12.45` installer archive
+After PitCrew `v0.10.37` is verified, download the `v0.12.46` installer archive
 and sidecar for the node's exact RID. Extract the package and run only its
 bundled installer.
 
@@ -126,7 +126,7 @@ For an existing managed support installation:
 ```powershell
 ./Install-PitCrewSupportPlane.ps1 `
     -Action Update `
-    -Version 0.12.45 `
+    -Version 0.12.46 `
     -AllowMachineChanges
 
 ./Install-PitCrewSupportPlane.ps1 -Action Verify
@@ -139,7 +139,7 @@ run:
 ```powershell
 ./Install-PitCrewSupportPlane.ps1 `
     -Action Install `
-    -Version 0.12.45 `
+    -Version 0.12.46 `
     -PitCrewRoot <pitcrew-root> `
     -Profiles <profile-id> `
     -AgentSettingsPath <protected-agent-settings> `
@@ -158,6 +158,13 @@ Then remove bootstrap material only through:
 
 Finalization must preserve the broker process, restart only the agent, and
 produce a second accepted poll.
+
+For an already fenced identity migration, normal running-service verification
+is intentionally unavailable. The patched installer keeps both services stopped
+during binary update and automatic rollback while preserving the exact migration
+request. Follow [migration recovery](../support-plane.md#durable-phases-and-recovery)
+instead of restarting services or reenrolling; require full verification only
+after exact target activation.
 
 ## Rollback boundaries
 

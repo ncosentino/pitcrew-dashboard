@@ -13,7 +13,10 @@ namespace PitCrew.Support.Agent.App.Tests;
 public sealed class SupportNodeIdentityStoreTests
 {
   [Test]
+  [Arguments("https://relay.example.com")]
+  [Arguments("https://relay.example.com/")]
   public async Task Migration_Preserves_Cng_Source_And_Replay_And_Requires_Quiescence(
+      string relayUrl,
       CancellationToken cancellationToken)
   {
     if (!OperatingSystem.IsWindows())
@@ -49,20 +52,33 @@ public sealed class SupportNodeIdentityStoreTests
       sourceReplay.StoreRejection(
           rejectedSessionId, SupportRequestRejectionDispositions.BrokerTimeout);
       string? replacementCredential = null;
+      var responseRelayUrl = relayUrl;
+      var finalizationRelayUrl = relayUrl;
+      var responseStatus = HttpStatusCode.OK;
       var requests = 0;
+      var preparationRequests = new List<string>();
       var client = new SupportDashboardIdentityClient(
           new TestHttpClientFactory(
               SupportDashboardIdentityHttpClientOptions.ClientName,
-              _ =>
+              async (httpRequest, token) =>
               {
                 requests++;
-                return new HttpResponseMessage(HttpStatusCode.OK)
+                if (!httpRequest.RequestUri!.AbsolutePath.EndsWith(
+                    "/finalize", StringComparison.Ordinal))
+                {
+                  preparationRequests.Add(
+                      await httpRequest.Content!.ReadAsStringAsync(token));
+                }
+                return new HttpResponseMessage(responseStatus)
                 {
                   Content = JsonContent.Create(new SupportIdentityCompletionResponse(
                       source.NodeId.ToString("D"),
                       source.DisplayName,
                       replacementCredential!,
-                      source.RelayUrl.AbsoluteUri,
+                      httpRequest.RequestUri!.AbsolutePath.EndsWith(
+                          "/finalize", StringComparison.Ordinal)
+                              ? finalizationRelayUrl
+                              : responseRelayUrl,
                       source.DashboardAuthorizationSigningPublicKeySpki,
                       source.DashboardResultEncryptionPublicKeySpki)),
                 };
@@ -155,6 +171,40 @@ public sealed class SupportNodeIdentityStoreTests
       var fencedBySubstitution = sourceStore.IsMigrationFenced;
       await File.WriteAllTextAsync(offerPath, originalOffer, cancellationToken);
       await File.WriteAllTextAsync(requestPath, originalRequest, cancellationToken);
+      responseStatus = HttpStatusCode.ServiceUnavailable;
+      var rejectedHttp = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+      await Assert.That(rejectedHttp).IsEqualTo("source-prepare-http-rejected-503");
+      responseStatus = HttpStatusCode.OK;
+      foreach (var mismatchedRelayUrl in new[]
+      {
+        "https://other-relay.example.com",
+        "https://relay.example.com:444/",
+        "https://relay.example.com/path",
+        "https://relay.example.com//",
+        "https://relay.example.com/?scope=other",
+        "https://relay.example.com/#other",
+        "https://user@relay.example.com/",
+        "http://relay.example.com/",
+      })
+      {
+        responseRelayUrl = mismatchedRelayUrl;
+        var mismatched = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
+        await Assert.That(mismatched).IsEqualTo("source-prepare-metadata-mismatch");
+      }
+      var preparing = JsonSerializer.Deserialize<SupportIdentityMigrationState>(
+          await File.ReadAllTextAsync(
+              Path.Combine(sourceStore.RootPath, SupportNodeIdentityStore.MigrationFenceFileName),
+              cancellationToken), jsonOptions)!;
+      var retriedRequest = await File.ReadAllTextAsync(requestPath, cancellationToken);
+      var activeAfterRejection = await sourceStore.LoadActiveAsync(cancellationToken);
+      await Assert.That(preparing.RotationId).IsEqualTo(request.RotationId);
+      await Assert.That(preparing.Phase).IsEqualTo("preparing");
+      await Assert.That(retriedRequest).IsEqualTo(originalRequest);
+      await Assert.That(activeAfterRejection).IsNull();
+      await Assert.That(File.Exists(
+          Path.Combine(sourceRoot, SupportIdentityMigration.TransferFileName)))
+          .IsFalse().Because("uncertain or mismatched preparation must not publish a capsule");
+      responseRelayUrl = relayUrl;
       var prepared = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
       var preparedAgain = await sourceMigration.ExecuteAsync("prepare", cancellationToken);
       var fencedSource = await sourceStore.LoadActiveAsync(cancellationToken);
@@ -170,6 +220,16 @@ public sealed class SupportNodeIdentityStoreTests
           JsonSerializer.Serialize(
               targetState with { Phase = "source-quiesced" }, jsonOptions),
           cancellationToken);
+      finalizationRelayUrl = "https://relay.example.com:444/";
+      var mismatchedFinalization =
+          await targetMigration.ExecuteAsync("activate", cancellationToken);
+      await Assert.That(mismatchedFinalization).IsEqualTo("target-finalization-metadata-mismatch");
+      await Assert.That(targetStore.IsMigrationFenced)
+          .IsTrue().Because("mismatched finalization must not resume target polling");
+      var pendingFinalization =
+          await targetStore.GetPendingRotationFinalizationAsync(cancellationToken);
+      await Assert.That(pendingFinalization!.RotationId).IsEqualTo(request.RotationId);
+      finalizationRelayUrl = relayUrl;
       var activated = await targetMigration.ExecuteAsync("activate", cancellationToken);
       var activatedAgain = await targetMigration.ExecuteAsync("activate", cancellationToken);
       var native = await targetStore.LoadActiveAsync(cancellationToken);
@@ -198,7 +258,12 @@ public sealed class SupportNodeIdentityStoreTests
           .IsTrue().Because("source nonce tombstones must survive provider replacement");
       await Assert.That(nativeReplay.GetRejectionOrNull(rejectedSessionId))
           .IsEqualTo(SupportRequestRejectionDispositions.BrokerTimeout);
-      await Assert.That(requests).IsEqualTo(2);
+      await Assert.That(requests).IsEqualTo(12);
+      await Assert.That(preparationRequests.Count).IsEqualTo(10);
+      foreach (var preparationRequest in preparationRequests)
+      {
+        await Assert.That(preparationRequest).IsEqualTo(preparationRequests[0]);
+      }
       await Assert.That(sourceStore.IsMigrationFenced)
           .IsTrue().Because("the retained CNG source must never become a second authority");
       await Assert.That(targetStore.IsMigrationFenced)

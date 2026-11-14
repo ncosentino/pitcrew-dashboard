@@ -74,6 +74,41 @@ public sealed class SupportDashboardIdentityClientTests
   }
 
   [Test]
+  [Arguments(503, "http-rejected-503")]
+  [Arguments(200, "response-invalid")]
+  public async Task Rotation_Reports_Bounded_Http_And_Response_Failures(
+      int statusCode,
+      string expectedDisposition,
+      CancellationToken cancellationToken)
+  {
+    var client = new SupportDashboardIdentityClient(
+        new TestHttpClientFactory(
+            SupportDashboardIdentityHttpClientOptions.ClientName,
+            _ => new HttpResponseMessage((HttpStatusCode)statusCode)
+            {
+              Content = new StringContent("{invalid-json"),
+            }));
+    var plan = new SupportIdentityRotationPlan(
+        Guid.NewGuid(), Guid.NewGuid(), "tenant-a",
+        "https://dashboard.example.com/",
+        "current-credential-abcdefghijklmnopqrstuvwxyz",
+        "replacement-credential-abcdefghijklmnopqrstuvwxyz",
+        "node-signing-key", "node-encryption-key");
+
+    var prepared = await client.PrepareRotationWithOutcomeAsync(plan, cancellationToken);
+    var finalized = await client.FinalizeRotationWithOutcomeAsync(
+        new PendingSupportIdentityRotation(
+            plan.RotationId, plan.NodeId, plan.TenantId, plan.DashboardUrl,
+            plan.CurrentTransportCredential),
+        cancellationToken);
+
+    await Assert.That(prepared.Completion).IsNull();
+    await Assert.That(prepared.FailureDisposition).IsEqualTo(expectedDisposition);
+    await Assert.That(finalized.Completion).IsNull();
+    await Assert.That(finalized.FailureDisposition).IsEqualTo(expectedDisposition);
+  }
+
+  [Test]
   public async Task Enrollment_Rejects_Incomplete_Shared_Response(
       CancellationToken cancellationToken)
   {
