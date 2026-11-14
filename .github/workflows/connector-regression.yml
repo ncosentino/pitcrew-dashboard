@@ -32,9 +32,20 @@ jobs:
           ./tests/Test-Guidance.ps1
           ./tests/Test-ConnectorRegressionWorkflow.ps1
       - name: Build and run connector and Fleet regressions
+        env:
+          PITCREW_CONNECTOR_ACL_TESTS: "1"
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v setfacl >/dev/null || ! command -v getfacl >/dev/null; then
+            if [ "$(id -u)" = "0" ]; then
+              apt-get update
+              apt-get install --yes acl
+            else
+              sudo apt-get update
+              sudo apt-get install --yes acl
+            fi
+          fi
           for project in PitCrew.Connector.Features.Sync.Tests PitCrew.Dashboard.Features.Fleet.Tests; do
             dotnet build "src/$project/$project.csproj" --configuration Release
             dotnet exec "src/$project/bin/Release/net10.0/$project.dll" \

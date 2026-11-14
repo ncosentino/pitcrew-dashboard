@@ -131,8 +131,23 @@ not replace the full armed-PR or installed-service release qualification.
 All three files use schema version 1 and are replaced atomically. The event journal
 retains only the newest 256 valid entries. Existing input is capped at
 1,048,832 bytes and individual lines are capped at 4,096 characters before
-deserialization. On Linux, the health directory is owner-only and files are
-owner read/write.
+deserialization. On Linux, a new health directory is created as `0700`, and all
+three atomic evidence files use `0640`. Existing directory ACLs are preserved:
+the support installer may grant its broker directory traversal/read and
+default file-read ACLs while explicitly denying the transport agent. In an
+ACL-bearing directory, the file group-mode read bit retains the named-user
+read mask; it does not grant read to unrelated groups whose ACL entry is denied.
+The connector never reapplies `0700` to an existing health directory or grants
+access to its identity or unrelated state.
+
+Older acknowledgement publishers could collapse the existing health-directory
+and acknowledgement-file ACL masks. Upgrade the connector before using the
+support installer's `RepairEvidenceAcl` once; repairing against the old running
+publisher is not durable. This owning repair is safe while support migration is
+staged/fenced and does not resume services or alter identity/migration state.
+The focused connector regression explicitly enables real POSIX ACL checks
+across repeated acknowledgements, including retained broker access, agent
+denial, fresh-directory protection and unchanged unrelated identity/state.
 
 An active outage survives connector restart. A later successful synchronization
 records a recovery event and retains the recovered outage interval in the

@@ -6,6 +6,123 @@ namespace PitCrew.Connector.Features.Sync.Tests;
 public sealed class ConnectorHealthReplayStoreTests
 {
   [Test]
+  public async Task Acknowledgement_Creates_Private_Directory_And_Broker_Readable_File(
+      CancellationToken cancellationToken)
+  {
+    if (!OperatingSystem.IsLinux())
+    {
+      return;
+    }
+    var root = CreateTemporaryDirectory();
+    try
+    {
+      var replayStore = CreateReplayStore(root);
+      await replayStore.AcknowledgeAsync([Guid.NewGuid()], cancellationToken);
+      var health = Path.Combine(root, "health");
+      var acknowledgement = Path.Combine(health, "connector-health-acknowledgement.json");
+
+      await Assert.That(File.GetUnixFileMode(health)).IsEqualTo(
+          UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+      await Assert.That(File.GetUnixFileMode(acknowledgement)).IsEqualTo(
+          UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead);
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
+  public async Task Repeated_Acknowledgements_Preserve_Repaired_Posix_Evidence_Acls(
+      CancellationToken cancellationToken)
+  {
+    if (!OperatingSystem.IsLinux() ||
+        Environment.GetEnvironmentVariable("PITCREW_CONNECTOR_ACL_TESTS") != "1")
+    {
+      return;
+    }
+    var root = CreateTemporaryDirectory();
+    try
+    {
+      var identity = Path.Combine(root, "identity.json");
+      await File.WriteAllTextAsync(identity, "private-fixture", cancellationToken);
+      File.SetUnixFileMode(identity, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+      var state = Path.Combine(root, "state");
+      Directory.CreateDirectory(
+          state, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+      var journal = CreateJournal(root);
+      await journal.RecordProcessStartedAsync(
+          new DateTimeOffset(2026, 11, 14, 12, 0, 0, TimeSpan.Zero),
+          cancellationToken);
+      var replayStore = CreateReplayStore(root);
+      var pending = await replayStore.ReadPendingAsync(cancellationToken);
+      var eventIds = pending.Replay!.Events.Select(entry => entry.EventId).ToArray();
+      await replayStore.AcknowledgeAsync(eventIds, cancellationToken);
+      var health = Path.Combine(root, "health");
+      var evidenceFiles = new[]
+      {
+        "connector-health.json",
+        "connector-events.jsonl",
+        "connector-health-acknowledgement.json",
+      };
+      // Reproduce persisted pre-patch mask drift, then the owning installer's
+      // repaired named-user/default ACL before subsequent atomic replacements.
+      File.SetUnixFileMode(
+          health, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+      await PosixAclTestTools.SetAsync(
+          health,
+          "u:65532:r-x,u:65533:---,g::---,o::---,m::r-x," +
+              "d:u::rwx,d:u:65532:r--,d:u:65533:---,d:g::---,d:o::---,d:m::r--",
+          cancellationToken);
+      foreach (var file in evidenceFiles)
+      {
+        await PosixAclTestTools.SetAsync(
+            Path.Combine(health, file),
+            "u:65532:r--,u:65533:---,g::---,o::---,m::r--",
+            cancellationToken);
+      }
+      var privateIdentityAcl = await PosixAclTestTools.ReadAsync(identity, cancellationToken);
+      var privateStateAcl = await PosixAclTestTools.ReadAsync(state, cancellationToken);
+      for (var attempt = 0; attempt < 3; attempt++)
+      {
+        await replayStore.AcknowledgeAsync(eventIds, cancellationToken);
+        var replayed = await replayStore.ReadPendingAsync(cancellationToken);
+        await Assert.That(replayed.HasPendingEvents).IsFalse()
+            .Because("duplicate acknowledgements remain durable and suppress exact redelivery");
+        var directoryAcl = await PosixAclTestTools.ReadAsync(health, cancellationToken);
+        await Assert.That(directoryAcl).Contains("user:65532:r-x\n");
+        await Assert.That(directoryAcl).Contains("user:65533:---\n");
+        await Assert.That(directoryAcl).Contains("mask::r-x\n");
+        await Assert.That(directoryAcl).Contains("default:user:65532:r--\n");
+        await Assert.That(directoryAcl).Contains("default:user:65533:---\n");
+        await Assert.That(directoryAcl).Contains("default:mask::r--\n");
+        foreach (var file in evidenceFiles)
+        {
+          var fileAcl = await PosixAclTestTools.ReadAsync(
+              Path.Combine(health, file), cancellationToken);
+          await Assert.That(fileAcl).Contains("user:65532:r--\n");
+          await Assert.That(fileAcl).Contains("user:65533:---\n");
+          await Assert.That(fileAcl).Contains("mask::r--\n");
+          await Assert.That(fileAcl).Contains("group::---\n");
+          await Assert.That(fileAcl).Contains("other::---\n");
+        }
+        await Assert.That(await PosixAclTestTools.ReadAsync(identity, cancellationToken))
+            .IsEqualTo(privateIdentityAcl);
+        await Assert.That(await PosixAclTestTools.ReadAsync(state, cancellationToken))
+            .IsEqualTo(privateStateAcl);
+        await Assert.That(File.GetUnixFileMode(identity)).IsEqualTo(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        await Assert.That(File.GetUnixFileMode(state)).IsEqualTo(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+      }
+    }
+    finally
+    {
+      Directory.Delete(root, true);
+    }
+  }
+
+  [Test]
   public async Task Replay_Is_Redelivered_Until_Acknowledged_And_Survives_Restart(
       CancellationToken cancellationToken)
   {
@@ -208,7 +325,8 @@ public sealed class ConnectorHealthReplayStoreTests
   private static string CreateTemporaryDirectory()
   {
     var path = Path.Combine(
-        Path.GetTempPath(),
+        Environment.CurrentDirectory,
+        "artifacts",
         $"pitcrew-connector-health-replay-{Guid.NewGuid():N}");
     Directory.CreateDirectory(path);
     return path;
