@@ -439,7 +439,7 @@ public sealed class SupportDiagnosticsBrokerTests
   }
 
   [Test]
-  public async Task Evidence_Policy_Is_Exact_For_PitCrew_0_10_18()
+  public async Task Evidence_Policy_Is_Exact_For_Qualified_PitCrew_Release()
   {
     var policy = SupportEvidencePolicy.Load();
     var allPaths = policy.InstallationSentinels
@@ -450,9 +450,9 @@ public sealed class SupportDiagnosticsBrokerTests
         .ToArray();
 
     await Assert.That(policy.SchemaVersion).IsEqualTo(3);
-    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.18");
+    await Assert.That(policy.PitCrewVersion).IsEqualTo("0.10.37");
     await Assert.That(policy.PitCrewCommit)
-        .IsEqualTo("3c6106cb9ab45870897853522e5eb926250a29d6");
+        .IsEqualTo("cb3204e16167100ae6cc9ba3b22f080ab5850325");
     await Assert.That(policy.CollectorSha256)
         .IsEqualTo(
             "898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf");

@@ -426,8 +426,9 @@ installations that overlap its fixed service names or product roots.
 
 The package-owned
 `support-evidence-policy-v0.10.18.json` is the shared runtime, installer, and test
-contract, verified against PitCrew v0.10.18 commit
-`3c6106cb9ab45870897853522e5eb926250a29d6` and collector
+contract. Its filename identifies the unchanged ACL contract introduced in
+v0.10.18; the qualified release pin is PitCrew v0.10.37 commit
+`cb3204e16167100ae6cc9ba3b22f080ab5850325`, with the same collector
 SHA-256
 `898efd916da0b81dea49c62f8dd31d62ab5995620cb783d2296bb30e9132bcbf`.
 Installer and runtime canonicalize UTF-8 line endings to LF before hashing, so

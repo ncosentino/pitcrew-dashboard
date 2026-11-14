@@ -171,7 +171,8 @@ public sealed class SupportNodeIdentityStoreTests
   }
 
   [Test]
-  public async Task Migration_Replay_Rejects_Traversal_And_Conflicting_State()
+  public async Task Migration_Replay_Rejects_Traversal_And_Conflicting_State(
+      CancellationToken cancellationToken)
   {
     var root = CreateRoot();
     try
@@ -194,8 +195,9 @@ public sealed class SupportNodeIdentityStoreTests
           root,
           new Dictionary<string, string> { [path] = Convert.ToBase64String([2]) },
           provider);
-      var bytes = File.ReadAllBytes(Path.Combine(
-          root, "support-rejections", $"{sessionId:N}.txt"));
+      var bytes = await File.ReadAllBytesAsync(
+          Path.Combine(root, "support-rejections", $"{sessionId:N}.txt"),
+          cancellationToken);
 
       await Assert.That(traversal).IsFalse()
           .Because("opaque transfer filenames cannot expand the read/write allowlist");

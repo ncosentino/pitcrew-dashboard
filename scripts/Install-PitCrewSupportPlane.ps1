@@ -227,9 +227,9 @@ function Get-EvidencePolicy {
         -Encoding UTF8 |
         ConvertFrom-Json -Depth 10
     if ($policy.schemaVersion -ne 3 -or
-        $policy.pitCrewVersion -ne '0.10.18' -or
+        $policy.pitCrewVersion -ne '0.10.37' -or
         $policy.pitCrewCommit -ne
-            '3c6106cb9ab45870897853522e5eb926250a29d6' -or
+            'cb3204e16167100ae6cc9ba3b22f080ab5850325' -or
         $policy.collectorRelativePath -ne
             'plugins/pitcrew-operations/skills/pitcrew-remote-diagnostics/scripts/Collect-PitCrewDiagnostics.ps1' -or
         $policy.collectorSha256 -ne
