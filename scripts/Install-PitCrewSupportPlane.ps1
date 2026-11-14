@@ -6219,7 +6219,8 @@ function Invoke-IdentityMigration {
         'identity-migration-source-quiesced.json'
     )
     if (@(Get-ChildItem -LiteralPath $MigrationExchangePath -Force).Where({
-        $_.PSIsContainer -or $_.Name -cnotin $allowedExchangeNames
+        $_.PSIsContainer -or $_.Name -cnotin $allowedExchangeNames -or
+        ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
     }).Count -gt 0) {
         throw 'The dedicated migration exchange directory contains unexpected entries.'
     }
@@ -6247,6 +6248,11 @@ function Invoke-IdentityMigration {
             'identity-migration-target.json'
         $incomingRequest = Join-Path $MigrationExchangePath `
             'identity-migration-target.json'
+        if (Test-LinkedPathComponent `
+            -Root ([IO.Path]::GetPathRoot($installedRequest)) `
+            -Path $installedRequest) {
+            throw 'Linked migration state is prohibited.'
+        }
         if ((Get-FileHash -LiteralPath $installedRequest -Algorithm SHA256).Hash -cne
             (Get-FileHash -LiteralPath $incomingRequest -Algorithm SHA256).Hash) {
             throw 'A quiesced source accepts only the identical migration request.'
@@ -6343,6 +6349,12 @@ function Publish-MigrationSourceTransfer {
     }
     $statePath = Join-Path $Paths.AgentStateRoot `
         'identity-migration-state.json'
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf) -or
+        (Get-Item -LiteralPath $statePath -Force).Length -gt 1024 -or
+        (Test-LinkedPathComponent `
+            -Root ([IO.Path]::GetPathRoot($statePath)) -Path $statePath)) {
+        throw 'The bounded source acknowledgement metadata is invalid.'
+    }
     $state = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json
     if ($state.schemaVersion -ne 1 -or $state.phase -cne 'prepared' -or
         [string]$state.requestDigest -cnotmatch '^[A-F0-9]{64}$' -or
@@ -6517,19 +6529,19 @@ try {
             if ($null -eq $manifest) {
                 throw 'Uninstall requires an existing managed support installation.'
             }
-            { $_ -in @(
-                'MigrationOffer', 'MigrationStage',
-                'MigrationPrepare', 'MigrationActivate'
-            ) } {
-                Set-InstallerFailureContext -Phase 'identity-migration' `
-                    -Operation 'typed-migration-dispatch'
-                if ($null -eq $manifest) {
-                    throw 'Migration requires an existing managed support installation.'
-                }
-                Invoke-IdentityMigration -Paths $paths -Manifest $manifest
-            }
             Invoke-Uninstall -Paths $paths
             $removeInstallerStateAfterUnlock = $true
+        }
+        { $_ -in @(
+            'MigrationOffer', 'MigrationStage',
+            'MigrationPrepare', 'MigrationActivate'
+        ) } {
+            Set-InstallerFailureContext -Phase 'identity-migration' `
+                -Operation 'typed-migration-dispatch'
+            if ($null -eq $manifest) {
+                throw 'Migration requires an existing managed support installation.'
+            }
+            Invoke-IdentityMigration -Paths $paths -Manifest $manifest
         }
         'RepairEvidenceAcl' {
             Set-InstallerFailureContext `

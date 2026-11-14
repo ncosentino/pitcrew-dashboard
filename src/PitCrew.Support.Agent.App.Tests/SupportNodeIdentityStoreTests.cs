@@ -221,6 +221,11 @@ public sealed class SupportNodeIdentityStoreTests
       var store = CreateLinuxStore(
           root,
           new FakeUnixFilePermissions());
+      Directory.CreateDirectory(root);
+      await File.WriteAllTextAsync(
+          Path.Combine(root, SupportNodeIdentityStore.MigrationFenceFileName),
+          "{}",
+          cancellationToken);
 
       bool removed;
       await using (var operationLock =

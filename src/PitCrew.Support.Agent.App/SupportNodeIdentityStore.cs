@@ -22,7 +22,8 @@ internal sealed class SupportNodeIdentityStore
   internal ISupportNodeKeyProvider KeyProvider => _keyProvider;
   internal string RootPath => _rootPath;
   internal bool IsMigrationFenced =>
-      File.Exists(Path.Combine(_rootPath, MigrationFenceFileName));
+      File.Exists(Path.Combine(_rootPath, MigrationFenceFileName)) ||
+      Directory.Exists(Path.Combine(_rootPath, MigrationFenceFileName));
   internal bool HasRotationStages =>
       Directory.Exists(_rootPath) &&
       Directory.EnumerateDirectories(_rootPath, $"{RotationPrefix}*").Any();
@@ -303,6 +304,7 @@ internal sealed class SupportNodeIdentityStore
         if (Directory.Exists(_rootPath))
         {
           await DeleteRotationStagesAsync(cancellationToken);
+          File.Delete(Path.Combine(_rootPath, MigrationFenceFileName));
         }
         return true;
       }
@@ -320,6 +322,7 @@ internal sealed class SupportNodeIdentityStore
           IdentityPath,
           manifest.Keys.KeySetId);
       DeleteDirectoryIfExists(IdentityPath);
+      File.Delete(Path.Combine(_rootPath, MigrationFenceFileName));
       return true;
     }
     var preserved = manifest with

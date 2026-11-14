@@ -21,4 +21,4 @@ and explicit supersession links.
 | [ADR-0014](adr-0014-frozen-image-rollout-campaigns.md) | Accepted | Freeze campaign targets and sequence existing typed profile rollouts through explicit canary and wave approvals. |
 | [ADR-0015](adr-0015-claim-level-evidence-authority-and-freshness.md) | Accepted | Attach authority, clocks, freshness, coverage, and retention to individual evidence claims. |
 | [ADR-0016](adr-0016-actionable-incident-operating-model.md) | Accepted | Separate evidence, tri-state conditions, linked episodes, and deterministically grouped human-owned incidents. |
-| [ADR-0017](adr-0017-cross-provider-support-identity-handoff.md) | Proposed | Hand off one support identity across protected providers through exact rotation and explicit quiescence. |
+| [ADR-0017](adr-0017-cross-provider-support-identity-handoff.md) | Accepted | Hand off one support identity across protected providers through exact rotation and explicit quiescence. |

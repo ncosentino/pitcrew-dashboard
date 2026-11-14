@@ -194,17 +194,10 @@ internal sealed partial class SupportAgentWorker(
     {
       return true;
     }
-    // Cached envelopes are already signed and encrypted for Dashboard and
-    // bound to an immutable session. Replay them unchanged across key rotation,
-    // without needing the retired request-decryption key or rerunning the broker.
-    var cached = replayCache.GetResultOrNull(poll.Response.SessionId);
-    var result = cached is null
-        ? await processor.ProcessAsync(
-            poll.Response.SessionId,
-            poll.Response.RequestEnvelope,
-            cancellationToken)
-        : new SupportAgentRequestProcessingResult(
-            SupportAgentRequestProcessingStatus.Cached, cached, null);
+    var result = await processor.ProcessAsync(
+        poll.Response.SessionId,
+        poll.Response.RequestEnvelope,
+        cancellationToken);
     if (result.ResultEnvelope is null)
     {
       var disposition = GetProcessingDisposition(result);

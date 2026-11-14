@@ -1,6 +1,6 @@
 ---
 title: "ADR-0017: Cross-provider support identity handoff"
-status: "Proposed"
+status: "Accepted"
 date: "2026-11-14"
 authors: ["Nick Cosentino"]
 tags: ["architecture", "support", "identity", "migration"]

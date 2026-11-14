@@ -79,6 +79,19 @@ public sealed class SupportAgentRequestProcessorTests
           sessionId,
           serializedEnvelope,
           cancellationToken);
+      var replacementKeys = SupportKeyFactory.CreateNodeKeys();
+      var replacementProcessor = new SupportAgentRequestProcessor(
+          options with
+          {
+            PrivateKeys = new LegacySupportNodePrivateKeySource(
+                replacementKeys.Signing.PrivateKeyPkcs8Base64Url,
+                replacementKeys.Encryption.PrivateKeyPkcs8Base64Url),
+          },
+          broker,
+          new AgentReplayCache(replayRoot),
+          fakeTime);
+      var afterRotation = await replacementProcessor.ProcessAsync(
+          sessionId, serializedEnvelope, cancellationToken);
 
       await Assert.That(first.Status)
           .IsEqualTo(
@@ -86,6 +99,10 @@ public sealed class SupportAgentRequestProcessorTests
       await Assert.That(second.Status)
           .IsEqualTo(
               SupportAgentRequestProcessingStatus.Cached);
+      await Assert.That(afterRotation.Status)
+          .IsEqualTo(SupportAgentRequestProcessingStatus.Cached);
+      await Assert.That(afterRotation.ResultEnvelope)
+          .IsEqualTo(first.ResultEnvelope);
       await Assert.That(first.ResultEnvelope).IsNotNull();
       await Assert.That(second.ResultEnvelope).IsNotNull();
       await Assert.That(broker.CallCount).IsEqualTo(1);

@@ -35,6 +35,15 @@ internal sealed class SupportAgentRequestProcessor(
               null,
               cachedRejection));
     }
+    // Authenticated relay polling supplies the immutable session ID. A first
+    // cached outcome is already node-signed and Dashboard-encrypted; replay it
+    // unchanged even when the incoming request needs a retired decryption key.
+    var cached = _replayCache.GetResultOrNull(expectedSessionId);
+    if (cached is not null)
+    {
+      return Task.FromResult(new SupportAgentRequestProcessingResult(
+          SupportAgentRequestProcessingStatus.Cached, cached, null));
+    }
     if (string.IsNullOrWhiteSpace(serializedEnvelope) ||
         serializedEnvelope.Length > 1_048_576)
     {

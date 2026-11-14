@@ -87,6 +87,29 @@ internal static partial class SupportIdentityMigrationReplay
       }
       decoded.Add(path, content);
     }
+    if (Directory.Exists(root))
+    {
+      foreach (var entry in Directory.EnumerateFileSystemEntries(root))
+      {
+        if (!Directory.Exists(entry) || HasLinkedComponent(entry) ||
+            !_directories.Contains(Path.GetFileName(entry), StringComparer.Ordinal) ||
+            Directory.EnumerateDirectories(entry).Any())
+        {
+          return false;
+        }
+        foreach (var path in Directory.EnumerateFiles(entry))
+        {
+          const string temporarySuffix = ".migration-new";
+          var expected = decoded.ContainsKey(path) ||
+              path.EndsWith(temporarySuffix, StringComparison.Ordinal) &&
+              decoded.ContainsKey(path[..^temporarySuffix.Length]);
+          if (!expected || HasLinkedComponent(path))
+          {
+            return false;
+          }
+        }
+      }
+    }
     // No supplied filename becomes a path until every entry has passed the
     // closed filename grammar. Existing state is never overwritten on conflict.
     Directory.CreateDirectory(root);
