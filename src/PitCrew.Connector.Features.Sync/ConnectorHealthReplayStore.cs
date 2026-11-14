@@ -472,10 +472,13 @@ internal sealed partial class ConnectorHealthReplayStore(
     var directory = Path.GetDirectoryName(path) ??
         throw new InvalidOperationException(
             $"Connector health path '{path}' has no parent directory.");
-    Directory.CreateDirectory(directory);
-    if (!OperatingSystem.IsWindows())
+    if (OperatingSystem.IsWindows())
     {
-      File.SetUnixFileMode(
+      Directory.CreateDirectory(directory);
+    }
+    else
+    {
+      Directory.CreateDirectory(
           directory,
           UnixFileMode.UserRead |
               UnixFileMode.UserWrite |
@@ -504,7 +507,7 @@ internal sealed partial class ConnectorHealthReplayStore(
       {
         File.SetUnixFileMode(
             stagingPath,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead);
       }
       File.Move(stagingPath, path, overwrite: true);
     }

@@ -27,6 +27,9 @@ foreach ($required in @(
     'runs-on: [self-hosted, linux, x64, general-purpose]',
     'ref: ${{ github.event.pull_request.head.sha || github.sha }}',
     'set -euo pipefail',
+    'PITCREW_CONNECTOR_ACL_TESTS: "1"',
+    'command -v setfacl',
+    'command -v getfacl',
     'PitCrew.Connector.Features.Sync.Tests PitCrew.Dashboard.Features.Fleet.Tests',
     './tests/Test-Guidance.ps1'
 )) {
