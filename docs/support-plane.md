@@ -490,6 +490,26 @@ against inherited named/default ACLs, ownership exclusion, and safe-mode policy.
 Group mode is represented by the POSIX ACL mask and is compared through the exact
 ACL contract instead of the metadata hash.
 
+Linux ACL lifecycle scans do not follow linked entries. Concurrent manager
+publication outside the dedicated evidence directory is also accounted for:
+only the fixed state publisher's dot-prefixed final-name, decimal nonce, and
+`.tmp` staging leaf directly inside a profile state directory may disappear
+between enumeration, ACL inspection/mutation, and ownership/mode inspection.
+Dedicated projection staging uses the same fixed-name decimal nonce; connector
+health staging uses its fixed final name and 32-character lowercase hexadecimal
+nonce. A failure is tolerated only after confirming that qualified leaf is
+absent and its unlinked parent still exists. Existing staging files outside
+dedicated evidence retain ordinary deny-ACL validation.
+
+Missing stable or required evidence, unknown staging names, linked entries,
+unexpected persistent files/directories, and ACL/tool failures on existing
+objects remain terminal. Directory denial defaults are established before leaf
+ACL mutations so new publications inherit protection. Deterministic injected
+removal tests cover both metadata boundaries and ACL mutation without sleeps,
+timeout increases, or retrying the same failed verification. This does not grant
+broker read outside dedicated evidence or change migration fences and staged
+requests.
+
 ## Install and lifecycle
 
 Prepare an agent `appsettings.json` through the support identity workflow, then
@@ -828,6 +848,36 @@ Source prepare distinguishes `source-prepare-http-rejected-<status-code>`,
 `source-prepare-http-timeout`, and `source-prepare-metadata-mismatch`.
 These are bounded diagnostics, not proof that preparation had no side effect.
 Target finalization uses the corresponding `target-finalization-` dispositions.
+Known server errors refine HTTP rejection to `http-rejected-409-identity-revoked`,
+`http-rejected-409-identity-conflict`, or
+`http-rejected-400-identity-request-invalid`, mapped only from the exact
+`support_identity_revoked`, `support_identity_conflict`, and
+`invalid_support_identity_request` codes at their matching status. Error JSON is
+capped at 1 KiB and depth four; duplicate, unknown, malformed, oversized, or
+unreadable error metadata retains the HTTP-status-only disposition. Response
+messages, bodies, URLs, keys, and credentials never enter the diagnostic. The
+named client's configured request deadline still covers response-body reading.
+
+For a prepare conflict, use existing tenant-authorized interfaces before another
+prepare attempt. The tenant-administrator identity list exposes revocation.
+The support session list is bounded to recent entries and can display `Expired`
+without persisting that transition. Rotation authorization checks persisted
+`Queued`/`Dispatched` status, not wall-clock expiry, so use the exact session GET
+(`/api/tenants/{tenantId}/support/v1/sessions/{sessionId}` or **Check result**) for
+each known session on the original node. That owning lifecycle path persists
+expired or relay-terminal state; deliberately cancel a still-active session only
+through the existing authorized cancel action.
+
+The identity-conflict code also covers a different pending rotation, duplicate
+replacement identity/credential, relay preparation failure, or transactional
+conflict. It does not identify which of those occurred. Neither the public
+identity list nor session APIs expose pending rotation/relay credential state,
+and no public un-revoke, clear-rotation, or credential repair action exists.
+If authorized lifecycle reconciliation does not resolve the conflict, retain
+the exact request and fences and obtain the owning deployment's supported
+diagnostic access. Do not re-enroll, regenerate staging, export keys, edit SQL,
+clear fences, or loop retries to guess the cause.
+
 Endpoint comparison parses both values through the existing allowed-origin
 policy before comparing their canonical absolute URI. A missing origin trailing
 slash is equivalent; changed host, scheme or non-default port, any non-root

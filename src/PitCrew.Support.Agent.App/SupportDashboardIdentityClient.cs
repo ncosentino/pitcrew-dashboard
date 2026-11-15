@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 using PitCrew.Support.Protocol;
@@ -7,8 +9,11 @@ using PitCrew.Support.Protocol;
 namespace PitCrew.Support.Agent.App;
 
 internal sealed class SupportDashboardIdentityClient(
-    IHttpClientFactory _httpClientFactory)
+    IHttpClientFactory _httpClientFactory,
+    TimeProvider _timeProvider)
 {
+  private const int MaximumErrorResponseBytes = 1024;
+
   public async Task<SupportEnrollmentCompletionData?> CompleteEnrollmentAsync(
       Uri dashboardUrl,
       string tenantId,
@@ -109,19 +114,29 @@ internal sealed class SupportDashboardIdentityClient(
   {
     using var client = _httpClientFactory.CreateClient(
         SupportDashboardIdentityHttpClientOptions.ClientName);
+    using var deadline = new CancellationTokenSource(client.Timeout, _timeProvider);
+    using var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+        cancellationToken, deadline.Token);
     try
     {
-      using var response = await client.PostAsJsonAsync(
-          endpoint, request, cancellationToken);
+      using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
+      {
+        Content = JsonContent.Create(request),
+      };
+      using var response = await client.SendAsync(
+          message, HttpCompletionOption.ResponseHeadersRead, requestCancellation.Token);
       if (!response.IsSuccessStatusCode)
       {
         var statusCode = (int)response.StatusCode;
-        return new(null, statusCode is >= 100 and <= 599
+        var disposition = statusCode is >= 100 and <= 599
             ? $"http-rejected-{statusCode.ToString(CultureInfo.InvariantCulture)}"
-            : "http-rejected");
+            : "http-rejected";
+        var knownCode = await ReadKnownRotationErrorAsync(
+            response.Content, statusCode, requestCancellation.Token, cancellationToken);
+        return new(null, knownCode is null ? disposition : $"{disposition}-{knownCode}");
       }
       var completion = await ReadIdentityCompletionOrNullAsync(
-          response.Content, cancellationToken);
+          response.Content, requestCancellation.Token);
       return new(completion, completion is null ? "response-invalid" : null);
     }
     catch (HttpRequestException)
@@ -135,6 +150,84 @@ internal sealed class SupportDashboardIdentityClient(
     catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
     {
       return new(null, "http-timeout");
+    }
+  }
+
+  private static async Task<string?> ReadKnownRotationErrorAsync(
+      HttpContent content,
+      int statusCode,
+      CancellationToken requestCancellation,
+      CancellationToken callerCancellation)
+  {
+    if (content.Headers.ContentLength is > MaximumErrorResponseBytes)
+    {
+      return null;
+    }
+    using var buffer = MemoryPool<byte>.Shared.Rent(MaximumErrorResponseBytes + 1);
+    var memory = buffer.Memory[..(MaximumErrorResponseBytes + 1)];
+    try
+    {
+      await using var stream = await content.ReadAsStreamAsync(requestCancellation);
+      var count = 0;
+      while (count < memory.Length)
+      {
+        var read = await stream.ReadAsync(memory[count..], requestCancellation);
+        if (read == 0)
+        {
+          break;
+        }
+        count += read;
+      }
+      if (count > MaximumErrorResponseBytes)
+      {
+        return null;
+      }
+      using var document = JsonDocument.Parse(
+          memory[..count], new JsonDocumentOptions { MaxDepth = 4 });
+      var root = document.RootElement;
+      if (root.ValueKind != JsonValueKind.Object ||
+          !root.TryGetProperty("error", out var error) ||
+          error.ValueKind != JsonValueKind.Object)
+      {
+        return null;
+      }
+      using var rootProperties = root.EnumerateObject();
+      using var errorProperties = error.EnumerateObject();
+      if (rootProperties.Count(property => property.NameEquals("error")) != 1 ||
+          errorProperties.Count(property => property.NameEquals("code")) != 1 ||
+          !error.TryGetProperty("code", out var code) ||
+          code.ValueKind != JsonValueKind.String)
+      {
+        return null;
+      }
+      return statusCode switch
+      {
+        409 when code.ValueEquals("support_identity_revoked") => "identity-revoked",
+        409 when code.ValueEquals("support_identity_conflict") => "identity-conflict",
+        400 when code.ValueEquals("invalid_support_identity_request") => "identity-request-invalid",
+        _ => null,
+      };
+    }
+    catch (JsonException)
+    {
+      return null;
+    }
+    catch (IOException)
+    {
+      return null;
+    }
+    catch (HttpRequestException)
+    {
+      return null;
+    }
+    catch (OperationCanceledException) when (!callerCancellation.IsCancellationRequested)
+    {
+      // Headers already establish rejection; failed optional metadata cannot erase it.
+      return null;
+    }
+    finally
+    {
+      CryptographicOperations.ZeroMemory(buffer.Memory.Span);
     }
   }
 

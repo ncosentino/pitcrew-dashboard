@@ -78,6 +78,9 @@ workflows, and delivery metadata before choosing commands.
 - A focused pass does not supersede a disclosed full-suite failure. For timing-related
   failures, require a root-cause fix plus repeated evidence under the declared parallel
   command; do not accept a timeout increase or green rerun as the fix.
+- Inject ACL read/write/stat removal; tolerate only absent fixed-publisher staging
+  leaves with intact unlinked parents. Stable absence, existing-file failures,
+  links, and unknown names must fail.
 - Run `tests/Test-Guidance.ps1` for guidance, docs-map, ADR, Impeccable, or mirror
   changes.
 - Do not invent a command or tool absent from repository code, docs, manifests, or
